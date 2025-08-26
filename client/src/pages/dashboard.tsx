@@ -80,7 +80,7 @@ export default function Dashboard() {
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="w-full h-48 sm:h-64 md:h-80 lg:h-96 object-cover"
+              className="w-full h-52 sm:h-72 md:h-88 lg:h-104 object-cover"
               style={{ 
                 objectPosition: 'center 45%',
                 display: 'block'
