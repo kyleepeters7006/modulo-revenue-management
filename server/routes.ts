@@ -15,10 +15,65 @@ import { demoCompetitors, demoRentRoll } from "./seed-data";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Mock market data (in real app would use external API)
-let marketData = {
-  lastMonthReturnPct: 2.3
+// Cache for S&P 500 data
+let marketDataCache = {
+  lastMonthReturnPct: 2.3,
+  lastFetched: 0,
+  currentPrice: 0,
+  previousMonthPrice: 0
 };
+
+// Fetch real S&P 500 data from Alpha Vantage
+async function fetchSP500Data() {
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+  if (!apiKey) {
+    console.warn("Alpha Vantage API key not found, using mock data");
+    return marketDataCache.lastMonthReturnPct;
+  }
+
+  // Only fetch if cache is older than 1 hour
+  const now = Date.now();
+  if (now - marketDataCache.lastFetched < 3600000) {
+    return marketDataCache.lastMonthReturnPct;
+  }
+
+  try {
+    // Use SPY ETF as S&P 500 proxy (more reliable data)
+    const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=SPY&apikey=${apiKey}`;
+    console.log("Fetching S&P 500 data from Alpha Vantage...");
+    
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data["Monthly Time Series"]) {
+      const timeSeries = data["Monthly Time Series"];
+      const dates = Object.keys(timeSeries).sort().reverse();
+      
+      if (dates.length >= 2) {
+        // Get the last two completed months
+        const currentMonth = parseFloat(timeSeries[dates[0]]["4. close"]);
+        const previousMonth = parseFloat(timeSeries[dates[1]]["4. close"]);
+        
+        const monthlyReturn = ((currentMonth - previousMonth) / previousMonth) * 100;
+        
+        marketDataCache.currentPrice = currentMonth;
+        marketDataCache.previousMonthPrice = previousMonth;
+        marketDataCache.lastMonthReturnPct = Math.round(monthlyReturn * 100) / 100;
+        marketDataCache.lastFetched = now;
+        
+        console.log(`S&P 500 (SPY ETF) Monthly Return: ${marketDataCache.lastMonthReturnPct}% (${previousMonth.toFixed(2)} -> ${currentMonth.toFixed(2)})`);
+      }
+    } else if (data["Note"]) {
+      console.warn("Alpha Vantage API limit reached:", data["Note"]);
+    } else if (data["Error Message"]) {
+      console.error("Alpha Vantage API error:", data["Error Message"]);
+    }
+  } catch (error) {
+    console.error("Failed to fetch S&P 500 data:", error);
+  }
+
+  return marketDataCache.lastMonthReturnPct;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Status endpoint - get dashboard overview
@@ -126,16 +181,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Market data endpoint
   app.get("/api/market", async (req, res) => {
+    const sp500Return = await fetchSP500Data();
     res.json({
-      last_month_return_pct: marketData.lastMonthReturnPct
+      last_month_return_pct: sp500Return,
+      source: process.env.ALPHA_VANTAGE_API_KEY ? "Alpha Vantage (Real)" : "Mock Data",
+      current_price: marketDataCache.currentPrice,
+      previous_month_price: marketDataCache.previousMonthPrice
     });
   });
 
   app.post("/api/market/refresh", async (req, res) => {
-    // In real implementation, would fetch from external API (Yahoo Finance, etc.)
-    marketData.lastMonthReturnPct = Math.random() * 5 - 2.5; // Random between -2.5% and 2.5%
+    // Force refresh the cache
+    marketDataCache.lastFetched = 0;
+    const sp500Return = await fetchSP500Data();
     res.json({
-      last_month_return_pct: marketData.lastMonthReturnPct
+      last_month_return_pct: sp500Return,
+      source: process.env.ALPHA_VANTAGE_API_KEY ? "Alpha Vantage (Real)" : "Mock Data"
     });
   });
 
@@ -165,7 +226,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         labels.push(date.toISOString().substring(0, 7));
         
         const revenueValue = startingRevenue * Math.pow(1 + assumptions.revenueMonthlyGrowthPct / 100, i);
-        const sp500Value = startingRevenue * Math.pow(1 + assumptions.sp500MonthlyReturnPct / 100, i);
+        
+        // Use real S&P 500 data if available
+        const sp500MonthlyReturn = await fetchSP500Data();
+        const sp500Rate = sp500MonthlyReturn ? sp500MonthlyReturn : assumptions.sp500MonthlyReturnPct;
+        const sp500Value = startingRevenue * Math.pow(1 + sp500Rate / 100, i);
         
         revenue.push(revenueValue);
         sp500.push(sp500Value);
@@ -225,7 +290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const competitors = await storage.getCompetitors();
       
       // Generate recommendations based on algorithm
-      const recommendations = rentRollData.map(unit => {
+      const recommendations = await Promise.all(rentRollData.map(async unit => {
         let recommendedRent = unit.baseRent;
         let rationale = "Base calculation";
 
@@ -245,11 +310,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             recommendedRent += (competitorDiff * recommendedRent * weights.competitorRates / 100);
           }
 
-          // Apply market sentiment
-          if (marketData.lastMonthReturnPct > 1) {
+          // Apply market sentiment using real S&P 500 data
+          const sp500Return = await fetchSP500Data();
+          if (sp500Return > 1) {
             recommendedRent *= 1.02; // Positive market allows premium
             rationale += ", bullish market conditions";
-          } else if (marketData.lastMonthReturnPct < -1) {
+          } else if (sp500Return < -1) {
             recommendedRent *= 0.98; // Negative market requires discount
             rationale += ", bearish market conditions";
           }
@@ -266,7 +332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ML_Suggested_Rent: null, // Would be populated by trained ML model
           Rationale: rationale
         };
-      });
+      }));
 
       res.json({ items: recommendations });
     } catch (error) {
