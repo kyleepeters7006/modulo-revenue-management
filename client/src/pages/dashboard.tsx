@@ -51,7 +51,7 @@ export default function Dashboard() {
             <img 
               src={transparentLogoPath} 
               alt="Modulo Logo" 
-              className="h-16 w-auto max-w-[70vw]"
+              className="h-32 w-auto max-w-[70vw]"
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -80,7 +80,7 @@ export default function Dashboard() {
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="h-20 sm:h-32 md:h-40 lg:h-56 w-auto object-contain"
+              className="h-40 sm:h-64 md:h-80 lg:h-96 w-auto object-contain"
               style={{ 
                 maxWidth: '85vw',
                 display: 'block'

@@ -18,7 +18,7 @@ export default function Sidebar() {
           <img 
             src={mainLogoPath} 
             alt="Modulo Logo" 
-            className="h-32 w-auto max-w-full"
+            className="h-64 w-auto max-w-full"
           />
         </div>
       </div>
