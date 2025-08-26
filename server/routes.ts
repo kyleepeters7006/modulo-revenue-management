@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import multer from "multer";
 import Papa from "papaparse";
+import sharp from "sharp";
+import Tesseract from "tesseract.js";
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
@@ -15,6 +17,58 @@ import {
 import { demoCompetitors, demoRentRoll } from "./seed-data";
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Building maps storage
+let buildingMaps: any[] = [];
+
+// Function to process image and detect room numbers using OCR
+async function processImageForRooms(imageBuffer: Buffer): Promise<any[]> {
+  try {
+    // Preprocess image for better OCR results
+    const processedImage = await sharp(imageBuffer)
+      .grayscale()
+      .normalize()
+      .sharpen()
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    // Use Tesseract OCR to detect text
+    const { data } = await Tesseract.recognize(processedImage, 'eng', {
+      logger: m => console.log('OCR progress:', m)
+    });
+
+    const detectedRooms: any[] = [];
+    const words = data.words || [];
+
+    // Look for room number patterns (e.g., AL101, MC01, 101, A-101, etc.)
+    const roomNumberRegex = /^(AL|MC|[A-Z]{0,2})?-?(\d{2,4}[A-Z]?)$/i;
+    
+    words.forEach((word) => {
+      const text = word.text.trim();
+      if (roomNumberRegex.test(text) && word.confidence > 30) {
+        // Calculate position as percentage of image dimensions
+        const x = ((word.bbox.x0 + word.bbox.x1) / 2 / data.words[0]?.page?.width || 1) * 100;
+        const y = ((word.bbox.y0 + word.bbox.y1) / 2 / data.words[0]?.page?.height || 1) * 100;
+        
+        detectedRooms.push({
+          roomNumber: text.toUpperCase(),
+          x: Math.round(x * 100) / 100,
+          y: Math.round(y * 100) / 100,
+          confidence: word.confidence / 100,
+          matched: false
+        });
+      }
+    });
+
+    console.log(`Detected ${detectedRooms.length} potential room numbers:`, 
+      detectedRooms.map(r => r.roomNumber));
+    
+    return detectedRooms;
+  } catch (error) {
+    console.error("Error processing image for room detection:", error);
+    return [];
+  }
+}
 
 // Cache for S&P 500 data
 let marketDataCache = {
@@ -192,6 +246,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       res.status(400).json({ error: "Invalid weights data" });
     }
+  });
+
+  // Building maps endpoints
+  app.get("/api/building-maps", isAuthenticated, async (req, res) => {
+    res.json({ items: buildingMaps });
+  });
+
+  app.post("/api/upload-building-map", isAuthenticated, upload.single("buildingMap"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const fileId = Date.now().toString();
+      const imageUrl = `/api/building-maps/${fileId}/image`;
+      
+      // Process image with OCR to detect room numbers
+      const detectedRooms = await processImageForRooms(req.file.buffer);
+      
+      // Match detected rooms with rent roll data
+      const rentRollData = await storage.getRentRollData();
+      const matchedRooms = detectedRooms.map(room => {
+        const match = rentRollData.find(unit => 
+          unit.unitId.toLowerCase().includes(room.roomNumber.toLowerCase()) ||
+          room.roomNumber.toLowerCase().includes(unit.unitId.toLowerCase())
+        );
+        return {
+          ...room,
+          matched: !!match,
+          rentData: match
+        };
+      });
+
+      const buildingMap = {
+        id: fileId,
+        filename: req.file.originalname,
+        imageUrl,
+        detectedRooms: matchedRooms,
+        createdAt: new Date().toISOString(),
+        imageBuffer: req.file.buffer
+      };
+
+      buildingMaps.push(buildingMap);
+
+      res.json({
+        id: fileId,
+        filename: req.file.originalname,
+        roomsDetected: matchedRooms.length,
+        matchedRooms: matchedRooms.filter(r => r.matched).length
+      });
+    } catch (error) {
+      console.error("Error processing building map:", error);
+      res.status(500).json({ error: "Failed to process building map" });
+    }
+  });
+
+  app.get("/api/building-maps/:id/image", isAuthenticated, async (req, res) => {
+    const buildingMap = buildingMaps.find(map => map.id === req.params.id);
+    if (!buildingMap) {
+      return res.status(404).json({ error: "Building map not found" });
+    }
+
+    res.set('Content-Type', 'image/jpeg');
+    res.send(buildingMap.imageBuffer);
+  });
+
+  app.delete("/api/building-maps/:id", isAuthenticated, async (req, res) => {
+    const index = buildingMaps.findIndex(map => map.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: "Building map not found" });
+    }
+
+    buildingMaps.splice(index, 1);
+    res.json({ success: true });
   });
 
   // Market data endpoint
