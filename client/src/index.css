@@ -79,6 +79,11 @@
     @apply font-sans antialiased;
     background-color: var(--dashboard-bg);
     color: var(--dashboard-text);
+    overflow-x: hidden;
+  }
+  
+  html, body {
+    max-width: 100vw;
   }
 }
 

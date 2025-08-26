@@ -71,13 +71,14 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
-        <main className="flex-1 p-4 sm:p-6 lg:p-12">
+        <main className="flex-1 px-4 py-6 sm:p-6 lg:p-12 max-w-full overflow-x-hidden">
           {/* Logo Header */}
-          <div className="flex justify-center items-center mb-16 lg:mb-24 py-8 lg:py-16">
+          <div className="flex justify-center items-center mb-12 lg:mb-24 py-6 lg:py-16 px-4">
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="h-24 sm:h-32 md:h-40 lg:h-48 w-auto max-w-[90vw] lg:max-w-4xl"
+              className="h-20 sm:h-28 md:h-36 lg:h-48 w-auto max-w-full"
+              style={{ maxWidth: 'calc(100vw - 2rem)' }}
               onLoad={() => console.log('Logo loaded successfully')}
               onError={(e) => {
                 console.log('Logo failed to load, trying fallback');

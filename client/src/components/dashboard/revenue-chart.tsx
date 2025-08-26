@@ -144,11 +144,11 @@ export default function RevenueChart() {
         </div>
       </div>
       
-      <div className="h-64 sm:h-72 lg:h-80 relative">
+      <div className="h-64 sm:h-72 lg:h-80 relative w-full overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart 
             data={chartData}
-            margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+            margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
           >
             <CartesianGrid 
               strokeDasharray="3 3" 
