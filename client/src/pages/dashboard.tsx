@@ -55,7 +55,7 @@ export default function Dashboard() {
             <img 
               src={newBannerLogoPath} 
               alt="Modulo M Logo" 
-              className="h-14 w-auto"
+              className="h-16 w-auto"
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -66,7 +66,7 @@ export default function Dashboard() {
                 className="text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
                 data-testid="button-mobile-menu"
               >
-                <Menu className="h-10 w-10" />
+                <Menu className="h-12 w-12" />
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-80 p-0 bg-[var(--dashboard-surface)]">
