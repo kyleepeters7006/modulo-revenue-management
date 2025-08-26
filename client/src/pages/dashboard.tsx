@@ -73,7 +73,7 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 lg:pl-80 pt-20 lg:pt-0 w-full max-w-full">
+      <div className="flex-1 lg:pl-80 pt-32 lg:pt-0 w-full max-w-full">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Logo Header */}
           <div className="w-full flex justify-center items-center mb-6 lg:mb-12 py-4 lg:py-6">
