@@ -1,0 +1,405 @@
+# === Add Competitor Map (Leaflet) to Modulo Pro Scaffold ===
+# Paste this entire script into your Replit Agent
+
+# 1) Update index.html to include a map card
+cat > public/index.html << 'HTML'
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Modulo Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link rel="stylesheet" href="/styles.css"/>
+  <!-- Leaflet map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Modulo Revenue Management</h1>
+    <p>Main page: <strong>Revenue vs S&amp;P 500</strong> + Dynamic Pricing + ML + AI + <strong>Competitor Map</strong></p>
+  </header>
+
+  <section class="grid">
+    <div class="card">
+      <h3>Rent Roll Upload</h3>
+      <p class="muted">CSV must include: Unit_ID, Occupied_YN, Base_Rent, Care_Fee, Room_Type, Competitor_Benchmark_Rate, Competitor_Avg_Care_Rate (optional: Days_Vacant, Attributes)</p>
+      <input type="file" id="rentRollFile" accept=".csv"/>
+      <button id="uploadBtn">Upload</button>
+      <div id="uploadMsg" class="muted"></div>
+      <div id="startRev" class="metric"></div>
+      <div id="occ" class="metric"></div>
+    </div>
+
+    <div class="card">
+      <h3>Assumptions</h3>
+      <label>Start (YYYY-MM) <input id="asmStart" placeholder="2025-09"/></label>
+      <label>Months <input id="asmMonths" type="number" min="1" max="60" value="24"/></label>
+      <label>Revenue Growth % / mo <input id="asmRev" type="number" step="0.01" value="0.35"/></label>
+      <label>S&amp;P Return % / mo <input id="asmSPX" type="number" step="0.01" value="0.45"/></label>
+      <label>Target Occupancy <input id="asmTarget" type="number" step="0.01" value="0.92"/></label>
+      <button id="saveAsm">Save Assumptions</button>
+      <div id="asmMsg" class="muted"></div>
+    </div>
+
+    <div class="card">
+      <h3>Pricing Weights</h3>
+      <div class="slider"><span>Occupancy Pressure</span><input id="wOcc" type="range" min="0" max="100" value="25"><output>25</output></div>
+      <div class="slider"><span>Days Vacant Decay</span><input id="wVac" type="range" min="0" max="100" value="20"><output>20</output></div>
+      <div class="slider"><span>Room Attributes</span><input id="wAttr" type="range" min="0" max="100" value="25"><output>25</output></div>
+      <div class="slider"><span>Seasonality</span><input id="wSeas" type="range" min="0" max="100" value="10"><output>10</output></div>
+      <div class="slider"><span>Competitor Rates</span><input id="wComp" type="range" min="0" max="100" value="10"><output>10</output></div>
+      <div class="slider"><span>Stock Market</span><input id="wMkt" type="range" min="0" max="100" value="10"><output>10</output></div>
+      <button id="saveWeights">Save Weights</button>
+      <div id="weightsMsg" class="muted"></div>
+    </div>
+
+    <div class="card">
+      <h3>Guardrails (JSON)</h3>
+      <textarea id="guardrailsJson" rows="12" style="width:100%"></textarea>
+      <button id="saveGuardrails">Save Guardrails</button>
+      <div id="guardMsg" class="muted"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Revenue vs S&amp;P 500 (Indexed to starting revenue)</h3>
+    <canvas id="revChart"></canvas>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h3>Market Sentiment</h3>
+      <p class="muted">Uses last monthly S&amp;P 500 return (yfinance).</p>
+      <div id="mktBox" class="metric"></div>
+      <button id="refreshMarket">Refresh Market</button>
+      <button id="recompute">Recompute Recommendations</button>
+    </div>
+
+    <div class="card">
+      <h3>AI Suggestions</h3>
+      <button id="aiBtn">Ask AI (OpenAI)</button>
+      <div class="muted">Set <code>OPENAI_API_KEY</code> (optional <code>OPENAI_MODEL</code>) in Replit Secrets.</div>
+      <pre id="aiOut" class="muted" style="white-space:pre-wrap"></pre>
+    </div>
+
+    <div class="card">
+      <h3>ML Trainer</h3>
+      <p class="muted">Upload history.csv (or use seeded demo) to train.</p>
+      <input type="file" id="histFile" accept=".csv"/>
+      <button id="trainBtn">Train Model</button>
+      <div id="mlMsg" class="muted"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h3>Competitor Map — Louisville, KY</h3>
+      <div id="map"></div>
+      <details>
+        <summary>Add / Update Competitor</summary>
+        <div class="row">
+          <label>Name <input id="cName"/></label>
+          <label>Lat <input id="cLat" type="number" step="0.000001" value="38.2527"/></label>
+          <label>Lng <input id="cLng" type="number" step="0.000001" value="-85.7585"/></label>
+        </div>
+        <div class="row">
+          <label>Room Type <input id="cRT" placeholder="Studio"/></label>
+          <label>Street Rate <input id="cRate" type="number" step="1"/></label>
+          <label>Avg Care Rate <input id="cCare" type="number" step="1"/></label>
+        </div>
+        <button id="addComp">Add / Update</button>
+        <div id="compMsg" class="muted"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h3>Room Type Competitive Comparison</h3>
+      <div class="scroll">
+        <table id="cmpTable">
+          <thead>
+            <tr>
+              <th>Room Type</th>
+              <th>Your Current Avg</th>
+              <th>Market Avg</th>
+              <th>Competitor Avg Care</th>
+              <th>Net vs Market</th>
+              <th>Modulo Recommended</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button id="publishBtn">Publish Rates (CSV)</button>
+      <div id="pubMsg" class="muted"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Unit-Level Recommendations</h3>
+    <div class="scroll">
+      <table id="recTable">
+        <thead>
+          <tr>
+            <th>Unit</th>
+            <th>Type</th>
+            <th>Occ</th>
+            <th>Days Vacant</th>
+            <th>Fence</th>
+            <th>Comp</th>
+            <th>Recommended</th>
+            <th>ML Suggest</th>
+            <th>Rationale</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="muted">
+    Modulo © 2025 — Demo. Update comps to see the map refresh in Louisville.
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+HTML
+
+# 2) Update styles for the map container
+# (Keeps your current theme; just ensures the map has height and nice borders.)
+cat > public/styles.css << 'CSS'
+:root { --bg:#0f1220; --card:#171a2b; --muted:#8b90a8; --text:#f6f7fb; --line:#262a44; }
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);background:#0b0e1a}
+header{padding:24px;border-bottom:1px solid var(--line)}
+h1{margin:0 0 8px 0;font-size:24px}
+section{padding:16px 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+label{display:block;margin:6px 0;font-size:14px}
+input[type="text"],input[type="number"],input[type="file"],textarea{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:#0f1220;color:var(--text)}
+button{margin-top:8px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#1f2440;color:var(--text);cursor:pointer}
+button:hover{filter:brightness(1.1)}
+.muted{color:var(--muted);font-size:12px;margin-top:6px}
+.metric{margin-top:8px;font-size:14px}
+.slider{display:flex;align-items:center;gap:10px;margin:8px 0}
+.slider span{min-width:160px;font-size:14px}
+.slider output{margin-left:auto;background:#0f1220;border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+#revChart{width:100%;height:360px}
+.scroll{max-height:420px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left}
+.row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+#map{height:420px;border-radius:12px;border:1px solid var(--line)}
+CSS
+
+# 3) Update app.js to render the Louisville map + markers from /api/competitors
+cat > public/app.js << 'JS'
+let chart, map, markers=[];
+
+function bindSlider(id){ const el=document.getElementById(id); const out=el.nextElementSibling; el.addEventListener('input', ()=> out.value=el.value); out.value=el.value; }
+
+async function init(){
+  ["wOcc","wVac","wAttr","wSeas","wComp","wMkt"].forEach(bindSlider);
+  uploadBtn.onclick = uploadRentRoll;
+  saveAsm.onclick = saveAssumptions;
+  saveWeights.onclick = saveWeightsFn;
+  saveGuardrails.onclick = saveGuardrailsFn;
+  publishBtn.onclick = publishRates;
+  refreshMarket.onclick = fetchMarket;
+  recompute.onclick = loadRecs;
+  aiBtn.onclick = askAI;
+  trainBtn.onclick = trainML;
+  addComp.onclick = addCompetitor;
+
+  await refreshStatus();
+  await drawChart();
+  await fetchMarket();
+  await loadRecs();
+  setupMap();      // NEW
+  await refreshMap(); // NEW
+  await loadComparison();
+}
+
+async function refreshStatus(){
+  const r = await fetch('/api/status'); const d = await r.json();
+  startRev.innerText = "Starting Revenue: $" + (d.starting_revenue?.toFixed(2) || 0);
+  occ.innerText = "Occupancy: " + ((d.occupancy||0)*100).toFixed(1) + "%";
+  // hydrate
+  const a = d.assumptions || {};
+  asmStart.value = a.start_period || "2025-09";
+  asmMonths.value = a.months ?? 24;
+  asmRev.value = a.revenue_monthly_growth_pct ?? 0.35;
+  asmSPX.value = a.sp500_monthly_return_pct ?? 0.45;
+  asmTarget.value = a.target_occupancy ?? 0.92;
+  const w = d.weights || {};
+  wOcc.value = w.occupancy_pressure ?? 25; wOcc.nextElementSibling.value = wOcc.value;
+  wVac.value = w.days_vacant_decay ?? 20; wVac.nextElementSibling.value = wVac.value;
+  wAttr.value = w.room_attributes ?? 25;  wAttr.nextElementSibling.value = wAttr.value;
+  wSeas.value = w.seasonality ?? 10;      wSeas.nextElementSibling.value = wSeas.value;
+  wComp.value = w.competitor_rates ?? 10; wComp.nextElementSibling.value = wComp.value;
+  wMkt.value = w.stock_market ?? 10;      wMkt.nextElementSibling.value = wMkt.value;
+
+  const g = await (await fetch('/api/guardrails')).json();
+  guardrailsJson.value = JSON.stringify(g || {}, null, 2);
+}
+
+async function drawChart(){
+  const r = await fetch('/api/series'); const d = await r.json();
+  const ctx = document.getElementById('revChart').getContext('2d');
+  if(chart) chart.destroy();
+  chart = new Chart(ctx,{
+    type:'line',
+    data:{ labels:d.labels, datasets:[
+      {label:'Revenue', data:d.revenue},
+      {label:'S&P 500 (Indexed)', data:d.sp500}
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{ y:{ ticks:{ callback:v=>'$'+Number(v).toLocaleString() }}}}
+  });
+}
+
+async function uploadRentRoll(){
+  const f = rentRollFile.files[0]; if(!f){ alert('Choose a CSV first.'); return; }
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/upload_rent_roll',{method:'POST', body:fd});
+  const d = await r.json(); uploadMsg.innerText = d.error? ('Error: '+d.error) : 'Uploaded '+d.rows+' rows';
+  await refreshStatus(); await drawChart(); await loadRecs(); await loadComparison();
+}
+
+async function saveAssumptions(){
+  const payload = {
+    start_period: asmStart.value,
+    months: Number(asmMonths.value),
+    revenue_monthly_growth_pct: Number(asmRev.value),
+    sp500_monthly_return_pct: Number(asmSPX.value),
+    target_occupancy: Number(asmTarget.value)
+  };
+  const r = await fetch('/api/assumptions',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  const d = await r.json(); asmMsg.innerText = d.ok? 'Saved.' : 'Error';
+  await drawChart(); await loadRecs();
+}
+
+async function saveWeightsFn(){
+  const payload = {
+    occupancy_pressure: Number(wOcc.value),
+    days_vacant_decay: Number(wVac.value),
+    room_attributes: Number(wAttr.value),
+    seasonality: Number(wSeas.value),
+    competitor_rates: Number(wComp.value),
+    stock_market: Number(wMkt.value)
+  };
+  const r = await fetch('/api/weights',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  const d = await r.json(); weightsMsg.innerText = d.ok? 'Weights saved.' : 'Error';
+  await loadRecs();
+}
+
+async function saveGuardrailsFn(){
+  try{
+    const payload = JSON.parse(guardrailsJson.value || "{}");
+    const r = await fetch('/api/guardrails',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const d = await r.json(); guardMsg.innerText = d.ok? 'Guardrails saved.' : 'Error';
+    await loadRecs();
+  }catch(e){ guardMsg.innerText = 'Invalid JSON'; }
+}
+
+async function fetchMarket(){
+  const r = await fetch('/api/market'); const d = await r.json();
+  mktBox.innerText = "Last monthly S&P return: " + (d.last_month_return_pct?.toFixed(2) ?? 0) + "%";
+}
+
+async function loadRecs(){
+  const r = await fetch('/api/recommendations'); const d = await r.json();
+  const tb = document.querySelector('#recTable tbody'); tb.innerHTML = '';
+  (d.items||[]).forEach(u=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${u.Unit_ID}</td>
+      <td>${u.Room_Type}</td>
+      <td>${u.Occupied_YN}</td>
+      <td>${u.Days_Vacant ?? 0}</td>
+      <td>${fmt(u.Fence_Price)}</td>
+      <td>${fmt(u.Competitor_Benchmark_Rate)}</td>
+      <td><b>${fmt(u.Recommended_Rent)}</b></td>
+      <td>${u.ML_Suggested_Rent ? fmt(u.ML_Suggested_Rent) : ''}</td>
+      <td>${u.Rationale || ''}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function loadComparison(){
+  const r = await fetch('/api/compare'); const d = await r.json();
+  const tb = document.querySelector('#cmpTable tbody'); tb.innerHTML = '';
+  (d.rows||[]).forEach(row=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.Room_Type||''}</td>
+      <td>${fmt(row.Your_Current_Avg)}</td>
+      <td>${fmt(row.Market_Avg)}</td>
+      <td>${fmt(row.Competitor_Avg_Care)}</td>
+      <td>${fmt(row.Net_vs_Market)}</td>
+      <td>${fmt(row.Modulo_Recommended)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function fmt(v){ if(v===""||v===undefined||v===null) return ""; if(typeof v==='number') return '$'+Number(v).toFixed(2); return v }
+
+async function publishRates(){
+  const r = await fetch('/api/publish',{method:'POST'}); const d = await r.json();
+  pubMsg.innerHTML = d.ok ? `Published: <a href="${d.csv}" target="_blank">download CSV</a>` : 'Error';
+}
+
+async function askAI(){
+  aiOut.textContent = "Thinking...";
+  const r = await fetch('/api/ai/suggest',{method:'POST'}); const d = await r.json();
+  aiOut.textContent = d.ok ? d.text : ("Error: " + d.error);
+}
+
+async function trainML(){
+  const f = histFile.files[0];
+  let opts = {}; let url = '/api/ml/train';
+  if(f){ const fd = new FormData(); fd.append('file', f); opts.method='POST'; opts.body=fd; }
+  else { opts.method='POST'; }
+  const r = await fetch(url, opts); const d = await r.json();
+  mlMsg.textContent = d.ok ? `Trained (R^2=${Number(d.r2||0).toFixed(3)}, rows=${d.rows})` : (d.error || 'Train error');
+  await loadRecs();
+}
+
+function setupMap(){
+  // Center map on Louisville, KY
+  map = L.map('map').setView([38.2527, -85.7585], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap'
+  }).addTo(map);
+}
+
+async function refreshMap(){
+  const r = await fetch('/api/competitors'); const d = await r.json();
+  (markers||[]).forEach(m => map.removeLayer(m));
+  markers = [];
+  (d.items||[]).forEach(c=>{
+    const m = L.marker([c.lat, c.lng]).addTo(map);
+    const rates = c.rates ? Object.entries(c.rates).map(([rt,val])=>`${rt}: $${val}`).join('<br>') : '';
+    m.bindPopup(`<b>${c.name}</b><br>${rates}<br>Avg Care: $${c.avg_care_rate ?? ''}`);
+    markers.push(m);
+  });
+}
+
+async function addCompetitor(){
+  const name = cName.value.trim();
+  const lat = Number(cLat.value), lng = Number(cLng.value);
+  const rt = cRT.value.trim(), rate = Number(cRate.value), care = Number(cCare.value);
+  if(!name || isNaN(lat) || isNaN(lng) || !rt || isNaN(rate)){ compMsg.innerText = 'Fill required fields.'; return; }
+  const payload = { name, lat, lng, rates: {[rt]: rate} };
+  if(!Number.isNaN(care) && care>0) payload.avg_care_rate = care;
+  const r = await fetch('/api/competitors',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  const d = await r.json(); compMsg.innerText = d.ok? 'Saved.' : 'Error';
+  await refreshMap(); await loadComparison();
+}
+
+init();
+JS
