@@ -16,6 +16,7 @@ export default function RevenueChart() {
     const now = new Date();
     let baseRevenue = 850000;
     let baseSP500 = 4500;
+    let baseIndustry = 4200; // Industry basket starts slightly lower
     
     for (let i = months - 1; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -24,38 +25,45 @@ export default function RevenueChart() {
       // Add some realistic growth patterns
       const revenueGrowth = 1 + (Math.random() * 0.06 - 0.02); // -2% to +4% monthly
       const sp500Growth = 1 + (Math.random() * 0.08 - 0.04); // -4% to +4% monthly
+      const industryGrowth = 1 + (Math.random() * 0.07 - 0.025); // Senior housing slightly more volatile
       
       baseRevenue *= revenueGrowth;
       baseSP500 *= sp500Growth;
+      baseIndustry *= industryGrowth;
       
       data.push({
         month: monthLabel,
         revenue: Math.round(baseRevenue),
-        sp500: Math.round(baseSP500)
+        sp500: Math.round(baseSP500),
+        industry: Math.round(baseIndustry)
       });
     }
     return data;
   };
 
-  const rawData = ((seriesData as any)?.labels && (seriesData as any)?.revenue && (seriesData as any)?.sp500) 
+  const rawData = ((seriesData as any)?.labels && (seriesData as any)?.revenue && (seriesData as any)?.sp500 && (seriesData as any)?.industry) 
     ? (seriesData as any).labels.map((label: string, index: number) => ({
         month: label,
         revenue: (seriesData as any).revenue[index],
-        sp500: (seriesData as any).sp500[index]
+        sp500: (seriesData as any).sp500[index],
+        industry: (seriesData as any).industry[index]
       }))
     : generateDemoData(timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24);
 
   const chartData = rawData.map((item: any, index: number) => {
     const startingRevenue = rawData[0]?.revenue || 1;
     const startingSP500 = rawData[0]?.sp500 || 1;
+    const startingIndustry = rawData[0]?.industry || 1;
     
     return {
       ...item,
       // Calculate percentage growth from period start
       revenueGrowth: ((item.revenue - startingRevenue) / startingRevenue * 100),
       sp500Growth: ((item.sp500 - startingSP500) / startingSP500 * 100),
+      industryGrowth: ((item.industry - startingIndustry) / startingIndustry * 100),
       monthlyRevenueChange: index > 0 ? ((item.revenue - rawData[index - 1].revenue) / rawData[index - 1].revenue * 100) : 0,
       monthlySP500Change: index > 0 ? ((item.sp500 - rawData[index - 1].sp500) / rawData[index - 1].sp500 * 100) : 0,
+      monthlyIndustryChange: index > 0 ? ((item.industry - rawData[index - 1].industry) / rawData[index - 1].industry * 100) : 0,
     };
   });
 
@@ -63,8 +71,9 @@ export default function RevenueChart() {
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
-      const revenueData = payload.find((p: any) => p.dataKey === 'revenue');
-      const sp500Data = payload.find((p: any) => p.dataKey === 'sp500');
+      const revenueData = payload.find((p: any) => p.dataKey === 'revenueGrowth');
+      const sp500Data = payload.find((p: any) => p.dataKey === 'sp500Growth');
+      const industryData = payload.find((p: any) => p.dataKey === 'industryGrowth');
       
       return (
         <div className="bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-lg p-4 shadow-xl">
@@ -73,6 +82,7 @@ export default function RevenueChart() {
             <div className="flex items-center space-x-2">
               <div className="w-2 h-2 bg-[var(--trilogy-teal)] rounded-full"></div>
               <div className="w-2 h-2 bg-[var(--trilogy-turquoise)] rounded-full"></div>
+              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
             </div>
           </div>
           
@@ -121,12 +131,40 @@ export default function RevenueChart() {
               </div>
             </div>
 
+            {/* Industry Section */}
+            <div className="border-l-2 border-orange-500 pl-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[var(--dashboard-muted)]">Industry Growth</span>
+                <span className={`text-sm font-semibold ${data.industryGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                  {data.industryGrowth >= 0 ? '+' : ''}{data.industryGrowth.toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-[var(--dashboard-muted)]">Industry Value</span>
+                <span className="text-xs font-medium text-orange-400">
+                  ${industryData?.payload?.industry?.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
+                <span className={`text-xs font-medium ${data.monthlyIndustryChange >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                  {data.monthlyIndustryChange >= 0 ? '+' : ''}{data.monthlyIndustryChange.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+
             {/* Performance Comparison */}
             <div className="pt-2 border-t border-[var(--dashboard-border)]">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[var(--dashboard-muted)]">Outperformance</span>
+                <span className="text-xs text-[var(--dashboard-muted)]">vs S&P 500</span>
                 <span className={`text-xs font-medium ${(data.revenueGrowth - data.sp500Growth) >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {(data.revenueGrowth - data.sp500Growth) >= 0 ? '+' : ''}{(data.revenueGrowth - data.sp500Growth).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-[var(--dashboard-muted)]">vs Industry</span>
+                <span className={`text-xs font-medium ${(data.revenueGrowth - data.industryGrowth) >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                  {(data.revenueGrowth - data.industryGrowth) >= 0 ? '+' : ''}{(data.revenueGrowth - data.industryGrowth).toFixed(1)}%
                 </span>
               </div>
             </div>
@@ -246,6 +284,36 @@ export default function RevenueChart() {
                 paddingTop: '20px',
                 color: 'var(--dashboard-text)'
               }}
+              content={(props) => {
+                if (!props.payload) return null;
+                return (
+                  <div className="flex justify-center items-center space-x-6 pt-4">
+                    {props.payload.map((entry: any, index: number) => (
+                      <div key={index} className="flex items-center space-x-2 group relative">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: entry.color }}
+                        />
+                        <span className="text-sm text-[var(--dashboard-text)]">{entry.value}</span>
+                        {entry.value === 'Industry %' && (
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
+                            <div className="bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-lg p-3 shadow-xl min-w-48">
+                              <div className="text-xs font-medium text-[var(--dashboard-text)] mb-2">Industry Basket Components:</div>
+                              <div className="text-xs text-[var(--dashboard-muted)] space-y-1">
+                                <div>• Welltower Inc. (WELL)</div>
+                                <div>• Ventas Inc. (VTR)</div>
+                                <div>• Brookdale Senior Living (BKD)</div>
+                                <div>• American Homes 4 Rent (AMH)</div>
+                                <div>• Global X Aging Population ETF (AGNG)</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              }}
             />
             <Line
               type="monotone"
@@ -275,7 +343,22 @@ export default function RevenueChart() {
                 strokeWidth: 2,
                 filter: 'drop-shadow(0 2px 4px hsl(175, 70%, 50%, 0.3))'
               }}
-              name="S&P 500 Growth %"
+              name="S&P 500 %"
+            />
+            <Line
+              type="monotone"
+              dataKey="industryGrowth"
+              stroke="#f97316"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ 
+                r: 6, 
+                fill: '#f97316', 
+                stroke: '#ffffff', 
+                strokeWidth: 2,
+                filter: 'drop-shadow(0 2px 4px rgba(249, 115, 22, 0.3))'
+              }}
+              name="Industry %"
             />
           </LineChart>
         </ResponsiveContainer>

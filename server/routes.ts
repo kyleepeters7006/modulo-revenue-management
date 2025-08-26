@@ -356,9 +356,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const labels = [];
       const revenue = [];
       const sp500 = [];
+      const industry = [];
       
       let baseRevenue = 850000; // Starting revenue
       let baseSP500 = 4500;     // Starting S&P 500 index value
+      let baseIndustry = 4200;  // Starting industry basket value
       
       for (let i = 0; i < months; i++) {
         const date = new Date();
@@ -368,15 +370,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Add realistic growth patterns with some variance
         const revenueGrowthRate = 0.015 + (Math.random() * 0.02 - 0.01); // 0.5% to 2.5% monthly growth
         const sp500GrowthRate = 0.007 + (Math.random() * 0.03 - 0.015); // -0.8% to 2.2% monthly growth
+        const industryGrowthRate = 0.010 + (Math.random() * 0.035 - 0.02); // Senior housing: -1% to 2.5% monthly
         
         baseRevenue *= (1 + revenueGrowthRate);
         baseSP500 *= (1 + sp500GrowthRate);
+        baseIndustry *= (1 + industryGrowthRate);
         
         revenue.push(Math.round(baseRevenue));
         sp500.push(Math.round(baseSP500));
+        industry.push(Math.round(baseIndustry));
       }
 
-      res.json({ labels, revenue, sp500 });
+      res.json({ labels, revenue, sp500, industry });
     } catch (error) {
       console.error("Error generating series data:", error);
       res.status(500).json({ error: "Failed to generate series data" });
