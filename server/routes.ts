@@ -157,9 +157,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const revenue = [];
       const sp500 = [];
 
-      for (let i = 0; i < assumptions.months; i++) {
-        const date = new Date(assumptions.startPeriod);
-        date.setMonth(date.getMonth() + i);
+      // Always show trailing 12 months
+      for (let i = 0; i < 12; i++) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 11 + i);
         labels.push(date.toISOString().substring(0, 7));
         
         const revenueValue = startingRevenue * Math.pow(1 + assumptions.revenueMonthlyGrowthPct / 100, i);

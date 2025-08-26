@@ -7,12 +7,12 @@ export default function RevenueChart() {
     queryKey: ["/api/series"],
   });
 
-  const chartData = (seriesData?.labels && seriesData?.revenue && seriesData?.sp500) 
-    ? seriesData.labels.map((label: string, index: number) => {
-        const revenue = seriesData.revenue[index];
-        const sp500 = seriesData.sp500[index];
-        const startingRevenue = seriesData.revenue[0] || 1;
-        const startingSP500 = seriesData.sp500[0] || 1;
+  const chartData = ((seriesData as any)?.labels && (seriesData as any)?.revenue && (seriesData as any)?.sp500) 
+    ? (seriesData as any).labels.map((label: string, index: number) => {
+        const revenue = (seriesData as any).revenue[index];
+        const sp500 = (seriesData as any).sp500[index];
+        const startingRevenue = (seriesData as any).revenue[0] || 1;
+        const startingSP500 = (seriesData as any).sp500[0] || 1;
         
         return {
           month: label,
@@ -20,8 +20,8 @@ export default function RevenueChart() {
           sp500: sp500,
           revenueGrowth: index > 0 ? ((revenue - startingRevenue) / startingRevenue * 100) : 0,
           sp500Growth: index > 0 ? ((sp500 - startingSP500) / startingSP500 * 100) : 0,
-          monthlyRevenueChange: index > 0 ? ((revenue - seriesData.revenue[index - 1]) / seriesData.revenue[index - 1] * 100) : 0,
-          monthlySP500Change: index > 0 ? ((sp500 - seriesData.sp500[index - 1]) / seriesData.sp500[index - 1] * 100) : 0,
+          monthlyRevenueChange: index > 0 ? ((revenue - (seriesData as any).revenue[index - 1]) / (seriesData as any).revenue[index - 1] * 100) : 0,
+          monthlySP500Change: index > 0 ? ((sp500 - (seriesData as any).sp500[index - 1]) / (seriesData as any).sp500[index - 1] * 100) : 0,
         };
       }) 
     : [];
@@ -119,10 +119,10 @@ export default function RevenueChart() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-[var(--dashboard-text)]" data-testid="text-chart-title">
-            Revenue vs S&P 500
+            Revenue Growth
           </h2>
           <p className="text-sm text-[var(--dashboard-muted)]">
-            Performance comparison indexed to starting revenue
+            Trailing 12 months performance vs S&P 500
           </p>
         </div>
         <div className="flex items-center space-x-2">
