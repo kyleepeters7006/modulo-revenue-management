@@ -15,7 +15,7 @@ import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import logoPath from "@assets/image_1756171963360.png";
+import transparentLogoPath from "@assets/image_1756171963360.png";
 
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -45,9 +45,9 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <img 
-              src={logoPath} 
+              src={transparentLogoPath} 
               alt="Modulo Logo" 
-              className="h-10 w-auto"
+              className="h-8 w-auto"
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
