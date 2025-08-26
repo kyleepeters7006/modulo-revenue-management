@@ -347,7 +347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/series", isAuthenticated, async (req, res) => {
     try {
       const timeRange = req.query.timeRange as string || '12M';
-      const months = timeRange === '24M' ? 24 : 12;
+      const months = timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24;
       
       const assumptions = await storage.getCurrentAssumptions();
       const rentRollData = await storage.getRentRollData();

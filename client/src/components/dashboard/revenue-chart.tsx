@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Button } from "@/components/ui/button";
 
 export default function RevenueChart() {
-  const [timeRange, setTimeRange] = useState<'12M' | '24M'>('12M');
+  const [timeRange, setTimeRange] = useState<'1M' | '3M' | '12M' | '24M'>('12M');
   
   const { data: seriesData, isLoading } = useQuery({
     queryKey: ["/api/series", timeRange],
@@ -43,7 +43,7 @@ export default function RevenueChart() {
         revenue: (seriesData as any).revenue[index],
         sp500: (seriesData as any).sp500[index]
       }))
-    : generateDemoData(timeRange === '12M' ? 12 : 24);
+    : generateDemoData(timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24);
 
   const chartData = rawData.map((item: any, index: number) => {
     const startingRevenue = rawData[0]?.revenue || 1;
@@ -51,8 +51,9 @@ export default function RevenueChart() {
     
     return {
       ...item,
-      revenueGrowth: index > 0 ? ((item.revenue - startingRevenue) / startingRevenue * 100) : 0,
-      sp500Growth: index > 0 ? ((item.sp500 - startingSP500) / startingSP500 * 100) : 0,
+      // Calculate percentage growth from period start
+      revenueGrowth: ((item.revenue - startingRevenue) / startingRevenue * 100),
+      sp500Growth: ((item.sp500 - startingSP500) / startingSP500 * 100),
       monthlyRevenueChange: index > 0 ? ((item.revenue - rawData[index - 1].revenue) / rawData[index - 1].revenue * 100) : 0,
       monthlySP500Change: index > 0 ? ((item.sp500 - rawData[index - 1].sp500) / rawData[index - 1].sp500 * 100) : 0,
     };
@@ -79,15 +80,15 @@ export default function RevenueChart() {
             {/* Revenue Section */}
             <div className="border-l-2 border-[var(--trilogy-teal)] pl-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[var(--dashboard-muted)]">Revenue</span>
-                <span className="text-sm font-semibold text-[var(--trilogy-teal-light)]">
-                  ${revenueData?.value?.toLocaleString()}
+                <span className="text-xs text-[var(--dashboard-muted)]">Revenue Growth</span>
+                <span className={`text-sm font-semibold ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                  {data.revenueGrowth >= 0 ? '+' : ''}{data.revenueGrowth.toFixed(2)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-[var(--dashboard-muted)]">Total Growth</span>
-                <span className={`text-xs font-medium ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.revenueGrowth >= 0 ? '+' : ''}{data.revenueGrowth.toFixed(1)}%
+                <span className="text-xs text-[var(--dashboard-muted)]">Revenue Value</span>
+                <span className="text-xs font-medium text-[var(--trilogy-teal-light)]">
+                  ${revenueData?.payload?.revenue?.toLocaleString()}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -101,15 +102,15 @@ export default function RevenueChart() {
             {/* S&P 500 Section */}
             <div className="border-l-2 border-[var(--trilogy-turquoise)] pl-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[var(--dashboard-muted)]">S&P 500 (Indexed)</span>
-                <span className="text-sm font-semibold text-[var(--trilogy-turquoise)]">
-                  ${sp500Data?.value?.toLocaleString()}
+                <span className="text-xs text-[var(--dashboard-muted)]">S&P 500 Growth</span>
+                <span className={`text-sm font-semibold ${data.sp500Growth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                  {data.sp500Growth >= 0 ? '+' : ''}{data.sp500Growth.toFixed(2)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-[var(--dashboard-muted)]">Total Growth</span>
-                <span className={`text-xs font-medium ${data.sp500Growth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.sp500Growth >= 0 ? '+' : ''}{data.sp500Growth.toFixed(1)}%
+                <span className="text-xs text-[var(--dashboard-muted)]">S&P 500 Value</span>
+                <span className="text-xs font-medium text-[var(--trilogy-turquoise)]">
+                  ${sp500Data?.payload?.sp500?.toLocaleString()}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -154,10 +155,32 @@ export default function RevenueChart() {
             Revenue Growth
           </h2>
           <p className="text-sm text-[var(--trilogy-grey)]">
-            Trailing {timeRange === '12M' ? '12' : '24'} months performance vs S&P 500
+            Trailing {timeRange === '1M' ? '1 month' : timeRange === '3M' ? '3 months' : timeRange === '12M' ? '12 months' : '24 months'} performance vs S&P 500
           </p>
         </div>
         <div className="flex items-center space-x-2">
+          <Button
+            size="sm"
+            onClick={() => setTimeRange('1M')}
+            className={timeRange === '1M' 
+              ? "bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] border border-[var(--trilogy-teal)]/20 hover:bg-[var(--trilogy-teal)]/20"
+              : "text-[var(--trilogy-grey)] hover:text-[var(--trilogy-dark-blue)] hover:bg-[var(--trilogy-light-blue)]/10"
+            }
+            data-testid="button-chart-1m"
+          >
+            1M
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setTimeRange('3M')}
+            className={timeRange === '3M' 
+              ? "bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] border border-[var(--trilogy-teal)]/20 hover:bg-[var(--trilogy-teal)]/20"
+              : "text-[var(--trilogy-grey)] hover:text-[var(--trilogy-dark-blue)] hover:bg-[var(--trilogy-light-blue)]/10"
+            }
+            data-testid="button-chart-3m"
+          >
+            3M
+          </Button>
           <Button
             size="sm"
             onClick={() => setTimeRange('12M')}
@@ -204,7 +227,7 @@ export default function RevenueChart() {
             <YAxis 
               stroke="var(--dashboard-muted)"
               fontSize={12}
-              tickFormatter={(value) => `$${value.toLocaleString()}`}
+              tickFormatter={(value) => `${value.toFixed(1)}%`}
               tickLine={false}
               axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
             />
@@ -226,7 +249,7 @@ export default function RevenueChart() {
             />
             <Line
               type="monotone"
-              dataKey="revenue"
+              dataKey="revenueGrowth"
               stroke="hsl(180, 65%, 45%)"
               strokeWidth={2}
               dot={false}
@@ -237,11 +260,11 @@ export default function RevenueChart() {
                 strokeWidth: 2,
                 filter: 'drop-shadow(0 2px 4px hsl(180, 65%, 45%, 0.3))'
               }}
-              name="Revenue"
+              name="Revenue Growth %"
             />
             <Line
               type="monotone"
-              dataKey="sp500"
+              dataKey="sp500Growth"
               stroke="hsl(175, 70%, 50%)"
               strokeWidth={2}
               dot={false}
@@ -252,7 +275,7 @@ export default function RevenueChart() {
                 strokeWidth: 2,
                 filter: 'drop-shadow(0 2px 4px hsl(175, 70%, 50%, 0.3))'
               }}
-              name="S&P 500 (Indexed)"
+              name="S&P 500 Growth %"
             />
           </LineChart>
         </ResponsiveContainer>
