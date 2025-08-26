@@ -24,12 +24,12 @@
   --input: hsl(180, 15%, 97%);
   --ring: hsl(180, 65%, 45%);
   
-  /* Trilogy Health Services Dashboard Colors */
-  --dashboard-bg: hsl(200, 25%, 8%);
-  --dashboard-surface: hsl(200, 20%, 12%);
-  --dashboard-border: hsl(180, 15%, 20%);
-  --dashboard-text: hsl(180, 10%, 95%);
-  --dashboard-muted: hsl(180, 8%, 65%);
+  /* Vogue-inspired Dashboard Colors */
+  --dashboard-bg: hsl(0, 0%, 98%);
+  --dashboard-surface: hsl(0, 0%, 100%);
+  --dashboard-border: hsl(0, 0%, 92%);
+  --dashboard-text: hsl(0, 0%, 13%);
+  --dashboard-muted: hsl(0, 0%, 45%);
   
   /* Trilogy Health Brand Colors */
   --trilogy-teal: hsl(180, 65%, 45%);
@@ -43,29 +43,29 @@
   --trilogy-warning: hsl(40, 85%, 55%);
   --trilogy-error: hsl(0, 75%, 60%);
   
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --radius: 0.75rem;
 }
 
 .dark {
-  --background: hsl(200, 25%, 8%);
-  --foreground: hsl(180, 10%, 95%);
-  --card: hsl(200, 20%, 12%);
-  --card-foreground: hsl(180, 10%, 95%);
-  --popover: hsl(200, 20%, 12%);
-  --popover-foreground: hsl(180, 10%, 95%);
+  --background: hsl(0, 0%, 98%);
+  --foreground: hsl(0, 0%, 13%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(0, 0%, 13%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(0, 0%, 13%);
   --primary: hsl(180, 65%, 45%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(180, 15%, 20%);
-  --secondary-foreground: hsl(180, 10%, 95%);
-  --muted: hsl(180, 15%, 20%);
-  --muted-foreground: hsl(180, 8%, 65%);
-  --accent: hsl(180, 15%, 20%);
+  --secondary: hsl(0, 0%, 96%);
+  --secondary-foreground: hsl(0, 0%, 13%);
+  --muted: hsl(0, 0%, 96%);
+  --muted-foreground: hsl(0, 0%, 45%);
+  --accent: hsl(0, 0%, 96%);
   --accent-foreground: hsl(180, 65%, 45%);
   --destructive: hsl(0, 75%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(180, 15%, 20%);
-  --input: hsl(180, 15%, 20%);
+  --border: hsl(0, 0%, 92%);
+  --input: hsl(0, 0%, 96%);
   --ring: hsl(180, 65%, 45%);
 }
 
@@ -85,9 +85,49 @@
   .dashboard-card {
     background-color: var(--dashboard-surface);
     border: 1px solid var(--dashboard-border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    border-radius: 1.5rem;
+    padding: 3rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
+  }
+  
+  .dashboard-card:hover {
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+  }
+  
+  .vogue-section {
+    margin-bottom: 4rem;
+  }
+  
+  .vogue-title {
+    font-size: 2rem;
+    font-weight: 300;
+    letter-spacing: 0.05em;
+    color: var(--dashboard-text);
+    margin-bottom: 1rem;
+    line-height: 1.2;
+  }
+  
+  .vogue-subtitle {
+    font-size: 1.125rem;
+    font-weight: 300;
+    color: var(--dashboard-muted);
+    line-height: 1.6;
+    margin-bottom: 2rem;
+  }
+  
+  .vogue-card {
+    background-color: var(--dashboard-surface);
+    border: none;
+    border-radius: 2rem;
+    padding: 4rem;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.03);
+    transition: all 0.3s ease;
+  }
+  
+  .vogue-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
   }
   
   .dashboard-input {

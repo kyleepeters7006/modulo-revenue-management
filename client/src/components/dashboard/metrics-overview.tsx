@@ -49,23 +49,23 @@ export default function MetricsOverview({ data }: MetricsOverviewProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
       {metrics.map((metric) => {
         const Icon = metric.icon;
         return (
-          <div key={metric.title} className="dashboard-card">
+          <div key={metric.title} className="bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-2xl p-8 shadow-sm hover:shadow-md transition-all duration-300">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[var(--dashboard-muted)]">{metric.title}</p>
+                <p className="text-sm font-light text-[var(--dashboard-muted)] tracking-wide uppercase mb-4">{metric.title}</p>
                 <p 
-                  className="text-2xl font-bold text-[var(--dashboard-text)]"
+                  className="text-3xl font-light text-[var(--dashboard-text)]"
                   data-testid={metric.testId}
                 >
                   {metric.value}
                 </p>
               </div>
-              <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${getColorClasses(metric.color)}`}>
-                <Icon className="w-6 h-6" />
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${getColorClasses(metric.color)}`}>
+                <Icon className="w-7 h-7" />
               </div>
             </div>
           </div>

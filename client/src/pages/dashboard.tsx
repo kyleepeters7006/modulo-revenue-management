@@ -70,13 +70,13 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
-        <main className="flex-1 p-6">
+        <main className="flex-1 p-12">
           {/* Page Header */}
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-[var(--dashboard-text)]" data-testid="text-page-title">
+          <div className="mb-16">
+            <h1 className="vogue-title" data-testid="text-page-title">
               Revenue Management Dashboard
             </h1>
-            <p className="text-[var(--dashboard-muted)]" data-testid="text-page-subtitle">
+            <p className="vogue-subtitle" data-testid="text-page-subtitle">
               Optimize pricing with AI-driven market analysis and competitor intelligence
             </p>
           </div>
@@ -88,7 +88,7 @@ export default function Dashboard() {
           <RevenueChart />
 
           {/* Data Upload & Assumptions */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16">
             <DataUpload />
             <div className="dashboard-card">
               <div className="flex items-center space-x-3 mb-4">
@@ -107,10 +107,12 @@ export default function Dashboard() {
           </div>
 
           {/* Pricing Weights */}
-          <PricingWeights />
+          <div className="mb-16">
+            <PricingWeights />
+          </div>
 
           {/* Competitor Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 mb-16">
             <div className="lg:col-span-2">
               <CompetitorMap />
             </div>
@@ -118,13 +120,17 @@ export default function Dashboard() {
           </div>
 
           {/* Comparison Table */}
-          <ComparisonTable />
+          <div className="mb-16">
+            <ComparisonTable />
+          </div>
 
           {/* Unit Recommendations */}
-          <UnitRecommendations />
+          <div className="mb-16">
+            <UnitRecommendations />
+          </div>
 
           {/* AI Insights & ML Trainer */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16">
             <AiInsights />
             <div className="dashboard-card">
               <div className="flex items-center space-x-3 mb-4">
@@ -143,10 +149,14 @@ export default function Dashboard() {
           </div>
 
           {/* ML Trainer */}
-          <MlTrainer />
+          <div className="mb-16">
+            <MlTrainer />
+          </div>
 
           {/* Guardrails Editor */}
-          <GuardrailsEditor />
+          <div className="mb-16">
+            <GuardrailsEditor />
+          </div>
         </main>
       </div>
     </div>

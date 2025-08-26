@@ -13,18 +13,18 @@ export default function Sidebar() {
   return (
     <div className="flex flex-col flex-grow bg-[var(--dashboard-surface)] border-r border-[var(--dashboard-border)] h-full">
       {/* Header */}
-      <div className="flex items-center px-6 py-6 border-b border-[var(--dashboard-border)]">
+      <div className="flex items-center px-12 py-12 border-b border-[var(--dashboard-border)]">
         <div className="flex items-center space-x-3">
           <img 
             src={logoPath} 
             alt="Modulo Logo" 
-            className="h-8 w-auto"
+            className="h-10 w-auto"
           />
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-6 space-y-2">
+      <nav className="flex-1 px-8 py-12 space-y-4">
         {navigation.map((item) => {
           const Icon = item.icon;
           return (
@@ -32,7 +32,7 @@ export default function Sidebar() {
               key={item.name}
               href={item.href}
               className={`
-                flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors
+                flex items-center px-6 py-4 text-base font-light rounded-xl transition-all duration-300
                 ${item.current
                   ? 'bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-light)] border border-[var(--trilogy-teal)]/20'
                   : 'text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-bg)] hover:text-[var(--dashboard-text)]'
@@ -40,7 +40,7 @@ export default function Sidebar() {
               `}
               data-testid={`link-nav-${item.name.toLowerCase().replace(' ', '-')}`}
             >
-              <Icon className="w-5 h-5 mr-3" />
+              <Icon className="w-5 h-5 mr-4" />
               {item.name}
             </a>
           );
