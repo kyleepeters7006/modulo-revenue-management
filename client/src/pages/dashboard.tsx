@@ -50,7 +50,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <img 
-              src={transparentLogoPath} 
+              src={newBannerLogoPath} 
               alt="Modulo Logo" 
               className="h-20 w-auto max-w-[70vw]"
             />
