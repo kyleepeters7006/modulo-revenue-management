@@ -81,11 +81,11 @@ export default function Dashboard() {
             </p>
           </div>
 
+          {/* Revenue Chart - Primary Visual */}
+          <RevenueChart />
+
           {/* Metrics Overview */}
           <MetricsOverview data={status as any} />
-
-          {/* Revenue Chart */}
-          <RevenueChart />
 
           {/* Data Upload & Assumptions */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16">
