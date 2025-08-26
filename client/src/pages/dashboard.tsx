@@ -45,13 +45,13 @@ export default function Dashboard() {
       </div>
 
       {/* Mobile Header */}
-      <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-4 fixed top-0 left-0 right-0 z-50">
+      <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-2 fixed top-0 left-0 right-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <img 
               src={transparentLogoPath} 
               alt="Modulo Logo" 
-              className="h-32 w-auto max-w-[70vw]"
+              className="h-20 w-auto max-w-[70vw]"
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -73,7 +73,7 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 lg:pl-80 pt-32 lg:pt-0 w-full max-w-full">
+      <div className="flex-1 lg:pl-80 pt-24 lg:pt-0 w-full max-w-full">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Logo Header - Prominent Display */}
           <div className="w-full flex justify-center items-center mb-4 lg:mb-8 py-2 lg:py-4">
