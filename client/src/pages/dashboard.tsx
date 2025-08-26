@@ -12,6 +12,7 @@ import UnitRecommendations from "@/components/dashboard/unit-recommendations";
 import AiInsights from "@/components/dashboard/ai-insights";
 import MlTrainer from "@/components/dashboard/ml-trainer";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
+import RateCard from "@/components/dashboard/rate-card";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -105,6 +106,9 @@ export default function Dashboard() {
 
           {/* Revenue Chart - Primary Visual */}
           <RevenueChart />
+          
+          {/* Rate Card & Floor Plans */}
+          <RateCard />
 
           {/* Metrics Overview */}
           <MetricsOverview data={status as any} />

@@ -36,7 +36,9 @@ export interface IStorage {
   
   // Competitors
   getCompetitors(): Promise<Competitor[]>;
+  createCompetitor(data: InsertCompetitor): Promise<Competitor>;
   createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor>;
+  clearCompetitors(): Promise<void>;
   
   // Guardrails
   getCurrentGuardrails(): Promise<Guardrails | undefined>;
@@ -129,6 +131,17 @@ export class MemStorage implements IStorage {
     return Array.from(this.competitors.values());
   }
 
+  async createCompetitor(data: InsertCompetitor): Promise<Competitor> {
+    const id = randomUUID();
+    const competitor: Competitor = { 
+      ...data, 
+      id, 
+      createdAt: new Date()
+    };
+    this.competitors.set(id, competitor);
+    return competitor;
+  }
+
   async createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor> {
     // Check if competitor exists by name
     const existing = Array.from(this.competitors.values()).find(c => c.name === data.name);
@@ -144,15 +157,12 @@ export class MemStorage implements IStorage {
       return updated;
     } else {
       // Create new competitor
-      const id = randomUUID();
-      const competitor: Competitor = { 
-        ...data, 
-        id, 
-        createdAt: new Date()
-      };
-      this.competitors.set(id, competitor);
-      return competitor;
+      return this.createCompetitor(data);
     }
+  }
+
+  async clearCompetitors(): Promise<void> {
+    this.competitors.clear();
   }
 
   async getCurrentGuardrails(): Promise<Guardrails | undefined> {

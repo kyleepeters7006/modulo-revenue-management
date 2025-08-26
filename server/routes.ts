@@ -11,6 +11,7 @@ import {
   insertGuardrailsSchema,
   insertMlModelSchema
 } from "@shared/schema";
+import { demoCompetitors, demoRentRoll } from "./seed-data";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -468,6 +469,114 @@ Keep recommendations specific and quantitative when possible.`;
 
     } catch (error) {
       res.status(500).json({ error: "ML training failed" });
+    }
+  });
+
+  // Seed demo data endpoint
+  app.post("/api/seed-demo", async (req, res) => {
+    try {
+      // Clear existing data
+      await storage.clearRentRollData();
+      await storage.clearCompetitors();
+      
+      // Add Louisville competitors
+      for (const competitor of demoCompetitors) {
+        await storage.createCompetitor({
+          name: competitor.name,
+          lat: competitor.lat,
+          lng: competitor.lng,
+          studioRate: competitor.rates["Studio"],
+          oneBedRate: competitor.rates["One Bedroom"],
+          twoBedRate: competitor.rates["Two Bedroom"],
+          memoryCareRate: competitor.rates["Memory Care"],
+          avgCareRate: competitor.avgCareRate
+        });
+      }
+      
+      // Add demo rent roll data for "Sunset Manor"
+      for (const unit of demoRentRoll) {
+        await storage.createRentRollData({
+          unitId: unit.unitId,
+          occupiedYN: unit.occupiedYN,
+          baseRent: unit.baseRent,
+          careFee: unit.careFee || null,
+          roomType: unit.roomType,
+          competitorBenchmarkRate: unit.competitorBenchmarkRate,
+          competitorAvgCareRate: null,
+          daysVacant: unit.daysVacant,
+          attributes: unit.attributes
+        });
+      }
+      
+      // Set default assumptions
+      await storage.createOrUpdateAssumptions({
+        startPeriod: "2024-01",
+        months: 12,
+        revenueMonthlyGrowthPct: 2.0,
+        sp500MonthlyReturnPct: 1.5,
+        targetOccupancy: 0.92
+      });
+      
+      // Set default weights
+      await storage.createOrUpdateWeights({
+        occupancyPressure: 0.25,
+        daysVacantDecay: 0.20,
+        roomAttributes: 0.15,
+        seasonality: 0.10,
+        competitorRates: 0.20,
+        stockMarket: 0.10
+      });
+      
+      // Add guardrails
+      await storage.createOrUpdateGuardrails({
+        roomType: "Studio",
+        minRent: 2800,
+        maxRent: 3500,
+        attributeModifiers: {
+          view: { min: 50, max: 200 },
+          renovated: { min: 50, max: 150 },
+          corner: { min: 25, max: 100 }
+        }
+      });
+      
+      await storage.createOrUpdateGuardrails({
+        roomType: "One Bedroom",
+        minRent: 3800,
+        maxRent: 4800,
+        attributeModifiers: {
+          view: { min: 75, max: 250 },
+          renovated: { min: 75, max: 200 },
+          corner: { min: 50, max: 150 }
+        }
+      });
+      
+      await storage.createOrUpdateGuardrails({
+        roomType: "Two Bedroom",
+        minRent: 4800,
+        maxRent: 6000,
+        attributeModifiers: {
+          view: { min: 100, max: 300 },
+          renovated: { min: 100, max: 250 },
+          corner: { min: 75, max: 200 }
+        }
+      });
+      
+      await storage.createOrUpdateGuardrails({
+        roomType: "Memory Care",
+        minRent: 4500,
+        maxRent: 5500,
+        attributeModifiers: {}
+      });
+      
+      res.json({ 
+        ok: true, 
+        message: "Demo data seeded successfully",
+        competitors: demoCompetitors.length,
+        units: demoRentRoll.length
+      });
+    } catch (error) {
+      console.error("Seed error:", error);
+      res.status(500).json({ error: "Failed to seed demo data" });
     }
   });
 
