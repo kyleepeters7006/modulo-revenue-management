@@ -190,7 +190,7 @@ export default function CompetitorForm() {
         
         <Button
           type="submit"
-          className="w-full bg-indigo-500 hover:bg-indigo-600 text-white"
+          className="w-full bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
           disabled={addCompetitorMutation.isPending}
           data-testid="button-add-competitor"
         >

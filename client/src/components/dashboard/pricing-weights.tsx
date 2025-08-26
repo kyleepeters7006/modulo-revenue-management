@@ -91,8 +91,8 @@ export default function PricingWeights() {
   return (
     <div className="dashboard-card mb-8">
       <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center">
-          <Settings className="w-5 h-5 text-indigo-500" />
+        <div className="w-10 h-10 bg-[var(--trilogy-navy)]/10 rounded-lg flex items-center justify-center">
+          <Settings className="w-5 h-5 text-[var(--trilogy-navy)]" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">
@@ -134,7 +134,7 @@ export default function PricingWeights() {
       <div className="flex justify-end mt-6">
         <Button
           onClick={handleSave}
-          className="bg-indigo-500 hover:bg-indigo-600 text-white"
+          className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
           disabled={saveWeightsMutation.isPending}
           data-testid="button-save-weights"
         >

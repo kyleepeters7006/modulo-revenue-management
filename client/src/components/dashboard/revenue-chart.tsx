@@ -38,51 +38,51 @@ export default function RevenueChart() {
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-medium text-[var(--dashboard-text)]">{label}</span>
             <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-              <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-[var(--trilogy-teal)] rounded-full"></div>
+              <div className="w-2 h-2 bg-[var(--trilogy-turquoise)] rounded-full"></div>
             </div>
           </div>
           
           <div className="space-y-3">
             {/* Revenue Section */}
-            <div className="border-l-2 border-indigo-500 pl-3">
+            <div className="border-l-2 border-[var(--trilogy-teal)] pl-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">Revenue</span>
-                <span className="text-sm font-semibold text-indigo-400">
+                <span className="text-sm font-semibold text-[var(--trilogy-teal-light)]">
                   ${revenueData?.value?.toLocaleString()}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Total Growth</span>
-                <span className={`text-xs font-medium ${data.revenueGrowth >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-medium ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {data.revenueGrowth >= 0 ? '+' : ''}{data.revenueGrowth.toFixed(1)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
-                <span className={`text-xs font-medium ${data.monthlyRevenueChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-medium ${data.monthlyRevenueChange >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {data.monthlyRevenueChange >= 0 ? '+' : ''}{data.monthlyRevenueChange.toFixed(2)}%
                 </span>
               </div>
             </div>
 
             {/* S&P 500 Section */}
-            <div className="border-l-2 border-emerald-500 pl-3">
+            <div className="border-l-2 border-[var(--trilogy-turquoise)] pl-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">S&P 500 (Indexed)</span>
-                <span className="text-sm font-semibold text-emerald-400">
+                <span className="text-sm font-semibold text-[var(--trilogy-turquoise)]">
                   ${sp500Data?.value?.toLocaleString()}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Total Growth</span>
-                <span className={`text-xs font-medium ${data.sp500Growth >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-medium ${data.sp500Growth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {data.sp500Growth >= 0 ? '+' : ''}{data.sp500Growth.toFixed(1)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
-                <span className={`text-xs font-medium ${data.monthlySP500Change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-medium ${data.monthlySP500Change >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {data.monthlySP500Change >= 0 ? '+' : ''}{data.monthlySP500Change.toFixed(2)}%
                 </span>
               </div>
@@ -92,7 +92,7 @@ export default function RevenueChart() {
             <div className="pt-2 border-t border-[var(--dashboard-border)]">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">Outperformance</span>
-                <span className={`text-xs font-medium ${(data.revenueGrowth - data.sp500Growth) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-medium ${(data.revenueGrowth - data.sp500Growth) >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {(data.revenueGrowth - data.sp500Growth) >= 0 ? '+' : ''}{(data.revenueGrowth - data.sp500Growth).toFixed(1)}%
                 </span>
               </div>
@@ -128,7 +128,7 @@ export default function RevenueChart() {
         <div className="flex items-center space-x-2">
           <Button
             size="sm"
-            className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20"
+            className="bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-light)] border border-[var(--trilogy-teal)]/20 hover:bg-[var(--trilogy-teal)]/20"
             data-testid="button-chart-12m"
           >
             12M
@@ -188,30 +188,30 @@ export default function RevenueChart() {
             <Line
               type="monotone"
               dataKey="revenue"
-              stroke="#6366f1"
+              stroke="hsl(180, 65%, 45%)"
               strokeWidth={2}
               dot={false}
               activeDot={{ 
                 r: 6, 
-                fill: '#6366f1', 
+                fill: 'hsl(180, 65%, 45%)', 
                 stroke: '#ffffff', 
                 strokeWidth: 2,
-                filter: 'drop-shadow(0 2px 4px rgba(99, 102, 241, 0.3))'
+                filter: 'drop-shadow(0 2px 4px hsl(180, 65%, 45%, 0.3))'
               }}
               name="Revenue"
             />
             <Line
               type="monotone"
               dataKey="sp500"
-              stroke="#10b981"
+              stroke="hsl(175, 70%, 50%)"
               strokeWidth={2}
               dot={false}
               activeDot={{ 
                 r: 6, 
-                fill: '#10b981', 
+                fill: 'hsl(175, 70%, 50%)', 
                 stroke: '#ffffff', 
                 strokeWidth: 2,
-                filter: 'drop-shadow(0 2px 4px rgba(16, 185, 129, 0.3))'
+                filter: 'drop-shadow(0 2px 4px hsl(175, 70%, 50%, 0.3))'
               }}
               name="S&P 500 (Indexed)"
             />

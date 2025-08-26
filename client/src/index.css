@@ -10,58 +10,63 @@
   --card-foreground: hsl(210, 25%, 7.8431%);
   --popover: hsl(0, 0%, 100%);
   --popover-foreground: hsl(210, 25%, 7.8431%);
-  --primary: hsl(249.1, 58.2%, 60.2%);
+  --primary: hsl(180, 65%, 45%);
   --primary-foreground: hsl(0, 0%, 100%);
   --secondary: hsl(210, 25%, 7.8431%);
   --secondary-foreground: hsl(0, 0%, 100%);
   --muted: hsl(240, 1.9608%, 90%);
   --muted-foreground: hsl(210, 25%, 7.8431%);
-  --accent: hsl(211.5789, 51.3514%, 92.7451%);
-  --accent-foreground: hsl(203.8863, 88.2845%, 53.1373%);
+  --accent: hsl(180, 35%, 92%);
+  --accent-foreground: hsl(180, 65%, 35%);
   --destructive: hsl(356.3033, 90.5579%, 54.3137%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(201.4286, 30.4348%, 90.9804%);
-  --input: hsl(200, 23.0769%, 97.4510%);
-  --ring: hsl(202.8169, 89.1213%, 53.1373%);
+  --border: hsl(180, 20%, 88%);
+  --input: hsl(180, 15%, 97%);
+  --ring: hsl(180, 65%, 45%);
   
-  /* Dashboard specific colors */
-  --dashboard-bg: hsl(234, 40%, 9%);
-  --dashboard-surface: hsl(232, 30%, 15%);
-  --dashboard-border: hsl(228, 25%, 24%);
-  --dashboard-text: hsl(210, 20%, 96%);
-  --dashboard-muted: hsl(220, 9%, 60%);
+  /* Trilogy Health Services Dashboard Colors */
+  --dashboard-bg: hsl(200, 25%, 8%);
+  --dashboard-surface: hsl(200, 20%, 12%);
+  --dashboard-border: hsl(180, 15%, 20%);
+  --dashboard-text: hsl(180, 10%, 95%);
+  --dashboard-muted: hsl(180, 8%, 65%);
   
-  --emerald-500: hsl(160, 81%, 48%);
-  --blue-500: hsl(217, 91%, 60%);
-  --amber-500: hsl(43, 96%, 56%);
-  --purple-500: hsl(277, 56%, 60%);
-  --red-400: hsl(0, 84%, 68%);
-  --emerald-400: hsl(158, 64%, 52%);
+  /* Trilogy Health Brand Colors */
+  --trilogy-teal: hsl(180, 65%, 45%);
+  --trilogy-teal-light: hsl(180, 60%, 60%);
+  --trilogy-teal-dark: hsl(180, 70%, 35%);
+  --trilogy-turquoise: hsl(175, 70%, 50%);
+  --trilogy-blue: hsl(200, 80%, 55%);
+  --trilogy-navy: hsl(210, 45%, 25%);
+  --trilogy-green: hsl(150, 60%, 50%);
+  --trilogy-success: hsl(150, 70%, 45%);
+  --trilogy-warning: hsl(40, 85%, 55%);
+  --trilogy-error: hsl(0, 75%, 60%);
   
   --font-sans: 'Inter', system-ui, sans-serif;
   --radius: 0.75rem;
 }
 
 .dark {
-  --background: hsl(234, 40%, 9%);
-  --foreground: hsl(210, 20%, 96%);
-  --card: hsl(232, 30%, 15%);
-  --card-foreground: hsl(210, 20%, 96%);
-  --popover: hsl(232, 30%, 15%);
-  --popover-foreground: hsl(210, 20%, 96%);
-  --primary: hsl(249.1, 58.2%, 60.2%);
+  --background: hsl(200, 25%, 8%);
+  --foreground: hsl(180, 10%, 95%);
+  --card: hsl(200, 20%, 12%);
+  --card-foreground: hsl(180, 10%, 95%);
+  --popover: hsl(200, 20%, 12%);
+  --popover-foreground: hsl(180, 10%, 95%);
+  --primary: hsl(180, 65%, 45%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(228, 25%, 24%);
-  --secondary-foreground: hsl(210, 20%, 96%);
-  --muted: hsl(228, 25%, 24%);
-  --muted-foreground: hsl(220, 9%, 60%);
-  --accent: hsl(228, 25%, 24%);
-  --accent-foreground: hsl(249.1, 58.2%, 60.2%);
-  --destructive: hsl(356.3033, 90.5579%, 54.3137%);
+  --secondary: hsl(180, 15%, 20%);
+  --secondary-foreground: hsl(180, 10%, 95%);
+  --muted: hsl(180, 15%, 20%);
+  --muted-foreground: hsl(180, 8%, 65%);
+  --accent: hsl(180, 15%, 20%);
+  --accent-foreground: hsl(180, 65%, 45%);
+  --destructive: hsl(0, 75%, 60%);
   --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(228, 25%, 24%);
-  --input: hsl(228, 25%, 24%);
-  --ring: hsl(249.1, 58.2%, 60.2%);
+  --border: hsl(180, 15%, 20%);
+  --input: hsl(180, 15%, 20%);
+  --ring: hsl(180, 65%, 45%);
 }
 
 @layer base {

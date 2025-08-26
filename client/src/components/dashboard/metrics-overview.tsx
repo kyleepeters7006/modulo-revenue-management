@@ -41,9 +41,9 @@ export default function MetricsOverview({ data }: MetricsOverviewProps) {
 
   const getColorClasses = (color: string) => {
     const colors = {
-      emerald: "bg-emerald-500/10 text-emerald-500",
-      blue: "bg-blue-500/10 text-blue-500", 
-      amber: "bg-amber-500/10 text-amber-500",
+      emerald: "bg-[var(--trilogy-success)]/10 text-[var(--trilogy-success)]",
+      blue: "bg-[var(--trilogy-blue)]/10 text-[var(--trilogy-blue)]", 
+      amber: "bg-[var(--trilogy-warning)]/10 text-[var(--trilogy-warning)]",
     };
     return colors[color as keyof typeof colors] || colors.emerald;
   };

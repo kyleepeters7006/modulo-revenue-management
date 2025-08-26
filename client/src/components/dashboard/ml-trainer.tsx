@@ -75,22 +75,22 @@ export default function MlTrainer() {
   };
 
   const getStatusColor = () => {
-    if (trainModelMutation.isPending) return "text-yellow-400";
-    if (modelMetrics) return "text-emerald-400";
+    if (trainModelMutation.isPending) return "text-[var(--trilogy-warning)]";
+    if (modelMetrics) return "text-[var(--trilogy-success)]";
     return "text-[var(--dashboard-text)]";
   };
 
   const getStatusIcon = () => {
-    if (trainModelMutation.isPending) return <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />;
-    if (modelMetrics) return <div className="w-2 h-2 bg-emerald-500 rounded-full" />;
+    if (trainModelMutation.isPending) return <div className="w-2 h-2 bg-[var(--trilogy-warning)] rounded-full animate-pulse" />;
+    if (modelMetrics) return <div className="w-2 h-2 bg-[var(--trilogy-success)] rounded-full" />;
     return <div className="w-2 h-2 bg-gray-500 rounded-full" />;
   };
 
   return (
     <div className="dashboard-card mb-8">
       <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
-          <Brain className="w-5 h-5 text-blue-500" />
+        <div className="w-10 h-10 bg-[var(--trilogy-navy)]/10 rounded-lg flex items-center justify-center">
+          <Brain className="w-5 h-5 text-[var(--trilogy-navy)]" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">
@@ -108,7 +108,7 @@ export default function MlTrainer() {
             Historical Data
           </label>
           <div 
-            className="border-2 border-dashed border-[var(--dashboard-border)] rounded-lg p-4 text-center hover:border-blue-500/50 transition-colors cursor-pointer"
+            className="border-2 border-dashed border-[var(--dashboard-border)] rounded-lg p-4 text-center hover:border-[var(--trilogy-teal)]/50 transition-colors cursor-pointer"
             onClick={() => fileInputRef.current?.click()}
             data-testid="dropzone-ml-upload"
           >

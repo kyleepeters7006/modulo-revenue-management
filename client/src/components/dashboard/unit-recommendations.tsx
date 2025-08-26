@@ -22,13 +22,13 @@ export default function UnitRecommendations() {
   const getOccupancyBadge = (occupied: string) => {
     if (occupied === 'Y') {
       return (
-        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+        <Badge className="bg-[var(--trilogy-success)]/10 text-[var(--trilogy-success)] border-[var(--trilogy-success)]/20">
           Occupied
         </Badge>
       );
     }
     return (
-      <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
+      <Badge className="bg-[var(--trilogy-error)]/10 text-[var(--trilogy-error)] border-[var(--trilogy-error)]/20">
         Vacant
       </Badge>
     );
@@ -41,10 +41,10 @@ export default function UnitRecommendations() {
     let label = "Low";
     
     if (confidence >= 80) {
-      colorClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+      colorClass = "bg-[var(--trilogy-success)]/10 text-[var(--trilogy-success)] border-[var(--trilogy-success)]/20";
       label = "High";
     } else if (confidence >= 60) {
-      colorClass = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+      colorClass = "bg-[var(--trilogy-warning)]/10 text-[var(--trilogy-warning)] border-[var(--trilogy-warning)]/20";
       label = "Medium";
     }
     
@@ -107,7 +107,7 @@ export default function UnitRecommendations() {
                 <TableCell>
                   {getOccupancyBadge(unit.Occupied_YN)}
                 </TableCell>
-                <TableCell className={unit.Days_Vacant > 30 ? "text-amber-400" : "text-[var(--dashboard-muted)]"}>
+                <TableCell className={unit.Days_Vacant > 30 ? "text-[var(--trilogy-warning)]" : "text-[var(--dashboard-muted)]"}>
                   {unit.Days_Vacant}
                 </TableCell>
                 <TableCell className="text-[var(--dashboard-text)]">
@@ -116,7 +116,7 @@ export default function UnitRecommendations() {
                 <TableCell className="text-[var(--dashboard-text)]">
                   {formatCurrency(unit.Competitor_Benchmark_Rate)}
                 </TableCell>
-                <TableCell className="text-emerald-400 font-medium">
+                <TableCell className="text-[var(--trilogy-success)] font-medium">
                   {formatCurrency(unit.Recommended_Rent)}
                 </TableCell>
                 <TableCell>

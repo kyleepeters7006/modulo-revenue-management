@@ -14,7 +14,7 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center px-6 py-6 border-b border-[var(--dashboard-border)]">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-[var(--trilogy-teal)] rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">M</span>
           </div>
           <div>
@@ -35,7 +35,7 @@ export default function Sidebar() {
               className={`
                 flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors
                 ${item.current
-                  ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                  ? 'bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-light)] border border-[var(--trilogy-teal)]/20'
                   : 'text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-bg)] hover:text-[var(--dashboard-text)]'
                 }
               `}

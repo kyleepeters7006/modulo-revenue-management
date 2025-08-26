@@ -84,8 +84,8 @@ export default function DataUpload() {
   return (
     <div className="dashboard-card">
       <div className="flex items-center space-x-3 mb-4">
-        <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
-          <Upload className="w-5 h-5 text-blue-500" />
+        <div className="w-10 h-10 bg-[var(--trilogy-blue)]/10 rounded-lg flex items-center justify-center">
+          <Upload className="w-5 h-5 text-[var(--trilogy-blue)]" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">Rent Roll Upload</h3>
@@ -100,7 +100,7 @@ export default function DataUpload() {
             {['Unit_ID', 'Occupied_YN', 'Base_Rent', 'Care_Fee', 'Room_Type'].map((column) => (
               <span
                 key={column}
-                className="px-2 py-1 text-xs font-medium bg-indigo-500/10 text-indigo-400 rounded-md"
+                className="px-2 py-1 text-xs font-medium bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-light)] rounded-md"
                 data-testid={`tag-column-${column.toLowerCase()}`}
               >
                 {column}
@@ -113,8 +113,8 @@ export default function DataUpload() {
           className={`
             border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer
             ${dragActive 
-              ? 'border-indigo-500/50 bg-indigo-500/5' 
-              : 'border-[var(--dashboard-border)] hover:border-indigo-500/50'
+              ? 'border-[var(--trilogy-teal)]/50 bg-[var(--trilogy-teal)]/5' 
+              : 'border-[var(--dashboard-border)] hover:border-[var(--trilogy-teal)]/50'
             }
           `}
           onDragEnter={handleDrag}
@@ -143,7 +143,7 @@ export default function DataUpload() {
         
         <Button
           onClick={() => fileInputRef.current?.click()}
-          className="w-full bg-indigo-500 hover:bg-indigo-600 text-white"
+          className="w-full bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
           disabled={uploadMutation.isPending}
           data-testid="button-upload"
         >

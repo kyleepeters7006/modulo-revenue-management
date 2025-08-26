@@ -37,8 +37,8 @@ export default function ComparisonTable() {
   };
 
   const getNetVsMarketColor = (value: number) => {
-    if (value > 0) return "text-emerald-400";
-    if (value < 0) return "text-red-400";
+    if (value > 0) return "text-[var(--trilogy-success)]";
+    if (value < 0) return "text-[var(--trilogy-error)]";
     return "text-[var(--dashboard-text)]";
   };
 
@@ -65,7 +65,7 @@ export default function ComparisonTable() {
         </div>
         <Button
           onClick={handleExportCSV}
-          className="bg-emerald-500 hover:bg-emerald-600 text-white"
+          className="bg-[var(--trilogy-success)] hover:bg-[var(--trilogy-green)] text-white"
           data-testid="button-export-csv"
         >
           <Download className="w-4 h-4 mr-2" />
@@ -108,7 +108,7 @@ export default function ComparisonTable() {
                   {row.Net_vs_Market >= 0 ? '+' : ''}
                   {formatCurrency(Math.abs(row.Net_vs_Market))}
                 </TableCell>
-                <TableCell className="text-emerald-400 font-medium">
+                <TableCell className="text-[var(--trilogy-success)] font-medium">
                   {formatCurrency(row.Modulo_Recommended)}
                 </TableCell>
               </TableRow>
