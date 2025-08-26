@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850">
+  <style>
+    .bg{fill:#0b0e1a}
+    .wall{fill:#12162a;stroke:#2a3158;stroke-width:3}
+    .room{fill:#182042;stroke:#2e3a6b;stroke-width:2}
+    .label{fill:#c9d7ff;font-family:Segoe UI, Roboto, sans-serif;font-size:18px}
+    .title{fill:#6ea8fe;font-size:26px}
+    .area{fill:#121a38;stroke:#2a3158;stroke-dasharray:6 6}
+  </style>
+  <rect class="bg" x="0" y="0" width="1400" height="850"/>
+  <text x="30" y="45" class="title">AL Demo – East &amp; West Wings + Memory Care</text>
+
+  <!-- Core corridor -->
+  <rect class="wall" x="80" y="370" width="1240" height="60" rx="8"/>
+
+  <!-- West Wing (AL1xx) -->
+  <rect class="wall" x="80" y="160" width="520" height="390" rx="10"/>
+  <!-- Rooms West (top row) -->
+  <g id="west-top">
+    <rect class="room" x="100" y="180" width="110" height="80"/><text class="label" x="115" y="230">AL101</text>
+    <rect class="room" x="220" y="180" width="110" height="80"/><text class="label" x="235" y="230">AL102</text>
+    <rect class="room" x="340" y="180" width="110" height="80"/><text class="label" x="355" y="230">AL103</text>
+    <rect class="room" x="460" y="180" width="110" height="80"/><text class="label" x="475" y="230">AL104</text>
+  </g>
+  <!-- Rooms West (bottom row) -->
+  <g id="west-bot">
+    <rect class="room" x="100" y="300" width="110" height="80"/><text class="label" x="115" y="350">AL105</text>
+    <rect class="room" x="220" y="300" width="110" height="80"/><text class="label" x="235" y="350">AL106</text>
+    <rect class="room" x="340" y="300" width="110" height="80"/><text class="label" x="355" y="350">AL107</text>
+    <rect class="room" x="460" y="300" width="110" height="80"/><text class="label" x="475" y="350">AL108</text>
+  </g>
+
+  <!-- East Wing (AL2xx) -->
+  <rect class="wall" x="860" y="160" width="460" height="390" rx="10"/>
+  <!-- Rooms East (top row) -->
+  <g id="east-top">
+    <rect class="room" x="880" y="180" width="110" height="80"/><text class="label" x="895" y="230">AL201</text>
+    <rect class="room" x="1000" y="180" width="110" height="80"/><text class="label" x="1015" y="230">AL202</text>
+    <rect class="room" x="1120" y="180" width="110" height="80"/><text class="label" x="1135" y="230">AL203</text>
+  </g>
+  <!-- Rooms East (bottom row) -->
+  <g id="east-bot">
+    <rect class="room" x="880" y="300" width="110" height="80"/><text class="label" x="895" y="350">AL204</text>
+    <rect class="room" x="1000" y="300" width="110" height="80"/><text class="label" x="1015" y="350">AL205</text>
+    <rect class="room" x="1120" y="300" width="110" height="80"/><text class="label" x="1135" y="350">AL206</text>
+  </g>
+
+  <!-- Memory Care (MC) -->
+  <rect class="wall" x="560" y="520" width="300" height="230" rx="12"/>
+  <rect class="room" x="580" y="540" width="120" height="80"/><text class="label" x="600" y="590">MC01</text>
+  <rect class="room" x="720" y="540" width="120" height="80"/><text class="label" x="740" y="590">MC02</text>
+  <rect class="room" x="580" y="640" width="120" height="80"/><text class="label" x="600" y="690">MC03</text>
+  <rect class="room" x="720" y="640" width="120" height="80"/><text class="label" x="740" y="690">MC04</text>
+
+  <!-- Common Areas -->
+  <rect class="area" x="610" y="170" width="220" height="130" rx="8"/><text class="label" x="640" y="225">Dining</text>
+  <rect class="area" x="610" y="310" width="220" height="120" rx="8"/><text class="label" x="650" y="375">Activity</text>
+  <rect class="area" x="104" y="410" width="122" height="120" rx="8"/><text class="label" x="122" y="478">Lobby</text>
+</svg>

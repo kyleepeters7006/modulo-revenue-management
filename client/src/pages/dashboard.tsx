@@ -12,6 +12,7 @@ import UnitRecommendations from "@/components/dashboard/unit-recommendations";
 import AiInsights from "@/components/dashboard/ai-insights";
 import MlTrainer from "@/components/dashboard/ml-trainer";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
+import AttributeMap from "@/components/dashboard/attribute-map";
 import RateCard from "@/components/dashboard/rate-card";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
@@ -151,6 +152,11 @@ export default function Dashboard() {
           {/* Unit Recommendations */}
           <div className="mb-16">
             <UnitRecommendations />
+          </div>
+
+          {/* Attribute Map */}
+          <div className="mb-16">
+            <AttributeMap />
           </div>
 
           {/* AI Insights & ML Trainer */}
