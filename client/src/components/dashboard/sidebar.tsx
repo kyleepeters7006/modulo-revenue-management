@@ -1,4 +1,5 @@
 import { Home, Upload, DollarSign, MapPin, BarChart3 } from "lucide-react";
+import logoPath from "@assets/image_1756171568276.png";
 
 const navigation = [
   { name: "Dashboard", href: "#dashboard", icon: Home, current: true },
@@ -14,13 +15,11 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center px-6 py-6 border-b border-[var(--dashboard-border)]">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-[var(--trilogy-teal)] rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">M</span>
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-[var(--dashboard-text)]">Modulo</h1>
-            <p className="text-sm text-[var(--dashboard-muted)]">Revenue Management</p>
-          </div>
+          <img 
+            src={logoPath} 
+            alt="Modulo Logo" 
+            className="h-8 w-auto"
+          />
         </div>
       </div>
 
