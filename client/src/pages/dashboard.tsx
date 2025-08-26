@@ -82,7 +82,7 @@ export default function Dashboard() {
           </div>
 
           {/* Metrics Overview */}
-          <MetricsOverview data={status} />
+          <MetricsOverview data={status as any} />
 
           {/* Revenue Chart */}
           <RevenueChart />
