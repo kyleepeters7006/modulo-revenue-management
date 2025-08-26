@@ -18,6 +18,9 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import transparentLogoPath from "@assets/image_1756171963360.png";
 import mainLogoPath from "@assets/image_1756172904290.png";
 
+// Debug: Log the logo path
+console.log('Main logo path:', mainLogoPath);
+
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -73,18 +76,23 @@ export default function Dashboard() {
       <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
         <main className="flex-1 px-4 py-6 sm:p-6 lg:p-12 max-w-full overflow-x-hidden">
           {/* Logo Header */}
-          <div className="flex justify-center items-center mb-12 lg:mb-24 py-6 lg:py-16 px-4">
-            <img 
-              src={mainLogoPath} 
-              alt="Modulo Revenue Management" 
-              className="h-24 sm:h-40 md:h-56 lg:h-80 w-auto max-w-full"
-              style={{ maxWidth: 'calc(100vw - 2rem)' }}
-              onLoad={() => console.log('Logo loaded successfully')}
-              onError={(e) => {
-                console.log('Logo failed to load, trying fallback');
-                console.log('Logo path:', mainLogoPath);
-              }}
-            />
+          <div className="flex justify-center items-center mb-8 lg:mb-16 py-6 lg:py-8 bg-white">
+            <div className="w-full max-w-sm sm:max-w-md lg:max-w-2xl flex justify-center p-4 rounded-lg shadow-sm">
+              <img 
+                src={mainLogoPath} 
+                alt="Modulo Revenue Management" 
+                className="h-24 sm:h-36 md:h-48 lg:h-64 w-auto max-w-full object-contain"
+                style={{ 
+                  maxWidth: '95vw',
+                  minHeight: '96px',
+                  display: 'block'
+                }}
+                onLoad={() => console.log('Logo loaded and visible')}
+                onError={(e) => {
+                  console.log('Logo failed to load:', e);
+                }}
+              />
+            </div>
           </div>
 
           {/* Page Header */}
