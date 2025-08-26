@@ -47,13 +47,13 @@ export default function Dashboard() {
       </div>
 
       {/* Mobile Header */}
-      <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-2 fixed top-0 left-0 right-0 z-50">
+      <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-3 fixed top-0 left-0 right-0 z-50">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center">
             <img 
-              src={newBannerLogoPath} 
+              src={mainLogoPath} 
               alt="Modulo Logo" 
-              className="h-20 w-auto max-w-[70vw]"
+              className="h-12 w-auto max-w-[60vw]"
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -75,23 +75,11 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 lg:pl-80 pt-24 lg:pt-0 w-full max-w-full">
+      <div className="flex-1 lg:pl-80 pt-16 lg:pt-0 w-full max-w-full overflow-y-auto">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
-          {/* Logo Header - Lightly Cropped */}
-          <div className="w-full mb-4 lg:mb-8 py-2 lg:py-4 overflow-hidden">
-            <img 
-              src={mainLogoPath} 
-              alt="Modulo Revenue Management" 
-              className="w-full h-60 sm:h-80 md:h-96 lg:h-112 object-cover"
-              style={{ 
-                objectPosition: 'center 45%',
-                display: 'block'
-              }}
-              onLoad={() => console.log('Logo loaded and visible')}
-              onError={(e) => {
-                console.log('Logo failed to load:', e);
-              }}
-            />
+          {/* Remove duplicate logo header on desktop, keep only on mobile */}
+          <div className="lg:hidden w-full mb-4 py-2 overflow-hidden">
+            {/* Logo already in mobile header, no need for duplicate */}
           </div>
 
           {/* Page Header */}
@@ -108,13 +96,15 @@ export default function Dashboard() {
           <RevenueChart />
           
           {/* Rate Card & Floor Plans */}
-          <RateCard />
+          <div id="ratecard" className="scroll-mt-20">
+            <RateCard />
+          </div>
 
           {/* Metrics Overview */}
           <MetricsOverview data={status as any} />
 
           {/* Data Upload & Assumptions */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12 mb-12 lg:mb-16">
+          <div id="data-upload" className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12 mb-12 lg:mb-16 scroll-mt-20">
             <DataUpload />
             <div className="dashboard-card">
               <div className="flex items-center space-x-3 mb-4">
@@ -133,12 +123,12 @@ export default function Dashboard() {
           </div>
 
           {/* Pricing Weights */}
-          <div className="mb-16">
+          <div id="pricing" className="mb-16 scroll-mt-20">
             <PricingWeights />
           </div>
 
           {/* Competitor Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-12 mb-12 lg:mb-16">
+          <div id="competitors" className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-12 mb-12 lg:mb-16 scroll-mt-20">
             <div className="lg:col-span-2">
               <CompetitorMap />
             </div>
@@ -156,7 +146,7 @@ export default function Dashboard() {
           </div>
 
           {/* AI Insights & ML Trainer */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16">
+          <div id="ai" className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16 scroll-mt-20">
             <AiInsights />
             <div className="dashboard-card">
               <div className="flex items-center space-x-3 mb-4">
@@ -175,12 +165,12 @@ export default function Dashboard() {
           </div>
 
           {/* ML Trainer */}
-          <div className="mb-16">
+          <div id="ml" className="mb-16 scroll-mt-20">
             <MlTrainer />
           </div>
 
           {/* Guardrails Editor */}
-          <div className="mb-16">
+          <div id="guardrails" className="mb-16 scroll-mt-20">
             <GuardrailsEditor />
           </div>
         </main>
