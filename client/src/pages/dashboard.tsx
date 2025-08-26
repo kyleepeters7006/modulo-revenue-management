@@ -73,18 +73,17 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
-        <main className="flex-1 px-4 py-6 sm:p-6 lg:p-12 max-w-full overflow-x-hidden">
+      <div className="flex-1 lg:pl-80 pt-20 lg:pt-0 w-full max-w-full">
+        <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Logo Header */}
-          <div className="flex justify-center items-center mb-8 lg:mb-16 py-6 lg:py-8 bg-white">
-            <div className="w-full max-w-sm sm:max-w-md lg:max-w-2xl flex justify-center p-4 rounded-lg shadow-sm">
+          <div className="w-full flex justify-center items-center mb-6 lg:mb-12 py-4 lg:py-6">
+            <div className="bg-white p-3 rounded-lg shadow-sm w-fit max-w-[90vw]">
               <img 
                 src={mainLogoPath} 
                 alt="Modulo Revenue Management" 
-                className="h-24 sm:h-36 md:h-48 lg:h-64 w-auto max-w-full object-contain"
+                className="h-20 sm:h-32 md:h-40 lg:h-56 w-auto object-contain mx-auto"
                 style={{ 
-                  maxWidth: '95vw',
-                  minHeight: '96px',
+                  maxWidth: '85vw',
                   display: 'block'
                 }}
                 onLoad={() => console.log('Logo loaded and visible')}
