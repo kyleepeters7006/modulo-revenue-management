@@ -53,16 +53,23 @@ export default function Sidebar() {
       <div className="px-4 py-4 border-t border-[var(--dashboard-border)]">
         <div className="flex items-center space-x-3 p-3 rounded-lg bg-[var(--dashboard-bg)]">
           <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center">
-            <span className="text-sm font-medium text-white">JD</span>
+            <span className="text-sm font-medium text-white">U</span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-[var(--dashboard-text)] truncate" data-testid="text-user-name">
-              John Doe
+              User
             </p>
             <p className="text-xs text-[var(--dashboard-muted)] truncate" data-testid="text-user-role">
               Property Manager
             </p>
           </div>
+          <button
+            onClick={() => window.location.href = "/api/logout"}
+            className="text-xs text-[var(--trilogy-grey)] hover:text-[var(--trilogy-teal)] transition-colors"
+            data-testid="button-logout"
+          >
+            Logout
+          </button>
         </div>
       </div>
     </div>
