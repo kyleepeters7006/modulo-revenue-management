@@ -4,32 +4,32 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(0, 0%, 100%);
-  --foreground: hsl(210, 25%, 7.8431%);
-  --card: hsl(180, 6.6667%, 97.0588%);
-  --card-foreground: hsl(210, 25%, 7.8431%);
-  --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(210, 25%, 7.8431%);
+  --background: hsl(210, 15%, 95%);
+  --foreground: hsl(210, 25%, 15%);
+  --card: hsl(210, 20%, 97%);
+  --card-foreground: hsl(210, 25%, 15%);
+  --popover: hsl(210, 20%, 97%);
+  --popover-foreground: hsl(210, 25%, 15%);
   --primary: hsl(180, 65%, 45%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(210, 25%, 7.8431%);
-  --secondary-foreground: hsl(0, 0%, 100%);
-  --muted: hsl(240, 1.9608%, 90%);
-  --muted-foreground: hsl(210, 25%, 7.8431%);
-  --accent: hsl(180, 35%, 92%);
+  --secondary: hsl(210, 25%, 15%);
+  --secondary-foreground: hsl(210, 20%, 97%);
+  --muted: hsl(210, 10%, 88%);
+  --muted-foreground: hsl(210, 15%, 45%);
+  --accent: hsl(180, 25%, 90%);
   --accent-foreground: hsl(180, 65%, 35%);
   --destructive: hsl(356.3033, 90.5579%, 54.3137%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(180, 20%, 88%);
-  --input: hsl(180, 15%, 97%);
+  --destructive-foreground: hsl(210, 20%, 97%);
+  --border: hsl(210, 15%, 88%);
+  --input: hsl(210, 15%, 94%);
   --ring: hsl(180, 65%, 45%);
   
   /* Vogue-inspired Dashboard Colors */
-  --dashboard-bg: hsl(0, 0%, 98%);
-  --dashboard-surface: hsl(0, 0%, 100%);
-  --dashboard-border: hsl(0, 0%, 92%);
-  --dashboard-text: hsl(0, 0%, 13%);
-  --dashboard-muted: hsl(0, 0%, 45%);
+  --dashboard-bg: hsl(210, 15%, 95%);
+  --dashboard-surface: hsl(210, 20%, 97%);
+  --dashboard-border: hsl(210, 15%, 88%);
+  --dashboard-text: hsl(210, 25%, 15%);
+  --dashboard-muted: hsl(210, 15%, 55%);
   
   /* Trilogy Health Brand Colors */
   --trilogy-teal: hsl(180, 65%, 45%);
