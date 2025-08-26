@@ -80,13 +80,13 @@ export default function Dashboard() {
       <div className="flex-1 lg:pl-80 pt-16 lg:pt-0 w-full max-w-full overflow-y-auto">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Main Logo Header - Full logo with text */}
-          <div className="w-full mb-4 lg:mb-8 py-2 lg:py-4 overflow-hidden">
+          <div className="w-full mb-4 lg:mb-8 py-6 lg:py-8">
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="w-full h-60 sm:h-80 md:h-96 lg:h-112 object-cover"
+              className="w-full h-64 sm:h-84 md:h-100 lg:h-120 object-contain"
               style={{ 
-                objectPosition: 'center 45%',
+                objectPosition: 'center center',
                 display: 'block'
               }}
             />
