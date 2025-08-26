@@ -77,7 +77,7 @@ export default function Dashboard() {
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="h-20 sm:h-28 md:h-36 lg:h-48 w-auto max-w-full"
+              className="h-40 sm:h-56 md:h-72 lg:h-96 w-auto max-w-full"
               style={{ maxWidth: 'calc(100vw - 2rem)' }}
               onLoad={() => console.log('Logo loaded successfully')}
               onError={(e) => {
