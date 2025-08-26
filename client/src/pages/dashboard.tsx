@@ -75,13 +75,14 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="flex-1 lg:pl-80 pt-24 lg:pt-0 w-full max-w-full">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
-          {/* Logo Header - Full Display */}
-          <div className="w-full mb-4 lg:mb-8 py-2 lg:py-4">
+          {/* Logo Header - Lightly Cropped */}
+          <div className="w-full mb-4 lg:mb-8 py-2 lg:py-4 overflow-hidden">
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="w-full h-48 sm:h-64 md:h-80 lg:h-96 object-contain"
+              className="w-full h-40 sm:h-56 md:h-72 lg:h-80 object-cover"
               style={{ 
+                objectPosition: 'center center',
                 display: 'block'
               }}
               onLoad={() => console.log('Logo loaded and visible')}
