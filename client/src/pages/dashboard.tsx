@@ -77,21 +77,19 @@ export default function Dashboard() {
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Logo Header */}
           <div className="w-full flex justify-center items-center mb-6 lg:mb-12 py-4 lg:py-6">
-            <div className="bg-white p-3 rounded-lg shadow-sm w-fit max-w-[90vw]">
-              <img 
-                src={mainLogoPath} 
-                alt="Modulo Revenue Management" 
-                className="h-20 sm:h-32 md:h-40 lg:h-56 w-auto object-contain mx-auto"
-                style={{ 
-                  maxWidth: '85vw',
-                  display: 'block'
-                }}
-                onLoad={() => console.log('Logo loaded and visible')}
-                onError={(e) => {
-                  console.log('Logo failed to load:', e);
-                }}
-              />
-            </div>
+            <img 
+              src={mainLogoPath} 
+              alt="Modulo Revenue Management" 
+              className="h-20 sm:h-32 md:h-40 lg:h-56 w-auto object-contain"
+              style={{ 
+                maxWidth: '85vw',
+                display: 'block'
+              }}
+              onLoad={() => console.log('Logo loaded and visible')}
+              onError={(e) => {
+                console.log('Logo failed to load:', e);
+              }}
+            />
           </div>
 
           {/* Page Header */}
