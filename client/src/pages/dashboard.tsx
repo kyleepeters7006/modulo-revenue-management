@@ -82,7 +82,7 @@ export default function Dashboard() {
               alt="Modulo Revenue Management" 
               className="w-full h-32 sm:h-40 md:h-48 lg:h-56 object-cover object-center"
               style={{ 
-                objectPosition: 'center 45%',
+                objectPosition: 'center 35%',
                 display: 'block'
               }}
               onLoad={() => console.log('Logo loaded and visible')}
