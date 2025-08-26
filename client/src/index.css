@@ -4,41 +4,42 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(210, 15%, 95%);
-  --foreground: hsl(210, 25%, 15%);
-  --card: hsl(210, 20%, 97%);
-  --card-foreground: hsl(210, 25%, 15%);
-  --popover: hsl(210, 20%, 97%);
-  --popover-foreground: hsl(210, 25%, 15%);
+  --background: hsl(210, 20%, 96%);
+  --foreground: hsl(210, 45%, 25%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(210, 45%, 25%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(210, 45%, 25%);
   --primary: hsl(180, 65%, 45%);
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(210, 25%, 15%);
-  --secondary-foreground: hsl(210, 20%, 97%);
-  --muted: hsl(210, 10%, 88%);
-  --muted-foreground: hsl(210, 15%, 45%);
+  --secondary: hsl(200, 80%, 55%);
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --muted: hsl(210, 20%, 90%);
+  --muted-foreground: hsl(210, 15%, 55%);
   --accent: hsl(180, 25%, 90%);
-  --accent-foreground: hsl(180, 65%, 35%);
+  --accent-foreground: hsl(180, 65%, 45%);
   --destructive: hsl(356.3033, 90.5579%, 54.3137%);
-  --destructive-foreground: hsl(210, 20%, 97%);
-  --border: hsl(210, 15%, 88%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(210, 20%, 90%);
   --input: hsl(210, 15%, 94%);
   --ring: hsl(180, 65%, 45%);
   
-  /* Vogue-inspired Dashboard Colors */
-  --dashboard-bg: hsl(210, 15%, 95%);
-  --dashboard-surface: hsl(210, 20%, 97%);
-  --dashboard-border: hsl(210, 15%, 88%);
-  --dashboard-text: hsl(210, 25%, 15%);
+  /* Trilogy Brand Colors */
+  --dashboard-bg: hsl(210, 20%, 96%);
+  --dashboard-surface: hsl(0, 0%, 100%);
+  --dashboard-border: hsl(210, 20%, 90%);
+  --dashboard-text: hsl(210, 45%, 25%);
   --dashboard-muted: hsl(210, 15%, 55%);
   
-  /* Trilogy Health Brand Colors */
+  /* Trilogy Brand Colors - Dark Blue, Light Blue, Grey + Teal */
+  --trilogy-dark-blue: hsl(210, 45%, 25%);
+  --trilogy-light-blue: hsl(200, 80%, 55%);
+  --trilogy-grey: hsl(210, 15%, 55%);
   --trilogy-teal: hsl(180, 65%, 45%);
   --trilogy-teal-light: hsl(180, 60%, 60%);
   --trilogy-teal-dark: hsl(180, 70%, 35%);
   --trilogy-turquoise: hsl(175, 70%, 50%);
-  --trilogy-blue: hsl(200, 80%, 55%);
   --trilogy-navy: hsl(210, 45%, 25%);
-  --trilogy-green: hsl(150, 60%, 50%);
   --trilogy-success: hsl(150, 70%, 45%);
   --trilogy-warning: hsl(40, 85%, 55%);
   --trilogy-error: hsl(0, 75%, 60%);

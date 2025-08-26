@@ -73,12 +73,20 @@ export default function Dashboard() {
       <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
         <main className="flex-1 p-12">
           {/* Logo Header */}
-          <div className="flex justify-center mb-16">
-            <img 
-              src={mainLogoPath} 
-              alt="Modulo Revenue Management" 
-              className="h-20 w-auto"
-            />
+          <div className="flex justify-center mb-16 p-6">
+            <div className="bg-gradient-to-r from-[var(--trilogy-dark-blue)] to-[var(--trilogy-light-blue)] p-4 rounded-2xl shadow-lg">
+              <img 
+                src={mainLogoPath} 
+                alt="Modulo Revenue Management" 
+                className="h-20 w-auto max-w-sm"
+                style={{ filter: 'brightness(1.1)' }}
+                onLoad={() => console.log('Logo loaded successfully')}
+                onError={(e) => {
+                  console.log('Logo failed to load, trying fallback');
+                  console.log('Logo path:', mainLogoPath);
+                }}
+              />
+            </div>
           </div>
 
           {/* Page Header */}

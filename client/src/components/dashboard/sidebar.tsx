@@ -34,8 +34,8 @@ export default function Sidebar() {
               className={`
                 flex items-center px-6 py-4 text-base font-light rounded-xl transition-all duration-300
                 ${item.current
-                  ? 'bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-light)] border border-[var(--trilogy-teal)]/20'
-                  : 'text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-bg)] hover:text-[var(--dashboard-text)]'
+                  ? 'bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] border border-[var(--trilogy-teal)]/20'
+                  : 'text-[var(--trilogy-grey)] hover:bg-[var(--trilogy-light-blue)]/10 hover:text-[var(--trilogy-dark-blue)]'
                 }
               `}
               data-testid={`link-nav-${item.name.toLowerCase().replace(' ', '-')}`}
