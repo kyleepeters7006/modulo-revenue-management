@@ -18,7 +18,8 @@ export default function Sidebar() {
           <img 
             src={mainLogoPath} 
             alt="Modulo Logo" 
-            className="h-10 w-auto"
+            className="h-12 w-auto rounded-lg"
+            style={{ backgroundColor: 'transparent' }}
           />
         </div>
       </div>
