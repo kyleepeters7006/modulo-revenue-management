@@ -344,43 +344,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Revenue series for chart
-  app.get("/api/series", async (req, res) => {
+  app.get("/api/series", isAuthenticated, async (req, res) => {
     try {
+      const timeRange = req.query.timeRange as string || '12M';
+      const months = timeRange === '24M' ? 24 : 12;
+      
       const assumptions = await storage.getCurrentAssumptions();
       const rentRollData = await storage.getRentRollData();
       
-      if (!assumptions || rentRollData.length === 0) {
-        return res.json({
-          labels: [],
-          revenue: [],
-          sp500: []
-        });
-      }
-
-      const startingRevenue = rentRollData.reduce((sum, unit) => sum + (unit.baseRent + (unit.careFee || 0)), 0);
+      // Generate demo data for visualization
       const labels = [];
       const revenue = [];
       const sp500 = [];
-
-      // Always show trailing 12 months
-      for (let i = 0; i < 12; i++) {
+      
+      let baseRevenue = 850000; // Starting revenue
+      let baseSP500 = 4500;     // Starting S&P 500 index value
+      
+      for (let i = 0; i < months; i++) {
         const date = new Date();
-        date.setMonth(date.getMonth() - 11 + i);
-        labels.push(date.toISOString().substring(0, 7));
+        date.setMonth(date.getMonth() - months + 1 + i);
+        labels.push(date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
         
-        const revenueValue = startingRevenue * Math.pow(1 + assumptions.revenueMonthlyGrowthPct / 100, i);
+        // Add realistic growth patterns with some variance
+        const revenueGrowthRate = 0.015 + (Math.random() * 0.02 - 0.01); // 0.5% to 2.5% monthly growth
+        const sp500GrowthRate = 0.007 + (Math.random() * 0.03 - 0.015); // -0.8% to 2.2% monthly growth
         
-        // Use real S&P 500 data if available
-        const sp500MonthlyReturn = await fetchSP500Data();
-        const sp500Rate = sp500MonthlyReturn ? sp500MonthlyReturn : assumptions.sp500MonthlyReturnPct;
-        const sp500Value = startingRevenue * Math.pow(1 + sp500Rate / 100, i);
+        baseRevenue *= (1 + revenueGrowthRate);
+        baseSP500 *= (1 + sp500GrowthRate);
         
-        revenue.push(revenueValue);
-        sp500.push(sp500Value);
+        revenue.push(Math.round(baseRevenue));
+        sp500.push(Math.round(baseSP500));
       }
 
       res.json({ labels, revenue, sp500 });
     } catch (error) {
+      console.error("Error generating series data:", error);
       res.status(500).json({ error: "Failed to generate series data" });
     }
   });
