@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import transparentLogoPath from "@assets/image_1756171963360.png";
+import mainLogoPath from "@assets/image_1756172551638.png";
 
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -71,6 +72,15 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
         <main className="flex-1 p-12">
+          {/* Logo Header */}
+          <div className="flex justify-center mb-16">
+            <img 
+              src={mainLogoPath} 
+              alt="Modulo Revenue Management" 
+              className="h-20 w-auto"
+            />
+          </div>
+
           {/* Page Header */}
           <div className="mb-16">
             <h1 className="vogue-title" data-testid="text-page-title">
