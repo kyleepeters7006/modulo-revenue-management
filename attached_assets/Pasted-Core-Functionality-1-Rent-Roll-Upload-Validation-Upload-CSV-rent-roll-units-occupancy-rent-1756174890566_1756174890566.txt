@@ -1,0 +1,53 @@
+Core Functionality
+
+1. Rent Roll Upload & Validation
+	•	Upload CSV rent roll (units, occupancy, rents, care fees, room types, attributes).
+	•	Validates required fields (Unit_ID, Occupied_YN, Base_Rent, Care_Fee, Room_Type, competitor rates).
+	•	Calculates starting revenue and global occupancy from uploaded data.
+
+⸻
+
+2. Dynamic Pricing Engine
+	•	Attribute-based pricing fences: Adds/subtracts premiums for attributes (view, corner, renovated, etc.) with min/max guardrails.
+	•	Occupancy pressure: Adjusts pricing based on gap to target occupancy.
+	•	Vacancy decay: Discounts units that sit vacant too long.
+	•	Competitor index: Nudges toward benchmark competitor rates.
+	•	Seasonality: Applies monthly seasonal multipliers.
+	•	Stock market factor: Uses last S&P 500 monthly return as a demand sentiment input.
+	•	Guardrails: Ensures recommendations respect min/max ranges by room type and attributes.
+
+⸻
+
+3. Market & Competitor Intelligence
+	•	Competitor map (Leaflet): Displays Louisville demo comps, lets users add/update competitors with lat/lng + rates.
+	•	Comparison table: Shows your average vs. market average per room type, plus Modulo’s recommended adjustment.
+
+⸻
+
+4. Visualization & Controls
+	•	Revenue vs S&P 500 chart: Indexed growth projection comparing your portfolio vs. stock market benchmark.
+	•	Weights control panel: Sliders to dial in relative influence of occupancy, vacancy, attributes, seasonality, competitor rates, and stock market.
+	•	Guardrails editor: JSON editor to manage min/max pricing bands per room type and attribute.
+
+⸻
+
+5. Machine Learning Module
+	•	Train ML model (Ridge regression) on history.csv (synthetic seeded, or upload your own).
+	•	Learns adjustments from features like vacancy, comps, attributes, occupancy, and market returns.
+	•	Returns ML-predicted rents alongside dynamic pricing recommendations.
+
+⸻
+
+6. AI Recommendations (ChatGPT API)
+	•	Summarizes portfolio status (occupancy, revenue, comps, market sentiment).
+	•	Generates actionable pricing suggestions + risks using OpenAI’s GPT models (via Replit secrets).
+
+⸻
+
+7. Publishing & Export
+	•	One-click export of current recommended rates to published_rates.csv.
+	•	Downloadable for use in rate sheets or sales collateral.
+
+⸻
+
+👉 In short: the Replit agent is a full-stack revenue management sandbox: upload data, run pricing logic + ML + AI overlay, benchmark vs market, visualize in charts/maps, adjust weights, and export publish-ready rates.
