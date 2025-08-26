@@ -79,10 +79,11 @@ export default function Dashboard() {
           {/* Logo Header - Lightly Cropped */}
           <div className="w-full mb-4 lg:mb-8 py-2 lg:py-4 overflow-hidden">
             <img 
-              src={newBannerLogoPath} 
+              src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="w-full h-60 sm:h-80 md:h-96 lg:h-112 object-contain"
+              className="w-full h-60 sm:h-80 md:h-96 lg:h-112 object-cover"
               style={{ 
+                objectPosition: 'center 45%',
                 display: 'block'
               }}
               onLoad={() => console.log('Logo loaded and visible')}
