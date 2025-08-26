@@ -76,7 +76,7 @@ export default function Dashboard() {
       <div className="flex-1 lg:pl-80 pt-32 lg:pt-0 w-full max-w-full">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Logo Header - Prominent Display */}
-          <div className="w-full flex justify-center items-center mb-8 lg:mb-16 py-6 lg:py-8">
+          <div className="w-full flex justify-center items-center mb-4 lg:mb-8 py-2 lg:py-4">
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
