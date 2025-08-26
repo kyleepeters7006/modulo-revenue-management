@@ -71,13 +71,13 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <div className="flex-1 lg:pl-80 pt-20 lg:pt-0">
-        <main className="flex-1 p-12">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12">
           {/* Logo Header */}
-          <div className="flex justify-center items-center mb-20 py-12">
+          <div className="flex justify-center items-center mb-16 lg:mb-24 py-8 lg:py-16">
             <img 
               src={mainLogoPath} 
               alt="Modulo Revenue Management" 
-              className="h-32 w-auto max-w-2xl"
+              className="h-24 sm:h-32 md:h-40 lg:h-48 w-auto max-w-[90vw] lg:max-w-4xl"
               onLoad={() => console.log('Logo loaded successfully')}
               onError={(e) => {
                 console.log('Logo failed to load, trying fallback');
@@ -87,11 +87,11 @@ export default function Dashboard() {
           </div>
 
           {/* Page Header */}
-          <div className="mb-16">
-            <h1 className="vogue-title" data-testid="text-page-title">
+          <div className="mb-12 lg:mb-16 text-center lg:text-left">
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4 lg:mb-6" data-testid="text-page-title">
               Revenue Management Dashboard
             </h1>
-            <p className="vogue-subtitle" data-testid="text-page-subtitle">
+            <p className="text-base sm:text-lg lg:text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
               Optimize pricing with AI-driven market analysis and competitor intelligence
             </p>
           </div>
@@ -103,7 +103,7 @@ export default function Dashboard() {
           <MetricsOverview data={status as any} />
 
           {/* Data Upload & Assumptions */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12 mb-12 lg:mb-16">
             <DataUpload />
             <div className="dashboard-card">
               <div className="flex items-center space-x-3 mb-4">
@@ -127,7 +127,7 @@ export default function Dashboard() {
           </div>
 
           {/* Competitor Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 mb-16">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-12 mb-12 lg:mb-16">
             <div className="lg:col-span-2">
               <CompetitorMap />
             </div>

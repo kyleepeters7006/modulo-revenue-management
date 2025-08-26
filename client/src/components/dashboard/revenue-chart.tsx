@@ -115,20 +115,20 @@ export default function RevenueChart() {
   }
 
   return (
-    <div className="dashboard-card mb-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="dashboard-card mb-6 lg:mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 lg:mb-6 gap-3 sm:gap-0">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--dashboard-text)]" data-testid="text-chart-title">
+          <h2 className="text-base sm:text-lg font-semibold text-[var(--trilogy-dark-blue)]" data-testid="text-chart-title">
             Revenue Growth
           </h2>
-          <p className="text-sm text-[var(--dashboard-muted)]">
+          <p className="text-sm text-[var(--trilogy-grey)]">
             Trailing 12 months performance vs S&P 500
           </p>
         </div>
         <div className="flex items-center space-x-2">
           <Button
             size="sm"
-            className="bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-light)] border border-[var(--trilogy-teal)]/20 hover:bg-[var(--trilogy-teal)]/20"
+            className="bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] border border-[var(--trilogy-teal)]/20 hover:bg-[var(--trilogy-teal)]/20"
             data-testid="button-chart-12m"
           >
             12M
@@ -136,7 +136,7 @@ export default function RevenueChart() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--dashboard-bg)]"
+            className="text-[var(--trilogy-grey)] hover:text-[var(--trilogy-dark-blue)] hover:bg-[var(--trilogy-light-blue)]/10"
             data-testid="button-chart-24m"
           >
             24M
@@ -144,7 +144,7 @@ export default function RevenueChart() {
         </div>
       </div>
       
-      <div className="h-80 relative">
+      <div className="h-64 sm:h-72 lg:h-80 relative">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart 
             data={chartData}

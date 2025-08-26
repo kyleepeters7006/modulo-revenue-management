@@ -86,10 +86,23 @@
   .dashboard-card {
     background-color: var(--dashboard-surface);
     border: 1px solid var(--dashboard-border);
-    border-radius: 1.5rem;
-    padding: 3rem;
+    border-radius: 1rem;
+    padding: 1.5rem;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
     transition: all 0.3s ease;
+  }
+
+  @media (min-width: 768px) {
+    .dashboard-card {
+      border-radius: 1.5rem;
+      padding: 2rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .dashboard-card {
+      padding: 3rem;
+    }
   }
   
   .dashboard-card:hover {
