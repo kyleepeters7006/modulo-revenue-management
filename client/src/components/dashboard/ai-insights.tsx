@@ -140,8 +140,8 @@ export default function AiInsights() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Smart Recommendations */}
+      <div className="max-w-4xl">
+        {/* AI Recommendations */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -166,75 +166,6 @@ export default function AiInsights() {
               </div>
             </div>
 
-            <div className="text-xs text-[var(--dashboard-muted)] p-3 bg-[var(--dashboard-bg)] rounded-lg">
-              Set <code className="px-1 py-0.5 bg-[var(--dashboard-border)] rounded text-[var(--dashboard-text)]">
-                OPENAI_API_KEY
-              </code> in environment variables for enhanced insights
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Predictive Model Training */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Activity className="w-5 h-5 text-blue-500" />
-              <span>Predictive Model</span>
-            </CardTitle>
-            <CardDescription>Train models on historical data for better predictions</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div 
-              className="border-2 border-dashed border-[var(--dashboard-border)] rounded-lg p-4 text-center hover:border-[var(--trilogy-teal)]/50 transition-colors cursor-pointer"
-              onClick={() => fileInputRef.current?.click()}
-              data-testid="dropzone-model-upload"
-            >
-              <Upload className="w-6 h-6 text-[var(--dashboard-muted)] mx-auto mb-2" />
-              <p className="text-xs text-[var(--dashboard-muted)]">Upload historical data (CSV)</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={handleFileInputChange}
-                data-testid="input-model-file"
-              />
-            </div>
-
-            <div className="p-4 bg-[var(--dashboard-bg)] rounded-lg">
-              <div className="flex items-center space-x-2 mb-2">
-                {getStatusIcon()}
-                <span className={`text-sm ${getStatusColor()}`} data-testid="text-model-status">
-                  {trainModelMutation.isPending ? "Training..." : modelMetrics ? "Model Ready" : "Ready to train"}
-                </span>
-              </div>
-              <p className="text-xs text-[var(--dashboard-muted)]" data-testid="text-model-details">
-                {modelMetrics 
-                  ? `Accuracy Score: ${(modelMetrics.r2! * 100).toFixed(1)}% | Trained on: ${modelMetrics.rows} records`
-                  : trainingStatus
-                }
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Button
-                onClick={handleTrainWithCurrentData}
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white"
-                disabled={trainModelMutation.isPending}
-                data-testid="button-train-current-data"
-              >
-                {trainModelMutation.isPending ? "Training..." : "Train with Current Data"}
-              </Button>
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                variant="outline"
-                className="w-full border-[var(--dashboard-border)] text-[var(--dashboard-text)] hover:bg-[var(--dashboard-bg)]"
-                disabled={trainModelMutation.isPending}
-                data-testid="button-upload-historical-data"
-              >
-                Upload Historical Data
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>
