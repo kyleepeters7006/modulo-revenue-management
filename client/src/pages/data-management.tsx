@@ -1,8 +1,16 @@
 import Navigation from "@/components/navigation";
 import TemplateDownload from "@/components/dashboard/template-download";
+import FileUpload from "@/components/dashboard/file-upload";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
 
 export default function DataManagement() {
+  const [uploadHistory, setUploadHistory] = useState<any[]>([]);
+
+  const handleUploadComplete = (result: any) => {
+    setUploadHistory(prev => [result, ...prev]);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -18,6 +26,7 @@ export default function DataManagement() {
         </div>
 
         <div className="grid gap-6">
+          {/* Excel Template Download */}
           <Card>
             <CardHeader>
               <CardTitle>Excel Template</CardTitle>
@@ -27,19 +36,36 @@ export default function DataManagement() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Data</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600 mb-4">
-                Upload your monthly rent roll data using the template above.
-              </p>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <p className="text-gray-500">File upload functionality coming soon</p>
-              </div>
-            </CardContent>
-          </Card>
+          {/* File Upload */}
+          <FileUpload onUploadComplete={handleUploadComplete} />
+
+          {/* Upload History */}
+          {uploadHistory.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Uploads</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {uploadHistory.map((upload, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                      <div>
+                        <p className="font-medium text-green-900">
+                          {upload.uploadMonth} - {upload.recordsProcessed} records processed
+                        </p>
+                        <p className="text-sm text-green-600">
+                          Upload completed successfully
+                        </p>
+                      </div>
+                      <div className="text-green-500">
+                        ✓
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

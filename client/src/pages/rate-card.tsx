@@ -1,5 +1,5 @@
 import Navigation from "@/components/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import RateCardTable from "@/components/dashboard/rate-card-table";
 
 export default function RateCard() {
   return (
@@ -16,14 +16,7 @@ export default function RateCard() {
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Rate Card Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600">Rate card functionality coming soon</p>
-          </CardContent>
-        </Card>
+        <RateCardTable />
       </div>
     </div>
   );
