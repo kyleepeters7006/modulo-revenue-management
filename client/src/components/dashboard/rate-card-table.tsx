@@ -337,10 +337,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           <div className="flex items-center space-x-2">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800">
+                                <button 
+                                  className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                                  type="button"
+                                  data-testid={`tooltip-modulo-${unit.roomNumber}`}
+                                >
                                   <span>${unit.moduloSuggestedRate.toLocaleString()}</span>
                                   <Info className="h-3 w-3" />
-                                </span>
+                                </button>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="max-w-xs">
                                 <pre className="text-xs whitespace-pre-wrap">
@@ -367,10 +371,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           <div className="flex items-center space-x-2">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800">
+                                <button 
+                                  className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
+                                  type="button"
+                                  data-testid={`tooltip-ai-${unit.roomNumber}`}
+                                >
                                   <span>${unit.aiSuggestedRate.toLocaleString()}</span>
                                   <Info className="h-3 w-3" />
-                                </span>
+                                </button>
                               </TooltipTrigger>
                               <TooltipContent side="left" className="max-w-xs">
                                 <pre className="text-xs whitespace-pre-wrap">
