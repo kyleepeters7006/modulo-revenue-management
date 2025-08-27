@@ -643,8 +643,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Smart Insights (formerly AI)
-  app.post("/api/smart/suggest", async (req, res) => {
+  // AI Insights
+  app.post("/api/ai/suggest", async (req, res) => {
     try {
       const openaiKey = process.env.OPENAI_API_KEY;
       if (!openaiKey) {
@@ -707,12 +707,12 @@ Keep recommendations specific and quantitative when possible.`;
       });
 
     } catch (error) {
-      res.status(500).json({ error: `Smart analysis failed: ${error.message}` });
+      res.status(500).json({ error: `AI analysis failed: ${error.message}` });
     }
   });
 
   // Smart Analytics Training (formerly ML)
-  app.post("/api/smart/train", upload.single("file"), async (req, res) => {
+  app.post("/api/ai/train", upload.single("file"), async (req, res) => {
     try {
       let trainingData = [];
       let rows = 0;

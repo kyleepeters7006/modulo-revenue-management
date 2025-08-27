@@ -10,7 +10,7 @@ import CompetitorForm from "@/components/dashboard/competitor-form";
 import ComparisonTable from "@/components/dashboard/comparison-table";
 import UnitRecommendations from "@/components/dashboard/unit-recommendations";
 import AttributePricing from "@/components/dashboard/attribute-pricing";
-import SmartInsights from "@/components/dashboard/smart-insights";
+import AiInsights from "@/components/dashboard/ai-insights";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import AttributeMap from "@/components/dashboard/attribute-map";
 import BuildingMapUploader from "@/components/dashboard/building-map-uploader";
@@ -170,9 +170,9 @@ export default function Dashboard() {
             <BuildingMapUploader />
           </div>
 
-          {/* Smart Insights & Analytics */}
-          <div id="smart-insights" className="mb-16 scroll-mt-20">
-            <SmartInsights />
+          {/* AI Insights & Analytics */}
+          <div id="ai-insights" className="mb-16 scroll-mt-20">
+            <AiInsights />
           </div>
 
           {/* Guardrails Editor */}
