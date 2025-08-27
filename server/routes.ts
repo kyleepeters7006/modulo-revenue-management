@@ -1275,6 +1275,59 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
+  // Attribute ratings endpoints
+  app.get("/api/attribute-ratings", async (req, res) => {
+    try {
+      const ratings = await storage.getAttributeRatings();
+      res.json(ratings);
+    } catch (error) {
+      console.error('Error fetching attribute ratings:', error);
+      res.status(500).json({ error: 'Failed to fetch attribute ratings' });
+    }
+  });
+
+  app.post("/api/attribute-ratings/initialize", async (req, res) => {
+    try {
+      await storage.initializeDefaultAttributeRatings();
+      res.json({ success: true, message: 'Default attribute ratings initialized' });
+    } catch (error) {
+      console.error('Error initializing attribute ratings:', error);
+      res.status(500).json({ error: 'Failed to initialize attribute ratings' });
+    }
+  });
+
+  app.put("/api/attribute-ratings", async (req, res) => {
+    try {
+      const { attributeType, ratingLevel, adjustmentPercent, description } = req.body;
+      await storage.updateAttributeRating(attributeType, ratingLevel, adjustmentPercent, description);
+      res.json({ success: true, message: 'Attribute rating updated' });
+    } catch (error) {
+      console.error('Error updating attribute rating:', error);
+      res.status(500).json({ error: 'Failed to update attribute rating' });
+    }
+  });
+
+  // Update unit attribute ratings
+  app.put("/api/units/:id/attributes", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { locationRating, sizeRating, viewRating, renovationRating, amenityRating } = req.body;
+      
+      await storage.updateRentRollData(id, {
+        locationRating,
+        sizeRating, 
+        viewRating,
+        renovationRating,
+        amenityRating
+      });
+      
+      res.json({ success: true, message: 'Unit attributes updated' });
+    } catch (error) {
+      console.error('Error updating unit attributes:', error);
+      res.status(500).json({ error: 'Failed to update unit attributes' });
+    }
+  });
+
   // Test data seeding endpoint (for demo purposes)
   app.post("/api/test-data/seed", async (req, res) => {
     try {

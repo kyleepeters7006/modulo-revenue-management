@@ -7,6 +7,7 @@ import {
   pricingWeights,
   competitors,
   guardrails,
+  attributeRatings,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -22,10 +23,12 @@ import {
   type Competitor,
   type InsertCompetitor,
   type Guardrails,
-  type InsertGuardrails
+  type InsertGuardrails,
+  type AttributeRatings,
+  type InsertAttributeRatings
 } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import OpenAI from "openai";
 
 // Initialize OpenAI if API key is available
@@ -184,6 +187,62 @@ export class DatabaseStorage implements IStorage {
 
   async updateRentRollData(id: string, data: Partial<RentRollData>): Promise<void> {
     await db.update(rentRollData).set(data).where(eq(rentRollData.id, id));
+  }
+
+  // Attribute ratings operations
+  async getAttributeRatings(): Promise<any[]> {
+    return await db.select().from(attributeRatings);
+  }
+
+  async updateAttributeRating(attributeType: string, ratingLevel: string, adjustmentPercent: number, description?: string): Promise<void> {
+    const existing = await db.select().from(attributeRatings)
+      .where(and(eq(attributeRatings.attributeType, attributeType), eq(attributeRatings.ratingLevel, ratingLevel)));
+    
+    if (existing.length > 0) {
+      await db.update(attributeRatings)
+        .set({ adjustmentPercent, description, updatedAt: new Date() })
+        .where(and(eq(attributeRatings.attributeType, attributeType), eq(attributeRatings.ratingLevel, ratingLevel)));
+    } else {
+      await db.insert(attributeRatings).values({
+        attributeType,
+        ratingLevel,
+        adjustmentPercent,
+        description
+      });
+    }
+  }
+
+  async initializeDefaultAttributeRatings(): Promise<void> {
+    const defaultRatings = [
+      // Location ratings
+      { attributeType: 'location', ratingLevel: 'A', adjustmentPercent: 5, description: 'Premium location (Main Building, close to amenities)' },
+      { attributeType: 'location', ratingLevel: 'B', adjustmentPercent: 0, description: 'Standard location' },
+      { attributeType: 'location', ratingLevel: 'C', adjustmentPercent: -3, description: 'Less desirable location' },
+      
+      // Size ratings
+      { attributeType: 'size', ratingLevel: 'A', adjustmentPercent: 8, description: 'Large units (Two Bedroom)' },
+      { attributeType: 'size', ratingLevel: 'B', adjustmentPercent: 3, description: 'Medium units (One Bedroom)' },
+      { attributeType: 'size', ratingLevel: 'C', adjustmentPercent: 0, description: 'Smaller units (Studio)' },
+      
+      // View ratings
+      { attributeType: 'view', ratingLevel: 'A', adjustmentPercent: 4, description: 'Premium views (Garden, Courtyard)' },
+      { attributeType: 'view', ratingLevel: 'B', adjustmentPercent: 1, description: 'Partial view' },
+      { attributeType: 'view', ratingLevel: 'C', adjustmentPercent: 0, description: 'Standard/No view' },
+      
+      // Renovation ratings
+      { attributeType: 'renovation', ratingLevel: 'A', adjustmentPercent: 6, description: 'Recently renovated (within 2 years)' },
+      { attributeType: 'renovation', ratingLevel: 'B', adjustmentPercent: 2, description: 'Some updates' },
+      { attributeType: 'renovation', ratingLevel: 'C', adjustmentPercent: 0, description: 'No recent renovation' },
+      
+      // Amenity ratings  
+      { attributeType: 'amenity', ratingLevel: 'A', adjustmentPercent: 3, description: 'Premium amenities' },
+      { attributeType: 'amenity', ratingLevel: 'B', adjustmentPercent: 1, description: 'Standard amenities' },
+      { attributeType: 'amenity', ratingLevel: 'C', adjustmentPercent: 0, description: 'Basic amenities' }
+    ];
+
+    for (const rating of defaultRatings) {
+      await this.updateAttributeRating(rating.attributeType, rating.ratingLevel, rating.adjustmentPercent, rating.description);
+    }
   }
 
   // Upload history

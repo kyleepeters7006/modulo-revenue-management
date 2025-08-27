@@ -18,12 +18,13 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { Brain, Calculator, CheckCircle, AlertCircle } from "lucide-react";
+import { Brain, Calculator, CheckCircle, AlertCircle, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function RateCardTable() {
   const [selectedMonth, setSelectedMonth] = useState("2025-08");
+  const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -81,6 +82,19 @@ export default function RateCardTable() {
         description: "Street rates have been updated"
       });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+    }
+  });
+
+  const updateAttributesMutation = useMutation({
+    mutationFn: ({ unitId, attributes }: { unitId: string, attributes: any }) =>
+      apiRequest(`/api/units/${unitId}/attributes`, 'PUT', attributes),
+    onSuccess: () => {
+      toast({
+        title: "Attributes updated",
+        description: "Unit attribute ratings have been saved"
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      setEditingUnit(null);
     }
   });
 
@@ -221,6 +235,7 @@ export default function RateCardTable() {
                     <TableHead>Modulo</TableHead>
                     <TableHead>AI</TableHead>
                     <TableHead>Competitor</TableHead>
+                    <TableHead>Attributes</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -277,12 +292,189 @@ export default function RateCardTable() {
                         ${unit.competitorRate?.toLocaleString() || 0}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center space-x-1">
-                          {unit.renovated && (
-                            <Badge variant="outline" className="text-xs">Renovated</Badge>
-                          )}
-                          {unit.view && (
-                            <Badge variant="outline" className="text-xs">{unit.view}</Badge>
+                        {editingUnit === unit.id ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-medium">Location:</span>
+                              <Select
+                                value={unit.locationRating || 'B'}
+                                onValueChange={(value) => {
+                                  // Update local state for immediate feedback
+                                  unit.locationRating = value;
+                                }}
+                                data-testid={`select-location-rating-${unit.roomNumber}`}
+                              >
+                                <SelectTrigger className="w-16 h-7">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="A">A</SelectItem>
+                                  <SelectItem value="B">B</SelectItem>
+                                  <SelectItem value="C">C</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-medium">Size:</span>
+                              <Select
+                                value={unit.sizeRating || 'B'}
+                                onValueChange={(value) => {
+                                  unit.sizeRating = value;
+                                }}
+                                data-testid={`select-size-rating-${unit.roomNumber}`}
+                              >
+                                <SelectTrigger className="w-16 h-7">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="A">A</SelectItem>
+                                  <SelectItem value="B">B</SelectItem>
+                                  <SelectItem value="C">C</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-medium">View:</span>
+                              <Select
+                                value={unit.viewRating || 'B'}
+                                onValueChange={(value) => {
+                                  unit.viewRating = value;
+                                }}
+                                data-testid={`select-view-rating-${unit.roomNumber}`}
+                              >
+                                <SelectTrigger className="w-16 h-7">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="A">A</SelectItem>
+                                  <SelectItem value="B">B</SelectItem>
+                                  <SelectItem value="C">C</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-medium">Reno:</span>
+                              <Select
+                                value={unit.renovationRating || 'B'}
+                                onValueChange={(value) => {
+                                  unit.renovationRating = value;
+                                }}
+                                data-testid={`select-renovation-rating-${unit.roomNumber}`}
+                              >
+                                <SelectTrigger className="w-16 h-7">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="A">A</SelectItem>
+                                  <SelectItem value="B">B</SelectItem>
+                                  <SelectItem value="C">C</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-medium">Amenity:</span>
+                              <Select
+                                value={unit.amenityRating || 'B'}
+                                onValueChange={(value) => {
+                                  unit.amenityRating = value;
+                                }}
+                                data-testid={`select-amenity-rating-${unit.roomNumber}`}
+                              >
+                                <SelectTrigger className="w-16 h-7">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="A">A</SelectItem>
+                                  <SelectItem value="B">B</SelectItem>
+                                  <SelectItem value="C">C</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-500">Loc:</span>
+                              <Badge variant={unit.locationRating === 'A' ? 'default' : unit.locationRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
+                                {unit.locationRating || 'B'}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-500">Size:</span>
+                              <Badge variant={unit.sizeRating === 'A' ? 'default' : unit.sizeRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
+                                {unit.sizeRating || 'B'}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-500">View:</span>
+                              <Badge variant={unit.viewRating === 'A' ? 'default' : unit.viewRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
+                                {unit.viewRating || 'B'}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-500">Reno:</span>
+                              <Badge variant={unit.renovationRating === 'A' ? 'default' : unit.renovationRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
+                                {unit.renovationRating || 'B'}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-500">Amenity:</span>
+                              <Badge variant={unit.amenityRating === 'A' ? 'default' : unit.amenityRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
+                                {unit.amenityRating || 'B'}
+                              </Badge>
+                            </div>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          {editingUnit === unit.id ? (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  updateAttributesMutation.mutate({
+                                    unitId: unit.id,
+                                    attributes: {
+                                      locationRating: unit.locationRating || 'B',
+                                      sizeRating: unit.sizeRating || 'B',
+                                      viewRating: unit.viewRating || 'B',
+                                      renovationRating: unit.renovationRating || 'B',
+                                      amenityRating: unit.amenityRating || 'B'
+                                    }
+                                  });
+                                }}
+                                disabled={updateAttributesMutation.isPending}
+                                data-testid={`button-save-attributes-${unit.roomNumber}`}
+                              >
+                                <CheckCircle className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditingUnit(null)}
+                                data-testid={`button-cancel-attributes-${unit.roomNumber}`}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditingUnit(unit.id)}
+                                data-testid={`button-edit-attributes-${unit.roomNumber}`}
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              {unit.renovated && (
+                                <Badge variant="outline" className="text-xs">Renovated</Badge>
+                              )}
+                              {unit.view && (
+                                <Badge variant="outline" className="text-xs">{unit.view}</Badge>
+                              )}
+                            </>
                           )}
                         </div>
                       </TableCell>

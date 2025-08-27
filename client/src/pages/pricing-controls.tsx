@@ -1,6 +1,7 @@
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
+import AttributeManagement from "@/components/attribute-management";
 
 export default function PricingControls() {
   return (
@@ -20,6 +21,7 @@ export default function PricingControls() {
         <div className="space-y-8">
           <PricingWeights />
           <GuardrailsEditor />
+          <AttributeManagement />
         </div>
       </div>
     </div>

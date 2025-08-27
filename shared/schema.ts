@@ -52,6 +52,12 @@ export const rentRollData = pgTable("rent_roll_data", {
   view: text("view"), // Garden View, Courtyard View, Street View
   renovated: boolean("renovated").default(false),
   otherPremiumFeature: text("other_premium_feature"),
+  // A/B/C attribute ratings
+  locationRating: text("location_rating"), // A, B, or C
+  sizeRating: text("size_rating"), // A, B, or C  
+  viewRating: text("view_rating"), // A, B, or C
+  renovationRating: text("renovation_rating"), // A, B, or C
+  amenityRating: text("amenity_rating"), // A, B, or C
   streetRate: real("street_rate").notNull(),
   inHouseRate: real("in_house_rate").notNull(),
   discountToStreetRate: real("discount_to_street_rate"),
@@ -122,6 +128,17 @@ export const guardrails = pgTable("guardrails", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Attribute ratings configuration - A/B/C values for each attribute type
+export const attributeRatings = pgTable("attribute_ratings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  attributeType: text("attribute_type").notNull(), // location, size, view, renovation, amenity
+  ratingLevel: text("rating_level").notNull(), // A, B, C
+  adjustmentPercent: real("adjustment_percent").notNull(), // Percentage adjustment for pricing
+  description: text("description"), // Description of what this rating means
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Upload history tracking
 export const uploadHistory = pgTable("upload_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -170,6 +187,12 @@ export const insertUploadHistorySchema = createInsertSchema(uploadHistory).omit(
   processedAt: true,
 });
 
+export const insertAttributeRatingsSchema = createInsertSchema(attributeRatings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type RentRollData = typeof rentRollData.$inferSelect;
 export type InsertRentRollData = z.infer<typeof insertRentRollDataSchema>;
@@ -185,3 +208,5 @@ export type RateCard = typeof rateCard.$inferSelect;
 export type InsertRateCard = z.infer<typeof insertRateCardSchema>;
 export type UploadHistory = typeof uploadHistory.$inferSelect;
 export type InsertUploadHistory = z.infer<typeof insertUploadHistorySchema>;
+export type AttributeRatings = typeof attributeRatings.$inferSelect;
+export type InsertAttributeRatings = z.infer<typeof insertAttributeRatingsSchema>;
