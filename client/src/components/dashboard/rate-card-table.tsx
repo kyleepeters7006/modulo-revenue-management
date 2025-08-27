@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,8 +31,18 @@ import { apiRequest } from "@/lib/queryClient";
 export default function RateCardTable() {
   const [selectedMonth, setSelectedMonth] = useState("2025-08");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
+  const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Close tooltip when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setOpenTooltip(null);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const { data: rateCardData, isLoading } = useQuery({
     queryKey: ['/api/rate-card', selectedMonth],
@@ -335,23 +345,32 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {unit.moduloSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button 
-                                  className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
-                                  type="button"
-                                  data-testid={`tooltip-modulo-${unit.roomNumber}`}
-                                >
-                                  <span>${unit.moduloSuggestedRate.toLocaleString()}</span>
-                                  <Info className="h-3 w-3" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="left" className="max-w-xs">
-                                <pre className="text-xs whitespace-pre-wrap">
+                            <div className="relative">
+                              <button 
+                                className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const tooltipId = `modulo-${unit.id}`;
+                                  setOpenTooltip(openTooltip === tooltipId ? null : tooltipId);
+                                }}
+                                data-testid={`tooltip-modulo-${unit.roomNumber}`}
+                              >
+                                <span>${unit.moduloSuggestedRate.toLocaleString()}</span>
+                                <Info className="h-3 w-3" />
+                              </button>
+                              {openTooltip === `modulo-${unit.id}` && (
+                                <div className="absolute z-50 left-0 top-full mt-1 bg-black text-white text-xs p-3 rounded shadow-lg max-w-xs whitespace-pre-wrap">
                                   {getModuloTooltip(unit)}
-                                </pre>
-                              </TooltipContent>
-                            </Tooltip>
+                                  <button
+                                    className="absolute top-1 right-1 text-gray-300 hover:text-white"
+                                    onClick={() => setOpenTooltip(null)}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                             <Button
                               size="sm"
                               variant="outline"
@@ -369,23 +388,32 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {unit.aiSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button 
-                                  className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
-                                  type="button"
-                                  data-testid={`tooltip-ai-${unit.roomNumber}`}
-                                >
-                                  <span>${unit.aiSuggestedRate.toLocaleString()}</span>
-                                  <Info className="h-3 w-3" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="left" className="max-w-xs">
-                                <pre className="text-xs whitespace-pre-wrap">
+                            <div className="relative">
+                              <button 
+                                className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const tooltipId = `ai-${unit.id}`;
+                                  setOpenTooltip(openTooltip === tooltipId ? null : tooltipId);
+                                }}
+                                data-testid={`tooltip-ai-${unit.roomNumber}`}
+                              >
+                                <span>${unit.aiSuggestedRate.toLocaleString()}</span>
+                                <Info className="h-3 w-3" />
+                              </button>
+                              {openTooltip === `ai-${unit.id}` && (
+                                <div className="absolute z-50 left-0 top-full mt-1 bg-black text-white text-xs p-3 rounded shadow-lg max-w-xs whitespace-pre-wrap">
                                   {getAITooltip(unit)}
-                                </pre>
-                              </TooltipContent>
-                            </Tooltip>
+                                  <button
+                                    className="absolute top-1 right-1 text-gray-300 hover:text-white"
+                                    onClick={() => setOpenTooltip(null)}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                             <Button
                               size="sm"
                               variant="outline"
