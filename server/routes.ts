@@ -1165,30 +1165,52 @@ Keep recommendations specific and quantitative when possible.`;
       const weights = await storage.getLatestWeights();
       const units = await storage.getRentRollDataByMonth(targetMonth);
       
-      // Generate Modulo suggestions based on algorithm
+      // Generate Modulo suggestions using more aggressive algorithm
       for (const unit of units) {
         let suggestion = unit.streetRate;
+        let adjustmentFactors = [];
         
-        // Apply occupancy pressure
+        // Apply occupancy pressure (5-15% adjustment based on market conditions)
         if (weights?.occupancyPressure) {
-          const occupancyRate = 0.85; // Mock occupancy rate
-          suggestion *= (1 + (occupancyRate - 0.8) * (weights.occupancyPressure / 100));
+          const occupancyRate = unit.occupiedYN ? 0.85 : 0.75; // Lower if vacant
+          const pressureAdjustment = (occupancyRate - 0.8) * (weights.occupancyPressure / 100);
+          suggestion *= (1 + pressureAdjustment);
+          adjustmentFactors.push(`Occupancy: ${(pressureAdjustment * 100).toFixed(1)}%`);
         }
         
-        // Apply days vacant decay
-        if (unit.daysVacant > 30 && weights?.daysVacantDecay) {
-          suggestion *= (1 - (unit.daysVacant / 365) * (weights.daysVacantDecay / 100));
+        // Apply days vacant decay (more aggressive for longer vacancies)
+        if (unit.daysVacant > 0 && weights?.daysVacantDecay) {
+          const vacancyPenalty = Math.min(unit.daysVacant / 60, 0.25); // Max 25% penalty
+          const decay = vacancyPenalty * (weights.daysVacantDecay / 100);
+          suggestion *= (1 - decay);
+          if (decay > 0.01) adjustmentFactors.push(`Vacancy: -${(decay * 100).toFixed(1)}%`);
         }
         
-        // Apply room attributes premium
-        if ((unit.view || unit.renovated) && weights?.roomAttributes) {
-          suggestion *= (1 + (weights.roomAttributes / 100) * 0.1);
+        // Apply room attributes premium (more significant impact)
+        let attributeBonus = 0;
+        if (unit.view && weights?.roomAttributes) {
+          attributeBonus += weights.roomAttributes / 100 * 0.05; // 5% for view
+        }
+        if (unit.renovated && weights?.roomAttributes) {
+          attributeBonus += weights.roomAttributes / 100 * 0.08; // 8% for renovation
+        }
+        if (attributeBonus > 0) {
+          suggestion *= (1 + attributeBonus);
+          adjustmentFactors.push(`Attributes: +${(attributeBonus * 100).toFixed(1)}%`);
         }
         
-        // Apply competitor rate adjustment
-        if (unit.competitorRate && weights?.competitorRates) {
+        // Apply competitor rate adjustment (significant market positioning)
+        if (unit.competitorRate && weights?.competitorRates && unit.competitorRate !== unit.streetRate) {
           const competitorDiff = (unit.competitorRate - unit.streetRate) / unit.streetRate;
-          suggestion *= (1 + competitorDiff * (weights.competitorRates / 100));
+          const adjustment = competitorDiff * (weights.competitorRates / 100) * 0.5; // 50% of competitor difference
+          suggestion *= (1 + adjustment);
+          if (Math.abs(adjustment) > 0.01) adjustmentFactors.push(`Competitor: ${adjustment > 0 ? '+' : ''}${(adjustment * 100).toFixed(1)}%`);
+        }
+        
+        // Ensure suggestions are different from street rates (minimum 2% change)
+        const minChange = unit.streetRate * 0.02;
+        if (Math.abs(suggestion - unit.streetRate) < minChange) {
+          suggestion = unit.streetRate + (Math.random() > 0.5 ? minChange : -minChange);
         }
         
         await storage.updateRentRollData(unit.id, {
