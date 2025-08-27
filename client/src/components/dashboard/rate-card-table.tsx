@@ -29,6 +29,10 @@ export default function RateCardTable() {
 
   const { data: rateCardData, isLoading } = useQuery({
     queryKey: ['/api/rate-card', selectedMonth],
+    queryFn: async () => {
+      const response = await fetch(`/api/rate-card?month=${selectedMonth}`);
+      return response.json();
+    },
     enabled: !!selectedMonth
   });
 
