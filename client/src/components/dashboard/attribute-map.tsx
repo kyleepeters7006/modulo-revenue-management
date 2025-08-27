@@ -79,19 +79,50 @@ export default function AttributeMap() {
   const [filterAttribute, setFilterAttribute] = useState<string>('all');
   const [floorMap, setFloorMap] = useState<FloorMap | null>(null);
 
+  const { data: buildingMaps } = useQuery({
+    queryKey: ["/api/building-maps"],
+  });
+
   useEffect(() => {
-    // Load floor map data
-    fetch('/data/floor_map.json')
-      .then(res => res.json())
-      .then(data => setFloorMap(data))
-      .catch(err => console.error('Failed to load floor map:', err));
-  }, []);
+    // If no building maps are uploaded, create a demo floor map
+    if (buildingMaps && buildingMaps.items.length === 0) {
+      const demoFloorMap: FloorMap = {
+        image: "/demo-floor-plan.svg", // We'll create a simple SVG
+        units: [
+          // West Wing - Floor 1
+          { Unit_ID: "AL101", x: 50, y: 50, w: 80, h: 60 },
+          { Unit_ID: "AL102", x: 150, y: 50, w: 100, h: 60 },
+          { Unit_ID: "AL103", x: 270, y: 50, w: 100, h: 60 },
+          { Unit_ID: "AL104", x: 390, y: 50, w: 120, h: 60 },
+          { Unit_ID: "AL105", x: 50, y: 130, w: 80, h: 60 },
+          { Unit_ID: "AL106", x: 150, y: 130, w: 100, h: 60 },
+          { Unit_ID: "AL107", x: 270, y: 130, w: 100, h: 60 },
+          { Unit_ID: "AL108", x: 390, y: 130, w: 120, h: 60 },
+          
+          // East Wing - Floor 2
+          { Unit_ID: "AL201", x: 50, y: 220, w: 80, h: 60 },
+          { Unit_ID: "AL202", x: 150, y: 220, w: 100, h: 60 },
+          { Unit_ID: "AL203", x: 270, y: 220, w: 120, h: 60 },
+          { Unit_ID: "AL204", x: 410, y: 220, w: 80, h: 60 },
+          { Unit_ID: "AL205", x: 150, y: 300, w: 100, h: 60 },
+          { Unit_ID: "AL206", x: 270, y: 300, w: 120, h: 60 },
+          
+          // Memory Care
+          { Unit_ID: "MC01", x: 50, y: 390, w: 80, h: 60 },
+          { Unit_ID: "MC02", x: 150, y: 390, w: 100, h: 60 },
+          { Unit_ID: "MC03", x: 270, y: 390, w: 80, h: 60 },
+          { Unit_ID: "MC04", x: 370, y: 390, w: 100, h: 60 },
+        ]
+      };
+      setFloorMap(demoFloorMap);
+    }
+  }, [buildingMaps]);
 
   const { data: rentRoll } = useQuery({
     queryKey: ["/api/status"],
   });
 
-  if (!floorMap) {
+  if (!buildingMaps || !floorMap) {
     return (
       <Card className="dashboard-card">
         <CardHeader>
