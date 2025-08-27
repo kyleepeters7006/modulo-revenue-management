@@ -172,6 +172,20 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Additional methods needed for pricing suggestions
+  async getLatestWeights(): Promise<PricingWeights | undefined> {
+    return await this.getCurrentWeights();
+  }
+
+  async getRentRollDataById(id: string): Promise<RentRollData | undefined> {
+    const [unit] = await db.select().from(rentRollData).where(eq(rentRollData.id, id));
+    return unit;
+  }
+
+  async updateRentRollData(id: string, data: Partial<RentRollData>): Promise<void> {
+    await db.update(rentRollData).set(data).where(eq(rentRollData.id, id));
+  }
+
   // Upload history
   async createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory> {
     const [history] = await db.insert(uploadHistory).values(data).returning();

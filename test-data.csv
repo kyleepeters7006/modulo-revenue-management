@@ -1,0 +1,21 @@
+Location,RoomNumber,RoomType,OccupiedYN,DaysVacant,Size,View,Renovated,StreetRate,InHouseRate,CareLevel,CareRate,CompetitorRate,CompetitorAvgCareRate
+Main Building,101,Studio,Y,0,Studio,Garden View,Y,4200,3800,Independent,850,4100,900
+Main Building,102,Studio,N,45,Studio,,N,3800,3400,Assisted,1200,3850,950
+Main Building,103,One Bedroom,Y,0,One Bedroom,Courtyard View,N,4800,4200,Independent,800,4750,850
+Main Building,104,One Bedroom,N,12,One Bedroom,Street View,Y,4600,4100,Memory Care,1800,4650,1750
+Main Building,105,Studio,Y,0,Studio,,N,3600,3200,Independent,750,3650,800
+Main Building,201,Two Bedroom,N,78,Two Bedroom,Garden View,Y,5800,5200,Assisted,1300,5750,1250
+Main Building,202,Studio,Y,0,Studio,,Y,4000,3600,Independent,900,3950,850
+Main Building,203,One Bedroom,N,22,One Bedroom,Courtyard View,N,4400,3900,Assisted,1100,4350,1050
+Main Building,204,One Bedroom,Y,0,One Bedroom,Street View,Y,4700,4100,Independent,800,4650,850
+Main Building,205,Studio,N,89,Studio,,N,3500,3100,Memory Care,1900,3550,1850
+East Wing,301,Studio,Y,0,Studio,Garden View,N,3900,3500,Independent,750,3850,800
+East Wing,302,Two Bedroom,N,34,Two Bedroom,Courtyard View,Y,5600,5000,Assisted,1250,5550,1200
+East Wing,303,One Bedroom,Y,0,One Bedroom,Street View,N,4300,3800,Independent,850,4250,800
+East Wing,304,Studio,N,156,Studio,,N,3300,2900,Assisted,1400,3400,1350
+East Wing,305,One Bedroom,Y,0,One Bedroom,Garden View,Y,4900,4300,Independent,900,4800,850
+West Wing,401,Two Bedroom,N,67,Two Bedroom,Street View,N,5400,4800,Memory Care,2000,5350,1950
+West Wing,402,Studio,Y,0,Studio,Courtyard View,Y,4100,3700,Independent,800,4050,850
+West Wing,403,One Bedroom,N,23,One Bedroom,Garden View,N,4500,4000,Assisted,1150,4450,1100
+West Wing,404,Studio,Y,0,Studio,,N,3700,3300,Independent,750,3650,800
+West Wing,405,Two Bedroom,N,45,Two Bedroom,Street View,Y,5700,5100,Assisted,1300,5650,1250

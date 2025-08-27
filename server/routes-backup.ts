@@ -1275,132 +1275,67 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Test data seeding endpoint (for demo purposes)
-  app.post("/api/test-data/seed", async (req, res) => {
-    try {
-      const currentMonth = new Date().toISOString().substring(0, 7);
-      
-      // Sample rent roll data
-      const testData = [
-        {
-          uploadMonth: currentMonth,
-          date: new Date().toISOString().split('T')[0],
-          location: "Main Building",
-          roomNumber: "101",
-          roomType: "Studio", 
-          occupiedYN: true,
-          daysVacant: 0,
-          size: "Studio",
-          view: "Garden View",
-          renovated: true,
-          streetRate: 4200,
-          inHouseRate: 3800,
-          careLevel: "Independent",
-          careRate: 850,
-          competitorRate: 4100,
-          competitorAvgCareRate: 900,
-          promotionAllowance: 100
-        },
-        {
-          uploadMonth: currentMonth,
-          date: new Date().toISOString().split('T')[0],
-          location: "Main Building",
-          roomNumber: "102", 
-          roomType: "Studio",
-          occupiedYN: false,
-          daysVacant: 45,
-          size: "Studio",
-          view: null,
-          renovated: false,
-          streetRate: 3800,
-          inHouseRate: 3400,
-          careLevel: "Assisted", 
-          careRate: 1200,
-          competitorRate: 3850,
-          competitorAvgCareRate: 950,
-          promotionAllowance: 150
-        },
-        {
-          uploadMonth: currentMonth,
-          date: new Date().toISOString().split('T')[0],
-          location: "East Wing",
-          roomNumber: "201",
-          roomType: "One Bedroom",
-          occupiedYN: true,
-          daysVacant: 0,
-          size: "One Bedroom",
-          view: "Courtyard View", 
-          renovated: false,
-          streetRate: 4800,
-          inHouseRate: 4200,
-          careLevel: "Independent",
-          careRate: 800,
-          competitorRate: 4750,
-          competitorAvgCareRate: 850,
-          promotionAllowance: 50
-        },
-        {
-          uploadMonth: currentMonth,
-          date: new Date().toISOString().split('T')[0],
-          location: "West Wing",
-          roomNumber: "301",
-          roomType: "Two Bedroom",
-          occupiedYN: false,
-          daysVacant: 78,
-          size: "Two Bedroom",
-          view: "Garden View",
-          renovated: true,
-          streetRate: 5800,
-          inHouseRate: 5200,
-          careLevel: "Assisted",
-          careRate: 1300,
-          competitorRate: 5750,
-          competitorAvgCareRate: 1250,
-          promotionAllowance: 200
-        },
-        {
-          uploadMonth: currentMonth,
-          date: new Date().toISOString().split('T')[0],
-          location: "East Wing", 
-          roomNumber: "202",
-          roomType: "Studio",
-          occupiedYN: false,
-          daysVacant: 156,
-          size: "Studio",
-          view: null,
-          renovated: false,
-          streetRate: 3300,
-          inHouseRate: 2900,
-          careLevel: "Memory Care",
-          careRate: 1900,
-          competitorRate: 3400,
-          competitorAvgCareRate: 1850,
-          promotionAllowance: 300
-        }
-      ];
+  const httpServer = createServer(app);
+  return httpServer;
+}
+      const pricingWeights = await storage.getPricingWeights();
+      const guardrails = await storage.getGuardrails();
 
-      // Clear existing data and insert test data
-      await storage.clearRentRollData();
-      for (const unit of testData) {
-        await storage.createRentRollData(unit);
-      }
+      // Apply Modulo pricing algorithm
+      const updatedUnits = await storage.generateModuloPricingSuggestions(units, pricingWeights[0], guardrails[0]);
 
-      // Generate rate card summary
-      await storage.generateRateCard(currentMonth);
-
-      res.json({ 
-        success: true, 
-        recordsProcessed: testData.length,
-        uploadMonth: currentMonth,
-        message: "Test data seeded successfully"
+      res.json({
+        message: 'Modulo pricing suggestions generated',
+        updatedUnits: updatedUnits.length
       });
     } catch (error) {
-      console.error('Test data seeding error:', error);
-      res.status(500).json({ error: 'Failed to seed test data' });
+      console.error('Modulo pricing error:', error);
+      res.status(500).json({ error: 'Failed to generate Modulo pricing suggestions' });
+    }
+  });
+
+  // Generate AI pricing suggestions using OpenAI
+  app.post("/api/pricing/generate-ai", isAuthenticated, async (req, res) => {
+    try {
+      const { month } = req.body;
+      const targetMonth = month || new Date().toISOString().substring(0, 7);
+      
+      const units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      if (!process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ error: 'OpenAI API key not configured' });
+      }
+
+      // Generate AI suggestions for each unit
+      const updatedUnits = await storage.generateAIPricingSuggestions(units);
+
+      res.json({
+        message: 'AI pricing suggestions generated',
+        updatedUnits: updatedUnits.length
+      });
+    } catch (error) {
+      console.error('AI pricing error:', error);
+      res.status(500).json({ error: 'Failed to generate AI pricing suggestions' });
+    }
+  });
+
+  // Accept pricing suggestions endpoint
+  app.post("/api/pricing/accept-suggestions", isAuthenticated, async (req, res) => {
+    try {
+      const { unitIds, suggestionType } = req.body; // 'modulo' or 'ai'
+      
+      const updatedCount = await storage.acceptPricingSuggestions(unitIds, suggestionType);
+      
+      res.json({
+        message: `${suggestionType} suggestions accepted`,
+        updatedUnits: updatedCount
+      });
+    } catch (error) {
+      console.error('Accept suggestions error:', error);
+      res.status(500).json({ error: 'Failed to accept suggestions' });
     }
   });
 
   const httpServer = createServer(app);
   return httpServer;
 }
-      const pricingWeights = await storage.getPricingWeights();
