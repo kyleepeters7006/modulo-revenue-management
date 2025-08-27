@@ -37,17 +37,47 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Updated rent roll data table with complete field structure
 export const rentRollData = pgTable("rent_roll_data", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  unitId: text("unit_id").notNull(),
-  occupiedYN: boolean("occupied_yn").notNull(),
-  baseRent: real("base_rent").notNull(),
-  careFee: real("care_fee"),
+  uploadMonth: text("upload_month").notNull(), // Format: YYYY-MM
+  date: text("date").notNull(),
+  location: text("location").notNull(),
+  roomNumber: text("room_number").notNull(),
   roomType: text("room_type").notNull(),
-  competitorBenchmarkRate: real("competitor_benchmark_rate"),
-  competitorAvgCareRate: real("competitor_avg_care_rate"),
+  occupiedYN: boolean("occupied_yn").notNull(),
   daysVacant: integer("days_vacant").default(0),
-  attributes: jsonb("attributes"),
+  preferredLocation: text("preferred_location"), // Premium location flag
+  size: text("size").notNull(), // Studio, One Bedroom, Two Bedroom
+  view: text("view"), // Garden View, Courtyard View, Street View
+  renovated: boolean("renovated").default(false),
+  otherPremiumFeature: text("other_premium_feature"),
+  streetRate: real("street_rate").notNull(),
+  inHouseRate: real("in_house_rate").notNull(),
+  discountToStreetRate: real("discount_to_street_rate"),
+  careLevel: text("care_level"),
+  careRate: real("care_rate"),
+  rentAndCareRate: real("rent_and_care_rate"),
+  competitorRate: real("competitor_rate"),
+  competitorAvgCareRate: real("competitor_avg_care_rate"),
+  competitorFinalRate: real("competitor_final_rate"),
+  moduloSuggestedRate: real("modulo_suggested_rate"),
+  aiSuggestedRate: real("ai_suggested_rate"),
+  promotionAllowance: real("promotion_allowance"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Rate card summary by room type
+export const rateCard = pgTable("rate_card", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  uploadMonth: text("upload_month").notNull(),
+  roomType: text("room_type").notNull(),
+  averageStreetRate: real("average_street_rate"),
+  averageModuloRate: real("average_modulo_rate"),
+  averageAiRate: real("average_ai_rate"),
+  occupancyCount: integer("occupancy_count"),
+  totalUnits: integer("total_units"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const assumptions = pgTable("assumptions", {
@@ -81,19 +111,24 @@ export const competitors = pgTable("competitors", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Dynamic pricing guardrails
 export const guardrails = pgTable("guardrails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  config: jsonb("config").notNull(),
+  minRateDecrease: real("min_rate_decrease").default(0.05), // 5% minimum
+  maxRateIncrease: real("max_rate_increase").default(0.15), // 15% maximum
+  occupancyThresholds: jsonb("occupancy_thresholds"), // Different rates for different occupancy levels
+  seasonalAdjustments: jsonb("seasonal_adjustments"),
+  competitorVarianceLimit: real("competitor_variance_limit").default(0.10), // 10% variance from competitor rates
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const mlModels = pgTable("ml_models", {
+// Upload history tracking
+export const uploadHistory = pgTable("upload_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
-  r2Score: real("r2_score"),
-  trainingRows: integer("training_rows"),
-  modelData: jsonb("model_data"),
-  createdAt: timestamp("created_at").defaultNow(),
+  uploadMonth: text("upload_month").notNull(), // YYYY-MM format
+  fileName: text("file_name").notNull(),
+  totalRecords: integer("total_records"),
+  processedAt: timestamp("processed_at").defaultNow(),
 });
 
 export type UpsertUser = typeof users.$inferInsert;
@@ -125,9 +160,14 @@ export const insertGuardrailsSchema = createInsertSchema(guardrails).omit({
   createdAt: true,
 });
 
-export const insertMlModelSchema = createInsertSchema(mlModels).omit({
+export const insertRateCardSchema = createInsertSchema(rateCard).omit({
   id: true,
   createdAt: true,
+});
+
+export const insertUploadHistorySchema = createInsertSchema(uploadHistory).omit({
+  id: true,
+  processedAt: true,
 });
 
 // Types
@@ -141,5 +181,7 @@ export type Competitor = typeof competitors.$inferSelect;
 export type InsertCompetitor = z.infer<typeof insertCompetitorSchema>;
 export type Guardrails = typeof guardrails.$inferSelect;
 export type InsertGuardrails = z.infer<typeof insertGuardrailsSchema>;
-export type MlModel = typeof mlModels.$inferSelect;
-export type InsertMlModel = z.infer<typeof insertMlModelSchema>;
+export type RateCard = typeof rateCard.$inferSelect;
+export type InsertRateCard = z.infer<typeof insertRateCardSchema>;
+export type UploadHistory = typeof uploadHistory.$inferSelect;
+export type InsertUploadHistory = z.infer<typeof insertUploadHistorySchema>;

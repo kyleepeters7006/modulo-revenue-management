@@ -1,9 +1,20 @@
 import { 
   users,
+  rentRollData,
+  rateCard,
+  uploadHistory,
+  assumptions,
+  pricingWeights,
+  competitors,
+  guardrails,
   type User, 
   type UpsertUser,
   type RentRollData,
   type InsertRentRollData,
+  type RateCard,
+  type InsertRateCard,
+  type UploadHistory,
+  type InsertUploadHistory,
   type Assumptions,
   type InsertAssumptions,
   type PricingWeights,
@@ -11,9 +22,7 @@ import {
   type Competitor,
   type InsertCompetitor,
   type Guardrails,
-  type InsertGuardrails,
-  type MlModel,
-  type InsertMlModel
+  type InsertGuardrails
 } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -26,16 +35,26 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
-  // Rent roll data
+  // Rent roll data operations
   getRentRollData(): Promise<RentRollData[]>;
+  getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
+  bulkInsertRentRollData(data: any[]): Promise<void>;
   clearRentRollData(): Promise<void>;
+  
+  // Rate card operations
+  getRateCardByMonth(uploadMonth: string): Promise<RateCard[]>;
+  generateRateCard(uploadMonth: string): Promise<void>;
+  
+  // Upload history
+  createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory>;
   
   // Assumptions
   getCurrentAssumptions(): Promise<Assumptions | undefined>;
   createOrUpdateAssumptions(data: InsertAssumptions): Promise<Assumptions>;
   
   // Pricing weights
+  getPricingWeights(): Promise<PricingWeights[]>;
   getCurrentWeights(): Promise<PricingWeights | undefined>;
   createOrUpdateWeights(data: InsertPricingWeights): Promise<PricingWeights>;
   
@@ -46,12 +65,14 @@ export interface IStorage {
   clearCompetitors(): Promise<void>;
   
   // Guardrails
+  getGuardrails(): Promise<Guardrails[]>;
   getCurrentGuardrails(): Promise<Guardrails | undefined>;
   createOrUpdateGuardrails(data: InsertGuardrails): Promise<Guardrails>;
   
-  // ML Models
-  getMlModels(): Promise<MlModel[]>;
-  createMlModel(data: InsertMlModel): Promise<MlModel>;
+  // Pricing suggestions
+  generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]>;
+  generateAIPricingSuggestions(units: any[]): Promise<any[]>;
+  acceptPricingSuggestions(unitIds: string[], suggestionType: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {

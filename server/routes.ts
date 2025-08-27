@@ -16,6 +16,7 @@ import {
   insertMlModelSchema
 } from "@shared/schema";
 import { demoCompetitors, demoRentRoll } from "./seed-data";
+import * as XLSX from 'xlsx';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -871,6 +872,285 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error("Seed error:", error);
       res.status(500).json({ error: "Failed to seed demo data" });
+    }
+  });
+
+  // Template download endpoint
+  app.get("/api/template/download", isAuthenticated, async (req, res) => {
+    try {
+      // Create Excel template with field headers and one dummy row
+      const templateData = [
+        {
+          date: '2024-01-31',
+          location: 'West Wing', 
+          'room number': 'AL101',
+          'room type': 'Studio',
+          'occupied Y/N': 'Y',
+          'days vacant': 0,
+          'preferred location': 'Yes',
+          size: 'Studio',
+          view: 'Garden View',
+          renovated: 'Yes',
+          'other premium feature': 'Kitchenette, Walk-in Shower',
+          'street rate': 3200,
+          'in-house rate': 3000,
+          'discount to street rate': 200,
+          'care level': 'Independent Living',
+          'care rate': 500,
+          'rent and care rate': 3500,
+          'competitor rate': 3150,
+          'competitor average care rate': 480,
+          'competitor final rate': 3630
+        }
+      ];
+
+      const worksheet = XLSX.utils.json_to_sheet(templateData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Rent Roll Data');
+
+      // Write to buffer
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=rent_roll_template.xlsx');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Template download error:', error);
+      res.status(500).json({ error: 'Failed to generate template' });
+    }
+  });
+
+  // Data upload endpoint
+  app.post("/api/upload/rent-roll", isAuthenticated, upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const buffer = req.file.buffer;
+      let jsonData: any[] = [];
+
+      // Parse file based on type
+      if (req.file.originalname.endsWith('.csv')) {
+        const csvText = buffer.toString();
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        jsonData = parsed.data as any[];
+      } else if (req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        jsonData = XLSX.utils.sheet_to_json(worksheet);
+      } else {
+        return res.status(400).json({ error: 'Unsupported file format. Please use CSV or Excel files.' });
+      }
+
+      if (jsonData.length === 0) {
+        return res.status(400).json({ error: 'No data found in file' });
+      }
+
+      // Process and store data
+      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM format
+      const processedRecords: any[] = [];
+
+      for (const row of jsonData) {
+        const rentRollEntry = {
+          uploadMonth: currentMonth,
+          date: row.date || new Date().toISOString().split('T')[0],
+          location: row.location || '',
+          roomNumber: row['room number'] || '',
+          roomType: row['room type'] || '',
+          occupiedYN: (row['occupied Y/N'] || '').toLowerCase() === 'y',
+          daysVacant: parseInt(row['days vacant']) || 0,
+          preferredLocation: row['preferred location'] || null,
+          size: row.size || '',
+          view: row.view || null,
+          renovated: (row.renovated || '').toLowerCase() === 'yes',
+          otherPremiumFeature: row['other premium feature'] || null,
+          streetRate: parseFloat(row['street rate']) || 0,
+          inHouseRate: parseFloat(row['in-house rate']) || 0,
+          discountToStreetRate: parseFloat(row['discount to street rate']) || 0,
+          careLevel: row['care level'] || null,
+          careRate: parseFloat(row['care rate']) || 0,
+          rentAndCareRate: parseFloat(row['rent and care rate']) || 0,
+          competitorRate: parseFloat(row['competitor rate']) || 0,
+          competitorAvgCareRate: parseFloat(row['competitor average care rate']) || 0,
+          competitorFinalRate: parseFloat(row['competitor final rate']) || 0,
+          moduloSuggestedRate: null,
+          aiSuggestedRate: null,
+          promotionAllowance: 0
+        };
+
+        processedRecords.push(rentRollEntry);
+      }
+
+      // Store in database
+      await storage.bulkInsertRentRollData(processedRecords);
+      
+      // Track upload history
+      await storage.createUploadHistory({
+        uploadMonth: currentMonth,
+        fileName: req.file.originalname,
+        totalRecords: processedRecords.length
+      });
+
+      // Generate rate card summary
+      await storage.generateRateCard(currentMonth);
+
+      res.json({
+        message: 'Upload successful',
+        recordsProcessed: processedRecords.length,
+        uploadMonth: currentMonth
+      });
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({ error: 'Failed to process upload' });
+    }
+  });
+
+  // Overview dashboard endpoint
+  app.get("/api/overview", isAuthenticated, async (req, res) => {
+    try {
+      const currentMonth = new Date().toISOString().substring(0, 7);
+      const rentRollData = await storage.getRentRollDataByMonth(currentMonth);
+      
+      // If no current data, use demo data
+      if (rentRollData.length === 0) {
+        const demoOverview = {
+          occupancyByRoomType: [
+            { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0 },
+            { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0 },
+            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0 },
+            { roomType: 'Memory Care', occupied: 3, total: 5, occupancyRate: 60.0 }
+          ],
+          currentAnnualRevenue: 2100000,
+          potentialAnnualRevenue: 2700000,
+          totalUnits: 50,
+          occupiedUnits: 41
+        };
+        return res.json(demoOverview);
+      }
+
+      // Calculate real overview data
+      const roomTypeStats = rentRollData.reduce((acc: any, unit: any) => {
+        if (!acc[unit.roomType]) {
+          acc[unit.roomType] = { occupied: 0, total: 0 };
+        }
+        acc[unit.roomType].total++;
+        if (unit.occupiedYN) {
+          acc[unit.roomType].occupied++;
+        }
+        return acc;
+      }, {});
+
+      const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => ({
+        roomType,
+        occupied: stats.occupied,
+        total: stats.total,
+        occupancyRate: (stats.occupied / stats.total) * 100
+      }));
+
+      const totalUnits = rentRollData.length;
+      const occupiedUnits = rentRollData.filter(u => u.occupiedYN).length;
+      const currentAnnualRevenue = rentRollData.reduce((sum, u) => sum + (u.occupiedYN ? u.streetRate * 12 : 0), 0);
+      const potentialAnnualRevenue = rentRollData.reduce((sum, u) => sum + u.streetRate * 12, 0);
+
+      res.json({
+        occupancyByRoomType,
+        currentAnnualRevenue,
+        potentialAnnualRevenue,
+        totalUnits,
+        occupiedUnits
+      });
+
+    } catch (error) {
+      console.error('Overview data error:', error);
+      res.status(500).json({ error: 'Failed to fetch overview data' });
+    }
+  });
+
+  // Rate card endpoint - shows summary and unit-level view
+  app.get("/api/rate-card", isAuthenticated, async (req, res) => {
+    try {
+      const { month } = req.query;
+      const targetMonth = month as string || new Date().toISOString().substring(0, 7);
+      
+      const rateCardSummary = await storage.getRateCardByMonth(targetMonth);
+      const unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
+
+      res.json({
+        summary: rateCardSummary,
+        units: unitLevelData,
+        month: targetMonth
+      });
+    } catch (error) {
+      console.error('Rate card error:', error);
+      res.status(500).json({ error: 'Failed to fetch rate card data' });
+    }
+  });
+
+  // Generate Modulo pricing suggestions
+  app.post("/api/pricing/generate-modulo", isAuthenticated, async (req, res) => {
+    try {
+      const { month } = req.body;
+      const targetMonth = month || new Date().toISOString().substring(0, 7);
+      
+      const units = await storage.getRentRollDataByMonth(targetMonth);
+      const pricingWeights = await storage.getPricingWeights();
+      const guardrails = await storage.getGuardrails();
+
+      // Apply Modulo pricing algorithm
+      const updatedUnits = await storage.generateModuloPricingSuggestions(units, pricingWeights[0], guardrails[0]);
+
+      res.json({
+        message: 'Modulo pricing suggestions generated',
+        updatedUnits: updatedUnits.length
+      });
+    } catch (error) {
+      console.error('Modulo pricing error:', error);
+      res.status(500).json({ error: 'Failed to generate Modulo pricing suggestions' });
+    }
+  });
+
+  // Generate AI pricing suggestions using OpenAI
+  app.post("/api/pricing/generate-ai", isAuthenticated, async (req, res) => {
+    try {
+      const { month } = req.body;
+      const targetMonth = month || new Date().toISOString().substring(0, 7);
+      
+      const units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      if (!process.env.OPENAI_API_KEY) {
+        return res.status(400).json({ error: 'OpenAI API key not configured' });
+      }
+
+      // Generate AI suggestions for each unit
+      const updatedUnits = await storage.generateAIPricingSuggestions(units);
+
+      res.json({
+        message: 'AI pricing suggestions generated',
+        updatedUnits: updatedUnits.length
+      });
+    } catch (error) {
+      console.error('AI pricing error:', error);
+      res.status(500).json({ error: 'Failed to generate AI pricing suggestions' });
+    }
+  });
+
+  // Accept pricing suggestions endpoint
+  app.post("/api/pricing/accept-suggestions", isAuthenticated, async (req, res) => {
+    try {
+      const { unitIds, suggestionType } = req.body; // 'modulo' or 'ai'
+      
+      const updatedCount = await storage.acceptPricingSuggestions(unitIds, suggestionType);
+      
+      res.json({
+        message: `${suggestionType} suggestions accepted`,
+        updatedUnits: updatedCount
+      });
+    } catch (error) {
+      console.error('Accept suggestions error:', error);
+      res.status(500).json({ error: 'Failed to accept suggestions' });
     }
   });
 
