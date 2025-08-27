@@ -18,7 +18,13 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { Brain, Calculator, CheckCircle, AlertCircle, Edit } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -98,6 +104,79 @@ export default function RateCardTable() {
     }
   });
 
+  // Helper function to generate Modulo calculation explanation
+  const getModuloTooltip = (unit: any) => {
+    if (!unit.moduloSuggestedRate || unit.moduloSuggestedRate === unit.streetRate) {
+      return "No Modulo suggestions available";
+    }
+
+    const change = unit.moduloSuggestedRate - unit.streetRate;
+    const changePercent = ((change / unit.streetRate) * 100).toFixed(1);
+    
+    let factors = [];
+    
+    // Occupancy factor
+    if (unit.occupiedYN) {
+      factors.push("✓ Unit occupied: +2% market positioning");
+    } else {
+      factors.push("⚠ Unit vacant: -1.5% to attract residents");
+    }
+    
+    // Days vacant factor
+    if (unit.daysVacant > 30) {
+      const penalty = Math.min((unit.daysVacant / 60) * 5, 15);
+      factors.push(`⏰ ${unit.daysVacant} days vacant: -${penalty.toFixed(1)}% urgency discount`);
+    }
+    
+    // Attributes factor
+    let attributeBonus = 0;
+    if (unit.view) attributeBonus += 3;
+    if (unit.renovated) attributeBonus += 5;
+    if (attributeBonus > 0) {
+      factors.push(`⭐ Premium features: +${attributeBonus}% (${unit.view ? 'View' : ''}${unit.view && unit.renovated ? ', ' : ''}${unit.renovated ? 'Renovated' : ''})`);
+    }
+    
+    // Competitor factor
+    if (unit.competitorRate && Math.abs(unit.competitorRate - unit.streetRate) > 50) {
+      const competitorDiff = unit.competitorRate - unit.streetRate;
+      const adjustment = (competitorDiff / unit.streetRate * 50).toFixed(1);
+      factors.push(`🏢 Competitor rate $${unit.competitorRate?.toLocaleString()}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
+    }
+
+    return `Modulo Algorithm Calculation:
+    
+Base Rate: $${unit.streetRate?.toLocaleString()}
+${factors.join('\n')}
+
+Final Rate: $${unit.moduloSuggestedRate?.toLocaleString()} (${change > 0 ? '+' : ''}${changePercent}%)
+
+The Modulo algorithm considers occupancy pressure, vacancy duration, unit attributes, and competitor positioning to optimize pricing.`;
+  };
+
+  // Helper function to generate AI calculation explanation  
+  const getAITooltip = (unit: any) => {
+    if (!unit.aiSuggestedRate) {
+      return "No AI suggestions available";
+    }
+
+    const change = unit.aiSuggestedRate - unit.streetRate;
+    const changePercent = ((change / unit.streetRate) * 100).toFixed(1);
+    
+    return `AI Pricing Analysis:
+
+Base Rate: $${unit.streetRate?.toLocaleString()}
+AI Suggested: $${unit.aiSuggestedRate?.toLocaleString()} (${change > 0 ? '+' : ''}${changePercent}%)
+
+Analysis Factors:
+🧠 Market intelligence and patterns
+🏘️ Comparable unit analysis
+📊 Historical occupancy trends  
+🎯 Competitive positioning
+🔮 Predictive modeling
+
+The AI considers complex market dynamics, seasonal patterns, and competitive intelligence to generate data-driven pricing recommendations.`;
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -119,7 +198,8 @@ export default function RateCardTable() {
   const summary = rateCardData?.summary || [];
 
   return (
-    <div className="space-y-6">
+    <TooltipProvider>
+      <div className="space-y-6">
       {/* Controls */}
       <Card>
         <CardHeader>
@@ -255,7 +335,19 @@ export default function RateCardTable() {
                       <TableCell>
                         {unit.moduloSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <span>${unit.moduloSuggestedRate.toLocaleString()}</span>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800">
+                                  <span>${unit.moduloSuggestedRate.toLocaleString()}</span>
+                                  <Info className="h-3 w-3" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-xs">
+                                <pre className="text-xs whitespace-pre-wrap">
+                                  {getModuloTooltip(unit)}
+                                </pre>
+                              </TooltipContent>
+                            </Tooltip>
                             <Button
                               size="sm"
                               variant="outline"
@@ -273,7 +365,19 @@ export default function RateCardTable() {
                       <TableCell>
                         {unit.aiSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <span>${unit.aiSuggestedRate.toLocaleString()}</span>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800">
+                                  <span>${unit.aiSuggestedRate.toLocaleString()}</span>
+                                  <Info className="h-3 w-3" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-xs">
+                                <pre className="text-xs whitespace-pre-wrap">
+                                  {getAITooltip(unit)}
+                                </pre>
+                              </TooltipContent>
+                            </Tooltip>
                             <Button
                               size="sm"
                               variant="outline"
@@ -489,5 +593,6 @@ export default function RateCardTable() {
         </CardContent>
       </Card>
     </div>
+    </TooltipProvider>
   );
 }
