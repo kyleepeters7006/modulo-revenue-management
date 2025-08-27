@@ -35,11 +35,11 @@ export default function Navigation({ className }: NavigationProps) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center space-x-8">
-            {/* Trilogy Logo */}
+            {/* Modulo Logo */}
             <Link href="/overview" className="flex items-center space-x-2" data-testid="link-home">
               <img 
-                src="/@fs/home/runner/workspace/attached_assets/image_1756172896932.png" 
-                alt="Trilogy Health Services" 
+                src="/@fs/home/runner/workspace/attached_assets/image_1756172904290.png" 
+                alt="Modulo Revenue Management" 
                 className="h-10 w-auto"
               />
             </Link>
