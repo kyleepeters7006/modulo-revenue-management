@@ -661,7 +661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         averageRent: rentRollData.reduce((sum, u) => sum + u.baseRent, 0) / rentRollData.length,
         vacantUnitsOver30Days: rentRollData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length,
         competitorCount: competitors.length,
-        marketSentiment: marketData.lastMonthReturnPct > 1 ? "bullish" : marketData.lastMonthReturnPct < -1 ? "bearish" : "neutral"
+        marketSentiment: marketDataCache.lastMonthReturnPct > 1 ? "bullish" : marketDataCache.lastMonthReturnPct < -1 ? "bearish" : "neutral"
       };
 
       const prompt = `As a revenue management expert, analyze this senior living property data and provide 3-4 specific pricing recommendations:
