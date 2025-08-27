@@ -9,8 +9,8 @@ import CompetitorMap from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
 import ComparisonTable from "@/components/dashboard/comparison-table";
 import UnitRecommendations from "@/components/dashboard/unit-recommendations";
-import AiInsights from "@/components/dashboard/ai-insights";
-import MlTrainer from "@/components/dashboard/ml-trainer";
+import AttributePricing from "@/components/dashboard/attribute-pricing";
+import SmartInsights from "@/components/dashboard/smart-insights";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import AttributeMap from "@/components/dashboard/attribute-map";
 import BuildingMapUploader from "@/components/dashboard/building-map-uploader";
@@ -98,7 +98,7 @@ export default function Dashboard() {
               Revenue Management Dashboard
             </h1>
             <p className="text-base sm:text-lg lg:text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
-              Optimize pricing with AI-driven market analysis and competitor intelligence
+              Optimize pricing with data-driven market analysis and competitor intelligence
             </p>
           </div>
 
@@ -132,6 +132,11 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Attribute Pricing - Primary Function */}
+          <div id="attribute-pricing" className="mb-16 scroll-mt-20">
+            <AttributePricing />
+          </div>
+          
           {/* Pricing Weights */}
           <div id="pricing" className="mb-16 scroll-mt-20">
             <PricingWeights />
@@ -165,28 +170,9 @@ export default function Dashboard() {
             <BuildingMapUploader />
           </div>
 
-          {/* AI Insights & ML Trainer */}
-          <div id="ai" className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-16 scroll-mt-20">
-            <AiInsights />
-            <div className="dashboard-card">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">Market Sentiment</h3>
-                  <p className="text-sm text-[var(--dashboard-muted)]">Based on S&P 500 performance</p>
-                </div>
-              </div>
-              {/* Market sentiment content will be added here */}
-            </div>
-          </div>
-
-          {/* ML Trainer */}
-          <div id="ml" className="mb-16 scroll-mt-20">
-            <MlTrainer />
+          {/* Smart Insights & Analytics */}
+          <div id="smart-insights" className="mb-16 scroll-mt-20">
+            <SmartInsights />
           </div>
 
           {/* Guardrails Editor */}

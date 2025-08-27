@@ -5,10 +5,10 @@ const navigation = [
   { name: "Dashboard", href: "#dashboard", icon: Home, current: true },
   { name: "Data Upload", href: "#data-upload", icon: Upload, current: false },
   { name: "Rate Card", href: "#ratecard", icon: CreditCard, current: false },
+  { name: "Attribute Pricing", href: "#attribute-pricing", icon: DollarSign, current: false },
   { name: "Dynamic Pricing", href: "#pricing", icon: DollarSign, current: false },
   { name: "Competitor Map", href: "#competitors", icon: MapPin, current: false },
-  { name: "AI Insights", href: "#ai", icon: BarChart3, current: false },
-  { name: "ML Training", href: "#ml", icon: FileText, current: false },
+  { name: "Smart Insights", href: "#smart-insights", icon: BarChart3, current: false },
   { name: "Guardrails", href: "#guardrails", icon: Shield, current: false },
   { name: "Export", href: "#export", icon: Download, current: false },
 ];

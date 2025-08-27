@@ -632,8 +632,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // AI suggestions endpoint
-  app.post("/api/ai/suggest", async (req, res) => {
+  // Attribute Pricing Configuration
+  app.post("/api/attribute-pricing", async (req, res) => {
+    try {
+      // In a real implementation, would save settings to database
+      // For now, just return success
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update attribute pricing" });
+    }
+  });
+
+  // Smart Insights (formerly AI)
+  app.post("/api/smart/suggest", async (req, res) => {
     try {
       const openaiKey = process.env.OPENAI_API_KEY;
       if (!openaiKey) {
@@ -696,12 +707,12 @@ Keep recommendations specific and quantitative when possible.`;
       });
 
     } catch (error) {
-      res.status(500).json({ error: `AI request failed: ${error.message}` });
+      res.status(500).json({ error: `Smart analysis failed: ${error.message}` });
     }
   });
 
-  // ML training endpoint
-  app.post("/api/ml/train", upload.single("file"), async (req, res) => {
+  // Smart Analytics Training (formerly ML)
+  app.post("/api/smart/train", upload.single("file"), async (req, res) => {
     try {
       let trainingData = [];
       let rows = 0;
@@ -751,7 +762,7 @@ Keep recommendations specific and quantitative when possible.`;
       });
 
     } catch (error) {
-      res.status(500).json({ error: "ML training failed" });
+      res.status(500).json({ error: "Analytics training failed" });
     }
   });
 

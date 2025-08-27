@@ -34,7 +34,7 @@ export default function UnitRecommendations() {
     );
   };
 
-  const getMLConfidenceBadge = (confidence?: number) => {
+  const getConfidenceBadge = (confidence?: number) => {
     if (!confidence) return null;
     
     let colorClass = "bg-gray-500/10 text-gray-400 border-gray-500/20";
@@ -72,7 +72,7 @@ export default function UnitRecommendations() {
           Unit-Level Pricing Recommendations
         </h3>
         <p className="text-sm text-[var(--dashboard-muted)]">
-          AI-driven pricing suggestions for individual units
+          Data-driven pricing suggestions for individual units
         </p>
       </div>
       
@@ -87,7 +87,7 @@ export default function UnitRecommendations() {
               <TableHead className="text-[var(--dashboard-muted)]">Current</TableHead>
               <TableHead className="text-[var(--dashboard-muted)]">Market</TableHead>
               <TableHead className="text-[var(--dashboard-muted)]">Recommended</TableHead>
-              <TableHead className="text-[var(--dashboard-muted)]">ML Confidence</TableHead>
+              <TableHead className="text-[var(--dashboard-muted)]">Confidence</TableHead>
               <TableHead className="text-[var(--dashboard-muted)]">Rationale</TableHead>
             </TableRow>
           </TableHeader>
@@ -120,7 +120,7 @@ export default function UnitRecommendations() {
                   {formatCurrency(unit.Recommended_Rent)}
                 </TableCell>
                 <TableCell>
-                  {getMLConfidenceBadge(unit.ML_Confidence)}
+                  {getConfidenceBadge(unit.ML_Confidence)}
                 </TableCell>
                 <TableCell className="text-xs text-[var(--dashboard-muted)] max-w-xs truncate">
                   {unit.Rationale}
