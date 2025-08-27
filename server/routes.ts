@@ -12,8 +12,7 @@ import {
   insertAssumptionsSchema, 
   insertPricingWeightsSchema,
   insertCompetitorSchema,
-  insertGuardrailsSchema,
-  insertMlModelSchema
+  insertGuardrailsSchema
 } from "@shared/schema";
 import { demoCompetitors, demoRentRoll } from "./seed-data";
 import * as XLSX from 'xlsx';

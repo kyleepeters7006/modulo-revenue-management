@@ -26,12 +26,14 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import OpenAI from "openai";
+
+// Initialize OpenAI if API key is available
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // Interface for storage operations
 export interface IStorage {
   // User operations
-  // (IMPORTANT) these user operations are mandatory for Replit Auth.
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
@@ -77,8 +79,6 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   // User operations
-  // (IMPORTANT) these user operations are mandatory for Replit Auth.
-
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -99,131 +99,294 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  // Other operations - keeping in-memory for now
-  private rentRollData: Map<string, RentRollData>;
-  private assumptions: Assumptions | undefined;
-  private weights: PricingWeights | undefined;
-  private competitors: Map<string, Competitor>;
-  private guardrails: Guardrails | undefined;
-  private mlModels: Map<string, MlModel>;
-
-  constructor() {
-    this.rentRollData = new Map();
-    this.competitors = new Map();
-    this.mlModels = new Map();
+  // Rent roll data operations
+  async getRentRollData(): Promise<RentRollData[]> {
+    return await db.select().from(rentRollData);
   }
 
-  async getRentRollData(): Promise<RentRollData[]> {
-    return Array.from(this.rentRollData.values());
+  async getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]> {
+    return await db.select().from(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth));
   }
 
   async createRentRollData(data: InsertRentRollData): Promise<RentRollData> {
-    const id = randomUUID();
-    const rentRoll: RentRollData = { ...data, id };
-    this.rentRollData.set(id, rentRoll);
+    const [rentRoll] = await db.insert(rentRollData).values(data).returning();
     return rentRoll;
   }
 
-  async clearRentRollData(): Promise<void> {
-    this.rentRollData.clear();
+  async bulkInsertRentRollData(data: any[]): Promise<void> {
+    if (data.length === 0) return;
+    await db.insert(rentRollData).values(data);
   }
 
+  async clearRentRollData(): Promise<void> {
+    await db.delete(rentRollData);
+  }
+
+  // Rate card operations
+  async getRateCardByMonth(uploadMonth: string): Promise<RateCard[]> {
+    return await db.select().from(rateCard).where(eq(rateCard.uploadMonth, uploadMonth));
+  }
+
+  async generateRateCard(uploadMonth: string): Promise<void> {
+    // Get rent roll data for the month
+    const units = await this.getRentRollDataByMonth(uploadMonth);
+    
+    // Group by room type and calculate averages
+    const roomTypeStats = units.reduce((acc: any, unit: any) => {
+      if (!acc[unit.roomType]) {
+        acc[unit.roomType] = {
+          streetRates: [],
+          moduloRates: [],
+          aiRates: [],
+          occupied: 0,
+          total: 0
+        };
+      }
+      
+      acc[unit.roomType].streetRates.push(unit.streetRate);
+      if (unit.moduloSuggestedRate) acc[unit.roomType].moduloRates.push(unit.moduloSuggestedRate);
+      if (unit.aiSuggestedRate) acc[unit.roomType].aiRates.push(unit.aiSuggestedRate);
+      acc[unit.roomType].total++;
+      if (unit.occupiedYN) acc[unit.roomType].occupied++;
+      
+      return acc;
+    }, {});
+
+    // Delete existing rate cards for this month and insert new ones
+    await db.delete(rateCard).where(eq(rateCard.uploadMonth, uploadMonth));
+    
+    for (const [roomType, stats] of Object.entries(roomTypeStats) as [string, any][]) {
+      const avgStreet = stats.streetRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.streetRates.length;
+      const avgModulo = stats.moduloRates.length > 0 ? stats.moduloRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.moduloRates.length : null;
+      const avgAi = stats.aiRates.length > 0 ? stats.aiRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.aiRates.length : null;
+      
+      await db.insert(rateCard).values({
+        uploadMonth,
+        roomType,
+        averageStreetRate: avgStreet,
+        averageModuloRate: avgModulo,
+        averageAiRate: avgAi,
+        occupancyCount: stats.occupied,
+        totalUnits: stats.total
+      });
+    }
+  }
+
+  // Upload history
+  async createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory> {
+    const [history] = await db.insert(uploadHistory).values(data).returning();
+    return history;
+  }
+
+  // Assumptions
   async getCurrentAssumptions(): Promise<Assumptions | undefined> {
-    return this.assumptions;
+    const [assumption] = await db.select().from(assumptions).limit(1);
+    return assumption;
   }
 
   async createOrUpdateAssumptions(data: InsertAssumptions): Promise<Assumptions> {
-    const id = randomUUID();
-    const assumptions: Assumptions = { 
-      ...data, 
-      id, 
-      createdAt: new Date()
-    };
-    this.assumptions = assumptions;
-    return assumptions;
+    // Delete existing and insert new
+    await db.delete(assumptions);
+    const [assumption] = await db.insert(assumptions).values(data).returning();
+    return assumption;
+  }
+
+  // Pricing weights
+  async getPricingWeights(): Promise<PricingWeights[]> {
+    return await db.select().from(pricingWeights);
   }
 
   async getCurrentWeights(): Promise<PricingWeights | undefined> {
-    return this.weights;
-  }
-
-  async createOrUpdateWeights(data: InsertPricingWeights): Promise<PricingWeights> {
-    const id = randomUUID();
-    const weights: PricingWeights = { 
-      ...data, 
-      id, 
-      createdAt: new Date()
-    };
-    this.weights = weights;
+    const [weights] = await db.select().from(pricingWeights).limit(1);
     return weights;
   }
 
+  async createOrUpdateWeights(data: InsertPricingWeights): Promise<PricingWeights> {
+    await db.delete(pricingWeights);
+    const [weights] = await db.insert(pricingWeights).values(data).returning();
+    return weights;
+  }
+
+  // Competitors
   async getCompetitors(): Promise<Competitor[]> {
-    return Array.from(this.competitors.values());
+    return await db.select().from(competitors);
   }
 
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {
-    const id = randomUUID();
-    const competitor: Competitor = { 
-      ...data, 
-      id, 
-      createdAt: new Date()
-    };
-    this.competitors.set(id, competitor);
+    const [competitor] = await db.insert(competitors).values(data).returning();
     return competitor;
   }
 
   async createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor> {
-    // Check if competitor exists by name
-    const existing = Array.from(this.competitors.values()).find(c => c.name === data.name);
-    
-    if (existing) {
-      // Update existing competitor
-      const updated: Competitor = { 
-        ...existing, 
-        ...data, 
-        rates: { ...existing.rates, ...data.rates }
-      };
-      this.competitors.set(existing.id, updated);
+    const existing = await db.select().from(competitors).where(eq(competitors.name, data.name));
+    if (existing.length > 0) {
+      const [updated] = await db.update(competitors)
+        .set(data)
+        .where(eq(competitors.name, data.name))
+        .returning();
       return updated;
     } else {
-      // Create new competitor
-      return this.createCompetitor(data);
+      return await this.createCompetitor(data);
     }
   }
 
   async clearCompetitors(): Promise<void> {
-    this.competitors.clear();
+    await db.delete(competitors);
+  }
+
+  // Guardrails
+  async getGuardrails(): Promise<Guardrails[]> {
+    return await db.select().from(guardrails);
   }
 
   async getCurrentGuardrails(): Promise<Guardrails | undefined> {
-    return this.guardrails;
+    const [guardrail] = await db.select().from(guardrails).limit(1);
+    return guardrail;
   }
 
   async createOrUpdateGuardrails(data: InsertGuardrails): Promise<Guardrails> {
-    const id = randomUUID();
-    const guardrails: Guardrails = { 
-      ...data, 
-      id, 
-      createdAt: new Date()
-    };
-    this.guardrails = guardrails;
-    return guardrails;
+    await db.delete(guardrails);
+    const [guardrail] = await db.insert(guardrails).values(data).returning();
+    return guardrail;
   }
 
-  async getMlModels(): Promise<MlModel[]> {
-    return Array.from(this.mlModels.values());
+  // Pricing suggestions
+  async generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]> {
+    const updatedUnits = [];
+    
+    for (const unit of units) {
+      // Apply Modulo pricing algorithm
+      let baseRate = unit.streetRate;
+      let adjustment = 0;
+
+      // Occupancy pressure adjustment
+      const occupancyRate = units.filter(u => u.occupiedYN).length / units.length;
+      if (occupancyRate < 0.8) {
+        adjustment -= baseRate * 0.02 * (weights.occupancyPressure / 100);
+      } else if (occupancyRate > 0.95) {
+        adjustment += baseRate * 0.03 * (weights.occupancyPressure / 100);
+      }
+
+      // Days vacant adjustment
+      if (unit.daysVacant > 30) {
+        adjustment -= baseRate * 0.01 * Math.min(unit.daysVacant / 30, 5) * (weights.daysVacantDecay / 100);
+      }
+
+      // Attribute adjustments
+      if (unit.renovated) {
+        adjustment += baseRate * 0.05 * (weights.roomAttributes / 100);
+      }
+      if (unit.view && unit.view.includes('Garden')) {
+        adjustment += baseRate * 0.03 * (weights.roomAttributes / 100);
+      }
+
+      // Competitor rate adjustment
+      if (unit.competitorRate && unit.competitorRate > 0) {
+        const competitorDiff = (unit.competitorRate - baseRate) / baseRate;
+        adjustment += baseRate * competitorDiff * 0.5 * (weights.competitorRates / 100);
+      }
+
+      // Apply guardrails
+      const suggestedRate = Math.max(
+        baseRate * (1 - (guardrails.minRateDecrease || 0.05)),
+        Math.min(
+          baseRate * (1 + (guardrails.maxRateIncrease || 0.15)),
+          baseRate + adjustment
+        )
+      );
+
+      // Update unit
+      await db.update(rentRollData)
+        .set({ moduloSuggestedRate: Math.round(suggestedRate) })
+        .where(eq(rentRollData.id, unit.id));
+
+      updatedUnits.push({...unit, moduloSuggestedRate: Math.round(suggestedRate)});
+    }
+
+    return updatedUnits;
   }
 
-  async createMlModel(data: InsertMlModel): Promise<MlModel> {
-    const id = randomUUID();
-    const model: MlModel = { 
-      ...data, 
-      id, 
-      createdAt: new Date()
-    };
-    this.mlModels.set(id, model);
-    return model;
+  async generateAIPricingSuggestions(units: any[]): Promise<any[]> {
+    if (!openai) {
+      throw new Error('OpenAI API key not configured');
+    }
+
+    const updatedUnits = [];
+
+    // Process in batches of 5 units
+    for (let i = 0; i < units.length; i += 5) {
+      const batch = units.slice(i, i + 5);
+      
+      const prompt = `As a senior living pricing expert, analyze these units and suggest optimal monthly rent rates. Consider:
+- Current market rates and occupancy
+- Unit attributes (size, view, renovation status, amenities)
+- Competitor pricing
+- Market conditions
+
+Units to analyze:
+${batch.map(unit => `
+Unit ${unit.roomNumber} (${unit.roomType}):
+- Current rate: $${unit.streetRate}
+- Occupied: ${unit.occupiedYN ? 'Yes' : 'No'}
+- Days vacant: ${unit.daysVacant}
+- Size: ${unit.size}
+- View: ${unit.view || 'Standard'}
+- Renovated: ${unit.renovated ? 'Yes' : 'No'}
+- Premium features: ${unit.otherPremiumFeature || 'None'}
+- Competitor rate: $${unit.competitorRate || 'N/A'}
+`).join('')}
+
+Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate": 3250, "reasoning": "brief explanation"}, ...]}`;
+
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" },
+          temperature: 0.3
+        });
+
+        const result = JSON.parse(response.choices[0].message.content || '{"suggestions": []}');
+        
+        // Update database with AI suggestions
+        for (const suggestion of result.suggestions) {
+          const unit = batch.find(u => u.roomNumber === suggestion.roomNumber);
+          if (unit) {
+            await db.update(rentRollData)
+              .set({ aiSuggestedRate: suggestion.suggestedRate })
+              .where(eq(rentRollData.id, unit.id));
+            
+            updatedUnits.push({...unit, aiSuggestedRate: suggestion.suggestedRate});
+          }
+        }
+      } catch (error) {
+        console.error('AI pricing error for batch:', error);
+        // Continue with next batch even if one fails
+      }
+    }
+
+    return updatedUnits;
+  }
+
+  async acceptPricingSuggestions(unitIds: string[], suggestionType: string): Promise<number> {
+    let updatedCount = 0;
+    
+    for (const unitId of unitIds) {
+      const [unit] = await db.select().from(rentRollData).where(eq(rentRollData.id, unitId));
+      
+      if (unit) {
+        const newRate = suggestionType === 'modulo' ? unit.moduloSuggestedRate : unit.aiSuggestedRate;
+        
+        if (newRate) {
+          await db.update(rentRollData)
+            .set({ streetRate: newRate })
+            .where(eq(rentRollData.id, unitId));
+          updatedCount++;
+        }
+      }
+    }
+
+    return updatedCount;
   }
 }
 
