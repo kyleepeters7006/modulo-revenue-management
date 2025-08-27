@@ -468,12 +468,6 @@ export default function RateCardTable() {
                               >
                                 <Edit className="h-3 w-3" />
                               </Button>
-                              {unit.renovated && (
-                                <Badge variant="outline" className="text-xs">Renovated</Badge>
-                              )}
-                              {unit.view && (
-                                <Badge variant="outline" className="text-xs">{unit.view}</Badge>
-                              )}
                             </>
                           )}
                         </div>
