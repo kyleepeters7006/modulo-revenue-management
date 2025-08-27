@@ -1,5 +1,6 @@
 import Navigation from "@/components/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PricingWeights from "@/components/dashboard/pricing-weights";
+import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 
 export default function PricingControls() {
   return (
@@ -16,14 +17,10 @@ export default function PricingControls() {
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Pricing Weights</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600">Pricing controls functionality coming soon</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-8">
+          <PricingWeights />
+          <GuardrailsEditor />
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import Navigation from "@/components/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import AIInsights from "@/components/dashboard/ai-insights";
 
-export default function AIInsights() {
+export default function AIInsightsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -9,21 +9,14 @@ export default function AIInsights() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2" data-testid="text-page-title">
-            AI Insights
+            AI Insights & Analytics
           </h1>
           <p className="text-gray-600" data-testid="text-page-subtitle">
-            AI-powered market analysis and pricing recommendations
+            AI-powered market analysis, pricing recommendations, and revenue optimization
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Market Analysis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600">AI insights functionality coming soon</p>
-          </CardContent>
-        </Card>
+        <AIInsights />
       </div>
     </div>
   );

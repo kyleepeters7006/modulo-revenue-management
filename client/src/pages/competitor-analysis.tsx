@@ -1,5 +1,5 @@
 import Navigation from "@/components/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import CompetitorMap from "@/components/dashboard/competitor-map";
 
 export default function CompetitorAnalysis() {
   return (
@@ -12,18 +12,11 @@ export default function CompetitorAnalysis() {
             Competitor Analysis
           </h1>
           <p className="text-gray-600" data-testid="text-page-subtitle">
-            View competitor locations, rates, and market positioning
+            Geographic mapping and rate comparison with nearby competitors
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Competitor Map</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-gray-600">Competitor analysis functionality coming soon</p>
-          </CardContent>
-        </Card>
+        <CompetitorMap />
       </div>
     </div>
   );
