@@ -26,14 +26,15 @@ export default function PricingWeights() {
   });
 
   useEffect(() => {
-    if (status?.weights) {
+    if (status && 'weights' in status && status.weights) {
+      const weights = status.weights as any;
       setWeights({
-        occupancyPressure: status.weights.occupancy_pressure,
-        daysVacantDecay: status.weights.days_vacant_decay,
-        roomAttributes: status.weights.room_attributes,
-        seasonality: status.weights.seasonality,
-        competitorRates: status.weights.competitor_rates,
-        stockMarket: status.weights.stock_market,
+        occupancyPressure: weights.occupancy_pressure || 25,
+        daysVacantDecay: weights.days_vacant_decay || 20,
+        roomAttributes: weights.room_attributes || 25,
+        seasonality: weights.seasonality || 10,
+        competitorRates: weights.competitor_rates || 10,
+        stockMarket: weights.stock_market || 10,
       });
     } else {
       // Set defaults
@@ -55,7 +56,7 @@ export default function PricingWeights() {
         competitor_rates: weightsData.competitorRates,
         stock_market: weightsData.stockMarket,
       };
-      return apiRequest('POST', '/api/weights', payload);
+      return apiRequest('/api/weights', 'POST', payload);
     },
     onSuccess: () => {
       setSaveStatus("Weights saved successfully");
