@@ -66,6 +66,8 @@ export interface IStorage {
   // Competitors
   getCompetitors(): Promise<Competitor[]>;
   createCompetitor(data: InsertCompetitor): Promise<Competitor>;
+  updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor>;
+  deleteCompetitor(id: string): Promise<void>;
   createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor>;
   clearCompetitors(): Promise<void>;
   
@@ -288,6 +290,18 @@ export class DatabaseStorage implements IStorage {
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {
     const [competitor] = await db.insert(competitors).values(data).returning();
     return competitor;
+  }
+
+  async updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor> {
+    const [updated] = await db.update(competitors)
+      .set(data)
+      .where(eq(competitors.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCompetitor(id: string): Promise<void> {
+    await db.delete(competitors).where(eq(competitors.id, id));
   }
 
   async createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor> {

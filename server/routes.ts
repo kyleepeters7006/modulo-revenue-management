@@ -402,10 +402,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/competitors", async (req, res) => {
     try {
       const validatedData = insertCompetitorSchema.parse(req.body);
-      const competitor = await storage.createOrUpdateCompetitor(validatedData);
+      const competitor = await storage.createCompetitor(validatedData);
       res.json({ ok: true, competitor });
     } catch (error) {
       res.status(400).json({ error: "Invalid competitor data" });
+    }
+  });
+
+  app.put("/api/competitors/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const validatedData = insertCompetitorSchema.parse(req.body);
+      const competitor = await storage.updateCompetitor(id, validatedData);
+      res.json({ ok: true, competitor });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid competitor data" });
+    }
+  });
+
+  app.delete("/api/competitors/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteCompetitor(id);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete competitor" });
     }
   });
 

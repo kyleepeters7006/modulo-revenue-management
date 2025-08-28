@@ -120,6 +120,16 @@ export const competitors = pgTable("competitors", {
   lng: real("lng").notNull(),
   rates: jsonb("rates"),
   avgCareRate: real("avg_care_rate"),
+  streetRate: real("street_rate"),
+  roomType: text("room_type"),
+  attributes: jsonb("attributes"),
+  address: text("address"),
+  rank: integer("rank"),
+  weight: real("weight"),
+  rating: real("rating"),
+  ratingA: real("rating_a"),
+  ratingB: real("rating_b"), 
+  ratingC: real("rating_c"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
