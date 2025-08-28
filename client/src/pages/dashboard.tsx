@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Sidebar from "@/components/dashboard/sidebar";
 import MetricsOverview from "@/components/dashboard/metrics-overview";
+import ServiceLineOverview from "@/components/dashboard/service-line-overview";
 import RevenueChart from "@/components/dashboard/revenue-chart";
 import DataUpload from "@/components/dashboard/data-upload";
 import PricingWeights from "@/components/dashboard/pricing-weights";
@@ -27,6 +28,7 @@ console.log('Main logo path:', mainLogoPath);
 
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedServiceLine, setSelectedServiceLine] = useState<string>("All");
 
   const { data: status, isLoading } = useQuery({
     queryKey: ["/api/status"],
@@ -100,6 +102,11 @@ export default function Dashboard() {
             <p className="text-base sm:text-lg lg:text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
               Optimize pricing with data-driven market analysis and competitor intelligence
             </p>
+          </div>
+
+          {/* Service Line Overview */}
+          <div className="mb-12 lg:mb-16">
+            <ServiceLineOverview onServiceLineChange={setSelectedServiceLine} />
           </div>
 
           {/* Revenue Chart - Primary Visual */}

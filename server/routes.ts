@@ -795,6 +795,7 @@ Keep recommendations specific and quantitative when possible.`;
           baseRent: unit.baseRent,
           careFee: unit.careFee || null,
           roomType: unit.roomType,
+          serviceLine: unit.serviceLine,
           competitorBenchmarkRate: unit.competitorBenchmarkRate,
           competitorAvgCareRate: null,
           daysVacant: unit.daysVacant,
@@ -1010,17 +1011,29 @@ Keep recommendations specific and quantitative when possible.`;
   // Overview dashboard endpoint
   app.get("/api/overview", isAuthenticated, async (req, res) => {
     try {
-      const currentMonth = new Date().toISOString().substring(0, 7);
-      const rentRollData = await storage.getRentRollDataByMonth(currentMonth);
+      const serviceLineFilter = req.query.serviceLine as string;
+      const allRentRollData = await storage.getRentRollData();
       
-      // If no current data, use demo data
-      if (rentRollData.length === 0) {
+      // Filter by service line if specified
+      const rentRollData = serviceLineFilter && serviceLineFilter !== 'All' 
+        ? allRentRollData.filter((unit: any) => unit.serviceLine === serviceLineFilter)
+        : allRentRollData;
+      
+      // If no current data, return service line aware demo data
+      if (allRentRollData.length === 0) {
         const demoOverview = {
           occupancyByRoomType: [
             { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0 },
             { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0 },
-            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0 },
-            { roomType: 'Memory Care', occupied: 3, total: 5, occupancyRate: 60.0 }
+            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0 }
+          ],
+          occupancyByServiceLine: [
+            { serviceLine: 'AL', occupied: 15, total: 20, occupancyRate: 75.0 },
+            { serviceLine: 'AL/MC', occupied: 8, total: 10, occupancyRate: 80.0 },
+            { serviceLine: 'HC', occupied: 6, total: 8, occupancyRate: 75.0 },
+            { serviceLine: 'HC/MC', occupied: 4, total: 5, occupancyRate: 80.0 },
+            { serviceLine: 'IL', occupied: 6, total: 9, occupancyRate: 67.0 },
+            { serviceLine: 'SL', occupied: 7, total: 8, occupancyRate: 88.0 }
           ],
           currentAnnualRevenue: 2100000,
           potentialAnnualRevenue: 2700000,
@@ -1030,7 +1043,7 @@ Keep recommendations specific and quantitative when possible.`;
         return res.json(demoOverview);
       }
 
-      // Calculate real overview data
+      // Calculate room type statistics for filtered data
       const roomTypeStats = rentRollData.reduce((acc: any, unit: any) => {
         if (!acc[unit.roomType]) {
           acc[unit.roomType] = { occupied: 0, total: 0 };
@@ -1046,16 +1059,47 @@ Keep recommendations specific and quantitative when possible.`;
         roomType,
         occupied: stats.occupied,
         total: stats.total,
-        occupancyRate: (stats.occupied / stats.total) * 100
+        occupancyRate: Math.round((stats.occupied / stats.total) * 100)
+      }));
+
+      // Calculate service line statistics for all data (not filtered)
+      const serviceLineStats = allRentRollData.reduce((acc: any, unit: any) => {
+        if (!acc[unit.serviceLine]) {
+          acc[unit.serviceLine] = { occupied: 0, total: 0 };
+        }
+        acc[unit.serviceLine].total++;
+        if (unit.occupiedYN) {
+          acc[unit.serviceLine].occupied++;
+        }
+        return acc;
+      }, {});
+
+      const occupancyByServiceLine = Object.entries(serviceLineStats).map(([serviceLine, stats]: [string, any]) => ({
+        serviceLine,
+        occupied: stats.occupied,
+        total: stats.total,
+        occupancyRate: Math.round((stats.occupied / stats.total) * 100)
       }));
 
       const totalUnits = rentRollData.length;
       const occupiedUnits = rentRollData.filter(u => u.occupiedYN).length;
-      const currentAnnualRevenue = rentRollData.reduce((sum, u) => sum + (u.occupiedYN ? u.streetRate * 12 : 0), 0);
-      const potentialAnnualRevenue = rentRollData.reduce((sum, u) => sum + u.streetRate * 12, 0);
+      const currentAnnualRevenue = rentRollData.reduce((sum, u) => {
+        if (u.occupiedYN) {
+          const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
+          const careRate = u.careRate || u.careFee || 0;
+          return sum + (baseRent + careRate) * 12;
+        }
+        return sum;
+      }, 0);
+      const potentialAnnualRevenue = rentRollData.reduce((sum, u) => {
+        const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
+        const careRate = u.careRate || u.careFee || 0;
+        return sum + (baseRent + careRate) * 12;
+      }, 0);
 
       res.json({
         occupancyByRoomType,
+        occupancyByServiceLine,
         currentAnnualRevenue,
         potentialAnnualRevenue,
         totalUnits,

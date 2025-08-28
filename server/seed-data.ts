@@ -63,53 +63,72 @@ export const demoCompetitors = [
 ];
 
 export const demoRentRoll = [
-  // Studio Units (10 units)
-  { unitId: "101", occupiedYN: true, baseRent: 3200, careFee: 500, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "102", occupiedYN: true, baseRent: 3000, careFee: 800, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "103", occupiedYN: false, baseRent: 3100, careFee: 0, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 45, attributes: { view: false, renovated: true, corner: false } },
-  { unitId: "104", occupiedYN: true, baseRent: 3300, careFee: 600, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
-  { unitId: "201", occupiedYN: false, baseRent: 3050, careFee: 0, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 15, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "202", occupiedYN: true, baseRent: 3150, careFee: 900, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "203", occupiedYN: true, baseRent: 3000, careFee: 400, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: false, renovated: false, corner: true } },
-  { unitId: "204", occupiedYN: true, baseRent: 3250, careFee: 700, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: true, corner: false } },
-  { unitId: "301", occupiedYN: false, baseRent: 3100, careFee: 0, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 60, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "302", occupiedYN: true, baseRent: 3200, careFee: 550, roomType: "Studio", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  // Assisted Living (AL) - Studio Units
+  { unitId: "AL101", occupiedYN: true, baseRent: 3200, careFee: 500, roomType: "Studio", serviceLine: "AL", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "AL102", occupiedYN: true, baseRent: 3000, careFee: 800, roomType: "Studio", serviceLine: "AL", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "AL103", occupiedYN: false, baseRent: 3100, careFee: 0, roomType: "Studio", serviceLine: "AL", competitorBenchmarkRate: 3175, daysVacant: 45, attributes: { view: false, renovated: true, corner: false } },
+  { unitId: "AL104", occupiedYN: true, baseRent: 3300, careFee: 600, roomType: "Studio", serviceLine: "AL", competitorBenchmarkRate: 3175, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
+  
+  // Assisted Living (AL) - One Bedroom Units  
+  { unitId: "AL201", occupiedYN: true, baseRent: 4200, careFee: 600, roomType: "One Bedroom", serviceLine: "AL", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "AL202", occupiedYN: true, baseRent: 4400, careFee: 750, roomType: "One Bedroom", serviceLine: "AL", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "AL203", occupiedYN: false, baseRent: 4300, careFee: 0, roomType: "One Bedroom", serviceLine: "AL", competitorBenchmarkRate: 4200, daysVacant: 30, attributes: { view: false, renovated: true, corner: false } },
+  { unitId: "AL204", occupiedYN: true, baseRent: 4600, careFee: 850, roomType: "One Bedroom", serviceLine: "AL", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
 
-  // One Bedroom Units (15 units)
-  { unitId: "105", occupiedYN: true, baseRent: 4200, careFee: 600, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "106", occupiedYN: true, baseRent: 4400, careFee: 750, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "107", occupiedYN: false, baseRent: 4300, careFee: 0, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 30, attributes: { view: false, renovated: true, corner: false } },
-  { unitId: "108", occupiedYN: true, baseRent: 4600, careFee: 850, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
-  { unitId: "205", occupiedYN: true, baseRent: 4150, careFee: 500, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "206", occupiedYN: true, baseRent: 4350, careFee: 900, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "207", occupiedYN: false, baseRent: 4250, careFee: 0, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 90, attributes: { view: false, renovated: false, corner: true } },
-  { unitId: "208", occupiedYN: true, baseRent: 4500, careFee: 700, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: true, corner: false } },
-  { unitId: "305", occupiedYN: true, baseRent: 4200, careFee: 650, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "306", occupiedYN: true, baseRent: 4450, careFee: 800, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "307", occupiedYN: true, baseRent: 4300, careFee: 550, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: true, corner: false } },
-  { unitId: "308", occupiedYN: false, baseRent: 4550, careFee: 0, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 20, attributes: { view: true, renovated: true, corner: true } },
-  { unitId: "405", occupiedYN: true, baseRent: 4100, careFee: 450, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "406", occupiedYN: true, baseRent: 4400, careFee: 750, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "407", occupiedYN: true, baseRent: 4250, careFee: 600, roomType: "One Bedroom", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: true, corner: false } },
+  // Assisted Living/Memory Care (AL/MC) - Studio Units
+  { unitId: "MC101", occupiedYN: true, baseRent: 3400, careFee: 1200, roomType: "Studio", serviceLine: "AL/MC", competitorBenchmarkRate: 3800, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "MC102", occupiedYN: true, baseRent: 3600, careFee: 1400, roomType: "Studio", serviceLine: "AL/MC", competitorBenchmarkRate: 3800, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "MC103", occupiedYN: false, baseRent: 3500, careFee: 0, roomType: "Studio", serviceLine: "AL/MC", competitorBenchmarkRate: 3800, daysVacant: 25, attributes: { view: false, renovated: true, corner: false } },
 
-  // Two Bedroom Units (10 units)
-  { unitId: "109", occupiedYN: true, baseRent: 5200, careFee: 700, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "110", occupiedYN: true, baseRent: 5500, careFee: 850, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: true, renovated: false, corner: true } },
-  { unitId: "209", occupiedYN: false, baseRent: 5300, careFee: 0, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 35, attributes: { view: false, renovated: true, corner: false } },
-  { unitId: "210", occupiedYN: true, baseRent: 5700, careFee: 950, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
-  { unitId: "309", occupiedYN: true, baseRent: 5150, careFee: 600, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "310", occupiedYN: true, baseRent: 5450, careFee: 800, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "409", occupiedYN: true, baseRent: 5250, careFee: 700, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: false, renovated: true, corner: false } },
-  { unitId: "410", occupiedYN: false, baseRent: 5600, careFee: 0, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 50, attributes: { view: true, renovated: true, corner: true } },
-  { unitId: "509", occupiedYN: true, baseRent: 5100, careFee: 550, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "510", occupiedYN: true, baseRent: 5400, careFee: 750, roomType: "Two Bedroom", competitorBenchmarkRate: 5100, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  // Assisted Living/Memory Care (AL/MC) - One Bedroom Units
+  { unitId: "MC201", occupiedYN: true, baseRent: 4800, careFee: 1200, roomType: "One Bedroom", serviceLine: "AL/MC", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "MC202", occupiedYN: true, baseRent: 5000, careFee: 1500, roomType: "One Bedroom", serviceLine: "AL/MC", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
 
-  // Memory Care Units (5 units)
-  { unitId: "MC01", occupiedYN: true, baseRent: 4800, careFee: 1200, roomType: "Memory Care", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
-  { unitId: "MC02", occupiedYN: true, baseRent: 5000, careFee: 1400, roomType: "Memory Care", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
-  { unitId: "MC03", occupiedYN: false, baseRent: 4900, careFee: 0, roomType: "Memory Care", competitorBenchmarkRate: 4800, daysVacant: 25, attributes: { view: false, renovated: true, corner: false } },
-  { unitId: "MC04", occupiedYN: true, baseRent: 5100, careFee: 1500, roomType: "Memory Care", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
-  { unitId: "MC05", occupiedYN: true, baseRent: 4850, careFee: 1300, roomType: "Memory Care", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } }
+  // Health Center (HC) - Studio Units
+  { unitId: "HC101", occupiedYN: true, baseRent: 3800, careFee: 2000, roomType: "Studio", serviceLine: "HC", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "HC102", occupiedYN: true, baseRent: 4000, careFee: 2200, roomType: "Studio", serviceLine: "HC", competitorBenchmarkRate: 4200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "HC103", occupiedYN: false, baseRent: 3900, careFee: 0, roomType: "Studio", serviceLine: "HC", competitorBenchmarkRate: 4200, daysVacant: 20, attributes: { view: false, renovated: true, corner: false } },
+
+  // Health Center (HC) - One Bedroom Units
+  { unitId: "HC201", occupiedYN: true, baseRent: 5000, careFee: 2400, roomType: "One Bedroom", serviceLine: "HC", competitorBenchmarkRate: 5200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "HC202", occupiedYN: true, baseRent: 5200, careFee: 2600, roomType: "One Bedroom", serviceLine: "HC", competitorBenchmarkRate: 5200, daysVacant: 0, attributes: { view: true, renovated: true, corner: false } },
+
+  // Health Center/Memory Care (HC/MC) - Studio Units
+  { unitId: "HCMC101", occupiedYN: true, baseRent: 4200, careFee: 2800, roomType: "Studio", serviceLine: "HC/MC", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "HCMC102", occupiedYN: true, baseRent: 4400, careFee: 3000, roomType: "Studio", serviceLine: "HC/MC", competitorBenchmarkRate: 4800, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+
+  // Health Center/Memory Care (HC/MC) - One Bedroom Units
+  { unitId: "HCMC201", occupiedYN: true, baseRent: 5400, careFee: 3200, roomType: "One Bedroom", serviceLine: "HC/MC", competitorBenchmarkRate: 5800, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "HCMC202", occupiedYN: false, baseRent: 5600, careFee: 0, roomType: "One Bedroom", serviceLine: "HC/MC", competitorBenchmarkRate: 5800, daysVacant: 15, attributes: { view: true, renovated: true, corner: true } },
+
+  // Independent Living (IL) - Studio Units
+  { unitId: "IL101", occupiedYN: true, baseRent: 2800, careFee: 0, roomType: "Studio", serviceLine: "IL", competitorBenchmarkRate: 2900, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "IL102", occupiedYN: true, baseRent: 3000, careFee: 0, roomType: "Studio", serviceLine: "IL", competitorBenchmarkRate: 2900, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "IL103", occupiedYN: false, baseRent: 2900, careFee: 0, roomType: "Studio", serviceLine: "IL", competitorBenchmarkRate: 2900, daysVacant: 35, attributes: { view: false, renovated: true, corner: false } },
+
+  // Independent Living (IL) - One Bedroom Units
+  { unitId: "IL201", occupiedYN: true, baseRent: 3800, careFee: 0, roomType: "One Bedroom", serviceLine: "IL", competitorBenchmarkRate: 3900, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "IL202", occupiedYN: true, baseRent: 4000, careFee: 0, roomType: "One Bedroom", serviceLine: "IL", competitorBenchmarkRate: 3900, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "IL203", occupiedYN: true, baseRent: 4200, careFee: 0, roomType: "One Bedroom", serviceLine: "IL", competitorBenchmarkRate: 3900, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } },
+
+  // Independent Living (IL) - Two Bedroom Units
+  { unitId: "IL301", occupiedYN: true, baseRent: 4800, careFee: 0, roomType: "Two Bedroom", serviceLine: "IL", competitorBenchmarkRate: 4900, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "IL302", occupiedYN: true, baseRent: 5200, careFee: 0, roomType: "Two Bedroom", serviceLine: "IL", competitorBenchmarkRate: 4900, daysVacant: 0, attributes: { view: true, renovated: false, corner: true } },
+  { unitId: "IL303", occupiedYN: false, baseRent: 5000, careFee: 0, roomType: "Two Bedroom", serviceLine: "IL", competitorBenchmarkRate: 4900, daysVacant: 50, attributes: { view: false, renovated: true, corner: false } },
+
+  // Senior Living (SL) - Studio Units
+  { unitId: "SL101", occupiedYN: true, baseRent: 3100, careFee: 300, roomType: "Studio", serviceLine: "SL", competitorBenchmarkRate: 3200, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "SL102", occupiedYN: true, baseRent: 3300, careFee: 400, roomType: "Studio", serviceLine: "SL", competitorBenchmarkRate: 3200, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+
+  // Senior Living (SL) - One Bedroom Units
+  { unitId: "SL201", occupiedYN: true, baseRent: 4100, careFee: 400, roomType: "One Bedroom", serviceLine: "SL", competitorBenchmarkRate: 4100, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "SL202", occupiedYN: true, baseRent: 4300, careFee: 500, roomType: "One Bedroom", serviceLine: "SL", competitorBenchmarkRate: 4100, daysVacant: 0, attributes: { view: true, renovated: true, corner: false } },
+  { unitId: "SL203", occupiedYN: false, baseRent: 4200, careFee: 0, roomType: "One Bedroom", serviceLine: "SL", competitorBenchmarkRate: 4100, daysVacant: 40, attributes: { view: false, renovated: true, corner: false } },
+
+  // Senior Living (SL) - Two Bedroom Units
+  { unitId: "SL301", occupiedYN: true, baseRent: 5100, careFee: 600, roomType: "Two Bedroom", serviceLine: "SL", competitorBenchmarkRate: 5000, daysVacant: 0, attributes: { view: false, renovated: false, corner: false } },
+  { unitId: "SL302", occupiedYN: true, baseRent: 5400, careFee: 700, roomType: "Two Bedroom", serviceLine: "SL", competitorBenchmarkRate: 5000, daysVacant: 0, attributes: { view: true, renovated: false, corner: false } },
+  { unitId: "SL303", occupiedYN: true, baseRent: 5600, careFee: 800, roomType: "Two Bedroom", serviceLine: "SL", competitorBenchmarkRate: 5000, daysVacant: 0, attributes: { view: true, renovated: true, corner: true } }
 ];
 
 export const floorPlanData = {

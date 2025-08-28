@@ -37,6 +37,10 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Service line options for senior living facilities
+export const serviceLineEnum = ["AL", "AL/MC", "HC", "HC/MC", "IL", "SL"] as const;
+export type ServiceLine = typeof serviceLineEnum[number];
+
 // Updated rent roll data table with complete field structure
 export const rentRollData = pgTable("rent_roll_data", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -45,6 +49,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   location: text("location").notNull(),
   roomNumber: text("room_number").notNull(),
   roomType: text("room_type").notNull(),
+  serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, IL, SL
   occupiedYN: boolean("occupied_yn").notNull(),
   daysVacant: integer("days_vacant").default(0),
   preferredLocation: text("preferred_location"), // Premium location flag
@@ -73,11 +78,12 @@ export const rentRollData = pgTable("rent_roll_data", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Rate card summary by room type
+// Rate card summary by room type and service line
 export const rateCard = pgTable("rate_card", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   uploadMonth: text("upload_month").notNull(),
   roomType: text("room_type").notNull(),
+  serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, IL, SL
   averageStreetRate: real("average_street_rate"),
   averageModuloRate: real("average_modulo_rate"),
   averageAiRate: real("average_ai_rate"),
