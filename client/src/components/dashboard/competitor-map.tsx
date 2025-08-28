@@ -103,38 +103,164 @@ export default function CompetitorMap() {
       competitorData: competitorData?.items?.length || 0 
     });
     
-    if (mapInstanceRef.current && competitorData?.items) {
+    if (mapInstanceRef.current && window.L) {
       // Clear existing markers
       markersRef.current.forEach(marker => {
         mapInstanceRef.current.removeLayer(marker);
       });
       markersRef.current = [];
 
-      // Add new markers
-      competitorData.items.forEach((competitor: any) => {
-        console.log('Adding marker for:', competitor.name, 'at', [competitor.lat, competitor.lng]);
-        const marker = window.L.marker([competitor.lat, competitor.lng]).addTo(mapInstanceRef.current);
-        
-        const rates = competitor.rates 
-          ? Object.entries(competitor.rates)
-              .map(([roomType, rate]) => `${roomType}: $${rate}`)
-              .join('<br>')
-          : 'No room rates available';
-        
-        const careRate = competitor.avgCareRate ? `<br>Avg Care: $${competitor.avgCareRate}` : '';
-        
-        marker.bindPopup(`
-          <div style="color: #1f2937;">
-            <b>${competitor.name}</b><br>
-            ${rates}
-            ${careRate}
-          </div>
-        `);
-        
-        markersRef.current.push(marker);
+      // Current property data (Sunset Manor)
+      const currentProperty = {
+        name: "Sunset Manor Senior Living",
+        lat: 38.2527,
+        lng: -85.7585,
+        rates: {
+          "Studio": 3175,
+          "One Bedroom": 4200,
+          "Two Bedroom": 5100,
+          "Memory Care": 4800
+        },
+        avgCareRate: 775,
+        address: "1234 Main St, Louisville, KY 40207"
+      };
+
+      // Create custom icons
+      const currentPropertyIcon = window.L.divIcon({
+        html: `<div style="
+          width: 20px; 
+          height: 20px; 
+          background-color: #2563eb; 
+          border: 3px solid white; 
+          border-radius: 50%; 
+          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        "></div>`,
+        className: 'custom-marker',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
       });
+
+      const topCompetitorIcon = window.L.divIcon({
+        html: `<div style="
+          width: 12px; 
+          height: 12px; 
+          background-color: #14b8a6; 
+          border: 2px solid white; 
+          border-radius: 50%; 
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        "></div>`,
+        className: 'custom-marker',
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+      });
+
+      const competitorIcon = window.L.divIcon({
+        html: `<div style="
+          width: 10px; 
+          height: 10px; 
+          background-color: #6b7280; 
+          border: 2px solid white; 
+          border-radius: 50%; 
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        "></div>`,
+        className: 'custom-marker',
+        iconSize: [10, 10],
+        iconAnchor: [5, 5]
+      });
+
+      // Add current property marker
+      const currentMarker = window.L.marker([currentProperty.lat, currentProperty.lng], {
+        icon: currentPropertyIcon
+      }).addTo(mapInstanceRef.current);
       
-      console.log(`Added ${markersRef.current.length} markers to map`);
+      const currentRates = Object.entries(currentProperty.rates)
+        .map(([roomType, rate]) => `${roomType}: $${rate}`)
+        .join('<br>');
+      
+      currentMarker.bindPopup(`
+        <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4;">
+          <div style="background: #2563eb; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
+            <b style="font-size: 14px;">${currentProperty.name}</b>
+            <div style="font-size: 11px; opacity: 0.9;">Our Property</div>
+          </div>
+          <div style="font-size: 12px;">
+            <div style="margin-bottom: 8px;">
+              <b>Room Rates:</b><br>
+              ${currentRates}
+            </div>
+            <div style="margin-bottom: 8px;">
+              <b>Avg Care:</b> $${currentProperty.avgCareRate}
+            </div>
+            <div style="font-size: 11px; color: #6b7280;">
+              ${currentProperty.address}
+            </div>
+          </div>
+        </div>
+      `);
+      
+      markersRef.current.push(currentMarker);
+
+      // Add competitor markers
+      if (competitorData?.items) {
+        competitorData.items.forEach((competitor: any) => {
+          console.log('Adding marker for:', competitor.name, 'at', [competitor.lat, competitor.lng]);
+          
+          const isTopCompetitor = competitor.avgCareRate > 900; // Determine top competitor
+          const icon = isTopCompetitor ? topCompetitorIcon : competitorIcon;
+          
+          const marker = window.L.marker([competitor.lat, competitor.lng], {
+            icon: icon
+          }).addTo(mapInstanceRef.current);
+          
+          // Calculate price differences vs our property
+          const rates = competitor.studioRate || competitor.oneBedRate || competitor.twoBedRate || competitor.memoryCareRate 
+            ? [
+                competitor.studioRate ? `Studio: $${competitor.studioRate} (${competitor.studioRate > currentProperty.rates.Studio ? '+' : ''}$${competitor.studioRate - currentProperty.rates.Studio})` : '',
+                competitor.oneBedRate ? `One Bedroom: $${competitor.oneBedRate} (${competitor.oneBedRate > currentProperty.rates["One Bedroom"] ? '+' : ''}$${competitor.oneBedRate - currentProperty.rates["One Bedroom"]})` : '',
+                competitor.twoBedRate ? `Two Bedroom: $${competitor.twoBedRate} (${competitor.twoBedRate > currentProperty.rates["Two Bedroom"] ? '+' : ''}$${competitor.twoBedRate - currentProperty.rates["Two Bedroom"]})` : '',
+                competitor.memoryCareRate ? `Memory Care: $${competitor.memoryCareRate} (${competitor.memoryCareRate > currentProperty.rates["Memory Care"] ? '+' : ''}$${competitor.memoryCareRate - currentProperty.rates["Memory Care"]})` : ''
+              ].filter(Boolean).join('<br>')
+            : 'No room rates available';
+        
+          const careRateDiff = competitor.avgCareRate - currentProperty.avgCareRate;
+          const careRate = competitor.avgCareRate 
+            ? `Avg Care: $${competitor.avgCareRate} (${careRateDiff > 0 ? '+' : ''}$${careRateDiff})`
+            : '';
+
+          // Generate Google Maps link
+          const encodedAddress = encodeURIComponent(competitor.name + ' ' + (competitor.address || 'Louisville KY'));
+          const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+          
+          // Generate directions link
+          const directionsUrl = `https://www.google.com/maps/dir/${currentProperty.address}/${encodedAddress}`;
+        
+          marker.bindPopup(`
+            <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 200px;">
+              <div style="background: ${isTopCompetitor ? '#14b8a6' : '#6b7280'}; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
+                <b style="font-size: 14px;">${competitor.name}</b>
+                <div style="font-size: 11px; opacity: 0.9;">${isTopCompetitor ? 'Top Competitor' : 'Competitor'}</div>
+              </div>
+              <div style="font-size: 12px;">
+                <div style="margin-bottom: 8px;">
+                  <b>Price Comparison vs Us:</b><br>
+                  ${rates}
+                </div>
+                ${careRate ? `<div style="margin-bottom: 8px;"><b>${careRate}</b></div>` : ''}
+                ${competitor.rating ? `<div style="margin-bottom: 8px;"><b>Rating:</b> ⭐ ${competitor.rating}/5</div>` : ''}
+                ${competitor.driveTimeMinutes ? `<div style="margin-bottom: 8px;"><b>Drive Time:</b> ${competitor.driveTimeMinutes} min</div>` : ''}
+                <div style="margin-top: 10px;">
+                  <a href="${googleMapsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px; margin-right: 10px;">📍 View on Google</a>
+                  <a href="${directionsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px;">🚗 Directions</a>
+                </div>
+              </div>
+            </div>
+          `);
+          
+          markersRef.current.push(marker);
+        });
+      }
+      
+      console.log(`Added ${markersRef.current.length} total markers to map`);
     }
   }, [competitors]);
 

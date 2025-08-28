@@ -10,7 +10,12 @@ export const demoCompetitors = [
       "Two Bedroom": 5600,
       "Memory Care": 5200
     },
-    avgCareRate: 800
+    avgCareRate: 800,
+    googlePlaceId: "ChIJ5eQ5Q1g5ZIgR0YwQ5Q5Q5eQ",
+    rating: 4.2,
+    driveTimeMinutes: 12,
+    address: "8110 Westport Rd, Louisville, KY 40222",
+    isTopCompetitor: false
   },
   {
     name: "Belmont Village Senior Living",
@@ -22,7 +27,12 @@ export const demoCompetitors = [
       "Two Bedroom": 6200,
       "Memory Care": 5800
     },
-    avgCareRate: 950
+    avgCareRate: 950,
+    googlePlaceId: "ChIJ5eQ5Q1g5ZIgR0YwQ5Q5Q5eR", 
+    rating: 4.5,
+    driveTimeMinutes: 8,
+    address: "4400 Brownsboro Rd, Louisville, KY 40207",
+    isTopCompetitor: true
   },
   {
     name: "Brownsboro Park Senior Living",
@@ -34,7 +44,12 @@ export const demoCompetitors = [
       "Two Bedroom": 5100,
       "Memory Care": 4800
     },
-    avgCareRate: 750
+    avgCareRate: 750,
+    googlePlaceId: "ChIJ5eQ5Q1g5ZIgR0YwQ5Q5Q5eP",
+    rating: 4.0,
+    driveTimeMinutes: 6,
+    address: "3800 Brownsboro Rd, Louisville, KY 40207",
+    isTopCompetitor: false
   },
   {
     name: "Morning Pointe of Louisville",
@@ -46,7 +61,12 @@ export const demoCompetitors = [
       "Two Bedroom": 5400,
       "Memory Care": 5100
     },
-    avgCareRate: 850
+    avgCareRate: 850,
+    googlePlaceId: "ChIJ5eQ5Q1g5ZIgR0YwQ5Q5Q5eT",
+    rating: 4.0,
+    driveTimeMinutes: 15,
+    address: "7200 Dixie Hwy, Louisville, KY 40258",
+    isTopCompetitor: false
   },
   {
     name: "Masonic Homes Louisville",
@@ -58,9 +78,29 @@ export const demoCompetitors = [
       "Two Bedroom": 4800,
       "Memory Care": 4500
     },
-    avgCareRate: 700
+    avgCareRate: 700,
+    googlePlaceId: "ChIJ5eQ5Q1g5ZIgR0YwQ5Q5Q5eU",
+    rating: 3.9,
+    driveTimeMinutes: 18,
+    address: "3506 Frankfort Ave, Louisville, KY 40207",
+    isTopCompetitor: false
   }
 ];
+
+// Current property data for map display
+export const currentProperty = {
+  name: "Sunset Manor Senior Living",
+  lat: 38.2527,
+  lng: -85.7585,
+  rates: {
+    "Studio": 3175,
+    "One Bedroom": 4200, 
+    "Two Bedroom": 5100,
+    "Memory Care": 4800
+  },
+  avgCareRate: 775,
+  address: "1234 Main St, Louisville, KY 40207"
+};
 
 export const demoRentRoll = [
   // Assisted Living (AL) - Studio Units
