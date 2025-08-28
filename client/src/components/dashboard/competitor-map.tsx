@@ -31,7 +31,10 @@ export default function CompetitorMap() {
         // Add Leaflet JS
         const script = document.createElement('script');
         script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = () => initializeMap();
+        script.onload = () => {
+          // Small delay to ensure everything is loaded
+          setTimeout(() => initializeMap(), 100);
+        };
         document.head.appendChild(script);
       } else {
         initializeMap();
@@ -39,13 +42,17 @@ export default function CompetitorMap() {
     };
 
     const initializeMap = () => {
-      if (mapRef.current && !mapInstanceRef.current) {
-        // Initialize map centered on Louisville, KY
-        mapInstanceRef.current = window.L.map(mapRef.current).setView([38.2527, -85.7585], 11);
-        
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors'
-        }).addTo(mapInstanceRef.current);
+      if (mapRef.current && !mapInstanceRef.current && window.L) {
+        try {
+          // Initialize map centered on Louisville, KY
+          mapInstanceRef.current = window.L.map(mapRef.current).setView([38.2527, -85.7585], 11);
+          
+          window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+          }).addTo(mapInstanceRef.current);
+        } catch (error) {
+          console.error('Error initializing map:', error);
+        }
       }
     };
 
@@ -60,7 +67,8 @@ export default function CompetitorMap() {
   }, []);
 
   useEffect(() => {
-    if (mapInstanceRef.current && competitors?.items) {
+    const competitorData = competitors as any;
+    if (mapInstanceRef.current && competitorData?.items) {
       // Clear existing markers
       markersRef.current.forEach(marker => {
         mapInstanceRef.current.removeLayer(marker);
@@ -68,7 +76,7 @@ export default function CompetitorMap() {
       markersRef.current = [];
 
       // Add new markers
-      competitors.items.forEach((competitor: any) => {
+      competitorData.items.forEach((competitor: any) => {
         const marker = window.L.marker([competitor.lat, competitor.lng]).addTo(mapInstanceRef.current);
         
         const rates = competitor.rates 
