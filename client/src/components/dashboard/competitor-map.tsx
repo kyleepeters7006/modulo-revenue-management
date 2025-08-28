@@ -34,17 +34,32 @@ export default function CompetitorMap() {
         const script = document.createElement('script');
         script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
         script.onload = () => {
-          console.log('Leaflet loaded, initializing map...');
-          // Longer delay to ensure everything is loaded
-          setTimeout(() => initializeMap(), 500);
+          console.log('Leaflet loaded, waiting for DOM...');
+          // Wait for DOM to be ready and map ref to be available
+          const checkAndInit = () => {
+            if (mapRef.current) {
+              console.log('DOM ready, initializing map...');
+              initializeMap();
+            } else {
+              console.log('Map ref not ready, retrying...');
+              setTimeout(checkAndInit, 100);
+            }
+          };
+          setTimeout(checkAndInit, 100);
         };
         script.onerror = (error) => {
           console.error('Error loading Leaflet script:', error);
         };
         document.head.appendChild(script);
       } else {
-        console.log('Leaflet already loaded, initializing map...');
-        initializeMap();
+        console.log('Leaflet already loaded, checking DOM...');
+        if (mapRef.current) {
+          initializeMap();
+        } else {
+          setTimeout(() => {
+            if (mapRef.current) initializeMap();
+          }, 100);
+        }
       }
     };
 
@@ -58,6 +73,9 @@ export default function CompetitorMap() {
       if (mapRef.current && !mapInstanceRef.current && window.L) {
         try {
           console.log('Creating map instance...');
+          // Clear any existing content
+          mapRef.current.innerHTML = '';
+          
           // Initialize map centered on Louisville, KY
           mapInstanceRef.current = window.L.map(mapRef.current, {
             center: [38.2527, -85.7585],
@@ -72,6 +90,14 @@ export default function CompetitorMap() {
           }).addTo(mapInstanceRef.current);
           
           console.log('Map initialized successfully!');
+          
+          // Force a resize after a short delay
+          setTimeout(() => {
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.invalidateSize();
+            }
+          }, 100);
+          
         } catch (error) {
           console.error('Error initializing map:', error);
         }
@@ -84,13 +110,17 @@ export default function CompetitorMap() {
       }
     };
 
-    // Small delay to ensure DOM is ready
-    setTimeout(() => loadLeaflet(), 100);
+    // Start loading immediately
+    loadLeaflet();
 
     return () => {
       if (mapInstanceRef.current) {
         console.log('Cleaning up map...');
-        mapInstanceRef.current.remove();
+        try {
+          mapInstanceRef.current.remove();
+        } catch (e) {
+          console.log('Map cleanup error:', e);
+        }
         mapInstanceRef.current = null;
       }
     };
@@ -213,12 +243,19 @@ export default function CompetitorMap() {
           }).addTo(mapInstanceRef.current);
           
           // Calculate price differences vs our property
-          const rates = competitor.studioRate || competitor.oneBedRate || competitor.twoBedRate || competitor.memoryCareRate 
+          // Handle both new format (individual fields) and legacy format (rates object)
+          const competitorRates = competitor.rates || {};
+          const studioRate = competitor.studioRate || competitorRates.Studio;
+          const oneBedRate = competitor.oneBedRate || competitorRates["One Bedroom"];
+          const twoBedRate = competitor.twoBedRate || competitorRates["Two Bedroom"];
+          const memoryCareRate = competitor.memoryCareRate || competitorRates["Memory Care"];
+          
+          const rates = (studioRate || oneBedRate || twoBedRate || memoryCareRate)
             ? [
-                competitor.studioRate ? `Studio: $${competitor.studioRate} (${competitor.studioRate > currentProperty.rates.Studio ? '+' : ''}$${competitor.studioRate - currentProperty.rates.Studio})` : '',
-                competitor.oneBedRate ? `One Bedroom: $${competitor.oneBedRate} (${competitor.oneBedRate > currentProperty.rates["One Bedroom"] ? '+' : ''}$${competitor.oneBedRate - currentProperty.rates["One Bedroom"]})` : '',
-                competitor.twoBedRate ? `Two Bedroom: $${competitor.twoBedRate} (${competitor.twoBedRate > currentProperty.rates["Two Bedroom"] ? '+' : ''}$${competitor.twoBedRate - currentProperty.rates["Two Bedroom"]})` : '',
-                competitor.memoryCareRate ? `Memory Care: $${competitor.memoryCareRate} (${competitor.memoryCareRate > currentProperty.rates["Memory Care"] ? '+' : ''}$${competitor.memoryCareRate - currentProperty.rates["Memory Care"]})` : ''
+                studioRate ? `Studio: $${studioRate} (${studioRate > currentProperty.rates.Studio ? '+' : ''}$${studioRate - currentProperty.rates.Studio})` : '',
+                oneBedRate ? `One Bedroom: $${oneBedRate} (${oneBedRate > currentProperty.rates["One Bedroom"] ? '+' : ''}$${oneBedRate - currentProperty.rates["One Bedroom"]})` : '',
+                twoBedRate ? `Two Bedroom: $${twoBedRate} (${twoBedRate > currentProperty.rates["Two Bedroom"] ? '+' : ''}$${twoBedRate - currentProperty.rates["Two Bedroom"]})` : '',
+                memoryCareRate ? `Memory Care: $${memoryCareRate} (${memoryCareRate > currentProperty.rates["Memory Care"] ? '+' : ''}$${memoryCareRate - currentProperty.rates["Memory Care"]})` : ''
               ].filter(Boolean).join('<br>')
             : 'No room rates available';
         
@@ -228,26 +265,63 @@ export default function CompetitorMap() {
             : '';
 
           // Generate Google Maps link
-          const encodedAddress = encodeURIComponent(competitor.name + ' ' + (competitor.address || 'Louisville KY'));
+          const searchTerm = competitor.address || `${competitor.name} Louisville KY`;
+          const encodedAddress = encodeURIComponent(searchTerm);
           const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
           
           // Generate directions link
-          const directionsUrl = `https://www.google.com/maps/dir/${currentProperty.address}/${encodedAddress}`;
+          const directionsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(currentProperty.address)}/${encodedAddress}`;
         
+          // Build attributes display
+          const attributes = competitor.attributes || [];
+          const attributesList = attributes.length > 0 
+            ? attributes.map((attr: string) => {
+                const labels: { [key: string]: string } = {
+                  view: "🌅 View",
+                  renovated: "🔨 Renovated",
+                  corner: "📐 Corner",
+                  balcony: "🏠 Balcony",
+                  parking: "🚗 Parking"
+                };
+                return labels[attr] || attr;
+              }).join(', ')
+            : 'None';
+
+          // Build ratings display
+          const ratingsDisplay = (competitor.ratingA || competitor.ratingB || competitor.ratingC)
+            ? `<div style="margin-bottom: 8px;">
+                <b>A/B/C Ratings:</b><br>
+                ${competitor.ratingA ? `A: ${competitor.ratingA}/100` : ''} 
+                ${competitor.ratingB ? `B: ${competitor.ratingB}/100` : ''} 
+                ${competitor.ratingC ? `C: ${competitor.ratingC}/100` : ''}
+              </div>`
+            : '';
+
           marker.bindPopup(`
-            <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 200px;">
+            <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 220px;">
               <div style="background: ${isTopCompetitor ? '#14b8a6' : '#6b7280'}; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
                 <b style="font-size: 14px;">${competitor.name}</b>
                 <div style="font-size: 11px; opacity: 0.9;">${isTopCompetitor ? 'Top Competitor' : 'Competitor'}</div>
               </div>
               <div style="font-size: 12px;">
+                ${competitor.address ? `<div style="margin-bottom: 8px;">
+                  <b>📍 Address:</b> ${competitor.address}
+                </div>` : ''}
                 <div style="margin-bottom: 8px;">
-                  <b>Price Comparison vs Us:</b><br>
+                  <b>💰 Price Comparison vs Us:</b><br>
                   ${rates}
                 </div>
                 ${careRate ? `<div style="margin-bottom: 8px;"><b>${careRate}</b></div>` : ''}
-                ${competitor.rating ? `<div style="margin-bottom: 8px;"><b>Rating:</b> ⭐ ${competitor.rating}/5</div>` : ''}
-                ${competitor.driveTimeMinutes ? `<div style="margin-bottom: 8px;"><b>Drive Time:</b> ${competitor.driveTimeMinutes} min</div>` : ''}
+                ${competitor.rating ? `<div style="margin-bottom: 8px;"><b>⭐ Overall Rating:</b> ${competitor.rating}/5</div>` : ''}
+                ${ratingsDisplay}
+                ${competitor.rank || competitor.weight ? `<div style="margin-bottom: 8px;">
+                  <b>📊 Competitive Data:</b><br>
+                  ${competitor.rank ? `Rank: #${competitor.rank}` : ''} 
+                  ${competitor.weight ? `Weight: ${competitor.weight}` : ''}
+                </div>` : ''}
+                <div style="margin-bottom: 8px;">
+                  <b>🏢 Attributes:</b> ${attributesList}
+                </div>
                 <div style="margin-top: 10px;">
                   <a href="${googleMapsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px; margin-right: 10px;">📍 View on Google</a>
                   <a href="${directionsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px;">🚗 Directions</a>
