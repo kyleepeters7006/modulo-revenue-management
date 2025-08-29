@@ -126,10 +126,7 @@ export const competitors = pgTable("competitors", {
   address: text("address"),
   rank: integer("rank"),
   weight: real("weight"),
-  rating: real("rating"),
-  ratingA: real("rating_a"),
-  ratingB: real("rating_b"), 
-  ratingC: real("rating_c"),
+  rating: text("rating"), // A, B, or C
   createdAt: timestamp("created_at").defaultNow(),
 });
 

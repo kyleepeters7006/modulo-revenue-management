@@ -152,21 +152,36 @@ export function CompetitorMap() {
           ? `Avg Care: $${competitor.avgCareRate} (${careRateDiff > 0 ? '+' : ''}$${careRateDiff})`
           : 'Avg Care: Not available';
 
+        // Format room rates from the rates object
+        let roomRatesHtml = 'No room rates provided';
+        if (competitor.rates && typeof competitor.rates === 'object') {
+          const rates = [];
+          if (competitor.rates.studio) rates.push(`Studio: $${competitor.rates.studio}`);
+          if (competitor.rates.oneBedroom) rates.push(`One Bedroom: $${competitor.rates.oneBedroom}`);
+          if (competitor.rates.twoBedroom) rates.push(`Two Bedroom: $${competitor.rates.twoBedroom}`);
+          if (competitor.rates.memoryCare) rates.push(`Memory Care: $${competitor.rates.memoryCare}`);
+          
+          if (rates.length > 0) {
+            roomRatesHtml = rates.join('<br>');
+          }
+        }
+
+        const rating = competitor.rating ? `${competitor.rating} rating` : 'No rating';
+
         const searchTerm = competitor.address || `${competitor.name} Louisville KY`;
         const encodedAddress = encodeURIComponent(searchTerm);
         const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
         const directionsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(currentProperty.address)}/${encodedAddress}`;
 
         marker.bindPopup(`
-          <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 220px;">
+          <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 250px;">
             <div style="background: ${color}; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
               <b style="font-size: 14px;">${competitor.name}</b>
-              <div style="font-size: 11px; opacity: 0.9;">${isTopCompetitor ? 'Top Competitor' : 'Competitor'}</div>
+              <div style="font-size: 11px; opacity: 0.9;">${isTopCompetitor ? 'Top Competitor' : 'Competitor'} • ${rating}</div>
             </div>
             <div style="font-size: 12px;">
               <div style="margin-bottom: 8px;"><b>💰 ${careRate}</b></div>
-              <div style="margin-bottom: 8px;"><b>💵 Room Rates:</b> Use competitor form to add room rates</div>
-              <div style="margin-bottom: 8px;"><b>🏢 Status:</b> Basic competitor data loaded</div>
+              <div style="margin-bottom: 8px;"><b>🏠 Room Rates:</b><br>${roomRatesHtml}</div>
               <div style="margin-top: 10px;">
                 <a href="${googleMapsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px; margin-right: 10px;">📍 View on Google</a>
                 <a href="${directionsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px;">🚗 Directions</a>

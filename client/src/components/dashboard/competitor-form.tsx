@@ -23,10 +23,13 @@ const competitorFormSchema = z.object({
   address: z.string().optional(),
   rank: z.number().optional(),
   weight: z.number().optional(),
-  rating: z.number().min(0).max(5).optional(),
-  ratingA: z.number().min(0).max(100).optional(),
-  ratingB: z.number().min(0).max(100).optional(),
-  ratingC: z.number().min(0).max(100).optional(),
+  rating: z.enum(["A", "B", "C"]).optional(),
+  rates: z.object({
+    studio: z.number().optional(),
+    oneBedroom: z.number().optional(),
+    twoBedroom: z.number().optional(),
+    memoryCare: z.number().optional(),
+  }).optional(),
   attributes: z.object({
     view: z.boolean().optional(),
     renovated: z.boolean().optional(),
@@ -151,9 +154,7 @@ export default function CompetitorForm() {
     form.setValue("rank", competitor.rank || undefined);
     form.setValue("weight", competitor.weight || undefined);
     form.setValue("rating", competitor.rating || undefined);
-    form.setValue("ratingA", competitor.ratingA || undefined);
-    form.setValue("ratingB", competitor.ratingB || undefined);
-    form.setValue("ratingC", competitor.ratingC || undefined);
+    form.setValue("rating", competitor.rating || undefined);
     form.setValue("attributes", competitor.attributes || {
       view: false,
       renovated: false,
@@ -325,57 +326,68 @@ export default function CompetitorForm() {
                   </div>
 
                   <div>
-                    <Label htmlFor="rating">Rating (0-5)</Label>
-                    <Input
-                      id="rating"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="5"
-                      {...form.register("rating", { valueAsNumber: true })}
-                      placeholder="4.2"
-                      data-testid="input-competitor-rating"
-                    />
+                    <Label htmlFor="rating">Overall Rating</Label>
+                    <Select onValueChange={(value) => form.setValue("rating", value as "A" | "B" | "C")}>
+                      <SelectTrigger data-testid="select-competitor-rating">
+                        <SelectValue placeholder="Select rating (A, B, or C)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="A">A - Excellent</SelectItem>
+                        <SelectItem value="B">B - Good</SelectItem>
+                        <SelectItem value="C">C - Average</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  {/* A/B/C Ratings */}
-                  <div>
-                    <Label htmlFor="ratingA">Rating A (0-100)</Label>
-                    <Input
-                      id="ratingA"
-                      type="number"
-                      min="0"
-                      max="100"
-                      {...form.register("ratingA", { valueAsNumber: true })}
-                      placeholder="85"
-                      data-testid="input-competitor-rating-a"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="ratingB">Rating B (0-100)</Label>
-                    <Input
-                      id="ratingB"
-                      type="number"
-                      min="0"
-                      max="100"
-                      {...form.register("ratingB", { valueAsNumber: true })}
-                      placeholder="75"
-                      data-testid="input-competitor-rating-b"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="ratingC">Rating C (0-100)</Label>
-                    <Input
-                      id="ratingC"
-                      type="number"
-                      min="0"
-                      max="100"
-                      {...form.register("ratingC", { valueAsNumber: true })}
-                      placeholder="65"
-                      data-testid="input-competitor-rating-c"
-                    />
+                  {/* Room Rates */}
+                  <div className="col-span-2">
+                    <Label>Room Rates</Label>
+                    <div className="grid grid-cols-2 gap-4 mt-2">
+                      <div>
+                        <Label htmlFor="studio">Studio Rate</Label>
+                        <Input
+                          id="studio"
+                          type="number"
+                          min="0"
+                          {...form.register("rates.studio", { valueAsNumber: true })}
+                          placeholder="3175"
+                          data-testid="input-competitor-studio-rate"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="oneBedroom">One Bedroom Rate</Label>
+                        <Input
+                          id="oneBedroom"
+                          type="number"
+                          min="0"
+                          {...form.register("rates.oneBedroom", { valueAsNumber: true })}
+                          placeholder="4200"
+                          data-testid="input-competitor-one-bedroom-rate"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="twoBedroom">Two Bedroom Rate</Label>
+                        <Input
+                          id="twoBedroom"
+                          type="number"
+                          min="0"
+                          {...form.register("rates.twoBedroom", { valueAsNumber: true })}
+                          placeholder="5100"
+                          data-testid="input-competitor-two-bedroom-rate"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="memoryCare">Memory Care Rate</Label>
+                        <Input
+                          id="memoryCare"
+                          type="number"
+                          min="0"
+                          {...form.register("rates.memoryCare", { valueAsNumber: true })}
+                          placeholder="4800"
+                          data-testid="input-competitor-memory-care-rate"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -449,9 +461,7 @@ export default function CompetitorForm() {
                         </div>
                         {(competitor.ratingA || competitor.ratingB || competitor.ratingC) && (
                           <div className="flex gap-2">
-                            {competitor.ratingA && <Badge variant="outline">A: {competitor.ratingA}</Badge>}
-                            {competitor.ratingB && <Badge variant="outline">B: {competitor.ratingB}</Badge>}
-                            {competitor.ratingC && <Badge variant="outline">C: {competitor.ratingC}</Badge>}
+                            {competitor.rating && <Badge variant="outline">Rating: {competitor.rating}</Badge>}
                           </div>
                         )}
                       </div>
@@ -492,7 +502,7 @@ export default function CompetitorForm() {
     return (
       <div style={{ border: '3px solid red', padding: '20px', backgroundColor: 'pink', color: 'black' }}>
         <h2>ERROR: Competitor Form failed to render</h2>
-        <p>Error: {error.message}</p>
+        <p>Error: {String(error)}</p>
       </div>
     );
   }
