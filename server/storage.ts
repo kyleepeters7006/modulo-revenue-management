@@ -136,23 +136,26 @@ export class DatabaseStorage implements IStorage {
     // Get rent roll data for the month
     const units = await this.getRentRollDataByMonth(uploadMonth);
     
-    // Group by room type and calculate averages
-    const roomTypeStats = units.reduce((acc: any, unit: any) => {
-      if (!acc[unit.roomType]) {
-        acc[unit.roomType] = {
+    // Group by service line and calculate averages
+    const serviceLineStats = units.reduce((acc: any, unit: any) => {
+      const serviceLine = unit.serviceLine || 'AL'; // Default to AL if not specified
+      if (!acc[serviceLine]) {
+        acc[serviceLine] = {
           streetRates: [],
           moduloRates: [],
           aiRates: [],
           occupied: 0,
-          total: 0
+          total: 0,
+          roomTypes: new Set() // Track room types within this service line
         };
       }
       
-      acc[unit.roomType].streetRates.push(unit.streetRate);
-      if (unit.moduloSuggestedRate) acc[unit.roomType].moduloRates.push(unit.moduloSuggestedRate);
-      if (unit.aiSuggestedRate) acc[unit.roomType].aiRates.push(unit.aiSuggestedRate);
-      acc[unit.roomType].total++;
-      if (unit.occupiedYN) acc[unit.roomType].occupied++;
+      acc[serviceLine].streetRates.push(unit.streetRate);
+      if (unit.moduloSuggestedRate) acc[serviceLine].moduloRates.push(unit.moduloSuggestedRate);
+      if (unit.aiSuggestedRate) acc[serviceLine].aiRates.push(unit.aiSuggestedRate);
+      acc[serviceLine].total++;
+      if (unit.occupiedYN) acc[serviceLine].occupied++;
+      acc[serviceLine].roomTypes.add(unit.roomType);
       
       return acc;
     }, {});
@@ -160,25 +163,19 @@ export class DatabaseStorage implements IStorage {
     // Delete existing rate cards for this month and insert new ones
     await db.delete(rateCard).where(eq(rateCard.uploadMonth, uploadMonth));
     
-    for (const [roomType, stats] of Object.entries(roomTypeStats) as [string, any][]) {
+    for (const [serviceLine, stats] of Object.entries(serviceLineStats) as [string, any][]) {
       const avgStreet = stats.streetRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.streetRates.length;
       const avgModulo = stats.moduloRates.length > 0 ? stats.moduloRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.moduloRates.length : null;
       const avgAi = stats.aiRates.length > 0 ? stats.aiRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.aiRates.length : null;
       
-      // Map room type to service line
-      const serviceLineMapping: { [key: string]: string } = {
-        "Studio": "AL",
-        "One Bedroom": "AL", 
-        "Two Bedroom": "IL",
-        "Memory Care": "AL/MC",
-        "Healthcare": "HC",
-        "Skilled Living": "SL"
-      };
+      // Use service line as the primary grouping, with representative room type
+      const roomTypesList = Array.from(stats.roomTypes);
+      const primaryRoomType = roomTypesList[0] || 'Studio'; // Use first room type as representative
       
       await db.insert(rateCard).values({
         uploadMonth,
-        roomType,
-        serviceLine: serviceLineMapping[roomType] || "AL",
+        roomType: primaryRoomType, // Keep for compatibility, but now it's just representative
+        serviceLine: serviceLine,
         averageStreetRate: avgStreet,
         averageModuloRate: avgModulo,
         averageAiRate: avgAi,

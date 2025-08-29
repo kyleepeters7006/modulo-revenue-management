@@ -281,13 +281,13 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
       {summary.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Summary by Room Type</CardTitle>
+            <CardTitle>Summary by Service Line</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Room Type</TableHead>
+                  <TableHead>Service Line</TableHead>
                   <TableHead>Occupancy</TableHead>
                   <TableHead>Avg Street Rate</TableHead>
                   <TableHead>Avg Modulo</TableHead>
@@ -296,8 +296,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
               </TableHeader>
               <TableBody>
                 {summary.map((row: any) => (
-                  <TableRow key={row.roomType}>
-                    <TableCell className="font-medium">{row.roomType}</TableCell>
+                  <TableRow key={row.serviceLine}>
+                    <TableCell className="font-medium">{row.serviceLine}</TableCell>
                     <TableCell>
                       <Badge variant={row.occupancyCount / row.totalUnits > 0.85 ? "default" : "secondary"}>
                         {row.occupancyCount}/{row.totalUnits} ({Math.round(row.occupancyCount / row.totalUnits * 100)}%)
@@ -335,7 +335,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 <TableHeader>
                   <TableRow>
                     <TableHead>Unit</TableHead>
-                    <TableHead>Type</TableHead>
+                    <TableHead>Room Type</TableHead>
+                    <TableHead>Service Line</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Street Rate</TableHead>
                     <TableHead>Modulo</TableHead>
@@ -352,6 +353,9 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         {unit.roomNumber}
                       </TableCell>
                       <TableCell>{unit.roomType}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{unit.serviceLine}</Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge variant={unit.occupiedYN ? "default" : "secondary"}>
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
