@@ -33,19 +33,19 @@ export default function Navigation({ className }: NavigationProps) {
   return (
     <nav className={cn("bg-white shadow-sm border-b border-gray-200", className)}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center space-x-8">
-            {/* Modulo M Logo */}
-            <Link href="/overview" className="flex items-center space-x-2" data-testid="link-home">
-              <img 
-                src="/@fs/home/runner/workspace/attached_assets/image_1756171963360.png" 
-                alt="Modulo" 
-                className="h-14 w-auto"
-              />
-            </Link>
-            
-            {/* Main Navigation - Desktop */}
-            <div className="hidden md:flex space-x-8">
+        <div className="flex items-center justify-between h-16">
+          {/* Logo */}
+          <Link href="/overview" className="flex items-center space-x-2" data-testid="link-home">
+            <img 
+              src="/@fs/home/runner/workspace/attached_assets/image_1756171963360.png" 
+              alt="Modulo" 
+              className="h-14 w-auto"
+            />
+          </Link>
+          
+          {/* Centered Main Navigation - Desktop */}
+          <div className="hidden md:flex flex-1 justify-center">
+            <div className="flex space-x-8">
               {menuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location === item.path || (location === "/" && item.path === "/overview");
