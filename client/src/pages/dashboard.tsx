@@ -154,7 +154,10 @@ export default function Dashboard() {
             {/* Mobile: Stack vertically */}
             <div className="block lg:hidden space-y-6">
               <CompetitorMap />
-              <CompetitorForm />
+              <div style={{ border: '3px solid blue', padding: '10px', backgroundColor: 'yellow' }}>
+                <h2 style={{ color: 'black' }}>DEBUG: Competitor Form Should Be Here!</h2>
+                <CompetitorForm />
+              </div>
             </div>
             
             {/* Desktop: Side by side */}
