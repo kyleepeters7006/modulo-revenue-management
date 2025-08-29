@@ -15,7 +15,7 @@ export default function AiInsights() {
 
   const aiSuggestMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('POST', '/api/ai/suggest');
+      return apiRequest('/api/ai/suggest', 'POST');
     },
     onSuccess: async (response) => {
       const data = await response.json();
@@ -49,9 +49,9 @@ export default function AiInsights() {
       if (file) {
         const formData = new FormData();
         formData.append('file', file);
-        return apiRequest('POST', '/api/ai/train', formData);
+        return apiRequest('/api/ai/train', 'POST', formData);
       } else {
-        return apiRequest('POST', '/api/ai/train');
+        return apiRequest('/api/ai/train', 'POST');
       }
     },
     onSuccess: async (response) => {
