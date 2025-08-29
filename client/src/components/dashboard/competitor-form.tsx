@@ -174,6 +174,8 @@ export default function CompetitorForm() {
     form.reset();
   };
 
+  console.log("CompetitorForm rendering:", { isLoading, competitors: competitors?.items?.length });
+  
   if (isLoading) {
     return (
       <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
