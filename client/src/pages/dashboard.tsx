@@ -149,6 +149,12 @@ export default function Dashboard() {
             <PricingWeights />
           </div>
 
+          {/* Test Section - Simple HTML */}
+          <div style={{ border: '5px solid purple', padding: '30px', backgroundColor: 'orange', margin: '30px 0' }}>
+            <h1 style={{ color: 'black', fontSize: '30px' }}>🟣 BASIC HTML TEST - This should ALWAYS be visible!</h1>
+            <p style={{ color: 'black', fontSize: '18px' }}>If you don't see this, there's a page rendering issue.</p>
+          </div>
+
           {/* Competitor Section */}
           <div id="competitors" className="mb-12 lg:mb-16 scroll-mt-20">
             <CompetitorMap />
