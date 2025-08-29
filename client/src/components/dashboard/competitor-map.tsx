@@ -133,9 +133,18 @@ export function CompetitorMap() {
       competitorData.items.forEach((competitor: any) => {
         if (!competitor.lat || !competitor.lng || !mounted) return;
         
-        const isTopCompetitor = competitor.avgCareRate && competitor.avgCareRate > 900;
-        const color = isTopCompetitor ? '#f97316' : '#dc2626';
-        const size = isTopCompetitor ? '26px' : '24px';
+        // Color based on A/B/C rating
+        const getRatingColor = (rating: string) => {
+          switch (rating?.toUpperCase()) {
+            case 'A': return '#22c55e'; // Green for A rating
+            case 'B': return '#f59e0b'; // Amber for B rating  
+            case 'C': return '#ef4444'; // Red for C rating
+            default: return '#6b7280'; // Gray for no rating
+          }
+        };
+        
+        const color = getRatingColor(competitor.rating);
+        const size = competitor.rating === 'A' ? '26px' : '24px';
         
         const competitorIcon = window.L.divIcon({
           html: `<div style="width: ${size}; height: ${size}; background-color: ${color}; border: 3px solid white; border-radius: 50%; box-shadow: 0 3px 8px rgba(0,0,0,0.6);"></div>`,
@@ -156,10 +165,19 @@ export function CompetitorMap() {
         let roomRatesHtml = 'No room rates provided';
         if (competitor.rates && typeof competitor.rates === 'object') {
           const rates = [];
-          if (competitor.rates.studio) rates.push(`Studio: $${competitor.rates.studio}`);
-          if (competitor.rates.oneBedroom) rates.push(`One Bedroom: $${competitor.rates.oneBedroom}`);
-          if (competitor.rates.twoBedroom) rates.push(`Two Bedroom: $${competitor.rates.twoBedroom}`);
-          if (competitor.rates.memoryCare) rates.push(`Memory Care: $${competitor.rates.memoryCare}`);
+          // Check for both camelCase and proper case keys
+          if (competitor.rates.Studio || competitor.rates.studio) {
+            rates.push(`Studio: $${competitor.rates.Studio || competitor.rates.studio}`);
+          }
+          if (competitor.rates['One Bedroom'] || competitor.rates.oneBedroom) {
+            rates.push(`One Bedroom: $${competitor.rates['One Bedroom'] || competitor.rates.oneBedroom}`);
+          }
+          if (competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom) {
+            rates.push(`Two Bedroom: $${competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom}`);
+          }
+          if (competitor.rates['Memory Care'] || competitor.rates.memoryCare) {
+            rates.push(`Memory Care: $${competitor.rates['Memory Care'] || competitor.rates.memoryCare}`);
+          }
           
           if (rates.length > 0) {
             roomRatesHtml = rates.join('<br>');
@@ -177,7 +195,7 @@ export function CompetitorMap() {
           <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 250px;">
             <div style="background: ${color}; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
               <b style="font-size: 14px;">${competitor.name}</b>
-              <div style="font-size: 11px; opacity: 0.9;">${isTopCompetitor ? 'Top Competitor' : 'Competitor'} • ${rating}</div>
+              <div style="font-size: 11px; opacity: 0.9;">Competitor • ${rating}</div>
             </div>
             <div style="font-size: 12px;">
               <div style="margin-bottom: 8px;"><b>💰 ${careRate}</b></div>
