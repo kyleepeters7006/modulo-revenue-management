@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -90,6 +90,7 @@ export default function CompetitorMap() {
           }).addTo(mapInstanceRef.current);
           
           console.log('Map initialized successfully!');
+          setMapReady(true);
           
           // Force a resize after a short delay
           setTimeout(() => {
@@ -126,12 +127,16 @@ export default function CompetitorMap() {
     };
   }, []);
 
+  // State to track when map is ready
+  const [mapReady, setMapReady] = useState(false);
+
   useEffect(() => {
     const competitorData = competitors as any;
     console.log('Processing competitor data:', { 
       hasMap: !!mapInstanceRef.current, 
       competitorData: competitorData?.items?.length || 0,
       leaflet: !!window.L,
+      mapReady: mapReady,
       competitors: competitors
     });
     
@@ -139,7 +144,8 @@ export default function CompetitorMap() {
       console.log('Not ready to add markers:', {
         hasMap: !!mapInstanceRef.current,
         hasLeaflet: !!window.L, 
-        hasCompetitors: !!competitorData?.items
+        hasCompetitors: !!competitorData?.items,
+        mapReady: mapReady
       });
       return;
     }
@@ -171,44 +177,44 @@ export default function CompetitorMap() {
       // Create custom icons
       const currentPropertyIcon = window.L.divIcon({
         html: `<div style="
-          width: 20px; 
-          height: 20px; 
+          width: 30px; 
+          height: 30px; 
           background-color: #2563eb; 
-          border: 3px solid white; 
+          border: 4px solid white; 
           border-radius: 50%; 
-          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.6);
         "></div>`,
         className: 'custom-marker',
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
+        iconSize: [38, 38],
+        iconAnchor: [19, 19]
       });
 
       const topCompetitorIcon = window.L.divIcon({
         html: `<div style="
-          width: 12px; 
-          height: 12px; 
-          background-color: #14b8a6; 
-          border: 2px solid white; 
+          width: 26px; 
+          height: 26px; 
+          background-color: #f97316; 
+          border: 3px solid white; 
           border-radius: 50%; 
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          box-shadow: 0 3px 10px rgba(0,0,0,0.6);
         "></div>`,
         className: 'custom-marker',
-        iconSize: [12, 12],
-        iconAnchor: [6, 6]
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
       });
 
       const competitorIcon = window.L.divIcon({
         html: `<div style="
-          width: 10px; 
-          height: 10px; 
-          background-color: #6b7280; 
-          border: 2px solid white; 
+          width: 24px; 
+          height: 24px; 
+          background-color: #dc2626; 
+          border: 3px solid white; 
           border-radius: 50%; 
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          box-shadow: 0 3px 8px rgba(0,0,0,0.6);
         "></div>`,
         className: 'custom-marker',
-        iconSize: [10, 10],
-        iconAnchor: [5, 5]
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
       });
 
       // Add current property marker
@@ -304,7 +310,7 @@ export default function CompetitorMap() {
       
       console.log(`Added ${markersRef.current.length} total markers to map`);
     }
-  }, [competitors]);
+  }, [competitors, mapReady]);
 
   if (isLoading) {
     return (
