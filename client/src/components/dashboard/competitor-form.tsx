@@ -66,10 +66,7 @@ export default function CompetitorForm() {
 
   const createMutation = useMutation({
     mutationFn: async (data: CompetitorFormData) => {
-      return apiRequest("/api/competitors", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      return apiRequest("/api/competitors", "POST", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/competitors"] });
@@ -91,10 +88,7 @@ export default function CompetitorForm() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: CompetitorFormData }) => {
-      return apiRequest(`/api/competitors/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      });
+      return apiRequest(`/api/competitors/${id}`, "PUT", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/competitors"] });
@@ -117,9 +111,7 @@ export default function CompetitorForm() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/competitors/${id}`, {
-        method: "DELETE",
-      });
+      return apiRequest(`/api/competitors/${id}`, "DELETE");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/competitors"] });
@@ -423,9 +415,9 @@ export default function CompetitorForm() {
         {/* Competitor List */}
         <div className="space-y-3">
           <h3 className="text-lg font-medium text-[var(--dashboard-text)]">Current Competitors</h3>
-          {competitors?.items?.length > 0 ? (
+          {(competitors as any)?.items?.length > 0 ? (
             <div className="grid gap-4">
-              {competitors.items.map((competitor: any) => (
+              {(competitors as any).items.map((competitor: any) => (
                 <Card key={competitor.id} className="bg-[var(--dashboard-bg)] border-[var(--dashboard-border)]">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
