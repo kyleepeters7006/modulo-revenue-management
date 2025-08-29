@@ -235,67 +235,31 @@ export default function CompetitorMap() {
         competitorData.items.forEach((competitor: any) => {
           console.log('Adding marker for:', competitor.name, 'at', [competitor.lat, competitor.lng]);
           
-          const isTopCompetitor = competitor.avgCareRate > 900; // Determine top competitor
+          // Validate coordinates before adding marker
+          if (!competitor.lat || !competitor.lng) {
+            console.log('Skipping competitor with invalid coordinates:', competitor.name);
+            return;
+          }
+          
+          const isTopCompetitor = competitor.avgCareRate && competitor.avgCareRate > 900;
           const icon = isTopCompetitor ? topCompetitorIcon : competitorIcon;
           
           const marker = window.L.marker([competitor.lat, competitor.lng], {
             icon: icon
           }).addTo(mapInstanceRef.current);
           
-          // Calculate price differences vs our property
-          // Handle both new format (individual fields) and legacy format (rates object)
-          const competitorRates = competitor.rates || {};
-          const studioRate = competitor.studioRate || competitorRates.Studio;
-          const oneBedRate = competitor.oneBedRate || competitorRates["One Bedroom"];
-          const twoBedRate = competitor.twoBedRate || competitorRates["Two Bedroom"];
-          const memoryCareRate = competitor.memoryCareRate || competitorRates["Memory Care"];
-          
-          const rates = (studioRate || oneBedRate || twoBedRate || memoryCareRate)
-            ? [
-                studioRate ? `Studio: $${studioRate} (${studioRate > currentProperty.rates.Studio ? '+' : ''}$${studioRate - currentProperty.rates.Studio})` : '',
-                oneBedRate ? `One Bedroom: $${oneBedRate} (${oneBedRate > currentProperty.rates["One Bedroom"] ? '+' : ''}$${oneBedRate - currentProperty.rates["One Bedroom"]})` : '',
-                twoBedRate ? `Two Bedroom: $${twoBedRate} (${twoBedRate > currentProperty.rates["Two Bedroom"] ? '+' : ''}$${twoBedRate - currentProperty.rates["Two Bedroom"]})` : '',
-                memoryCareRate ? `Memory Care: $${memoryCareRate} (${memoryCareRate > currentProperty.rates["Memory Care"] ? '+' : ''}$${memoryCareRate - currentProperty.rates["Memory Care"]})` : ''
-              ].filter(Boolean).join('<br>')
-            : 'No room rates available';
-        
-          const careRateDiff = competitor.avgCareRate - currentProperty.avgCareRate;
+          const careRateDiff = competitor.avgCareRate ? (competitor.avgCareRate - currentProperty.avgCareRate) : 0;
           const careRate = competitor.avgCareRate 
             ? `Avg Care: $${competitor.avgCareRate} (${careRateDiff > 0 ? '+' : ''}$${careRateDiff})`
-            : '';
+            : 'Avg Care: Not available';
 
-          // Generate Google Maps link
+          // Generate Google Maps search link
           const searchTerm = competitor.address || `${competitor.name} Louisville KY`;
           const encodedAddress = encodeURIComponent(searchTerm);
           const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
           
           // Generate directions link
           const directionsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(currentProperty.address)}/${encodedAddress}`;
-        
-          // Build attributes display
-          const attributes = competitor.attributes || [];
-          const attributesList = attributes.length > 0 
-            ? attributes.map((attr: string) => {
-                const labels: { [key: string]: string } = {
-                  view: "🌅 View",
-                  renovated: "🔨 Renovated",
-                  corner: "📐 Corner",
-                  balcony: "🏠 Balcony",
-                  parking: "🚗 Parking"
-                };
-                return labels[attr] || attr;
-              }).join(', ')
-            : 'None';
-
-          // Build ratings display
-          const ratingsDisplay = (competitor.ratingA || competitor.ratingB || competitor.ratingC)
-            ? `<div style="margin-bottom: 8px;">
-                <b>A/B/C Ratings:</b><br>
-                ${competitor.ratingA ? `A: ${competitor.ratingA}/100` : ''} 
-                ${competitor.ratingB ? `B: ${competitor.ratingB}/100` : ''} 
-                ${competitor.ratingC ? `C: ${competitor.ratingC}/100` : ''}
-              </div>`
-            : '';
 
           marker.bindPopup(`
             <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 220px;">
@@ -304,23 +268,14 @@ export default function CompetitorMap() {
                 <div style="font-size: 11px; opacity: 0.9;">${isTopCompetitor ? 'Top Competitor' : 'Competitor'}</div>
               </div>
               <div style="font-size: 12px;">
-                ${competitor.address ? `<div style="margin-bottom: 8px;">
-                  <b>📍 Address:</b> ${competitor.address}
-                </div>` : ''}
                 <div style="margin-bottom: 8px;">
-                  <b>💰 Price Comparison vs Us:</b><br>
-                  ${rates}
+                  <b>💰 ${careRate}</b>
                 </div>
-                ${careRate ? `<div style="margin-bottom: 8px;"><b>${careRate}</b></div>` : ''}
-                ${competitor.rating ? `<div style="margin-bottom: 8px;"><b>⭐ Overall Rating:</b> ${competitor.rating}/5</div>` : ''}
-                ${ratingsDisplay}
-                ${competitor.rank || competitor.weight ? `<div style="margin-bottom: 8px;">
-                  <b>📊 Competitive Data:</b><br>
-                  ${competitor.rank ? `Rank: #${competitor.rank}` : ''} 
-                  ${competitor.weight ? `Weight: ${competitor.weight}` : ''}
-                </div>` : ''}
                 <div style="margin-bottom: 8px;">
-                  <b>🏢 Attributes:</b> ${attributesList}
+                  <b>💵 Room Rates:</b> Use competitor form to add room rates
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <b>🏢 Status:</b> Basic competitor data loaded
                 </div>
                 <div style="margin-top: 10px;">
                   <a href="${googleMapsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px; margin-right: 10px;">📍 View on Google</a>
