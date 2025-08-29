@@ -115,14 +115,14 @@ export default function CompetitorMap() {
     loadLeaflet();
 
     return () => {
+      // Simplified cleanup to prevent hot reload errors
       if (mapInstanceRef.current) {
-        console.log('Cleaning up map...');
         try {
           mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
         } catch (e) {
-          console.log('Map cleanup error:', e);
+          // Ignore cleanup errors during development hot reload
         }
-        mapInstanceRef.current = null;
       }
     };
   }, []);
@@ -153,9 +153,16 @@ export default function CompetitorMap() {
     console.log('All requirements met, adding markers...');
     
     if (true) {
-      // Clear existing markers
+      // Clear existing markers safely
       markersRef.current.forEach(marker => {
-        mapInstanceRef.current.removeLayer(marker);
+        try {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.removeLayer(marker);
+          }
+        } catch (e) {
+          // Ignore individual marker removal errors
+          console.log('Error removing marker:', e);
+        }
       });
       markersRef.current = [];
 
@@ -310,7 +317,7 @@ export default function CompetitorMap() {
       
       console.log(`Added ${markersRef.current.length} total markers to map`);
     }
-  }, [competitors, mapReady]);
+  }, [competitors]);
 
   if (isLoading) {
     return (
