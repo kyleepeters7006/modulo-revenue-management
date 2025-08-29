@@ -151,23 +151,12 @@ export default function Dashboard() {
 
           {/* Competitor Section */}
           <div id="competitors" className="mb-12 lg:mb-16 scroll-mt-20">
-            {/* Mobile: Stack vertically */}
-            <div className="block lg:hidden space-y-6">
-              <CompetitorMap />
-              <div style={{ border: '3px solid blue', padding: '10px', backgroundColor: 'yellow' }}>
-                <h2 style={{ color: 'black' }}>DEBUG: Competitor Form Should Be Here!</h2>
-                <CompetitorForm />
-              </div>
-            </div>
+            <CompetitorMap />
             
-            {/* Desktop: Side by side */}
-            <div className="hidden lg:grid lg:grid-cols-3 lg:gap-12">
-              <div className="lg:col-span-2">
-                <CompetitorMap />
-              </div>
-              <div className="lg:col-span-1">
-                <CompetitorForm />
-              </div>
+            {/* Always show competitor form */}
+            <div style={{ border: '3px solid red', padding: '20px', backgroundColor: 'yellow', margin: '20px 0' }}>
+              <h2 style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>🔴 DEBUG: COMPETITOR FORM (Should always show!)</h2>
+              <CompetitorForm />
             </div>
           </div>
 
