@@ -165,9 +165,20 @@ export class DatabaseStorage implements IStorage {
       const avgModulo = stats.moduloRates.length > 0 ? stats.moduloRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.moduloRates.length : null;
       const avgAi = stats.aiRates.length > 0 ? stats.aiRates.reduce((sum: number, rate: number) => sum + rate, 0) / stats.aiRates.length : null;
       
+      // Map room type to service line
+      const serviceLineMapping: { [key: string]: string } = {
+        "Studio": "AL",
+        "One Bedroom": "AL", 
+        "Two Bedroom": "IL",
+        "Memory Care": "AL/MC",
+        "Healthcare": "HC",
+        "Skilled Living": "SL"
+      };
+      
       await db.insert(rateCard).values({
         uploadMonth,
         roomType,
+        serviceLine: serviceLineMapping[roomType] || "AL",
         averageStreetRate: avgStreet,
         averageModuloRate: avgModulo,
         averageAiRate: avgAi,
