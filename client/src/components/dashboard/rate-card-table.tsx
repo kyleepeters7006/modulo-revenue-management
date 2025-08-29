@@ -295,8 +295,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.map((row: any) => (
-                  <TableRow key={row.serviceLine}>
+                {summary.map((row: any, index: number) => (
+                  <TableRow key={`${row.serviceLine}-${index}`}>
                     <TableCell className="font-medium">{row.serviceLine}</TableCell>
                     <TableCell>
                       <Badge variant={row.occupancyCount / row.totalUnits > 0.85 ? "default" : "secondary"}>
