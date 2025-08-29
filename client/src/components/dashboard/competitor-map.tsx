@@ -130,10 +130,12 @@ export default function CompetitorMap() {
     const competitorData = competitors as any;
     console.log('Processing competitor data:', { 
       hasMap: !!mapInstanceRef.current, 
-      competitorData: competitorData?.items?.length || 0 
+      competitorData: competitorData?.items?.length || 0,
+      leaflet: !!window.L,
+      competitors: competitors
     });
     
-    if (mapInstanceRef.current && window.L) {
+    if (mapInstanceRef.current && window.L && competitorData?.items) {
       // Clear existing markers
       markersRef.current.forEach(marker => {
         mapInstanceRef.current.removeLayer(marker);
