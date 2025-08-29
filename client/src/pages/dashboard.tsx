@@ -156,6 +156,9 @@ export default function Dashboard() {
             {/* Always show competitor form */}
             <div style={{ border: '3px solid red', padding: '20px', backgroundColor: 'yellow', margin: '20px 0' }}>
               <h2 style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>🔴 DEBUG: COMPETITOR FORM (Should always show!)</h2>
+              <div style={{ backgroundColor: 'white', padding: '10px', margin: '10px 0' }}>
+                <p style={{ color: 'black' }}>Simple test: This text should be visible</p>
+              </div>
               <CompetitorForm />
             </div>
           </div>

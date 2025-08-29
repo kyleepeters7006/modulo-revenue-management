@@ -39,14 +39,15 @@ const competitorFormSchema = z.object({
 type CompetitorFormData = z.infer<typeof competitorFormSchema>;
 
 export default function CompetitorForm() {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+  try {
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [showForm, setShowForm] = useState(false);
+    const { toast } = useToast();
+    const queryClient = useQueryClient();
 
-  const { data: competitors, isLoading } = useQuery({
-    queryKey: ["/api/competitors"],
-  });
+    const { data: competitors, isLoading } = useQuery({
+      queryKey: ["/api/competitors"],
+    });
 
   const form = useForm<CompetitorFormData>({
     resolver: zodResolver(competitorFormSchema),
@@ -486,4 +487,13 @@ export default function CompetitorForm() {
       </CardContent>
     </Card>
   );
+  } catch (error) {
+    console.error('CompetitorForm error:', error);
+    return (
+      <div style={{ border: '3px solid red', padding: '20px', backgroundColor: 'pink', color: 'black' }}>
+        <h2>ERROR: Competitor Form failed to render</h2>
+        <p>Error: {error.message}</p>
+      </div>
+    );
+  }
 }
