@@ -808,19 +808,42 @@ Keep recommendations specific and quantitative when possible.`;
         });
       }
       
-      // Add demo rent roll data for "Sunset Manor"
+      // Add demo rent roll data for "Sunset Manor" 
+      const currentMonth = new Date().toISOString().slice(0, 7); // Format: YYYY-MM
+      const currentDate = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      
       for (const unit of demoRentRoll) {
         await storage.createRentRollData({
-          unitId: unit.unitId,
-          occupiedYN: unit.occupiedYN,
-          baseRent: unit.baseRent,
-          careFee: unit.careFee || null,
+          uploadMonth: currentMonth,
+          date: currentDate,
+          location: "Main Building",
+          roomNumber: unit.unitId,
           roomType: unit.roomType,
           serviceLine: unit.serviceLine,
-          competitorBenchmarkRate: unit.competitorBenchmarkRate,
-          competitorAvgCareRate: null,
+          occupiedYN: unit.occupiedYN,
           daysVacant: unit.daysVacant,
-          attributes: unit.attributes
+          preferredLocation: null,
+          size: unit.roomType,
+          view: unit.attributes?.view ? "Garden View" : null,
+          renovated: unit.attributes?.renovated || false,
+          otherPremiumFeature: null,
+          locationRating: "A",
+          sizeRating: "A", 
+          viewRating: unit.attributes?.view ? "A" : "C",
+          renovationRating: unit.attributes?.renovated ? "A" : "C",
+          amenityRating: "B",
+          streetRate: unit.baseRent,
+          inHouseRate: unit.baseRent * 0.9,
+          discountToStreetRate: null,
+          careLevel: unit.careFee ? "Assisted" : "Independent",
+          careRate: unit.careFee,
+          rentAndCareRate: unit.baseRent + (unit.careFee || 0),
+          competitorRate: unit.competitorBenchmarkRate,
+          competitorAvgCareRate: null,
+          competitorFinalRate: unit.competitorBenchmarkRate,
+          moduloSuggestedRate: null,
+          aiSuggestedRate: null,
+          promotionAllowance: null
         });
       }
       
@@ -833,14 +856,14 @@ Keep recommendations specific and quantitative when possible.`;
         targetOccupancy: 0.92
       });
       
-      // Set default weights
+      // Set default weights (convert to integers - percentages)
       await storage.createOrUpdateWeights({
-        occupancyPressure: 0.25,
-        daysVacantDecay: 0.20,
-        roomAttributes: 0.15,
-        seasonality: 0.10,
-        competitorRates: 0.20,
-        stockMarket: 0.10
+        occupancyPressure: 25, // 25%
+        daysVacantDecay: 20,   // 20%
+        roomAttributes: 15,    // 15%
+        seasonality: 10,       // 10%
+        competitorRates: 20,   // 20%
+        stockMarket: 10        // 10%
       });
       
       // Add guardrails
