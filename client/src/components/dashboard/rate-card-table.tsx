@@ -219,18 +219,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   const filteredUnits = selectedServiceLine === "All" 
     ? units 
     : units.filter((unit: any) => {
-        // Map room types to service lines
-        const serviceLineMapping: { [key: string]: string } = {
-          "Studio": "AL",
-          "One Bedroom": "AL",
-          "Two Bedroom": "IL",
-          "Memory Care": "AL/MC",
-          "Healthcare": "HC",
-          "Skilled Living": "SL"
-        };
-        
-        const unitServiceLine = serviceLineMapping[unit.roomType] || "AL";
-        return unitServiceLine === selectedServiceLine;
+        // Use the actual serviceLine field from the data
+        return unit.serviceLine === selectedServiceLine;
       });
 
   return (
