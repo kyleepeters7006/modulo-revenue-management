@@ -151,7 +151,14 @@ export default function Dashboard() {
 
           {/* Competitor Section */}
           <div id="competitors" className="mb-12 lg:mb-16 scroll-mt-20">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-12">
+            {/* Mobile: Stack vertically */}
+            <div className="block lg:hidden space-y-6">
+              <CompetitorMap />
+              <CompetitorForm />
+            </div>
+            
+            {/* Desktop: Side by side */}
+            <div className="hidden lg:grid lg:grid-cols-3 lg:gap-12">
               <div className="lg:col-span-2">
                 <CompetitorMap />
               </div>
