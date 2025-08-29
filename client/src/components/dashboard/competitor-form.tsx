@@ -189,10 +189,10 @@ export default function CompetitorForm() {
   }
 
   return (
-    <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)] w-full" style={{ border: '2px solid red', minHeight: '200px' }}>
+    <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)] w-full">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-[var(--dashboard-text)]">🏢 Competitor Management (DEBUG: Should be visible!)</CardTitle>
+          <CardTitle className="text-[var(--dashboard-text)]">Competitor Management</CardTitle>
           <Button onClick={startAdd} className="flex items-center gap-2" data-testid="button-add-competitor">
             <Plus className="h-4 w-4" />
             Add Competitor

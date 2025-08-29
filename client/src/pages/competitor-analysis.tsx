@@ -1,5 +1,6 @@
 import Navigation from "@/components/navigation";
 import CompetitorMap from "@/components/dashboard/competitor-map";
+import CompetitorForm from "@/components/dashboard/competitor-form";
 
 export default function CompetitorAnalysis() {
   return (
@@ -16,7 +17,21 @@ export default function CompetitorAnalysis() {
           </p>
         </div>
 
-        <CompetitorMap />
+        {/* Mobile: Stack vertically */}
+        <div className="block lg:hidden space-y-6">
+          <CompetitorMap />
+          <CompetitorForm />
+        </div>
+        
+        {/* Desktop: Side by side */}
+        <div className="hidden lg:grid lg:grid-cols-3 lg:gap-12">
+          <div className="lg:col-span-2">
+            <CompetitorMap />
+          </div>
+          <div className="lg:col-span-1">
+            <CompetitorForm />
+          </div>
+        </div>
       </div>
     </div>
   );

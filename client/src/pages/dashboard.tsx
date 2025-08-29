@@ -149,23 +149,22 @@ export default function Dashboard() {
             <PricingWeights />
           </div>
 
-          {/* Test Section - Simple HTML */}
-          <div style={{ border: '5px solid purple', padding: '30px', backgroundColor: 'orange', margin: '30px 0' }}>
-            <h1 style={{ color: 'black', fontSize: '30px' }}>🟣 BASIC HTML TEST - This should ALWAYS be visible!</h1>
-            <p style={{ color: 'black', fontSize: '18px' }}>If you don't see this, there's a page rendering issue.</p>
-          </div>
-
           {/* Competitor Section */}
           <div id="competitors" className="mb-12 lg:mb-16 scroll-mt-20">
-            <CompetitorMap />
-            
-            {/* Always show competitor form */}
-            <div style={{ border: '3px solid red', padding: '20px', backgroundColor: 'yellow', margin: '20px 0' }}>
-              <h2 style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>🔴 DEBUG: COMPETITOR FORM (Should always show!)</h2>
-              <div style={{ backgroundColor: 'white', padding: '10px', margin: '10px 0' }}>
-                <p style={{ color: 'black' }}>Simple test: This text should be visible</p>
-              </div>
+            {/* Mobile: Stack vertically */}
+            <div className="block lg:hidden space-y-6">
+              <CompetitorMap />
               <CompetitorForm />
+            </div>
+            
+            {/* Desktop: Side by side */}
+            <div className="hidden lg:grid lg:grid-cols-3 lg:gap-12">
+              <div className="lg:col-span-2">
+                <CompetitorMap />
+              </div>
+              <div className="lg:col-span-1">
+                <CompetitorForm />
+              </div>
             </div>
           </div>
 
