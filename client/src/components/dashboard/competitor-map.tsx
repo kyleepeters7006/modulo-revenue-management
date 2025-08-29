@@ -135,7 +135,18 @@ export default function CompetitorMap() {
       competitors: competitors
     });
     
-    if (mapInstanceRef.current && window.L && competitorData?.items) {
+    if (!mapInstanceRef.current || !window.L || !competitorData?.items) {
+      console.log('Not ready to add markers:', {
+        hasMap: !!mapInstanceRef.current,
+        hasLeaflet: !!window.L, 
+        hasCompetitors: !!competitorData?.items
+      });
+      return;
+    }
+    
+    console.log('All requirements met, adding markers...');
+    
+    if (true) {
       // Clear existing markers
       markersRef.current.forEach(marker => {
         mapInstanceRef.current.removeLayer(marker);
