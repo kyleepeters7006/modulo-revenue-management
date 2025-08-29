@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -20,8 +21,7 @@ const defaultGuardrails = {
 };
 
 export default function GuardrailsEditor() {
-  const [guardrailsJson, setGuardrailsJson] = useState("");
-  const [isValidJson, setIsValidJson] = useState(true);
+  const [formData, setFormData] = useState(defaultGuardrails);
   const [saveStatus, setSaveStatus] = useState("Configuration ready to save...");
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -32,15 +32,15 @@ export default function GuardrailsEditor() {
 
   useEffect(() => {
     if (guardrails && Object.keys(guardrails).length > 0) {
-      setGuardrailsJson(JSON.stringify(guardrails, null, 2));
+      setFormData({ ...defaultGuardrails, ...guardrails });
     } else {
-      setGuardrailsJson(JSON.stringify(defaultGuardrails, null, 2));
+      setFormData(defaultGuardrails);
     }
   }, [guardrails]);
 
   const saveGuardrailsMutation = useMutation({
     mutationFn: async (config: any) => {
-      return apiRequest('POST', '/api/guardrails', config);
+      return apiRequest('/api/guardrails', 'POST', config);
     },
     onSuccess: () => {
       setSaveStatus("Guardrails saved successfully");
@@ -60,41 +60,30 @@ export default function GuardrailsEditor() {
     },
   });
 
-  const handleJsonChange = (value: string) => {
-    setGuardrailsJson(value);
-    
-    try {
-      JSON.parse(value);
-      setIsValidJson(true);
-      setSaveStatus("Valid JSON format");
-    } catch (e) {
-      setIsValidJson(false);
-      setSaveStatus("Invalid JSON format");
-    }
+  const handleInputChange = (field: string, value: number) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    setSaveStatus("Configuration ready to save...");
+  };
+
+  const handleSeasonalChange = (season: string, value: number) => {
+    setFormData(prev => ({
+      ...prev,
+      seasonal_adjustments: {
+        ...prev.seasonal_adjustments,
+        [season]: value
+      }
+    }));
+    setSaveStatus("Configuration ready to save...");
   };
 
   const handleSave = () => {
-    if (!isValidJson) {
-      toast({
-        title: "Invalid JSON",
-        description: "Please fix the JSON format before saving",
-        variant: "destructive",
-      });
-      return;
-    }
+    setSaveStatus("Saving...");
+    saveGuardrailsMutation.mutate(formData);
+  };
 
-    try {
-      const config = JSON.parse(guardrailsJson);
-      setSaveStatus("Saving...");
-      saveGuardrailsMutation.mutate(config);
-    } catch (e) {
-      setSaveStatus("Invalid JSON format");
-      toast({
-        title: "Invalid JSON",
-        description: "Please check the JSON format",
-        variant: "destructive",
-      });
-    }
+  const handleReset = () => {
+    setFormData(defaultGuardrails);
+    setSaveStatus("Configuration reset to defaults");
   };
 
   return (
@@ -113,35 +102,142 @@ export default function GuardrailsEditor() {
         </div>
       </div>
       
-      <div className="space-y-4">
-        <Textarea
-          value={guardrailsJson}
-          onChange={(e) => handleJsonChange(e.target.value)}
-          rows={12}
-          className="w-full dashboard-input font-mono text-sm resize-none"
-          placeholder="Enter JSON configuration..."
-          data-testid="textarea-guardrails"
-        />
-        
-        <div className="flex justify-between items-center">
-          <div className="text-xs text-[var(--dashboard-muted)]">
-            <span className={isValidJson ? "text-emerald-400" : "text-red-400"}>
-              {isValidJson ? "✓" : "✗"}
-            </span>{" "}
-            {isValidJson ? "Valid JSON format" : "Invalid JSON format"}
+      <div className="space-y-6">
+        {/* Price Change Limits */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="min_price_change">Minimum Price Change (%)</Label>
+            <Input
+              id="min_price_change"
+              type="number"
+              value={formData.min_price_change_pct}
+              onChange={(e) => handleInputChange('min_price_change_pct', Number(e.target.value))}
+              className="dashboard-input"
+              data-testid="input-min-price-change"
+            />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="max_price_change">Maximum Price Change (%)</Label>
+            <Input
+              id="max_price_change"
+              type="number"
+              value={formData.max_price_change_pct}
+              onChange={(e) => handleInputChange('max_price_change_pct', Number(e.target.value))}
+              className="dashboard-input"
+              data-testid="input-max-price-change"
+            />
+          </div>
+        </div>
+
+        {/* Absolute Price Limits */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="min_absolute_price">Minimum Absolute Price ($)</Label>
+            <Input
+              id="min_absolute_price"
+              type="number"
+              value={formData.min_absolute_price}
+              onChange={(e) => handleInputChange('min_absolute_price', Number(e.target.value))}
+              className="dashboard-input"
+              data-testid="input-min-absolute-price"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="max_absolute_price">Maximum Absolute Price ($)</Label>
+            <Input
+              id="max_absolute_price"
+              type="number"
+              value={formData.max_absolute_price}
+              onChange={(e) => handleInputChange('max_absolute_price', Number(e.target.value))}
+              className="dashboard-input"
+              data-testid="input-max-absolute-price"
+            />
+          </div>
+        </div>
+
+        {/* Operational Thresholds */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="occupancy_threshold">Occupancy Threshold (0-1)</Label>
+            <Input
+              id="occupancy_threshold"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={formData.occupancy_threshold}
+              onChange={(e) => handleInputChange('occupancy_threshold', Number(e.target.value))}
+              className="dashboard-input"
+              data-testid="input-occupancy-threshold"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="vacancy_days_threshold">Vacancy Days Threshold</Label>
+            <Input
+              id="vacancy_days_threshold"
+              type="number"
+              value={formData.vacancy_days_threshold}
+              onChange={(e) => handleInputChange('vacancy_days_threshold', Number(e.target.value))}
+              className="dashboard-input"
+              data-testid="input-vacancy-days-threshold"
+            />
+          </div>
+        </div>
+
+        {/* Seasonal Adjustments */}
+        <div>
+          <Label className="text-base font-medium mb-3 block">Seasonal Adjustments</Label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="summer_adjustment">Summer Multiplier</Label>
+              <Input
+                id="summer_adjustment"
+                type="number"
+                step="0.01"
+                value={formData.seasonal_adjustments.summer}
+                onChange={(e) => handleSeasonalChange('summer', Number(e.target.value))}
+                className="dashboard-input"
+                data-testid="input-summer-adjustment"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="winter_adjustment">Winter Multiplier</Label>
+              <Input
+                id="winter_adjustment"
+                type="number"
+                step="0.01"
+                value={formData.seasonal_adjustments.winter}
+                onChange={(e) => handleSeasonalChange('winter', Number(e.target.value))}
+                className="dashboard-input"
+                data-testid="input-winter-adjustment"
+              />
+            </div>
+          </div>
+        </div>
+        
+        {/* Action Buttons */}
+        <div className="flex justify-between items-center pt-4 border-t border-[var(--dashboard-border)]">
+          <Button
+            onClick={handleReset}
+            variant="outline"
+            disabled={saveGuardrailsMutation.isPending}
+            data-testid="button-reset-guardrails"
+          >
+            Reset to Defaults
+          </Button>
           <Button
             onClick={handleSave}
             className="bg-amber-500 hover:bg-amber-600 text-white"
-            disabled={!isValidJson || saveGuardrailsMutation.isPending}
+            disabled={saveGuardrailsMutation.isPending}
             data-testid="button-save-guardrails"
           >
             {saveGuardrailsMutation.isPending ? "Saving..." : "Save Guardrails"}
           </Button>
         </div>
         
+        {/* Status Message */}
         <div 
-          className="text-sm text-[var(--dashboard-muted)]"
+          className="text-sm text-[var(--dashboard-muted)] text-center"
           data-testid="text-guardrails-status"
         >
           {saveStatus}
