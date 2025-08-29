@@ -150,11 +150,15 @@ export default function Dashboard() {
           </div>
 
           {/* Competitor Section */}
-          <div id="competitors" className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-12 mb-12 lg:mb-16 scroll-mt-20">
-            <div className="lg:col-span-2">
-              <CompetitorMap />
+          <div id="competitors" className="mb-12 lg:mb-16 scroll-mt-20">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-12">
+              <div className="lg:col-span-2">
+                <CompetitorMap />
+              </div>
+              <div className="lg:col-span-1">
+                <CompetitorForm />
+              </div>
             </div>
-            <CompetitorForm />
           </div>
 
           {/* Comparison Table */}
