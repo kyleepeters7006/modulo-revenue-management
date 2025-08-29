@@ -360,8 +360,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const industry = [];
       
       let baseRevenue = 850000; // Starting revenue
-      let baseSP500 = 4500;     // Starting S&P 500 index value
+      let baseSP500 = 5800;     // Starting S&P 500 index value (more realistic current level)
       let baseIndustry = 4200;  // Starting industry basket value
+      
+      // S&P 500 historical average annual return is ~10%, which is ~0.8% monthly
+      // More realistic monthly variations: mostly positive with occasional negative months
+      const sp500MonthlyReturns = [
+        0.012, 0.008, -0.015, 0.025, 0.005, 0.018, // Typical mix of returns
+        0.003, -0.008, 0.022, 0.009, 0.015, 0.011, // Including some volatility
+        0.007, 0.019, -0.012, 0.013, 0.006, 0.021, // But trending upward overall
+        0.004, 0.016, 0.009, -0.005, 0.014, 0.008  // Long-term positive bias
+      ];
       
       for (let i = 0; i < months; i++) {
         const date = new Date();
@@ -370,7 +379,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Add realistic growth patterns with some variance
         const revenueGrowthRate = 0.015 + (Math.random() * 0.02 - 0.01); // 0.5% to 2.5% monthly growth
-        const sp500GrowthRate = 0.007 + (Math.random() * 0.03 - 0.015); // -0.8% to 2.2% monthly growth
+        
+        // Use historical S&P 500 pattern with slight randomness
+        const sp500BaseReturn = sp500MonthlyReturns[i % sp500MonthlyReturns.length];
+        const sp500GrowthRate = sp500BaseReturn + (Math.random() * 0.008 - 0.004); // Small variance around historical pattern
+        
         const industryGrowthRate = 0.010 + (Math.random() * 0.035 - 0.02); // Senior housing: -1% to 2.5% monthly
         
         baseRevenue *= (1 + revenueGrowthRate);

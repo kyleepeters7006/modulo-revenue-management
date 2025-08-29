@@ -15,8 +15,17 @@ export default function RevenueChart() {
     const data = [];
     const now = new Date();
     let baseRevenue = 850000;
-    let baseSP500 = 4500;
+    let baseSP500 = 5800; // More realistic current S&P 500 level
     let baseIndustry = 4200; // Industry basket starts slightly lower
+    
+    // S&P 500 historical average annual return is ~10%, which is ~0.8% monthly
+    // More realistic monthly variations: mostly positive with occasional negative months
+    const sp500MonthlyReturns = [
+      0.012, 0.008, -0.015, 0.025, 0.005, 0.018, // Typical mix of returns
+      0.003, -0.008, 0.022, 0.009, 0.015, 0.011, // Including some volatility
+      0.007, 0.019, -0.012, 0.013, 0.006, 0.021, // But trending upward overall
+      0.004, 0.016, 0.009, -0.005, 0.014, 0.008  // Long-term positive bias
+    ];
     
     for (let i = months - 1; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -24,7 +33,11 @@ export default function RevenueChart() {
       
       // Add some realistic growth patterns
       const revenueGrowth = 1 + (Math.random() * 0.06 - 0.02); // -2% to +4% monthly
-      const sp500Growth = 1 + (Math.random() * 0.08 - 0.04); // -4% to +4% monthly
+      
+      // Use historical S&P 500 pattern with slight randomness
+      const sp500BaseReturn = sp500MonthlyReturns[i % sp500MonthlyReturns.length];
+      const sp500Growth = 1 + (sp500BaseReturn + (Math.random() * 0.008 - 0.004)); // Small variance around historical pattern
+      
       const industryGrowth = 1 + (Math.random() * 0.07 - 0.025); // Senior housing slightly more volatile
       
       baseRevenue *= revenueGrowth;
