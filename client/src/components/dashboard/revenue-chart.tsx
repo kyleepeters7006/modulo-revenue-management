@@ -105,7 +105,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">Revenue Growth</span>
                 <span className={`text-sm font-semibold ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.revenueGrowth >= 0 ? '+' : ''}{data.revenueGrowth.toFixed(2)}%
+                  {data.revenueGrowth >= 0 ? '+' : ''}{Math.round(data.revenueGrowth)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -117,7 +117,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
                 <span className={`text-xs font-medium ${data.monthlyRevenueChange >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.monthlyRevenueChange >= 0 ? '+' : ''}{data.monthlyRevenueChange.toFixed(2)}%
+                  {data.monthlyRevenueChange >= 0 ? '+' : ''}{Math.round(data.monthlyRevenueChange)}%
                 </span>
               </div>
             </div>
@@ -127,7 +127,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">S&P 500 Growth</span>
                 <span className={`text-sm font-semibold ${data.sp500Growth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.sp500Growth >= 0 ? '+' : ''}{data.sp500Growth.toFixed(2)}%
+                  {data.sp500Growth >= 0 ? '+' : ''}{Math.round(data.sp500Growth)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -139,7 +139,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
                 <span className={`text-xs font-medium ${data.monthlySP500Change >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.monthlySP500Change >= 0 ? '+' : ''}{data.monthlySP500Change.toFixed(2)}%
+                  {data.monthlySP500Change >= 0 ? '+' : ''}{Math.round(data.monthlySP500Change)}%
                 </span>
               </div>
             </div>
@@ -149,7 +149,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">Industry Growth</span>
                 <span className={`text-sm font-semibold ${data.industryGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.industryGrowth >= 0 ? '+' : ''}{data.industryGrowth.toFixed(2)}%
+                  {data.industryGrowth >= 0 ? '+' : ''}{Math.round(data.industryGrowth)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -161,7 +161,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
                 <span className={`text-xs font-medium ${data.monthlyIndustryChange >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.monthlyIndustryChange >= 0 ? '+' : ''}{data.monthlyIndustryChange.toFixed(2)}%
+                  {data.monthlyIndustryChange >= 0 ? '+' : ''}{Math.round(data.monthlyIndustryChange)}%
                 </span>
               </div>
             </div>
@@ -171,13 +171,13 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">vs S&P 500</span>
                 <span className={`text-xs font-medium ${(data.revenueGrowth - data.sp500Growth) >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {(data.revenueGrowth - data.sp500Growth) >= 0 ? '+' : ''}{(data.revenueGrowth - data.sp500Growth).toFixed(1)}%
+                  {(data.revenueGrowth - data.sp500Growth) >= 0 ? '+' : ''}{Math.round(data.revenueGrowth - data.sp500Growth)}%
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">vs Industry</span>
                 <span className={`text-xs font-medium ${(data.revenueGrowth - data.industryGrowth) >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {(data.revenueGrowth - data.industryGrowth) >= 0 ? '+' : ''}{(data.revenueGrowth - data.industryGrowth).toFixed(1)}%
+                  {(data.revenueGrowth - data.industryGrowth) >= 0 ? '+' : ''}{Math.round(data.revenueGrowth - data.industryGrowth)}%
                 </span>
               </div>
             </div>
@@ -278,7 +278,7 @@ export default function RevenueChart() {
             <YAxis 
               stroke="var(--dashboard-muted)"
               fontSize={12}
-              tickFormatter={(value) => `${value.toFixed(1)}%`}
+              tickFormatter={(value) => `${Math.round(value)}%`}
               tickLine={false}
               axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
             />

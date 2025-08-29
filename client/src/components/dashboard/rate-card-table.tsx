@@ -129,7 +129,7 @@ export default function RateCardTable({ selectedServiceLine: propServiceLine }: 
     }
 
     const change = unit.moduloSuggestedRate - unit.streetRate;
-    const changePercent = ((change / unit.streetRate) * 100).toFixed(1);
+    const changePercent = Math.round((change / unit.streetRate) * 100);
     
     let factors = [];
     
@@ -143,7 +143,7 @@ export default function RateCardTable({ selectedServiceLine: propServiceLine }: 
     // Days vacant factor
     if (unit.daysVacant > 30) {
       const penalty = Math.min((unit.daysVacant / 60) * 5, 15);
-      factors.push(`⏰ ${unit.daysVacant} days vacant: -${penalty.toFixed(1)}% urgency discount`);
+      factors.push(`⏰ ${unit.daysVacant} days vacant: -${Math.round(penalty)}% urgency discount`);
     }
     
     // Attributes factor
@@ -157,7 +157,7 @@ export default function RateCardTable({ selectedServiceLine: propServiceLine }: 
     // Competitor factor
     if (unit.competitorRate && Math.abs(unit.competitorRate - unit.streetRate) > 50) {
       const competitorDiff = unit.competitorRate - unit.streetRate;
-      const adjustment = (competitorDiff / unit.streetRate * 50).toFixed(1);
+      const adjustment = Math.round(competitorDiff / unit.streetRate * 50);
       factors.push(`🏢 Competitor rate $${unit.competitorRate?.toLocaleString()}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
     }
 
@@ -178,7 +178,7 @@ The Modulo algorithm considers occupancy pressure, vacancy duration, unit attrib
     }
 
     const change = unit.aiSuggestedRate - unit.streetRate;
-    const changePercent = ((change / unit.streetRate) * 100).toFixed(1);
+    const changePercent = Math.round((change / unit.streetRate) * 100);
     
     return `AI Pricing Analysis:
 

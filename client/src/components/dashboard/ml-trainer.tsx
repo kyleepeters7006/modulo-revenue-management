@@ -28,7 +28,7 @@ export default function MlTrainer() {
         setModelMetrics({ r2: data.r2, rows: data.rows });
         toast({
           title: "Model Training Complete",
-          description: `Trained on ${data.rows} records with R² score of ${(data.r2 * 100).toFixed(1)}%`,
+          description: `Trained on ${data.rows} records with R² score of ${Math.round(data.r2 * 100)}%`,
         });
       } else {
         setTrainingStatus(`Training failed: ${data.error}`);
@@ -138,7 +138,7 @@ export default function MlTrainer() {
             </div>
             <p className="text-xs text-[var(--dashboard-muted)] mt-2" data-testid="text-model-metrics">
               {modelMetrics 
-                ? `R² Score: ${(modelMetrics.r2! * 100).toFixed(1)}% | Rows: ${modelMetrics.rows}`
+                ? `R² Score: ${Math.round(modelMetrics.r2! * 100)}% | Rows: ${modelMetrics.rows}`
                 : trainingStatus
               }
             </p>

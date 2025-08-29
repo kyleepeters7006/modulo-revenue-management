@@ -61,7 +61,7 @@ export default function AiInsights() {
         setModelMetrics({ r2: data.r2, rows: data.rows });
         toast({
           title: "Model Training Complete",
-          description: `Trained on ${data.rows} records with accuracy score of ${(data.r2 * 100).toFixed(1)}%`,
+          description: `Trained on ${data.rows} records with accuracy score of ${Math.round(data.r2 * 100)}%`,
         });
       } else {
         setTrainingStatus(`Training failed: ${data.error}`);
