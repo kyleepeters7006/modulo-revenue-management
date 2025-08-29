@@ -1,5 +1,5 @@
 import Navigation from "@/components/navigation";
-import CompetitorMap from "@/components/dashboard/competitor-map";
+import { CompetitorMap } from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
 
 export default function CompetitorAnalysis() {
