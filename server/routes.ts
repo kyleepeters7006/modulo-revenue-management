@@ -907,6 +907,9 @@ Keep recommendations specific and quantitative when possible.`;
         attributeModifiers: {}
       });
       
+      // Generate rate card summary after seeding
+      await storage.generateRateCard(currentMonth);
+      
       res.json({ 
         ok: true, 
         message: "Demo data seeded successfully",

@@ -28,12 +28,20 @@ import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info } from "lucide-
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
-export default function RateCardTable() {
+interface RateCardTableProps {
+  selectedServiceLine?: string;
+}
+
+export default function RateCardTable({ selectedServiceLine: propServiceLine }: RateCardTableProps) {
   const [selectedMonth, setSelectedMonth] = useState("2025-08");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
+  const [localServiceLine, setLocalServiceLine] = useState<string>("All");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Use prop service line if provided, otherwise use local state
+  const selectedServiceLine = propServiceLine || localServiceLine;
 
   // Close tooltip when clicking outside
   useEffect(() => {
@@ -206,6 +214,24 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
 
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
+  
+  // Filter units by selected service line
+  const filteredUnits = selectedServiceLine === "All" 
+    ? units 
+    : units.filter((unit: any) => {
+        // Map room types to service lines
+        const serviceLineMapping: { [key: string]: string } = {
+          "Studio": "AL",
+          "One Bedroom": "AL",
+          "Two Bedroom": "IL",
+          "Memory Care": "AL/MC",
+          "Healthcare": "HC",
+          "Skilled Living": "SL"
+        };
+        
+        const unitServiceLine = serviceLineMapping[unit.roomType] || "AL";
+        return unitServiceLine === selectedServiceLine;
+      });
 
   return (
     <TooltipProvider>
@@ -241,7 +267,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           <div className="flex space-x-4">
             <Button
               onClick={() => generateModuloMutation.mutate()}
-              disabled={generateModuloMutation.isPending || units.length === 0}
+              disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
               data-testid="button-generate-modulo"
             >
               <Calculator className="h-4 w-4 mr-2" />
@@ -250,7 +276,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
             
             <Button
               onClick={() => generateAIMutation.mutate()}
-              disabled={generateAIMutation.isPending || units.length === 0}
+              disabled={generateAIMutation.isPending || filteredUnits.length === 0}
               variant="outline"
               data-testid="button-generate-ai"
             >
@@ -308,7 +334,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           <CardTitle>Unit-Level Detail</CardTitle>
         </CardHeader>
         <CardContent>
-          {units.length === 0 ? (
+          {filteredUnits.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500">No data available for {selectedMonth}</p>
               <p className="text-sm text-gray-400 mt-2">Upload rent roll data to see unit details</p>
@@ -330,7 +356,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {units.slice(0, 20).map((unit: any) => (
+                  {filteredUnits.slice(0, 20).map((unit: any) => (
                     <TableRow key={unit.id}>
                       <TableCell className="font-medium">
                         {unit.roomNumber}
@@ -617,10 +643,10 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </TableBody>
               </Table>
               
-              {units.length > 20 && (
+              {filteredUnits.length > 20 && (
                 <div className="mt-4 text-center">
                   <p className="text-sm text-gray-500">
-                    Showing first 20 of {units.length} units
+                    Showing first 20 of {filteredUnits.length} units
                   </p>
                 </div>
               )}
