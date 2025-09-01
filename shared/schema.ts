@@ -41,12 +41,30 @@ export const users = pgTable("users", {
 export const serviceLineEnum = ["AL", "AL/MC", "HC", "HC/MC", "IL", "SL"] as const;
 export type ServiceLine = typeof serviceLineEnum[number];
 
+// Portfolio locations table
+export const locations = pgTable("locations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  region: text("region"),
+  division: text("division"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  lat: real("lat"),
+  lng: real("lng"),
+  totalUnits: integer("total_units").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Updated rent roll data table with complete field structure
 export const rentRollData = pgTable("rent_roll_data", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   uploadMonth: text("upload_month").notNull(), // Format: YYYY-MM
   date: text("date").notNull(),
   location: text("location").notNull(),
+  locationId: varchar("location_id").references(() => locations.id),
   roomNumber: text("room_number").notNull(),
   roomType: text("room_type").notNull(),
   serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, IL, SL
@@ -82,6 +100,8 @@ export const rentRollData = pgTable("rent_roll_data", {
 export const rateCard = pgTable("rate_card", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   uploadMonth: text("upload_month").notNull(),
+  location: text("location"),
+  locationId: varchar("location_id").references(() => locations.id),
   roomType: text("room_type").notNull(),
   serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, IL, SL
   averageStreetRate: real("average_street_rate"),
@@ -116,6 +136,8 @@ export const pricingWeights = pgTable("pricing_weights", {
 export const competitors = pgTable("competitors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  location: text("location"), // Which portfolio location this competitor is for
+  locationId: varchar("location_id").references(() => locations.id),
   lat: real("lat").notNull(),
   lng: real("lng").notNull(),
   rates: jsonb("rates"),
@@ -157,14 +179,36 @@ export const uploadHistory = pgTable("upload_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   uploadMonth: text("upload_month").notNull(), // YYYY-MM format
   fileName: text("file_name").notNull(),
+  uploadType: text("upload_type").notNull(), // 'rent_roll' or 'competitors'
+  location: text("location"), // Which location this upload is for
+  locationId: varchar("location_id").references(() => locations.id),
   totalRecords: integer("total_records"),
   processedAt: timestamp("processed_at").defaultNow(),
+});
+
+// Portfolio-level competitor data
+export const portfolioCompetitors = pgTable("portfolio_competitors", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  portfolioName: text("portfolio_name"), // e.g., "Brookdale", "Sunrise", etc.
+  locations: jsonb("locations"), // Array of location objects with rates
+  avgPortfolioRate: real("avg_portfolio_rate"),
+  totalUnits: integer("total_units"),
+  marketShare: real("market_share"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
 // Insert schemas
+
+export const insertLocationsSchema = createInsertSchema(locations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 export const insertRentRollDataSchema = createInsertSchema(rentRollData).omit({
   id: true,
@@ -200,6 +244,12 @@ export const insertUploadHistorySchema = createInsertSchema(uploadHistory).omit(
   processedAt: true,
 });
 
+export const insertPortfolioCompetitorsSchema = createInsertSchema(portfolioCompetitors).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertAttributeRatingsSchema = createInsertSchema(attributeRatings).omit({
   id: true,
   createdAt: true,
@@ -207,6 +257,8 @@ export const insertAttributeRatingsSchema = createInsertSchema(attributeRatings)
 });
 
 // Types
+export type Location = typeof locations.$inferSelect;
+export type InsertLocation = z.infer<typeof insertLocationsSchema>;
 export type RentRollData = typeof rentRollData.$inferSelect;
 export type InsertRentRollData = z.infer<typeof insertRentRollDataSchema>;
 export type Assumptions = typeof assumptions.$inferSelect;
@@ -223,3 +275,5 @@ export type UploadHistory = typeof uploadHistory.$inferSelect;
 export type InsertUploadHistory = z.infer<typeof insertUploadHistorySchema>;
 export type AttributeRatings = typeof attributeRatings.$inferSelect;
 export type InsertAttributeRatings = z.infer<typeof insertAttributeRatingsSchema>;
+export type PortfolioCompetitor = typeof portfolioCompetitors.$inferSelect;
+export type InsertPortfolioCompetitor = z.infer<typeof insertPortfolioCompetitorsSchema>;

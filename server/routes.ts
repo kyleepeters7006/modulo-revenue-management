@@ -443,6 +443,297 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Portfolio Management Routes
+  app.get("/api/portfolio/locations", async (req, res) => {
+    try {
+      const locations = await storage.getLocations();
+      res.json(locations);
+    } catch (error) {
+      console.error("Error fetching locations:", error);
+      res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  app.post("/api/portfolio/mass-upload", upload.array('file', 50), async (req, res) => {
+    try {
+      const files = req.files as Express.Multer.File[];
+      const { uploadType, region, division } = req.body;
+      
+      let totalRecords = 0;
+      let locationsCreated = 0;
+      const locationMap = new Map<string, any[]>();
+      
+      // Process each file
+      for (const file of files) {
+        const results = Papa.parse(file.buffer.toString(), {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: (header: string) => header.trim().replace(/\s+/g, '_'),
+        });
+        
+        // Group data by location
+        for (const row of results.data as any[]) {
+          const locationName = row.Location || row.location || 'Unknown';
+          if (!locationMap.has(locationName)) {
+            locationMap.set(locationName, []);
+          }
+          locationMap.get(locationName)?.push(row);
+          totalRecords++;
+        }
+      }
+      
+      // Process each location
+      for (const [locationName, data] of locationMap) {
+        // Create or update location
+        const location = await storage.createOrUpdateLocation({
+          name: locationName,
+          region: region || undefined,
+          division: division || undefined,
+          totalUnits: data.length,
+        });
+        locationsCreated++;
+        
+        if (uploadType === 'rent_roll') {
+          // Clear existing data for this location
+          await storage.clearRentRollDataByLocation(locationName);
+          
+          // Process and insert rent roll data
+          const processedData = data.map((row: any) => ({
+            uploadMonth: new Date().toISOString().slice(0, 7),
+            date: row.Date || new Date().toISOString().split('T')[0],
+            location: locationName,
+            locationId: location.id,
+            roomNumber: row.Room_Number || row.Unit_Number || '',
+            roomType: row.Room_Type || row.Unit_Type || 'Studio',
+            serviceLine: row.Service_Line || 'AL',
+            occupiedYN: row.Occupied_YN === 'Y' || row.Occupied === 'Y',
+            daysVacant: parseInt(row.Days_Vacant) || 0,
+            preferredLocation: row.Preferred_Location,
+            size: row.Size || 'Studio',
+            view: row.View,
+            renovated: row.Renovated === 'Y',
+            otherPremiumFeature: row.Other_Premium_Feature,
+            locationRating: row.Location_Rating,
+            sizeRating: row.Size_Rating,
+            viewRating: row.View_Rating,
+            renovationRating: row.Renovation_Rating,
+            amenityRating: row.Amenity_Rating,
+            streetRate: parseFloat(row.Street_Rate) || 0,
+            inHouseRate: parseFloat(row.In_House_Rate) || 0,
+            discountToStreetRate: parseFloat(row.Discount_To_Street_Rate) || 0,
+            careLevel: row.Care_Level,
+            careRate: parseFloat(row.Care_Rate) || 0,
+            rentAndCareRate: parseFloat(row.Rent_And_Care_Rate) || 0,
+            competitorRate: parseFloat(row.Competitor_Rate) || 0,
+            competitorAvgCareRate: parseFloat(row.Competitor_Avg_Care_Rate) || 0,
+            competitorFinalRate: parseFloat(row.Competitor_Final_Rate) || 0,
+            moduloSuggestedRate: parseFloat(row.Modulo_Suggested_Rate) || 0,
+            aiSuggestedRate: parseFloat(row.AI_Suggested_Rate) || 0,
+            promotionAllowance: parseFloat(row.Promotion_Allowance) || 0,
+          }));
+          
+          await storage.bulkInsertRentRollData(processedData);
+          
+          // Update location unit count
+          await storage.updateLocationUnits(location.id, data.length);
+        } else if (uploadType === 'competitors') {
+          // Clear existing competitors for this location
+          await storage.clearCompetitorsByLocation(locationName);
+          
+          // Process competitor data
+          for (const row of data) {
+            await storage.createCompetitor({
+              name: row.Competitor_Name || row.Name || 'Unknown Competitor',
+              location: locationName,
+              locationId: location.id,
+              lat: parseFloat(row.Latitude) || 38.2527,
+              lng: parseFloat(row.Longitude) || -85.7585,
+              streetRate: parseFloat(row.Street_Rate) || 0,
+              avgCareRate: parseFloat(row.Avg_Care_Rate) || 0,
+              roomType: row.Room_Type,
+              rating: row.Rating,
+              address: row.Address,
+              rank: parseInt(row.Rank) || 1,
+              weight: parseFloat(row.Weight) || 1.0,
+              rates: row.Rates ? JSON.parse(row.Rates) : null,
+              attributes: row.Attributes ? JSON.parse(row.Attributes) : null,
+            });
+          }
+        }
+        
+        // Create upload history
+        await storage.createUploadHistory({
+          uploadMonth: new Date().toISOString().slice(0, 7),
+          fileName: files.map(f => f.originalname).join(', '),
+          uploadType,
+          location: locationName,
+          locationId: location.id,
+          totalRecords: data.length,
+        });
+      }
+      
+      res.json({
+        ok: true,
+        filesProcessed: files.length,
+        totalRecords,
+        locationsCreated,
+        locations: Array.from(locationMap.keys()),
+      });
+    } catch (error) {
+      console.error("Error processing mass upload:", error);
+      res.status(500).json({ error: "Failed to process mass upload" });
+    }
+  });
+
+  app.post("/api/portfolio/competitor-upload", upload.single('file'), async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const results = Papa.parse(file.buffer.toString(), {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header: string) => header.trim().replace(/\s+/g, '_'),
+      });
+      
+      let competitorsImported = 0;
+      let totalLocations = 0;
+      
+      // Group by portfolio name
+      const portfolioMap = new Map<string, any[]>();
+      for (const row of results.data as any[]) {
+        const portfolioName = row.Portfolio_Name || row.Competitor_Portfolio || 'Unknown';
+        if (!portfolioMap.has(portfolioName)) {
+          portfolioMap.set(portfolioName, []);
+        }
+        portfolioMap.get(portfolioName)?.push(row);
+      }
+      
+      // Process each portfolio
+      for (const [portfolioName, locations] of portfolioMap) {
+        const locationData = locations.map(loc => ({
+          name: loc.Location_Name || loc.Location,
+          rate: parseFloat(loc.Rate) || 0,
+          units: parseInt(loc.Units) || 0,
+          lat: parseFloat(loc.Latitude) || 0,
+          lng: parseFloat(loc.Longitude) || 0,
+        }));
+        
+        const avgRate = locationData.reduce((sum, loc) => sum + loc.rate, 0) / locationData.length;
+        const totalUnits = locationData.reduce((sum, loc) => sum + loc.units, 0);
+        
+        await storage.createOrUpdatePortfolioCompetitor({
+          name: `${portfolioName}_${Date.now()}`,
+          portfolioName,
+          locations: locationData,
+          avgPortfolioRate: avgRate,
+          totalUnits,
+          marketShare: parseFloat(locations[0]?.Market_Share) || 0,
+        });
+        
+        competitorsImported++;
+        totalLocations += locationData.length;
+      }
+      
+      res.json({
+        ok: true,
+        competitorsImported,
+        totalLocations,
+      });
+    } catch (error) {
+      console.error("Error processing competitor upload:", error);
+      res.status(500).json({ error: "Failed to process competitor upload" });
+    }
+  });
+
+  app.get("/api/portfolio/competitors", async (req, res) => {
+    try {
+      const competitors = await storage.getPortfolioCompetitors();
+      res.json(competitors);
+    } catch (error) {
+      console.error("Error fetching portfolio competitors:", error);
+      res.status(500).json({ error: "Failed to fetch portfolio competitors" });
+    }
+  });
+
+  app.get("/api/portfolio/download-template/:type", async (req, res) => {
+    try {
+      const { type } = req.params;
+      
+      let template;
+      let filename;
+      
+      if (type === 'rent_roll') {
+        template = [
+          {
+            Date: '2024-01-01',
+            Location: 'Louisville East',
+            Room_Number: '101',
+            Room_Type: 'Studio',
+            Service_Line: 'AL',
+            Occupied_YN: 'Y',
+            Days_Vacant: 0,
+            Preferred_Location: 'Y',
+            Size: 'Studio',
+            View: 'Garden View',
+            Renovated: 'Y',
+            Other_Premium_Feature: '',
+            Location_Rating: 'A',
+            Size_Rating: 'B',
+            View_Rating: 'A',
+            Renovation_Rating: 'A',
+            Amenity_Rating: 'B',
+            Street_Rate: 3500,
+            In_House_Rate: 3200,
+            Discount_To_Street_Rate: 300,
+            Care_Level: 'Level 1',
+            Care_Rate: 500,
+            Rent_And_Care_Rate: 3700,
+            Competitor_Rate: 3600,
+            Competitor_Avg_Care_Rate: 450,
+            Competitor_Final_Rate: 4050,
+            Modulo_Suggested_Rate: 3650,
+            AI_Suggested_Rate: 3700,
+            Promotion_Allowance: 100,
+          },
+        ];
+        filename = 'rent_roll_template.csv';
+      } else if (type === 'competitor') {
+        template = [
+          {
+            Portfolio_Name: 'Brookdale',
+            Location_Name: 'Brookdale Louisville',
+            Competitor_Name: 'Brookdale Senior Living',
+            Latitude: 38.2527,
+            Longitude: -85.7585,
+            Street_Rate: 3800,
+            Avg_Care_Rate: 600,
+            Room_Type: 'Studio',
+            Rating: 'A',
+            Address: '123 Main St, Louisville, KY',
+            Rank: 1,
+            Weight: 1.0,
+            Units: 120,
+            Market_Share: 15,
+          },
+        ];
+        filename = 'competitor_template.csv';
+      } else {
+        return res.status(400).json({ error: 'Invalid template type' });
+      }
+      
+      const csv = Papa.unparse(template);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      console.error("Error generating template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
   // Guardrails CRUD
   app.get("/api/guardrails", async (req, res) => {
     try {

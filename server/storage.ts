@@ -8,6 +8,8 @@ import {
   competitors,
   guardrails,
   attributeRatings,
+  locations,
+  portfolioCompetitors,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -25,7 +27,11 @@ import {
   type Guardrails,
   type InsertGuardrails,
   type AttributeRatings,
-  type InsertAttributeRatings
+  type InsertAttributeRatings,
+  type Location,
+  type InsertLocation,
+  type PortfolioCompetitor,
+  type InsertPortfolioCompetitor
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -40,12 +46,20 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
+  // Location operations
+  getLocations(): Promise<Location[]>;
+  getLocationByName(name: string): Promise<Location | undefined>;
+  createOrUpdateLocation(data: InsertLocation): Promise<Location>;
+  updateLocationUnits(locationId: string, unitCount: number): Promise<void>;
+  
   // Rent roll data operations
   getRentRollData(): Promise<RentRollData[]>;
   getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]>;
+  getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
   clearRentRollData(): Promise<void>;
+  clearRentRollDataByLocation(location: string): Promise<void>;
   
   // Rate card operations
   getRateCardByMonth(uploadMonth: string): Promise<RateCard[]>;
@@ -65,11 +79,17 @@ export interface IStorage {
   
   // Competitors
   getCompetitors(): Promise<Competitor[]>;
+  getCompetitorsByLocation(location: string): Promise<Competitor[]>;
   createCompetitor(data: InsertCompetitor): Promise<Competitor>;
   updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor>;
   deleteCompetitor(id: string): Promise<void>;
   createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor>;
   clearCompetitors(): Promise<void>;
+  clearCompetitorsByLocation(location: string): Promise<void>;
+  
+  // Portfolio Competitors
+  getPortfolioCompetitors(): Promise<PortfolioCompetitor[]>;
+  createOrUpdatePortfolioCompetitor(data: InsertPortfolioCompetitor): Promise<PortfolioCompetitor>;
   
   // Guardrails
   getGuardrails(): Promise<Guardrails[]>;
@@ -104,6 +124,37 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  // Location operations
+  async getLocations(): Promise<Location[]> {
+    return await db.select().from(locations);
+  }
+
+  async getLocationByName(name: string): Promise<Location | undefined> {
+    const [location] = await db.select().from(locations).where(eq(locations.name, name));
+    return location;
+  }
+
+  async createOrUpdateLocation(data: InsertLocation): Promise<Location> {
+    const existing = await this.getLocationByName(data.name);
+    if (existing) {
+      const [updated] = await db
+        .update(locations)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(locations.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(locations).values(data).returning();
+    return created;
+  }
+
+  async updateLocationUnits(locationId: string, unitCount: number): Promise<void> {
+    await db
+      .update(locations)
+      .set({ totalUnits: unitCount, updatedAt: new Date() })
+      .where(eq(locations.id, locationId));
+  }
+
   // Rent roll data operations
   async getRentRollData(): Promise<RentRollData[]> {
     return await db.select().from(rentRollData);
@@ -111,6 +162,10 @@ export class DatabaseStorage implements IStorage {
 
   async getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]> {
     return await db.select().from(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth));
+  }
+
+  async getRentRollDataByLocation(location: string): Promise<RentRollData[]> {
+    return await db.select().from(rentRollData).where(eq(rentRollData.location, location));
   }
 
   async createRentRollData(data: InsertRentRollData): Promise<RentRollData> {
@@ -125,6 +180,10 @@ export class DatabaseStorage implements IStorage {
 
   async clearRentRollData(): Promise<void> {
     await db.delete(rentRollData);
+  }
+
+  async clearRentRollDataByLocation(location: string): Promise<void> {
+    await db.delete(rentRollData).where(eq(rentRollData.location, location));
   }
 
   // Rate card operations
@@ -295,6 +354,10 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(competitors);
   }
 
+  async getCompetitorsByLocation(location: string): Promise<Competitor[]> {
+    return await db.select().from(competitors).where(eq(competitors.location, location));
+  }
+
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {
     const [competitor] = await db.insert(competitors).values(data).returning();
     return competitor;
@@ -327,6 +390,29 @@ export class DatabaseStorage implements IStorage {
 
   async clearCompetitors(): Promise<void> {
     await db.delete(competitors);
+  }
+
+  async clearCompetitorsByLocation(location: string): Promise<void> {
+    await db.delete(competitors).where(eq(competitors.location, location));
+  }
+
+  // Portfolio Competitors
+  async getPortfolioCompetitors(): Promise<PortfolioCompetitor[]> {
+    return await db.select().from(portfolioCompetitors);
+  }
+
+  async createOrUpdatePortfolioCompetitor(data: InsertPortfolioCompetitor): Promise<PortfolioCompetitor> {
+    const existing = await db.select().from(portfolioCompetitors).where(eq(portfolioCompetitors.name, data.name));
+    if (existing.length > 0) {
+      const [updated] = await db.update(portfolioCompetitors)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(portfolioCompetitors.name, data.name))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(portfolioCompetitors).values(data).returning();
+      return created;
+    }
   }
 
   // Guardrails
