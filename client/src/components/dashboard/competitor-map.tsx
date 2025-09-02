@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import customMarkerIcon from "@assets/image_1756856984756.png";
+import currentPropertyIcon from "@assets/image_1756856984756.png";
+import competitorIcon from "@assets/image_1756857075316.png";
 
 declare global {
   interface Window {
@@ -133,8 +134,8 @@ export function CompetitorMap({
       };
       
       // Current property icon using custom marker with fallback
-      const currentIcon = customMarkerIcon ? window.L.icon({
-        iconUrl: customMarkerIcon,
+      const currentIcon = currentPropertyIcon ? window.L.icon({
+        iconUrl: currentPropertyIcon,
         iconSize: [40, 40],
         iconAnchor: [20, 40],
         popupAnchor: [0, -40]
@@ -213,8 +214,8 @@ export function CompetitorMap({
         
         const style = getRatingStyle(competitor.rating);
         
-        const competitorIcon = customMarkerIcon ? window.L.icon({
-          iconUrl: customMarkerIcon,
+        const competitorMarkerIcon = competitorIcon ? window.L.icon({
+          iconUrl: competitorIcon,
           iconSize: [parseInt(style.size), parseInt(style.size)],
           iconAnchor: [parseInt(style.size) / 2, parseInt(style.size)],
           popupAnchor: [0, -parseInt(style.size)]
@@ -227,7 +228,7 @@ export function CompetitorMap({
         });
         
         const marker = window.L.marker([competitor.lat, competitor.lng], {
-          icon: competitorIcon
+          icon: competitorMarkerIcon
         }).addTo(mapInstanceRef.current);
         
         const careRateDiff = competitor.avgCareRate ? (competitor.avgCareRate - currentProperty.avgCareRate) : 0;
