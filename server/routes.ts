@@ -1613,44 +1613,97 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Template download endpoint
+  // Template download endpoint - exports current portfolio data as template
   app.get("/api/template/download", isAuthenticated, async (req, res) => {
     try {
-      // Create Excel template with field headers and one dummy row
-      const templateData = [
-        {
-          date: '2024-01-31',
-          location: 'West Wing', 
-          'room number': 'AL101',
-          'room type': 'Studio',
-          'occupied Y/N': 'Y',
-          'days vacant': 0,
-          'preferred location': 'Yes',
-          size: 'Studio',
-          view: 'Garden View',
-          renovated: 'Yes',
-          'other premium feature': 'Kitchenette, Walk-in Shower',
-          'street rate': 3200,
-          'in-house rate': 3000,
-          'discount to street rate': 200,
-          'care level': 'Independent Living',
-          'care rate': 500,
-          'rent and care rate': 3500,
-          'competitor rate': 3150,
-          'competitor average care rate': 480,
-          'competitor final rate': 3630
-        }
-      ];
+      // Get all portfolio data to export as template
+      const portfolioData = await storage.getPortfolioData();
+      
+      let templateData;
+      
+      if (portfolioData.length > 0) {
+        // Export actual portfolio data
+        templateData = portfolioData.map(unit => ({
+          date: unit.date,
+          region: unit.region || '',
+          division: unit.division || '',
+          location: unit.location,
+          'room number': unit.roomNumber,
+          'room type': unit.roomType,
+          'service line': unit.serviceLine || '',
+          'occupied Y/N': unit.occupiedYN ? 'Y' : 'N',
+          'days vacant': unit.daysVacant || 0,
+          'preferred location': unit.preferredLocation || '',
+          size: unit.size || '',
+          view: unit.view || '',
+          renovated: unit.renovated || '',
+          'other premium feature': unit.otherPremiumFeature || '',
+          'location rating': unit.locationRating || '',
+          'size rating': unit.sizeRating || '',
+          'view rating': unit.viewRating || '',
+          'renovation rating': unit.renovationRating || '',
+          'amenity rating': unit.amenityRating || '',
+          'street rate': unit.streetRate || 0,
+          'in-house rate': unit.inHouseRate || 0,
+          'discount to street rate': unit.discountToStreetRate || 0,
+          'care level': unit.careLevel || '',
+          'care rate': unit.careRate || 0,
+          'rent and care rate': unit.rentAndCareRate || 0,
+          'competitor rate': unit.competitorRate || 0,
+          'competitor average care rate': unit.competitorAvgCareRate || 0,
+          'competitor final rate': unit.competitorFinalRate || 0,
+          'modulo suggested rate': unit.moduloSuggestedRate || 0,
+          'ai suggested rate': unit.aiSuggestedRate || 0,
+          'promotion allowance': unit.promotionAllowance || 0
+        }));
+      } else {
+        // If no data, provide template with example row
+        templateData = [
+          {
+            date: '2024-01-01',
+            region: 'North',
+            division: 'Northeast',
+            location: 'Example Campus',
+            'room number': 'AL101',
+            'room type': 'Studio',
+            'service line': 'AL',
+            'occupied Y/N': 'Y',
+            'days vacant': 0,
+            'preferred location': 'Yes',
+            size: 'Studio',
+            view: 'Garden View',
+            renovated: 'Yes',
+            'other premium feature': 'Kitchenette, Walk-in Shower',
+            'location rating': 'A',
+            'size rating': 'B',
+            'view rating': 'A',
+            'renovation rating': 'A',
+            'amenity rating': 'B',
+            'street rate': 3200,
+            'in-house rate': 3000,
+            'discount to street rate': 200,
+            'care level': 'Level 1',
+            'care rate': 500,
+            'rent and care rate': 3500,
+            'competitor rate': 3150,
+            'competitor average care rate': 480,
+            'competitor final rate': 3630,
+            'modulo suggested rate': 3250,
+            'ai suggested rate': 3300,
+            'promotion allowance': 100
+          }
+        ];
+      }
 
       const worksheet = XLSX.utils.json_to_sheet(templateData);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Rent Roll Data');
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Portfolio Data');
 
       // Write to buffer
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', 'attachment; filename=rent_roll_template.xlsx');
+      res.setHeader('Content-Disposition', 'attachment; filename=portfolio_template.xlsx');
       res.send(buffer);
     } catch (error) {
       console.error('Template download error:', error);
