@@ -5,6 +5,7 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { demoRentRoll } from "./seed-data";
 import multer from "multer";
 import Papa from "papaparse";
+import * as xlsx from "xlsx";
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import { 
@@ -182,6 +183,269 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Upload rent roll CSV
+  // Unified template download endpoint
+  app.get("/api/template/unified", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+      
+      // Sheet 1: Rent Roll Template
+      const rentRollTemplate = [
+        {
+          Date: '2024-01-31',
+          Location: 'Louisville East',
+          'Room Number': '101',
+          'Room Type': 'Studio',
+          'Service Line': 'AL',
+          'Occupied Y/N': 'Y',
+          'Days Vacant': 0,
+          'Preferred Location': 'Y',
+          Size: 'Studio',
+          View: 'Garden View',
+          Renovated: 'Y',
+          'Other Premium Feature': '',
+          'Location Rating': 'A',
+          'Size Rating': 'B',
+          'View Rating': 'A',
+          'Renovation Rating': 'A',
+          'Amenity Rating': 'B',
+          'Street Rate': 3500,
+          'In-House Rate': 3200,
+          'Discount to Street Rate': 300,
+          'Care Level': 'Level 1',
+          'Care Rate': 500,
+          'Rent and Care Rate': 3700,
+          'Competitor Rate': 3600,
+          'Competitor Average Care Rate': 450,
+          'Competitor Final Rate': 4050,
+          'Modulo Suggested Rate': 3650,
+          'AI Suggested Rate': 3700,
+          'Promotion Allowance': 100
+        }
+      ];
+      
+      // Sheet 2: Competitors Template
+      const competitorsTemplate = [
+        {
+          Location: 'Louisville East',
+          'Competitor Name': 'Sunrise Senior Living',
+          'Distance (miles)': 2.5,
+          'Service Line': 'AL',
+          'Room Type': 'Studio',
+          'Base Rate': 3600,
+          'Care Level 1 Rate': 450,
+          'Care Level 2 Rate': 750,
+          'Care Level 3 Rate': 1200,
+          'Market Position': 'Premium',
+          Notes: 'Recently renovated facility'
+        }
+      ];
+      
+      // Sheet 3: Targets & Trends Template
+      const targetsTemplate = [
+        {
+          Date: '2024-01-31',
+          Location: 'Louisville East',
+          'Service Line': 'AL',
+          Census: 85,
+          'Occupancy %': 88.5,
+          'Move-ins': 5,
+          'Move-outs': 3,
+          Revenue: 425000,
+          RevPAR: 5000,
+          RevPOR: 5650,
+          ADR: 4200,
+          'Street Rate': 3500,
+          'In-House Rate': 3200,
+          'Budget Revenue': 420000,
+          'Budget RevPOR': 5600,
+          'Budget ADR': 4150,
+          'Market Rate': 3550
+        }
+      ];
+      
+      // Create worksheets
+      const rentRollSheet = xlsx.utils.json_to_sheet(rentRollTemplate);
+      const competitorsSheet = xlsx.utils.json_to_sheet(competitorsTemplate);
+      const targetsSheet = xlsx.utils.json_to_sheet(targetsTemplate);
+      
+      // Add worksheets to workbook
+      xlsx.utils.book_append_sheet(workbook, rentRollSheet, 'Rent Roll');
+      xlsx.utils.book_append_sheet(workbook, competitorsSheet, 'Competitors');
+      xlsx.utils.book_append_sheet(workbook, targetsSheet, 'Targets & Trends');
+      
+      // Generate buffer
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="unified_portfolio_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating unified template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
+  // Unified upload endpoint
+  app.post("/api/upload/unified", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+      
+      let rentRollRecords = 0;
+      let competitorRecords = 0;
+      let targetsRecords = 0;
+      
+      // Process Rent Roll sheet
+      if (workbook.SheetNames.includes('Rent Roll')) {
+        const rentRollSheet = workbook.Sheets['Rent Roll'];
+        const rentRollData = xlsx.utils.sheet_to_json(rentRollSheet);
+        
+        // Clear existing rent roll data
+        await storage.clearRentRollData();
+        
+        // Process each rent roll record
+        for (const row of rentRollData as any[]) {
+          const locationName = row.Location || 'Unknown';
+          
+          // Create or update location
+          const location = await storage.createOrUpdateLocation({
+            name: locationName,
+            totalUnits: 1,
+          });
+          
+          // Insert rent roll data
+          await storage.createRentRollData({
+            uploadMonth: new Date().toISOString().slice(0, 7),
+            date: row.Date || new Date().toISOString().split('T')[0],
+            location: locationName,
+            locationId: location.id,
+            roomNumber: row['Room Number'] || '',
+            roomType: row['Room Type'] || 'Studio',
+            serviceLine: row['Service Line'] || 'AL',
+            occupiedYN: row['Occupied Y/N'] === 'Y',
+            daysVacant: parseInt(row['Days Vacant']) || 0,
+            preferredLocation: row['Preferred Location'],
+            size: row.Size || 'Studio',
+            view: row.View,
+            renovated: row.Renovated === 'Y',
+            otherPremiumFeature: row['Other Premium Feature'],
+            locationRating: row['Location Rating'],
+            sizeRating: row['Size Rating'],
+            viewRating: row['View Rating'],
+            renovationRating: row['Renovation Rating'],
+            amenityRating: row['Amenity Rating'],
+            streetRate: parseFloat(row['Street Rate']) || 0,
+            inHouseRate: parseFloat(row['In-House Rate']) || 0,
+            discountToStreetRate: parseFloat(row['Discount to Street Rate']) || 0,
+            careLevel: row['Care Level'],
+            careRate: parseFloat(row['Care Rate']) || 0,
+            rentAndCareRate: parseFloat(row['Rent and Care Rate']) || 0,
+            competitorRate: parseFloat(row['Competitor Rate']) || 0,
+            competitorAvgCareRate: parseFloat(row['Competitor Average Care Rate']) || 0,
+            competitorFinalRate: parseFloat(row['Competitor Final Rate']) || 0,
+            moduloSuggestedRate: parseFloat(row['Modulo Suggested Rate']) || 0,
+            aiSuggestedRate: parseFloat(row['AI Suggested Rate']) || 0,
+            promotionAllowance: parseFloat(row['Promotion Allowance']) || 0,
+          });
+          
+          rentRollRecords++;
+        }
+      }
+      
+      // Process Competitors sheet
+      if (workbook.SheetNames.includes('Competitors')) {
+        const competitorsSheet = workbook.Sheets['Competitors'];
+        const competitorsData = xlsx.utils.sheet_to_json(competitorsSheet);
+        
+        // Clear existing competitors
+        await storage.clearCompetitors();
+        
+        // Process each competitor record
+        for (const row of competitorsData as any[]) {
+          const locationName = row.Location || 'Unknown';
+          
+          // Get location
+          const locations = await storage.getLocations();
+          const location = locations.find(l => l.name === locationName);
+          
+          await storage.createCompetitor({
+            name: row['Competitor Name'] || 'Unknown Competitor',
+            location: locationName,
+            locationId: location?.id || '',
+            lat: 38.2527,
+            lng: -85.7585,
+            streetRate: parseFloat(row['Base Rate']) || 0,
+            avgCareRate: parseFloat(row['Care Level 1 Rate']) || 0,
+            roomType: row['Room Type'],
+            rating: row['Market Position'],
+            address: '',
+            rank: 1,
+            weight: 1.0,
+            rates: {
+              careLevel1: parseFloat(row['Care Level 1 Rate']) || 0,
+              careLevel2: parseFloat(row['Care Level 2 Rate']) || 0,
+              careLevel3: parseFloat(row['Care Level 3 Rate']) || 0,
+            },
+            attributes: { notes: row.Notes },
+          });
+          
+          competitorRecords++;
+        }
+      }
+      
+      // Process Targets & Trends sheet
+      if (workbook.SheetNames.includes('Targets & Trends')) {
+        const targetsSheet = workbook.Sheets['Targets & Trends'];
+        const targetsData = xlsx.utils.sheet_to_json(targetsSheet);
+        
+        // Process each targets & trends record
+        for (const row of targetsData as any[]) {
+          const locationName = row.Location || 'Unknown';
+          
+          // Get location
+          const locations = await storage.getLocations();
+          const location = locations.find(l => l.name === locationName);
+          
+          await storage.createTargetsAndTrends({
+            month: row.Date ? new Date(row.Date).toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
+            region: '',
+            division: '',
+            campus: locationName,
+            serviceLine: row['Service Line'] || 'AL',
+            budgetedOccupancy: parseFloat(row['Occupancy %']) || null,
+            budgetedRate: parseFloat(row['Budget ADR']) || null,
+            roomRateAdjustment: null,
+            roomRateAdjustmentNote: '',
+            budgetedRevPOR: parseFloat(row['Budget RevPOR']) || null,
+            communityFeeCollection: null,
+            inquiries: 0,
+            tours: 0,
+            moveIns: parseInt(row['Move-ins']) || 0,
+            avgDaysToMoveIn: null,
+            notes: '',
+            locationId: location?.id || '',
+          });
+          
+          targetsRecords++;
+        }
+      }
+      
+      res.json({
+        ok: true,
+        rentRollRecords,
+        competitorRecords,
+        targetsRecords,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error processing unified upload:", error);
+      res.status(500).json({ error: "Failed to process unified upload" });
+    }
+  });
+
   app.post("/api/upload_rent_roll", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {

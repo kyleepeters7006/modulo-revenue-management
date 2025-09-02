@@ -412,6 +412,16 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(targetsAndTrends).where(eq(targetsAndTrends.campus, campus));
   }
 
+  async createTargetsAndTrends(data: InsertTargetsAndTrends): Promise<TargetsAndTrends> {
+    // Auto-calculate conversion rate
+    const processedData = {
+      ...data,
+      conversionRate: data.inquiries > 0 ? (data.moveIns / data.inquiries) * 100 : 0
+    };
+    const [result] = await db.insert(targetsAndTrends).values(processedData).returning();
+    return result;
+  }
+
   async bulkInsertTargetsAndTrends(data: any[]): Promise<void> {
     if (data.length === 0) return;
     // Auto-calculate conversion rate for each record
