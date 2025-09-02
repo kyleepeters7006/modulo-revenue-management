@@ -21,9 +21,18 @@ interface Location {
   state?: string;
 }
 
+interface PortfolioCompetitor {
+  id: string;
+  portfolioName: string;
+  locations?: any[];
+  avgPortfolioRate?: number;
+  totalUnits?: number;
+  marketShare?: number;
+}
+
 export default function PortfolioManager() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
-  const [uploadType, setUploadType] = useState<"rent_roll" | "competitors">("rent_roll");
+  const [uploadType, setUploadType] = useState<"rent_roll" | "competitors" | "targets_trends">("rent_roll");
   const [region, setRegion] = useState("");
   const [division, setDivision] = useState("");
   const { toast } = useToast();
@@ -34,7 +43,7 @@ export default function PortfolioManager() {
   });
 
   // Fetch portfolio competitors
-  const { data: portfolioCompetitors = [] } = useQuery({
+  const { data: portfolioCompetitors = [] } = useQuery<PortfolioCompetitor[]>({
     queryKey: ["/api/portfolio/competitors"],
   });
 
@@ -165,6 +174,15 @@ export default function PortfolioManager() {
           >
             <Download className="h-4 w-4 mr-2" />
             Competitor Template
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => downloadTemplateMutation.mutate("targets_trends")}
+            disabled={downloadTemplateMutation.isPending}
+            data-testid="button-download-targets-template"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Targets & Trends
           </Button>
         </div>
       </div>
@@ -299,6 +317,7 @@ export default function PortfolioManager() {
                     <SelectContent>
                       <SelectItem value="rent_roll">Rent Roll Data</SelectItem>
                       <SelectItem value="competitors">Competitor Data</SelectItem>
+                      <SelectItem value="targets_trends">Targets & Trends</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -404,7 +423,7 @@ export default function PortfolioManager() {
                       </tr>
                     </thead>
                     <tbody>
-                      {portfolioCompetitors.map((comp: any) => (
+                      {portfolioCompetitors.map((comp) => (
                         <tr key={comp.id} className="border-b hover:bg-gray-50" data-testid={`row-competitor-${comp.id}`}>
                           <td className="p-2 font-medium">{comp.portfolioName}</td>
                           <td className="p-2">{comp.locations?.length || 0}</td>

@@ -559,6 +559,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
               attributes: row.Attributes ? JSON.parse(row.Attributes) : null,
             });
           }
+        } else if (uploadType === 'targets_trends') {
+          // Clear existing targets & trends for this campus
+          await storage.clearTargetsAndTrendsByCampus(locationName);
+          
+          // Process targets & trends data
+          const processedData = data.map((row: any) => ({
+            month: row.Month || new Date().toISOString().slice(0, 7),
+            region: row.Region || region,
+            division: row.Division || division,
+            campus: locationName,
+            serviceLine: row.Service_Line || 'AL',
+            budgetedOccupancy: parseFloat(row.Budgeted_Occupancy) || null,
+            budgetedRate: parseFloat(row.Budgeted_Rate) || null,
+            roomRateAdjustment: parseFloat(row.Room_Rate_Adjustment) || null,
+            roomRateAdjustmentNote: row.Room_Rate_Adjustment_Note,
+            budgetedRevPOR: parseFloat(row.Budgeted_RevPOR) || null,
+            communityFeeCollection: parseFloat(row.Community_Fee_Collection) || null,
+            inquiries: parseInt(row.Inquiries) || 0,
+            tours: parseInt(row.Tours) || 0,
+            moveIns: parseInt(row.Move_Ins) || 0,
+            avgDaysToMoveIn: parseInt(row.Avg_Days_To_Move_In) || null,
+            notes: row.Notes,
+            locationId: location.id,
+          }));
+          
+          await storage.bulkInsertTargetsAndTrends(processedData);
         }
         
         // Create upload history
@@ -720,6 +746,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         ];
         filename = 'competitor_template.csv';
+      } else if (type === 'targets_trends') {
+        template = [
+          {
+            Month: '2025-01',
+            Region: 'North Central Indiana',
+            Division: 'East',
+            Campus: 'Creasy Springs',
+            Service_Line: 'AL',
+            Budgeted_Occupancy: 92.5,
+            Budgeted_Rate: 4200,
+            Room_Rate_Adjustment: 3.0,
+            Room_Rate_Adjustment_Note: 'Annual increase',
+            Budgeted_RevPOR: 4500,
+            Community_Fee_Collection: 95.0,
+            Inquiries: 45,
+            Tours: 28,
+            Move_Ins: 8,
+            Conversion_Rate: 17.8,
+            Avg_Days_To_Move_In: 32,
+            Notes: 'Q1 marketing push underway',
+          },
+        ];
+        filename = 'targets_trends_template.csv';
       } else {
         return res.status(400).json({ error: 'Invalid template type' });
       }
@@ -1721,6 +1770,27 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Error updating attribute rating:', error);
       res.status(500).json({ error: 'Failed to update attribute rating' });
+    }
+  });
+
+  // Targets & Trends endpoints
+  app.get("/api/targets-and-trends", async (req, res) => {
+    try {
+      const { campus, month } = req.query;
+      let data;
+      
+      if (campus) {
+        data = await storage.getTargetsAndTrendsByCampus(campus as string);
+      } else if (month) {
+        data = await storage.getTargetsAndTrendsByMonth(month as string);
+      } else {
+        data = await storage.getTargetsAndTrends();
+      }
+      
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching targets and trends:", error);
+      res.status(500).json({ error: "Failed to fetch targets and trends" });
     }
   });
 

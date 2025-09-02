@@ -41,6 +41,31 @@ export const users = pgTable("users", {
 export const serviceLineEnum = ["AL", "AL/MC", "HC", "HC/MC", "IL", "SL"] as const;
 export type ServiceLine = typeof serviceLineEnum[number];
 
+// Targets and Trends Table
+export const targetsAndTrends = pgTable("targets_and_trends", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  month: text("month").notNull(), // YYYY-MM format
+  region: text("region"),
+  division: text("division"),
+  campus: text("campus").notNull(),
+  serviceLine: text("service_line").notNull(),
+  budgetedOccupancy: real("budgeted_occupancy"), // percentage
+  budgetedRate: real("budgeted_rate"), // ADR
+  roomRateAdjustment: real("room_rate_adjustment"), // percentage
+  roomRateAdjustmentNote: text("room_rate_adjustment_note"),
+  budgetedRevPOR: real("budgeted_revpor"),
+  communityFeeCollection: real("community_fee_collection"), // percentage
+  inquiries: integer("inquiries"),
+  tours: integer("tours"),
+  moveIns: integer("move_ins"),
+  conversionRate: real("conversion_rate"), // auto-calculated
+  avgDaysToMoveIn: integer("avg_days_to_move_in"),
+  notes: text("notes"),
+  locationId: varchar("location_id").references(() => locations.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Portfolio locations table
 export const locations = pgTable("locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -256,6 +281,12 @@ export const insertAttributeRatingsSchema = createInsertSchema(attributeRatings)
   updatedAt: true,
 });
 
+export const insertTargetsAndTrendsSchema = createInsertSchema(targetsAndTrends).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -277,3 +308,5 @@ export type AttributeRatings = typeof attributeRatings.$inferSelect;
 export type InsertAttributeRatings = z.infer<typeof insertAttributeRatingsSchema>;
 export type PortfolioCompetitor = typeof portfolioCompetitors.$inferSelect;
 export type InsertPortfolioCompetitor = z.infer<typeof insertPortfolioCompetitorsSchema>;
+export type TargetsAndTrends = typeof targetsAndTrends.$inferSelect;
+export type InsertTargetsAndTrends = z.infer<typeof insertTargetsAndTrendsSchema>;

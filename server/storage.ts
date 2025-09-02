@@ -10,6 +10,7 @@ import {
   attributeRatings,
   locations,
   portfolioCompetitors,
+  targetsAndTrends,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -31,7 +32,9 @@ import {
   type Location,
   type InsertLocation,
   type PortfolioCompetitor,
-  type InsertPortfolioCompetitor
+  type InsertPortfolioCompetitor,
+  type TargetsAndTrends,
+  type InsertTargetsAndTrends
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -394,6 +397,33 @@ export class DatabaseStorage implements IStorage {
 
   async clearCompetitorsByLocation(location: string): Promise<void> {
     await db.delete(competitors).where(eq(competitors.location, location));
+  }
+
+  // Targets and Trends operations
+  async getTargetsAndTrends(): Promise<TargetsAndTrends[]> {
+    return await db.select().from(targetsAndTrends);
+  }
+
+  async getTargetsAndTrendsByMonth(month: string): Promise<TargetsAndTrends[]> {
+    return await db.select().from(targetsAndTrends).where(eq(targetsAndTrends.month, month));
+  }
+
+  async getTargetsAndTrendsByCampus(campus: string): Promise<TargetsAndTrends[]> {
+    return await db.select().from(targetsAndTrends).where(eq(targetsAndTrends.campus, campus));
+  }
+
+  async bulkInsertTargetsAndTrends(data: any[]): Promise<void> {
+    if (data.length === 0) return;
+    // Auto-calculate conversion rate for each record
+    const processedData = data.map(record => ({
+      ...record,
+      conversionRate: record.inquiries > 0 ? (record.moveIns / record.inquiries) * 100 : 0
+    }));
+    await db.insert(targetsAndTrends).values(processedData);
+  }
+
+  async clearTargetsAndTrendsByCampus(campus: string): Promise<void> {
+    await db.delete(targetsAndTrends).where(eq(targetsAndTrends.campus, campus));
   }
 
   // Portfolio Competitors
