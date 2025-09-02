@@ -37,20 +37,25 @@ const roomTypes = {
   "SL": ["Studio", "1 Bedroom", "Deluxe Suite"]
 };
 
-// Generate 12 months of data (first of each month)
+// Generate trailing 12 months through September 2025 (Oct 2024 - Sep 2025)
 function generateMonthlyDates(): string[] {
   const dates: string[] = [];
-  const startYear = 2024;
-  const startMonth = 1;
+  const months = [
+    '10/01/2024', // October 2024
+    '11/01/2024', // November 2024
+    '12/01/2024', // December 2024
+    '01/01/2025', // January 2025
+    '02/01/2025', // February 2025
+    '03/01/2025', // March 2025
+    '04/01/2025', // April 2025
+    '05/01/2025', // May 2025
+    '06/01/2025', // June 2025
+    '07/01/2025', // July 2025
+    '08/01/2025', // August 2025
+    '09/01/2025', // September 2025
+  ];
   
-  for (let i = 0; i < 12; i++) {
-    const month = ((startMonth + i - 1) % 12) + 1;
-    const year = startYear + Math.floor((startMonth + i - 1) / 12);
-    const monthStr = month.toString().padStart(2, '0');
-    dates.push(`${monthStr}/01/${year}`);
-  }
-  
-  return dates;
+  return months;
 }
 
 // Generate thoughtful unit data
@@ -250,3 +255,9 @@ export async function generateAllDemoData() {
   };
 }
 
+// Run generation
+generateAllDemoData().then(() => {
+  console.log('Demo data generation complete!');
+}).catch(error => {
+  console.error('Error generating demo data:', error);
+});

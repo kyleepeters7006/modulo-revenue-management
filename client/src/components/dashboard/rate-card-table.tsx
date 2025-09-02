@@ -41,7 +41,7 @@ export default function RateCardTable({
   selectedDivisions,
   selectedLocations
 }: RateCardTableProps) {
-  const [selectedMonth, setSelectedMonth] = useState("2024-01");
+  const [selectedMonth, setSelectedMonth] = useState("2025-09");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
@@ -256,16 +256,24 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const date = new Date(2024, i, 1);
-                    const monthStr = date.toISOString().substring(0, 7);
-                    const displayStr = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                    return (
-                      <SelectItem key={monthStr} value={monthStr}>
-                        {displayStr}
-                      </SelectItem>
-                    );
-                  })}
+                  {[
+                    { month: '2024-10', display: 'October 2024' },
+                    { month: '2024-11', display: 'November 2024' },
+                    { month: '2024-12', display: 'December 2024' },
+                    { month: '2025-01', display: 'January 2025' },
+                    { month: '2025-02', display: 'February 2025' },
+                    { month: '2025-03', display: 'March 2025' },
+                    { month: '2025-04', display: 'April 2025' },
+                    { month: '2025-05', display: 'May 2025' },
+                    { month: '2025-06', display: 'June 2025' },
+                    { month: '2025-07', display: 'July 2025' },
+                    { month: '2025-08', display: 'August 2025' },
+                    { month: '2025-09', display: 'September 2025' },
+                  ].map(({ month, display }) => (
+                    <SelectItem key={month} value={month}>
+                      {display}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
