@@ -99,7 +99,7 @@ export default function DataManagement() {
             Data Management
           </h1>
           <p className="text-gray-600" data-testid="text-page-subtitle">
-            Unified portfolio data upload - Rent Rolls, Competitors, and Targets & Trends
+            Unified portfolio data upload in a single comprehensive template
           </p>
         </div>
 
@@ -109,19 +109,14 @@ export default function DataManagement() {
             <CardHeader>
               <CardTitle>Unified Portfolio Upload</CardTitle>
               <CardDescription>
-                Upload all portfolio data in a single Excel file containing Rent Rolls, Competitors, and Targets & Trends
+                Upload all portfolio data in a single comprehensive Excel template
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
                 <FileSpreadsheet className="h-4 w-4" />
                 <AlertDescription>
-                  The unified template includes three sheets:
-                  <ul className="mt-2 ml-4 list-disc text-sm">
-                    <li><strong>Rent Roll:</strong> Unit-level occupancy and pricing data</li>
-                    <li><strong>Competitors:</strong> Market comparison data with rates and distances</li>
-                    <li><strong>Targets & Trends:</strong> Monthly performance metrics and budgets</li>
-                  </ul>
+                  The unified template contains all portfolio data in a single comprehensive sheet including unit-level occupancy, pricing data, competitor information, and performance metrics.
                 </AlertDescription>
               </Alert>
 
@@ -163,43 +158,17 @@ export default function DataManagement() {
               <CardTitle>Data Upload Instructions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Rent Roll Sheet */}
               <div className="space-y-2">
-                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Sheet 1: Rent Roll</h3>
-                <p className="text-sm text-gray-600">Monthly unit-level occupancy and pricing data</p>
+                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Unified Template Format</h3>
+                <p className="text-sm text-gray-600">Single comprehensive sheet containing all portfolio data</p>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <p className="text-xs font-mono text-gray-700">
-                    Date | Location | Room Number | Room Type | Occupied Y/N | Days Vacant | 
+                    Date | Location | Room Number | Room Type | Service Line | Occupied Y/N | Days Vacant | 
                     Preferred Location | Size | View | Renovated | Other Premium Feature | 
                     Street Rate | In-House Rate | Discount to Street Rate | Care Level | 
                     Care Rate | Rent and Care Rate | Competitor Rate | Competitor Average Care Rate | 
-                    Competitor Final Rate
-                  </p>
-                </div>
-              </div>
-
-              {/* Competitors Sheet */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Sheet 2: Competitors</h3>
-                <p className="text-sm text-gray-600">Competitor pricing and location data</p>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-xs font-mono text-gray-700">
-                    Location | Competitor Name | Distance (miles) | Service Line | Room Type | 
-                    Base Rate | Care Level 1 Rate | Care Level 2 Rate | Care Level 3 Rate | 
-                    Market Position | Notes
-                  </p>
-                </div>
-              </div>
-
-              {/* Targets & Trends Sheet */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Sheet 3: Targets & Trends</h3>
-                <p className="text-sm text-gray-600">Monthly performance metrics and budget targets</p>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-xs font-mono text-gray-700">
-                    Date | Location | Service Line | Census | Occupancy % | Move-ins | Move-outs | 
-                    Revenue | RevPAR | RevPOR | ADR | Street Rate | In-House Rate | 
-                    Budget Revenue | Budget RevPOR | Budget ADR | Market Rate
+                    Competitor Final Rate | Census | Occupancy % | Move-ins | Move-outs | 
+                    Revenue | RevPAR | RevPOR | ADR | Budget Revenue | Budget RevPOR | Budget ADR | Market Rate
                   </p>
                 </div>
               </div>
@@ -207,7 +176,7 @@ export default function DataManagement() {
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  <strong>Important:</strong> Ensure all location names match exactly across all three sheets. 
+                  <strong>Important:</strong> Ensure all location names are consistent throughout the template. 
                   Upload data for the last day of each month for accurate trend analysis.
                 </AlertDescription>
               </Alert>
