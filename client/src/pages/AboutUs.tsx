@@ -1,13 +1,36 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Linkedin, FileText, Building2 } from "lucide-react";
+import { Linkedin, FileText, Building2, ArrowLeft } from "lucide-react";
+import { useLocation } from "wouter";
 
 export default function AboutUs() {
+  const [, setLocation] = useLocation();
+  
   return (
     <div className="min-h-screen bg-[var(--dashboard-bg)] p-8">
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
+        {/* Back Button */}
+        <div className="mb-8">
+          <Button
+            variant="outline"
+            onClick={() => setLocation("/overview")}
+            className="border-[var(--trilogy-grey)]/30 text-[var(--trilogy-grey)] hover:bg-[var(--trilogy-grey)]/10"
+            data-testid="button-back"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Dashboard
+          </Button>
+        </div>
+        
+        {/* Header with Logo */}
         <div className="text-center mb-12">
+          {/* M Logo */}
+          <div className="flex justify-center mb-6">
+            <div className="w-24 h-24 bg-gradient-to-br from-[var(--trilogy-teal)] to-[var(--trilogy-dark-blue)] rounded-2xl flex items-center justify-center shadow-lg">
+              <span className="text-5xl font-bold text-white">M</span>
+            </div>
+          </div>
+          
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">
             About Modulo
           </h1>
