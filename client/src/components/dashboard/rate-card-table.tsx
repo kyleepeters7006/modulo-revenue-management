@@ -41,7 +41,7 @@ export default function RateCardTable({
   selectedDivisions,
   selectedLocations
 }: RateCardTableProps) {
-  const [selectedMonth, setSelectedMonth] = useState("2025-09");
+  const [selectedMonth, setSelectedMonth] = useState("2024-01");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
@@ -257,8 +257,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: 12 }, (_, i) => {
-                    const date = new Date();
-                    date.setMonth(date.getMonth() - i);
+                    const date = new Date(2024, i, 1);
                     const monthStr = date.toISOString().substring(0, 7);
                     const displayStr = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
                     return (
