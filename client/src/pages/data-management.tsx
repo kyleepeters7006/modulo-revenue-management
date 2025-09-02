@@ -163,7 +163,7 @@ export default function DataManagement() {
                 <p className="text-sm text-gray-600">Single comprehensive sheet containing all portfolio data</p>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <p className="text-xs font-mono text-gray-700">
-                    Date | Location | Room Number | Room Type | Service Line | Occupied Y/N | Days Vacant | 
+                    Date | Region | Division | Location | Room Number | Room Type | Service Line | Occupied Y/N | Days Vacant | 
                     Preferred Location | Size | View | Renovated | Other Premium Feature | 
                     Street Rate | In-House Rate | Discount to Street Rate | Care Level | 
                     Care Rate | Rent and Care Rate | Competitor Rate | Competitor Average Care Rate | 

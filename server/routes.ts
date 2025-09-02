@@ -192,6 +192,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const unifiedTemplate = [
         {
           Date: '2024-01-31',
+          Region: 'East',
+          Division: 'Mid-Atlantic',
           Location: 'Louisville East',
           'Room Number': '101',
           'Room Type': 'Studio',
@@ -235,6 +237,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         {
           Date: '2024-01-31',
+          Region: 'East',
+          Division: 'Mid-Atlantic',
           Location: 'Louisville East',
           'Room Number': '102',
           'Room Type': '1 Bedroom',
@@ -278,6 +282,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         {
           Date: '2024-01-31',
+          Region: 'Central',
+          Division: 'Ohio Valley',
           Location: 'Creasy Springs',
           'Room Number': '201',
           'Room Type': 'Studio',
@@ -321,6 +327,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         {
           Date: '2024-01-31',
+          Region: 'Central',
+          Division: 'Ohio Valley',
           Location: 'Creasy Springs',
           'Room Number': '202',
           'Room Type': '2 Bedroom',
@@ -407,9 +415,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const row of portfolioData as any[]) {
           const locationName = row.Location || 'Unknown';
           
-          // Create or update location
+          // Create or update location with region and division
           const location = await storage.createOrUpdateLocation({
             name: locationName,
+            region: row.Region || null,
+            division: row.Division || null,
             totalUnits: 1,
           });
           
@@ -759,6 +769,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching locations:", error);
       res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  // API endpoint for location filter data
+  app.get("/api/locations", async (req, res) => {
+    try {
+      const locations = await storage.getLocations();
+      
+      // Extract unique regions and divisions
+      const regions = [...new Set(locations.map(loc => loc.region).filter(Boolean))];
+      const divisions = [...new Set(locations.map(loc => loc.division).filter(Boolean))];
+      
+      res.json({
+        locations: locations,
+        regions: regions,
+        divisions: divisions
+      });
+    } catch (error) {
+      console.error("Error fetching location filter data:", error);
+      res.status(500).json({ error: "Failed to fetch location data" });
     }
   });
 
@@ -1890,11 +1920,29 @@ Keep recommendations specific and quantitative when possible.`;
   // Rate card endpoint - shows summary and unit-level view
   app.get("/api/rate-card", async (req, res) => {
     try {
-      const { month } = req.query;
+      const { month, region, division, location } = req.query;
       const targetMonth = month as string || new Date().toISOString().substring(0, 7);
       
+      let unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // Apply filters
+      if (region && region !== 'All') {
+        const locations = await storage.getLocations();
+        const filteredLocationIds = locations.filter(loc => loc.region === region).map(loc => loc.id);
+        unitLevelData = unitLevelData.filter(unit => filteredLocationIds.includes(unit.locationId || ''));
+      }
+      
+      if (division && division !== 'All') {
+        const locations = await storage.getLocations();
+        const filteredLocationIds = locations.filter(loc => loc.division === division).map(loc => loc.id);
+        unitLevelData = unitLevelData.filter(unit => filteredLocationIds.includes(unit.locationId || ''));
+      }
+      
+      if (location && location !== 'All') {
+        unitLevelData = unitLevelData.filter(unit => unit.location === location);
+      }
+
       const rateCardSummary = await storage.getRateCardByMonth(targetMonth);
-      const unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
 
       res.json({
         summary: rateCardSummary,

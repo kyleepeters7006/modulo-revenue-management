@@ -30,9 +30,17 @@ import { apiRequest } from "@/lib/queryClient";
 
 interface RateCardTableProps {
   selectedServiceLine?: string;
+  selectedRegion?: string;
+  selectedDivision?: string;
+  selectedLocation?: string;
 }
 
-export default function RateCardTable({ selectedServiceLine: propServiceLine }: RateCardTableProps) {
+export default function RateCardTable({ 
+  selectedServiceLine: propServiceLine,
+  selectedRegion,
+  selectedDivision,
+  selectedLocation
+}: RateCardTableProps) {
   const [selectedMonth, setSelectedMonth] = useState("2025-09");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
@@ -53,9 +61,14 @@ export default function RateCardTable({ selectedServiceLine: propServiceLine }: 
   }, []);
 
   const { data: rateCardData, isLoading } = useQuery({
-    queryKey: ['/api/rate-card', selectedMonth],
+    queryKey: ['/api/rate-card', selectedMonth, selectedRegion, selectedDivision, selectedLocation],
     queryFn: async () => {
-      const response = await fetch(`/api/rate-card?month=${selectedMonth}`);
+      const params = new URLSearchParams({ month: selectedMonth });
+      if (selectedRegion && selectedRegion !== 'All') params.append('region', selectedRegion);
+      if (selectedDivision && selectedDivision !== 'All') params.append('division', selectedDivision);
+      if (selectedLocation && selectedLocation !== 'All') params.append('location', selectedLocation);
+      
+      const response = await fetch(`/api/rate-card?${params.toString()}`);
       return response.json();
     },
     enabled: !!selectedMonth
