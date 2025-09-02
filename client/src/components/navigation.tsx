@@ -45,7 +45,7 @@ export default function Navigation({ className }: NavigationProps) {
               <img 
                 src="/@fs/home/runner/workspace/attached_assets/image_1756817717051.png" 
                 alt="Modulo" 
-                className="h-12 w-auto"
+                className="h-16 w-auto"
               />
             </Link>
           </div>
