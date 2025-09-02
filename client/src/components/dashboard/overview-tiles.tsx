@@ -41,7 +41,7 @@ export default function OverviewTiles() {
     {
       title: "Total Units",
       value: overviewData.totalUnits.toLocaleString(),
-      subtitle: `${overviewData.occupiedUnits} occupied`,
+      subtitle: `${overviewData.occupiedUnits.toLocaleString()} occupied`,
       icon: Home,
       color: "blue",
       testId: "metric-total-units"
@@ -49,14 +49,14 @@ export default function OverviewTiles() {
     {
       title: "Overall Occupancy",
       value: `${((overviewData.occupiedUnits / overviewData.totalUnits) * 100).toFixed(1)}%`,
-      subtitle: `${overviewData.occupiedUnits}/${overviewData.totalUnits} units`,
+      subtitle: `${overviewData.occupiedUnits.toLocaleString()}/${overviewData.totalUnits.toLocaleString()} units`,
       icon: Users,
       color: "emerald", 
       testId: "metric-overall-occupancy"
     },
     {
       title: "Current Annual Revenue", 
-      value: `$${Math.round(overviewData.currentAnnualRevenue / 1000000)}M`,
+      value: `$${(overviewData.currentAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`,
       subtitle: "Based on current occupancy",
       icon: DollarSign,
       color: "amber",
@@ -64,7 +64,7 @@ export default function OverviewTiles() {
     },
     {
       title: "Potential Annual Revenue",
-      value: `$${Math.round(overviewData.potentialAnnualRevenue / 1000000)}M`, 
+      value: `$${(overviewData.potentialAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`, 
       subtitle: "At full occupancy",
       icon: TrendingUp,
       color: "purple",
@@ -139,7 +139,7 @@ export default function OverviewTiles() {
                   </span>
                 </div>
                 <div className="text-sm text-[var(--dashboard-muted)]">
-                  {roomType.occupied} / {roomType.total} units
+                  {roomType.occupied.toLocaleString()} / {roomType.total.toLocaleString()} units
                 </div>
                 <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mt-2">
                   <div 

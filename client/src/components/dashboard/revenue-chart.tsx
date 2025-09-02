@@ -111,7 +111,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Revenue Value</span>
                 <span className="text-xs font-medium text-[var(--trilogy-teal-light)]">
-                  ${revenueData?.payload?.revenue?.toLocaleString()}
+                  ${revenueData?.payload?.revenue?.toLocaleString('en-US')}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">

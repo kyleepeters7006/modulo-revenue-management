@@ -108,7 +108,7 @@ export default function UnitRecommendations() {
                   {getOccupancyBadge(unit.Occupied_YN)}
                 </TableCell>
                 <TableCell className={unit.Days_Vacant > 30 ? "text-[var(--trilogy-warning)]" : "text-[var(--dashboard-muted)]"}>
-                  {unit.Days_Vacant}
+                  {unit.Days_Vacant?.toLocaleString() || '--'}
                 </TableCell>
                 <TableCell className="text-[var(--dashboard-text)]">
                   {formatCurrency(unit.Fence_Price)}
