@@ -1723,10 +1723,19 @@ Keep recommendations specific and quantitative when possible.`;
       // Generate rate card summary after seeding
       await storage.generateRateCard(currentMonth);
       
+      // Also generate rate card for September 2025 (current default month in UI)
+      const currentDefaultMonth = "2025-09";
+      if (currentDefaultMonth !== currentMonth) {
+        const septemberUnits = await storage.getRentRollDataByMonth(currentDefaultMonth);
+        if (septemberUnits.length > 0) {
+          await storage.generateRateCard(currentDefaultMonth);
+        }
+      }
+      
       res.json({ 
         ok: true, 
         message: "Demo data seeded successfully",
-        competitors: demoCompetitors.length,
+        competitors: allLocations.length * 3, // Updated to reflect actual competitor count
         units: demoRentRoll.length
       });
     } catch (error) {
@@ -2150,7 +2159,13 @@ Keep recommendations specific and quantitative when possible.`;
         unitLevelData = unitLevelData.filter(unit => selectedLocations.includes(unit.location));
       }
 
-      const rateCardSummary = await storage.getRateCardByMonth(targetMonth);
+      let rateCardSummary = await storage.getRateCardByMonth(targetMonth);
+      
+      // If no rate card summary exists, generate it from current unit data
+      if (rateCardSummary.length === 0 && unitLevelData.length > 0) {
+        await storage.generateRateCard(targetMonth);
+        rateCardSummary = await storage.getRateCardByMonth(targetMonth);
+      }
 
       res.json({
         summary: rateCardSummary,
