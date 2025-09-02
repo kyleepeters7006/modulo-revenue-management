@@ -8,6 +8,18 @@ interface OverviewData {
     occupied: number;
     total: number;
     occupancyRate: number;
+    avgRate?: number;
+    avgCompetitorRate?: number;
+    monthlyRemainder?: number;
+  }[];
+  occupancyByServiceLine: {
+    serviceLine: string;
+    occupied: number;
+    total: number;
+    occupancyRate: number;
+    avgRate?: number;
+    avgCompetitorRate?: number;
+    monthlyRemainder?: number;
   }[];
   currentAnnualRevenue: number;
   potentialAnnualRevenue: number;
@@ -138,17 +150,86 @@ export default function OverviewTiles() {
                     {roomType.occupancyRate.toFixed(1)}%
                   </span>
                 </div>
-                <div className="text-sm text-[var(--dashboard-muted)]">
+                <div className="text-sm text-[var(--dashboard-muted)] mb-2">
                   {roomType.occupied.toLocaleString()} / {roomType.total.toLocaleString()} units
                 </div>
-                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mt-2">
+                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
                   <div 
                     className="bg-[var(--trilogy-blue)] h-2 rounded-full transition-all duration-300"
                     style={{ width: `${roomType.occupancyRate}%` }}
                   ></div>
                 </div>
+                
+                {/* Rate Information */}
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
+                    <span className="font-medium">${roomType.avgRate?.toLocaleString() || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
+                    <span className="font-medium">${roomType.avgCompetitorRate?.toLocaleString() || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
+                    <span className="font-medium text-[var(--trilogy-success)]">${roomType.monthlyRemainder?.toLocaleString() || 0}</span>
+                  </div>
+                </div>
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* Occupancy by Service Line Breakdown */}
+      <Card className="dashboard-card">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
+            Occupancy by Service Line
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {overviewData.occupancyByServiceLine?.map((serviceLine) => (
+              <div 
+                key={serviceLine.serviceLine} 
+                className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-medium text-[var(--dashboard-text)]">
+                    {serviceLine.serviceLine}
+                  </h4>
+                  <span className="text-sm font-bold text-[var(--trilogy-teal)]">
+                    {serviceLine.occupancyRate.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-sm text-[var(--dashboard-muted)] mb-2">
+                  {serviceLine.occupied.toLocaleString()} / {serviceLine.total.toLocaleString()} units
+                </div>
+                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
+                  <div 
+                    className="bg-[var(--trilogy-teal)] h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${serviceLine.occupancyRate}%` }}
+                  ></div>
+                </div>
+                
+                {/* Rate Information */}
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
+                    <span className="font-medium">${serviceLine.avgRate?.toLocaleString() || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
+                    <span className="font-medium">${serviceLine.avgCompetitorRate?.toLocaleString() || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
+                    <span className="font-medium text-[var(--trilogy-success)]">${serviceLine.monthlyRemainder?.toLocaleString() || 0}</span>
+                  </div>
+                </div>
+              </div>
+            )) || []}
           </div>
         </CardContent>
       </Card>

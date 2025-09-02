@@ -1904,17 +1904,17 @@ Keep recommendations specific and quantitative when possible.`;
       if (allRentRollData.length === 0) {
         const demoOverview = {
           occupancyByRoomType: [
-            { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0 },
-            { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0 },
-            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0 }
+            { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0, avgRate: 2400, avgCompetitorRate: 2550, monthlyRemainder: 1800 },
+            { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0, avgRate: 2800, avgCompetitorRate: 2900, monthlyRemainder: 1440 },
+            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3350, monthlyRemainder: 1200 }
           ],
           occupancyByServiceLine: [
-            { serviceLine: 'AL', occupied: 15, total: 20, occupancyRate: 75.0 },
-            { serviceLine: 'AL/MC', occupied: 8, total: 10, occupancyRate: 80.0 },
-            { serviceLine: 'HC', occupied: 6, total: 8, occupancyRate: 75.0 },
-            { serviceLine: 'HC/MC', occupied: 4, total: 5, occupancyRate: 80.0 },
-            { serviceLine: 'IL', occupied: 6, total: 9, occupancyRate: 67.0 },
-            { serviceLine: 'SL', occupied: 7, total: 8, occupancyRate: 88.0 }
+            { serviceLine: 'AL', occupied: 15, total: 20, occupancyRate: 75.0, avgRate: 2600, avgCompetitorRate: 2750, monthlyRemainder: 2250 },
+            { serviceLine: 'AL/MC', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3400, monthlyRemainder: 1600 },
+            { serviceLine: 'HC', occupied: 6, total: 8, occupancyRate: 75.0, avgRate: 3800, avgCompetitorRate: 4000, monthlyRemainder: 1200 },
+            { serviceLine: 'HC/MC', occupied: 4, total: 5, occupancyRate: 80.0, avgRate: 4200, avgCompetitorRate: 4500, monthlyRemainder: 1200 },
+            { serviceLine: 'IL', occupied: 6, total: 9, occupancyRate: 67.0, avgRate: 2200, avgCompetitorRate: 2300, monthlyRemainder: 600 },
+            { serviceLine: 'SL', occupied: 7, total: 8, occupancyRate: 88.0, avgRate: 1800, avgCompetitorRate: 1950, monthlyRemainder: 1050 }
           ],
           currentAnnualRevenue: 2100000,
           potentialAnnualRevenue: 2700000,
@@ -1936,12 +1936,26 @@ Keep recommendations specific and quantitative when possible.`;
         return acc;
       }, {});
 
-      const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => ({
-        roomType,
-        occupied: stats.occupied,
-        total: stats.total,
-        occupancyRate: Math.round((stats.occupied / stats.total) * 100)
-      }));
+      const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
+        const roomTypeUnits = rentRollData.filter(u => u.roomType === roomType);
+        const avgRate = roomTypeUnits.length > 0 ? 
+          roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
+        const avgCompetitorRate = roomTypeUnits.length > 0 ? 
+          roomTypeUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / roomTypeUnits.length : 0;
+        const avgModuloSuggested = roomTypeUnits.length > 0 ? 
+          roomTypeUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / roomTypeUnits.length : 0;
+        const monthlyRemainder = (avgModuloSuggested - avgRate) * stats.occupied;
+        
+        return {
+          roomType,
+          occupied: stats.occupied,
+          total: stats.total,
+          occupancyRate: Math.round((stats.occupied / stats.total) * 100),
+          avgRate,
+          avgCompetitorRate,
+          monthlyRemainder
+        };
+      });
 
       // Calculate service line statistics for all data (not filtered)
       const serviceLineStats = allRentRollData.reduce((acc: any, unit: any) => {
@@ -1955,12 +1969,26 @@ Keep recommendations specific and quantitative when possible.`;
         return acc;
       }, {});
 
-      const occupancyByServiceLine = Object.entries(serviceLineStats).map(([serviceLine, stats]: [string, any]) => ({
-        serviceLine,
-        occupied: stats.occupied,
-        total: stats.total,
-        occupancyRate: Math.round((stats.occupied / stats.total) * 100)
-      }));
+      const occupancyByServiceLine = Object.entries(serviceLineStats).map(([serviceLine, stats]: [string, any]) => {
+        const serviceLineUnits = allRentRollData.filter(u => u.serviceLine === serviceLine);
+        const avgRate = serviceLineUnits.length > 0 ? 
+          serviceLineUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / serviceLineUnits.length : 0;
+        const avgCompetitorRate = serviceLineUnits.length > 0 ? 
+          serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
+        const avgModuloSuggested = serviceLineUnits.length > 0 ? 
+          serviceLineUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / serviceLineUnits.length : 0;
+        const monthlyRemainder = (avgModuloSuggested - avgRate) * stats.occupied;
+        
+        return {
+          serviceLine,
+          occupied: stats.occupied,
+          total: stats.total,
+          occupancyRate: Math.round((stats.occupied / stats.total) * 100),
+          avgRate,
+          avgCompetitorRate,
+          monthlyRemainder
+        };
+      });
 
       const totalUnits = rentRollData.length;
       const occupiedUnits = rentRollData.filter(u => u.occupiedYN).length;
