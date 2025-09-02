@@ -395,16 +395,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let competitorRecords = 0;
       let targetsRecords = 0;
       
-      // Process Rent Roll sheet
-      if (workbook.SheetNames.includes('Rent Roll')) {
-        const rentRollSheet = workbook.Sheets['Rent Roll'];
-        const rentRollData = xlsx.utils.sheet_to_json(rentRollSheet);
+      // Process unified Portfolio Data sheet
+      if (workbook.SheetNames.includes('Portfolio Data')) {
+        const portfolioSheet = workbook.Sheets['Portfolio Data'];
+        const portfolioData = xlsx.utils.sheet_to_json(portfolioSheet);
         
-        // Clear existing rent roll data
+        // Clear existing data
         await storage.clearRentRollData();
         
-        // Process each rent roll record
-        for (const row of rentRollData as any[]) {
+        // Process each row (contains rent roll + performance data combined)
+        for (const row of portfolioData as any[]) {
           const locationName = row.Location || 'Unknown';
           
           // Create or update location
@@ -413,7 +413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             totalUnits: 1,
           });
           
-          // Insert rent roll data
+          // Insert rent roll data with all combined fields
           await storage.createRentRollData({
             uploadMonth: new Date().toISOString().slice(0, 7),
             date: row.Date || new Date().toISOString().split('T')[0],
@@ -449,84 +449,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           
           rentRollRecords++;
-        }
-      }
-      
-      // Process Competitors sheet
-      if (workbook.SheetNames.includes('Competitors')) {
-        const competitorsSheet = workbook.Sheets['Competitors'];
-        const competitorsData = xlsx.utils.sheet_to_json(competitorsSheet);
-        
-        // Clear existing competitors
-        await storage.clearCompetitors();
-        
-        // Process each competitor record
-        for (const row of competitorsData as any[]) {
-          const locationName = row.Location || 'Unknown';
           
-          // Get location
-          const locations = await storage.getLocations();
-          const location = locations.find(l => l.name === locationName);
-          
-          await storage.createCompetitor({
-            name: row['Competitor Name'] || 'Unknown Competitor',
-            location: locationName,
-            locationId: location?.id || '',
-            lat: 38.2527,
-            lng: -85.7585,
-            streetRate: parseFloat(row['Base Rate']) || 0,
-            avgCareRate: parseFloat(row['Care Level 1 Rate']) || 0,
-            roomType: row['Room Type'],
-            rating: row['Market Position'],
-            address: '',
-            rank: 1,
-            weight: 1.0,
-            rates: {
-              careLevel1: parseFloat(row['Care Level 1 Rate']) || 0,
-              careLevel2: parseFloat(row['Care Level 2 Rate']) || 0,
-              careLevel3: parseFloat(row['Care Level 3 Rate']) || 0,
-            },
-            attributes: { notes: row.Notes },
-          });
-          
-          competitorRecords++;
-        }
-      }
-      
-      // Process Targets & Trends sheet
-      if (workbook.SheetNames.includes('Targets & Trends')) {
-        const targetsSheet = workbook.Sheets['Targets & Trends'];
-        const targetsData = xlsx.utils.sheet_to_json(targetsSheet);
-        
-        // Process each targets & trends record
-        for (const row of targetsData as any[]) {
-          const locationName = row.Location || 'Unknown';
-          
-          // Get location
-          const locations = await storage.getLocations();
-          const location = locations.find(l => l.name === locationName);
-          
-          await storage.createTargetsAndTrends({
-            month: row.Date ? new Date(row.Date).toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
-            region: '',
-            division: '',
-            campus: locationName,
-            serviceLine: row['Service Line'] || 'AL',
-            budgetedOccupancy: parseFloat(row['Occupancy %']) || null,
-            budgetedRate: parseFloat(row['Budget ADR']) || null,
-            roomRateAdjustment: null,
-            roomRateAdjustmentNote: '',
-            budgetedRevPOR: parseFloat(row['Budget RevPOR']) || null,
-            communityFeeCollection: null,
-            inquiries: 0,
-            tours: 0,
-            moveIns: parseInt(row['Move-ins']) || 0,
-            avgDaysToMoveIn: null,
-            notes: '',
-            locationId: location?.id || '',
-          });
-          
-          targetsRecords++;
+          // If row contains performance data, create targets & trends record
+          if (row.Census || row['Occupancy %'] || row.Revenue) {
+            await storage.createTargetsAndTrends({
+              month: row.Date ? new Date(row.Date).toISOString().slice(0, 7) : new Date().toISOString().slice(0, 7),
+              region: '',
+              division: '',
+              campus: locationName,
+              serviceLine: row['Service Line'] || 'AL',
+              budgetedOccupancy: parseFloat(row['Occupancy %']) || null,
+              budgetedRate: parseFloat(row['Budget ADR']) || null,
+              roomRateAdjustment: null,
+              roomRateAdjustmentNote: '',
+              budgetedRevPOR: parseFloat(row['Budget RevPOR']) || null,
+              communityFeeCollection: null,
+              inquiries: 0,
+              tours: 0,
+              moveIns: parseInt(row['Move-ins']) || 0,
+              avgDaysToMoveIn: null,
+              notes: '',
+              locationId: location.id,
+            });
+            
+            targetsRecords++;
+          }
         }
       }
       
