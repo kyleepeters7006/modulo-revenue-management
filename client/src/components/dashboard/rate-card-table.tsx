@@ -303,12 +303,12 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         {row.occupancyCount}/{row.totalUnits} ({Math.round(row.occupancyCount / row.totalUnits * 100)}%)
                       </Badge>
                     </TableCell>
-                    <TableCell>${row.averageStreetRate?.toLocaleString() || 0}</TableCell>
+                    <TableCell>${Math.round(row.averageStreetRate || 0).toLocaleString()}</TableCell>
                     <TableCell>
-                      {row.averageModuloRate ? `$${row.averageModuloRate.toLocaleString()}` : '-'}
+                      {row.averageModuloRate ? `$${Math.round(row.averageModuloRate).toLocaleString()}` : '-'}
                     </TableCell>
                     <TableCell>
-                      {row.averageAiRate ? `$${row.averageAiRate.toLocaleString()}` : '-'}
+                      {row.averageAiRate ? `$${Math.round(row.averageAiRate).toLocaleString()}` : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -361,7 +361,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
                         </Badge>
                       </TableCell>
-                      <TableCell>${unit.streetRate?.toLocaleString() || 0}</TableCell>
+                      <TableCell>${Math.round(unit.streetRate || 0).toLocaleString()}</TableCell>
                       <TableCell>
                         {unit.moduloSuggestedRate ? (
                           <div className="flex items-center space-x-2">
@@ -376,7 +376,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 }}
                                 data-testid={`tooltip-modulo-${unit.roomNumber}`}
                               >
-                                <span>${unit.moduloSuggestedRate.toLocaleString()}</span>
+                                <span>${Math.round(unit.moduloSuggestedRate).toLocaleString()}</span>
                                 <Info className="h-3 w-3" />
                               </button>
                               {openTooltip === `modulo-${unit.id}` && (
@@ -419,7 +419,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 }}
                                 data-testid={`tooltip-ai-${unit.roomNumber}`}
                               >
-                                <span>${unit.aiSuggestedRate.toLocaleString()}</span>
+                                <span>${Math.round(unit.aiSuggestedRate).toLocaleString()}</span>
                                 <Info className="h-3 w-3" />
                               </button>
                               {openTooltip === `ai-${unit.id}` && (
@@ -449,7 +449,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        ${unit.competitorRate?.toLocaleString() || 0}
+                        ${Math.round(unit.competitorRate || 0).toLocaleString()}
                       </TableCell>
                       <TableCell>
                         {editingUnit === unit.id ? (
