@@ -9,12 +9,34 @@ declare global {
   }
 }
 
-export function CompetitorMap() {
+interface CompetitorMapProps {
+  selectedRegions?: string[];
+  selectedDivisions?: string[];
+  selectedLocations?: string[];
+}
+
+export function CompetitorMap({ 
+  selectedRegions = [], 
+  selectedDivisions = [], 
+  selectedLocations = [] 
+}: CompetitorMapProps = {}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   
+  // Build query params for filtering
+  const queryParams = new URLSearchParams();
+  if (selectedRegions.length > 0) queryParams.append('regions', selectedRegions.join(','));
+  if (selectedDivisions.length > 0) queryParams.append('divisions', selectedDivisions.join(','));
+  if (selectedLocations.length > 0) queryParams.append('locations', selectedLocations.join(','));
+  const queryString = queryParams.toString();
+  
   const { data: competitors, isLoading } = useQuery({
-    queryKey: ["/api/competitors"]
+    queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations],
+    queryFn: async () => {
+      const response = await fetch(`/api/competitors${queryString ? '?' + queryString : ''}`);
+      if (!response.ok) throw new Error('Failed to fetch competitors');
+      return response.json();
+    }
   });
 
   useEffect(() => {
@@ -90,14 +112,22 @@ export function CompetitorMap() {
       const competitorData = competitors as any;
       if (!competitorData?.items) return;
       
+      // Get current property based on selected location or use first one
+      const currentLocation = competitorData.currentLocation || {
+        name: "Selected Location",
+        lat: competitorData.items[0]?.propertyLat || 38.2527,
+        lng: competitorData.items[0]?.propertyLng || -85.7585,
+        address: competitorData.items[0]?.propertyAddress || "Senior Living Community"
+      };
+      
       // Current property marker
       const currentProperty = {
-        name: "Sunset Manor Senior Living",
-        lat: 38.2527,
-        lng: -85.7585,
+        name: currentLocation.name,
+        lat: currentLocation.lat,
+        lng: currentLocation.lng,
         rates: { "Studio": 3175, "One Bedroom": 4200, "Two Bedroom": 5100, "Memory Care": 4800 },
         avgCareRate: 775,
-        address: "1234 Main St, Louisville, KY 40207"
+        address: currentLocation.address
       };
       
       // Current property icon
@@ -209,6 +239,19 @@ export function CompetitorMap() {
         `);
       });
       
+      // Adjust map to fit all markers
+      if (competitorData.items.length > 0 && mapInstanceRef.current) {
+        const bounds = window.L.latLngBounds(
+          [[currentProperty.lat, currentProperty.lng]]
+        );
+        competitorData.items.forEach((comp: any) => {
+          if (comp.lat && comp.lng) {
+            bounds.extend([comp.lat, comp.lng]);
+          }
+        });
+        mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
+      }
+      
       console.log(`Added ${competitorData.items.length + 1} markers to map`);
     };
     
@@ -243,10 +286,10 @@ export function CompetitorMap() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-[var(--dashboard-text)]" data-testid="text-map-title">
-            Competitor Map - Louisville, KY
+            Competitor Map {selectedLocations.length === 1 ? `- ${selectedLocations[0]}` : selectedLocations.length > 1 ? `- ${selectedLocations.length} Locations` : ''}
           </h3>
           <p className="text-sm text-[var(--dashboard-muted)]">
-            Interactive competitor location and pricing data
+            {competitors?.items?.length || 0} competitors found • Top 3 shown per location
           </p>
         </div>
         <div className="flex items-center space-x-2">

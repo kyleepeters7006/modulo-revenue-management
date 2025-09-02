@@ -41,15 +41,37 @@ const competitorFormSchema = z.object({
 
 type CompetitorFormData = z.infer<typeof competitorFormSchema>;
 
-export default function CompetitorForm() {
+interface CompetitorFormProps {
+  selectedRegions?: string[];
+  selectedDivisions?: string[];
+  selectedLocations?: string[];
+}
+
+export default function CompetitorForm({ 
+  selectedRegions = [], 
+  selectedDivisions = [], 
+  selectedLocations = [] 
+}: CompetitorFormProps = {}) {
   try {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
+    // Build query params for filtering
+    const queryParams = new URLSearchParams();
+    if (selectedRegions.length > 0) queryParams.append('regions', selectedRegions.join(','));
+    if (selectedDivisions.length > 0) queryParams.append('divisions', selectedDivisions.join(','));
+    if (selectedLocations.length > 0) queryParams.append('locations', selectedLocations.join(','));
+    const queryString = queryParams.toString();
+
     const { data: competitors, isLoading } = useQuery({
-      queryKey: ["/api/competitors"],
+      queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations],
+      queryFn: async () => {
+        const response = await fetch(`/api/competitors${queryString ? '?' + queryString : ''}`);
+        if (!response.ok) throw new Error('Failed to fetch competitors');
+        return response.json();
+      }
     });
 
   const form = useForm<CompetitorFormData>({

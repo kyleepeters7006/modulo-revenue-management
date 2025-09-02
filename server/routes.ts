@@ -723,9 +723,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Competitors CRUD
   app.get("/api/competitors", async (req, res) => {
     try {
-      const competitors = await storage.getCompetitors();
-      res.json({ items: competitors });
+      const { regions, divisions, locations } = req.query;
+      
+      // Get all competitors
+      let allCompetitors = await storage.getCompetitors();
+      
+      // Get locations for filtering
+      const locationData = await storage.getLocations();
+      
+      // Filter by location criteria
+      if (locations || divisions || regions) {
+        const selectedLocations = new Set<string>();
+        
+        if (locations) {
+          const locList = (locations as string).split(',');
+          locList.forEach(loc => selectedLocations.add(loc));
+        }
+        
+        if (divisions) {
+          const divList = (divisions as string).split(',');
+          locationData
+            .filter(loc => divList.includes(loc.division))
+            .forEach(loc => selectedLocations.add(loc.name));
+        }
+        
+        if (regions) {
+          const regList = (regions as string).split(',');
+          locationData
+            .filter(loc => regList.includes(loc.region))
+            .forEach(loc => selectedLocations.add(loc.name));
+        }
+        
+        // Filter competitors by selected locations
+        allCompetitors = allCompetitors.filter(comp => {
+          // Check if competitor location matches any selected location
+          return Array.from(selectedLocations).some(loc => {
+            // Match by location name or city
+            const compLocation = comp.location?.toLowerCase() || '';
+            const locName = loc.toLowerCase();
+            return compLocation.includes(locName.split(' ').slice(-2).join(' ')) || 
+                   compLocation.includes(locName);
+          });
+        });
+      }
+      
+      // Group competitors by location and get top 3 per location
+      const competitorsByLocation = new Map<string, any[]>();
+      allCompetitors.forEach(comp => {
+        const loc = comp.location || 'Unknown';
+        if (!competitorsByLocation.has(loc)) {
+          competitorsByLocation.set(loc, []);
+        }
+        competitorsByLocation.get(loc)!.push(comp);
+      });
+      
+      // Get top 3 competitors per location (sorted by rating or distance)
+      const topCompetitors: any[] = [];
+      competitorsByLocation.forEach((comps, location) => {
+        const sorted = comps
+          .sort((a, b) => {
+            // Sort by rating (higher is better) then by distance (closer is better)
+            const ratingDiff = (parseFloat(b.rating || '0') - parseFloat(a.rating || '0'));
+            if (ratingDiff !== 0) return ratingDiff;
+            return (a.distanceMiles || 999) - (b.distanceMiles || 999);
+          })
+          .slice(0, 3); // Get top 3
+        topCompetitors.push(...sorted);
+      });
+      
+      // Get current location info for map centering
+      let currentLocation = null;
+      if (locations) {
+        const locList = (locations as string).split(',');
+        if (locList.length === 1) {
+          const loc = locationData.find(l => l.name === locList[0]);
+          if (loc) {
+            currentLocation = {
+              name: loc.name,
+              lat: loc.latitude,
+              lng: loc.longitude,
+              address: `${loc.address}, ${loc.city}, ${loc.state}`
+            };
+          }
+        }
+      }
+      
+      res.json({ 
+        items: topCompetitors,
+        currentLocation,
+        totalLocations: competitorsByLocation.size,
+        totalCompetitors: allCompetitors.length
+      });
     } catch (error) {
+      console.error('Error fetching competitors:', error);
       res.status(500).json({ error: "Failed to get competitors" });
     }
   });
