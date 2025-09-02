@@ -16,6 +16,42 @@ export default function AboutUs() {
           </p>
         </div>
 
+        {/* Where the Name Comes From */}
+        <Card className="mb-8 bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          <CardHeader>
+            <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
+              Where the Name Comes From
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
+            <p>
+              The name Modulo is inspired by the mathematical operator that represents the remainder after division. 
+              In programming, it's also a way of managing cycles — ensuring nothing is lost or overlooked as processes repeat.
+            </p>
+            <p>
+              At Modulo Revenue Management, we carry that same philosophy into senior living and healthcare pricing. 
+              Our systems are designed to account for the "remainder" — the overlooked opportunities, the untapped revenue, 
+              the margin that too often gets left on the table.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Our Promise */}
+        <Card className="mb-8 bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          <CardHeader>
+            <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
+              Our Promise
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-[var(--trilogy-grey)]">
+            <p>
+              Just as the modulo function ensures every part of a calculation is captured, we ensure every part of your 
+              revenue cycle is optimized. We don't let the hidden value slip through. Instead, we build tools and strategies 
+              that help you capture the full picture — so you don't leave money on the table.
+            </p>
+          </CardContent>
+        </Card>
+
         {/* Company Story */}
         <Card className="mb-8 bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
           <CardHeader>
