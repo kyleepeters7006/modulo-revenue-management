@@ -145,7 +145,7 @@ export function CompetitorMap({
       }).addTo(mapInstanceRef.current);
       
       const currentRates = Object.entries(currentProperty.rates)
-        .map(([roomType, rate]) => `${roomType}: $${rate}`)
+        .map(([roomType, rate]) => `${roomType}: $${rate.toLocaleString()}`)
         .join('<br>');
       
       currentMarker.bindPopup(`
@@ -221,7 +221,7 @@ export function CompetitorMap({
         
         const careRateDiff = competitor.avgCareRate ? (competitor.avgCareRate - currentProperty.avgCareRate) : 0;
         const careRate = competitor.avgCareRate 
-          ? `Avg Care: $${competitor.avgCareRate} (${careRateDiff > 0 ? '+' : ''}$${careRateDiff})`
+          ? `Avg Care: $${competitor.avgCareRate.toLocaleString()} (${careRateDiff > 0 ? '+' : ''}$${careRateDiff.toLocaleString()})`
           : 'Avg Care: Not available';
 
         // Format room rates from the rates object
@@ -230,16 +230,20 @@ export function CompetitorMap({
           const rates = [];
           // Check for both camelCase and proper case keys
           if (competitor.rates.Studio || competitor.rates.studio) {
-            rates.push(`Studio: $${competitor.rates.Studio || competitor.rates.studio}`);
+            const rate = competitor.rates.Studio || competitor.rates.studio;
+            rates.push(`Studio: $${Number(rate).toLocaleString()}`);
           }
           if (competitor.rates['One Bedroom'] || competitor.rates.oneBedroom) {
-            rates.push(`One Bedroom: $${competitor.rates['One Bedroom'] || competitor.rates.oneBedroom}`);
+            const rate = competitor.rates['One Bedroom'] || competitor.rates.oneBedroom;
+            rates.push(`One Bedroom: $${Number(rate).toLocaleString()}`);
           }
           if (competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom) {
-            rates.push(`Two Bedroom: $${competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom}`);
+            const rate = competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom;
+            rates.push(`Two Bedroom: $${Number(rate).toLocaleString()}`);
           }
           if (competitor.rates['Memory Care'] || competitor.rates.memoryCare) {
-            rates.push(`Memory Care: $${competitor.rates['Memory Care'] || competitor.rates.memoryCare}`);
+            const rate = competitor.rates['Memory Care'] || competitor.rates.memoryCare;
+            rates.push(`Memory Care: $${Number(rate).toLocaleString()}`);
           }
           
           if (rates.length > 0) {
