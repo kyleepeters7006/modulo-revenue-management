@@ -123,7 +123,7 @@ export default function DataManagement() {
               <div className="flex flex-col space-y-3">
                 <Button
                   onClick={handleDownloadUnifiedTemplate}
-                  className="w-full bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90 text-white"
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
                   data-testid="button-download-unified-template"
                 >
                   <Download className="w-4 h-4 mr-2" />
@@ -133,7 +133,7 @@ export default function DataManagement() {
                 <Button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
-                  className="w-full bg-[var(--trilogy-blue)] hover:bg-[var(--trilogy-blue)]/90 text-white"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
                   data-testid="button-upload-unified"
                 >
                   <Upload className="w-4 h-4 mr-2" />
