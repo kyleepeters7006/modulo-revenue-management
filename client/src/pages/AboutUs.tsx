@@ -130,7 +130,7 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Co-founder focused on building practical revenue management solutions for senior living communities.
+                  Kyle is the Vice President of Operations Finance at Trilogy Health Services, where he leads financial strategy and analytics across a multistate portfolio. With prior experience at Atria Senior Living and EY, he brings a blend of consulting discipline and operational expertise to optimize pricing, strengthen performance, and drive growth.
                 </p>
                 <Button
                   variant="outline"
@@ -145,22 +145,22 @@ export default function AboutUs() {
               </CardContent>
             </Card>
 
-            {/* Michael - Co-Founder */}
+            {/* Michael Kennedy - Co-Founder */}
             <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
               <CardHeader>
                 <CardTitle className="text-xl font-medium text-[var(--trilogy-dark-blue)]">
-                  Michael
+                  Michael Kennedy
                 </CardTitle>
                 <p className="text-sm text-[var(--trilogy-grey)]">Co-Founder</p>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Co-founder bringing analytical expertise to senior living revenue optimization.
+                  Michael is the Director of Revenue Management at Trilogy Health Services in Louisville, where he designs and implements pricing and revenue strategies across the organization. He is known for turning analytics into clear, actionable insights that improve financial outcomes and align revenue systems with organizational goals.
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://www.linkedin.com/in/michael', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/michael-kennedy', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-michael"
                 >
