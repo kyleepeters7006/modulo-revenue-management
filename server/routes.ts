@@ -188,8 +188,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
-      // Sheet 1: Rent Roll Template
-      const rentRollTemplate = [
+      // Single unified template with all data combined
+      const unifiedTemplate = [
         {
           Date: '2024-01-31',
           Location: 'Louisville East',
@@ -219,7 +219,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Competitor Final Rate': 4050,
           'Modulo Suggested Rate': 3650,
           'AI Suggested Rate': 3700,
-          'Promotion Allowance': 100
+          'Promotion Allowance': 100,
+          Census: 85,
+          'Occupancy %': 88.5,
+          'Move-ins': 5,
+          'Move-outs': 3,
+          Revenue: 425000,
+          RevPAR: 5000,
+          RevPOR: 5650,
+          ADR: 4200,
+          'Budget Revenue': 420000,
+          'Budget RevPOR': 5600,
+          'Budget ADR': 4150,
+          'Market Rate': 3550
         },
         {
           Date: '2024-01-31',
@@ -250,7 +262,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Competitor Final Rate': 4800,
           'Modulo Suggested Rate': 4050,
           'AI Suggested Rate': 4150,
-          'Promotion Allowance': 200
+          'Promotion Allowance': 200,
+          Census: 42,
+          'Occupancy %': 95.5,
+          'Move-ins': 2,
+          'Move-outs': 1,
+          Revenue: 115000,
+          RevPAR: 2738,
+          RevPOR: 2865,
+          ADR: 2600,
+          'Budget Revenue': 112000,
+          'Budget RevPOR': 2800,
+          'Budget ADR': 2650,
+          'Market Rate': 2750
         },
         {
           Date: '2024-01-31',
@@ -281,7 +305,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Competitor Final Rate': 6000,
           'Modulo Suggested Rate': 4750,
           'AI Suggested Rate': 4850,
-          'Promotion Allowance': 150
+          'Promotion Allowance': 150,
+          Census: 38,
+          'Occupancy %': 84.4,
+          'Move-ins': 3,
+          'Move-outs': 4,
+          Revenue: 285000,
+          RevPAR: 7500,
+          RevPOR: 8895,
+          ADR: 5600,
+          'Budget Revenue': 290000,
+          'Budget RevPOR': 9000,
+          'Budget ADR': 5750,
+          'Market Rate': 4900
         },
         {
           Date: '2024-01-31',
@@ -312,129 +348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Competitor Final Rate': 2750,
           'Modulo Suggested Rate': 2700,
           'AI Suggested Rate': 2750,
-          'Promotion Allowance': 100
-        }
-      ];
-      
-      // Sheet 2: Competitors Template
-      const competitorsTemplate = [
-        {
-          Location: 'Louisville East',
-          'Competitor Name': 'Sunrise Senior Living',
-          'Distance (miles)': 2.5,
-          'Service Line': 'AL',
-          'Room Type': 'Studio',
-          'Base Rate': 3600,
-          'Care Level 1 Rate': 450,
-          'Care Level 2 Rate': 750,
-          'Care Level 3 Rate': 1200,
-          'Market Position': 'Premium',
-          Notes: 'Recently renovated facility'
-        },
-        {
-          Location: 'Louisville East',
-          'Competitor Name': 'Atria Senior Living',
-          'Distance (miles)': 1.8,
-          'Service Line': 'AL',
-          'Room Type': '1 Bedroom',
-          'Base Rate': 4100,
-          'Care Level 1 Rate': 500,
-          'Care Level 2 Rate': 800,
-          'Care Level 3 Rate': 1300,
-          'Market Position': 'Premium',
-          Notes: 'Award-winning dining program'
-        },
-        {
-          Location: 'Creasy Springs',
-          'Competitor Name': 'Brookdale Senior Living',
-          'Distance (miles)': 3.2,
-          'Service Line': 'HC',
-          'Room Type': 'Studio',
-          'Base Rate': 4900,
-          'Care Level 1 Rate': 600,
-          'Care Level 2 Rate': 1000,
-          'Care Level 3 Rate': 1500,
-          'Market Position': 'Mid-Market',
-          Notes: 'Specialized memory care unit'
-        },
-        {
-          Location: 'Creasy Springs',
-          'Competitor Name': 'Senior Star',
-          'Distance (miles)': 4.5,
-          'Service Line': 'IL',
-          'Room Type': '2 Bedroom',
-          'Base Rate': 2750,
-          'Care Level 1 Rate': 0,
-          'Care Level 2 Rate': 0,
-          'Care Level 3 Rate': 0,
-          'Market Position': 'Value',
-          Notes: 'Active lifestyle community'
-        }
-      ];
-      
-      // Sheet 3: Targets & Trends Template
-      const targetsTemplate = [
-        {
-          Date: '2024-01-31',
-          Location: 'Louisville East',
-          'Service Line': 'AL',
-          Census: 85,
-          'Occupancy %': 88.5,
-          'Move-ins': 5,
-          'Move-outs': 3,
-          Revenue: 425000,
-          RevPAR: 5000,
-          RevPOR: 5650,
-          ADR: 4200,
-          'Street Rate': 3500,
-          'In-House Rate': 3200,
-          'Budget Revenue': 420000,
-          'Budget RevPOR': 5600,
-          'Budget ADR': 4150,
-          'Market Rate': 3550
-        },
-        {
-          Date: '2024-01-31',
-          Location: 'Louisville East',
-          'Service Line': 'IL',
-          Census: 42,
-          'Occupancy %': 95.5,
-          'Move-ins': 2,
-          'Move-outs': 1,
-          Revenue: 115000,
-          RevPAR: 2738,
-          RevPOR: 2865,
-          ADR: 2600,
-          'Street Rate': 2800,
-          'In-House Rate': 2600,
-          'Budget Revenue': 112000,
-          'Budget RevPOR': 2800,
-          'Budget ADR': 2650,
-          'Market Rate': 2750
-        },
-        {
-          Date: '2024-01-31',
-          Location: 'Creasy Springs',
-          'Service Line': 'HC',
-          Census: 38,
-          'Occupancy %': 84.4,
-          'Move-ins': 3,
-          'Move-outs': 4,
-          Revenue: 285000,
-          RevPAR: 7500,
-          RevPOR: 8895,
-          ADR: 5600,
-          'Street Rate': 4800,
-          'In-House Rate': 4400,
-          'Budget Revenue': 290000,
-          'Budget RevPOR': 9000,
-          'Budget ADR': 5750,
-          'Market Rate': 4900
-        },
-        {
-          Date: '2024-01-31',
-          Location: 'Creasy Springs',
-          'Service Line': 'IL',
+          'Promotion Allowance': 100,
           Census: 65,
           'Occupancy %': 92.9,
           'Move-ins': 4,
@@ -443,8 +357,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           RevPAR: 2429,
           RevPOR: 2615,
           ADR: 2600,
-          'Street Rate': 2800,
-          'In-House Rate': 2600,
           'Budget Revenue': 168000,
           'Budget RevPOR': 2600,
           'Budget ADR': 2580,
@@ -452,15 +364,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       ];
       
-      // Create worksheets
-      const rentRollSheet = xlsx.utils.json_to_sheet(rentRollTemplate);
-      const competitorsSheet = xlsx.utils.json_to_sheet(competitorsTemplate);
-      const targetsSheet = xlsx.utils.json_to_sheet(targetsTemplate);
+      // Create single worksheet
+      const unifiedSheet = xlsx.utils.json_to_sheet(unifiedTemplate);
       
-      // Add worksheets to workbook
-      xlsx.utils.book_append_sheet(workbook, rentRollSheet, 'Rent Roll');
-      xlsx.utils.book_append_sheet(workbook, competitorsSheet, 'Competitors');
-      xlsx.utils.book_append_sheet(workbook, targetsSheet, 'Targets & Trends');
+      // Add worksheet to workbook
+      xlsx.utils.book_append_sheet(workbook, unifiedSheet, 'Portfolio Data');
       
       // Generate buffer
       const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
