@@ -14,7 +14,7 @@ export default function DataManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const handleDownloadUnifiedTemplate = async () => {
+  const handleDownloadTemplate = async () => {
     try {
       const response = await fetch('/api/template/unified');
       const blob = await response.blob();
@@ -22,7 +22,7 @@ export default function DataManagement() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'unified_portfolio_template.xlsx';
+      a.download = 'portfolio_template.xlsx';
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -30,7 +30,7 @@ export default function DataManagement() {
       
       toast({
         title: "Template Downloaded",
-        description: "Unified portfolio template has been downloaded successfully.",
+        description: "Portfolio template has been downloaded successfully.",
       });
     } catch (error) {
       toast({
@@ -99,15 +99,15 @@ export default function DataManagement() {
             Data Management
           </h1>
           <p className="text-gray-600" data-testid="text-page-subtitle">
-            Unified portfolio data upload in a single comprehensive template
+            Portfolio data upload in a single comprehensive template
           </p>
         </div>
 
         <div className="space-y-6">
-          {/* Unified Upload Card */}
+          {/* Upload Card */}
           <Card>
             <CardHeader>
-              <CardTitle>Unified Portfolio Upload</CardTitle>
+              <CardTitle>Portfolio Upload</CardTitle>
               <CardDescription>
                 Upload all portfolio data in a single comprehensive Excel template
               </CardDescription>
@@ -116,25 +116,25 @@ export default function DataManagement() {
               <Alert>
                 <FileSpreadsheet className="h-4 w-4" />
                 <AlertDescription>
-                  The unified template contains all portfolio data in a single comprehensive sheet including unit-level occupancy, pricing data, competitor information, and performance metrics.
+                  The template contains all portfolio data in a single comprehensive sheet including unit-level occupancy, pricing data, competitor information, and performance metrics.
                 </AlertDescription>
               </Alert>
 
               <div className="flex flex-col space-y-3">
                 <Button
-                  onClick={handleDownloadUnifiedTemplate}
+                  onClick={handleDownloadTemplate}
                   className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-                  data-testid="button-download-unified-template"
+                  data-testid="button-download-template"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  Download Unified Template
+                  Download Template
                 </Button>
                 
                 <Button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
-                  data-testid="button-upload-unified"
+                  data-testid="button-upload"
                 >
                   <Upload className="w-4 h-4 mr-2" />
                   {isUploading ? 'Processing...' : 'Upload Portfolio Data'}
@@ -147,7 +147,7 @@ export default function DataManagement() {
                 accept=".xlsx,.xls"
                 className="hidden"
                 onChange={handleFileUpload}
-                data-testid="input-unified-file"
+                data-testid="input-file"
               />
             </CardContent>
           </Card>
@@ -159,7 +159,7 @@ export default function DataManagement() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Unified Template Format</h3>
+                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Template Format</h3>
                 <p className="text-sm text-gray-600">Single comprehensive sheet containing all portfolio data</p>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <p className="text-xs font-mono text-gray-700">
