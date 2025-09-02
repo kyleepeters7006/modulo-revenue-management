@@ -731,8 +731,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get locations for filtering
       const locationData = await storage.getLocations();
       
-      // Filter by location criteria
-      if (locations || divisions || regions) {
+      // Filter by location criteria - only filter if explicit filters are provided and not empty
+      const hasFilters = (locations && locations !== '') || (divisions && divisions !== '') || (regions && regions !== '');
+      if (hasFilters) {
         const selectedLocations = new Set<string>();
         
         if (locations) {
@@ -777,19 +778,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         competitorsByLocation.get(loc)!.push(comp);
       });
       
-      // Get top 3 competitors per location (sorted by rating or distance)
+      // Get top 3 competitors per location (sorted by rating or distance)  
       const topCompetitors: any[] = [];
-      competitorsByLocation.forEach((comps, location) => {
-        const sorted = comps
-          .sort((a, b) => {
-            // Sort by rating (higher is better) then by distance (closer is better)
-            const ratingDiff = (parseFloat(b.rating || '0') - parseFloat(a.rating || '0'));
-            if (ratingDiff !== 0) return ratingDiff;
-            return (a.distanceMiles || 999) - (b.distanceMiles || 999);
-          })
-          .slice(0, 3); // Get top 3
-        topCompetitors.push(...sorted);
-      });
+      
+      // If no filters are applied, return all competitors (up to reasonable limit)
+      if (!hasFilters) {
+        // Return all competitors, sorted by rating
+        topCompetitors.push(...allCompetitors.sort((a, b) => {
+          const ratingDiff = (parseFloat(b.rating || '0') - parseFloat(a.rating || '0'));
+          if (ratingDiff !== 0) return ratingDiff;
+          return (a.distanceMiles || 999) - (b.distanceMiles || 999);
+        }));
+      } else {
+        // When filtered, group by location and get top 3 per location
+        competitorsByLocation.forEach((comps, location) => {
+          const sorted = comps
+            .sort((a, b) => {
+              // Sort by rating (higher is better) then by distance (closer is better)
+              const ratingDiff = (parseFloat(b.rating || '0') - parseFloat(a.rating || '0'));
+              if (ratingDiff !== 0) return ratingDiff;
+              return (a.distanceMiles || 999) - (b.distanceMiles || 999);
+            })
+            .slice(0, 3); // Get top 3
+          topCompetitors.push(...sorted);
+        });
+      }
       
       // Get current location info for map centering
       let currentLocation = null;
