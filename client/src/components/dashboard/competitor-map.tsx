@@ -115,13 +115,49 @@ export function CompetitorMap({
       const competitorData = competitors as any;
       if (!competitorData?.items) return;
       
-      // Get current property based on selected location or use first one
-      const currentLocation = competitorData.currentLocation || {
-        name: "Selected Location",
-        lat: competitorData.items[0]?.propertyLat || 38.2527,
-        lng: competitorData.items[0]?.propertyLng || -85.7585,
-        address: competitorData.items[0]?.propertyAddress || "Senior Living Community"
-      };
+      // Get current property location based on selected location filter
+      let currentLocation;
+      
+      if (selectedLocations.length === 1) {
+        // Single location selected - find its coordinates from competitors data
+        const locationCompetitors = competitorData.items.filter((comp: any) => 
+          comp.location === selectedLocations[0]
+        );
+        
+        if (locationCompetitors.length > 0) {
+          // Calculate center point from competitors for this location
+          const avgLat = locationCompetitors.reduce((sum: number, comp: any) => sum + comp.lat, 0) / locationCompetitors.length;
+          const avgLng = locationCompetitors.reduce((sum: number, comp: any) => sum + comp.lng, 0) / locationCompetitors.length;
+          
+          currentLocation = {
+            name: selectedLocations[0],
+            lat: avgLat,
+            lng: avgLng,
+            address: `${selectedLocations[0]} Senior Living Community`
+          };
+        }
+      }
+      
+      // Fallback to first competitor's area if no specific location or multiple locations
+      if (!currentLocation && competitorData.items.length > 0) {
+        const firstComp = competitorData.items[0];
+        currentLocation = {
+          name: firstComp.location || "Selected Location",
+          lat: firstComp.lat + (Math.random() - 0.5) * 0.01, // Slight offset from competitor
+          lng: firstComp.lng + (Math.random() - 0.5) * 0.01,
+          address: `${firstComp.location || "Senior Living"} Community`
+        };
+      }
+      
+      // Ultimate fallback
+      if (!currentLocation) {
+        currentLocation = {
+          name: "Default Location",
+          lat: 38.2527,
+          lng: -85.7585,
+          address: "Senior Living Community"
+        };
+      }
       
       // Current property marker
       const currentProperty = {
@@ -312,6 +348,22 @@ export function CompetitorMap({
       }
       
       console.log(`Added ${competitorData.items.length + 1} markers to map`);
+      
+      // Set map view based on current location and competitors
+      if (competitorData.items.length > 0) {
+        // Create bounds including current property and all competitors
+        const allPoints = [[currentProperty.lat, currentProperty.lng], ...competitorData.items.map((comp: any) => [comp.lat, comp.lng])];
+        const bounds = window.L.latLngBounds(allPoints);
+        
+        // Fit map to show all markers with appropriate padding
+        mapInstanceRef.current.fitBounds(bounds, { 
+          padding: [30, 30],
+          maxZoom: 12 // Good zoom level for location view
+        });
+      } else {
+        // No competitors, center on current location
+        mapInstanceRef.current.setView([currentProperty.lat, currentProperty.lng], 11);
+      }
     };
     
     // Initialize when competitors data is available
