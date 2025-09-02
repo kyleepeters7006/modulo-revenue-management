@@ -143,23 +143,26 @@ function generatePortfolioData() {
 function generateCompetitorData() {
   const competitors: any[] = [];
   
-  // Generate 2-3 competitors near each campus
+  // Generate exactly 3 competitors near each campus
   campuses.forEach((campus) => {
-    const numCompetitors = 2 + Math.floor(Math.random() * 2);
+    const numCompetitors = 3;
     
     for (let i = 0; i < numCompetitors; i++) {
-      // Generate nearby coordinates (within ~10 miles)
-      const latOffset = (Math.random() - 0.5) * 0.2;
-      const lngOffset = (Math.random() - 0.5) * 0.2;
+      // Generate nearby coordinates (within ~20 minutes driving, roughly 10 miles)
+      const angle = (Math.random() * 2 * Math.PI);
+      const distance = 0.05 + (Math.random() * 0.15); // 3-12 miles radius
+      const latOffset = Math.cos(angle) * distance;
+      const lngOffset = Math.sin(angle) * distance;
       
       const competitorNames = [
         "Golden Years", "Harmony House", "Serenity Springs", "Willows Care",
         "Garden Plaza", "Autumn Leaves", "Crystal Springs", "Haven Health",
-        "Comfort Care", "Liberty Lodge", "Peaceful Pines", "Caring Hands"
+        "Comfort Care", "Liberty Lodge", "Peaceful Pines", "Caring Hands",
+        "Meadowbrook", "Riverside", "Summit View", "Cornerstone", "Bridgeview"
       ];
       
-      const competitorName = competitorNames[Math.floor(Math.random() * competitorNames.length)] + 
-                            ` ${campus.city}`;
+      const competitorName = competitorNames[(i * campuses.indexOf(campus) + i) % competitorNames.length] + 
+                            ` Senior Living`;
       
       // Generate rates similar to our portfolio
       const baseRates = {
@@ -171,31 +174,53 @@ function generateCompetitorData() {
         "SL": 5400 + Math.random() * 750
       };
       
-      // Each competitor offers 3-4 service lines
-      const availableServices = Object.keys(baseRates);
-      const numServices = 3 + Math.floor(Math.random() * 2);
-      const selectedServices = availableServices
-        .sort(() => Math.random() - 0.5)
-        .slice(0, numServices);
+      // Calculate realistic distance in miles
+      const distanceMiles = Math.round(Math.sqrt(latOffset * latOffset + lngOffset * lngOffset) * 69 * 10) / 10;
       
-      selectedServices.forEach((service) => {
-        competitors.push({
-          name: competitorName,
-          location: `${campus.city}, ${campus.state}`,
-          latitude: campus.lat + latOffset,
-          longitude: campus.lng + lngOffset,
-          service_line: service,
-          average_rate: Math.round(baseRates[service as keyof typeof baseRates]),
-          occupancy: (0.75 + Math.random() * 0.20).toFixed(2),
-          total_units: 20 + Math.floor(Math.random() * 40),
-          distance_miles: Math.round(Math.sqrt(latOffset * latOffset + lngOffset * lngOffset) * 69 * 10) / 10,
-          rating: (3.5 + Math.random() * 1.5).toFixed(1),
-          last_updated: new Date().toISOString().split('T')[0],
-          website: `www.${competitorName.toLowerCase().replace(/\s+/g, '')}.com`,
-          phone: `(${Math.floor(Math.random() * 900) + 100}) ${Math.floor(Math.random() * 900) + 100}-${Math.floor(Math.random() * 9000) + 1000}`,
-          amenities: ["24/7 Care", "Dining Services", "Activities Program", "Transportation"].slice(0, 2 + Math.floor(Math.random() * 3)).join(", ")
-        });
-      });
+      // Generate A/B/C rating based on quality
+      const qualityRatings = ['A', 'B', 'C'];
+      const qualityWeights = [0.25, 0.50, 0.25]; // 25% A, 50% B, 25% C
+      let rating = 'B';
+      const rand = Math.random();
+      if (rand < qualityWeights[0]) rating = 'A';
+      else if (rand > qualityWeights[0] + qualityWeights[1]) rating = 'C';
+      
+      // Create comprehensive competitor data
+      const competitor = {
+        id: `COMP-${campus.name.split(' ')[0].toUpperCase()}-${(i + 1).toString().padStart(3, '0')}`,
+        name: competitorName,
+        location: campus.name, // Match our property location names for filtering
+        propertyAddress: `${200 + (i * 50)} Competitor Dr, ${campus.city}, ${campus.state}`,
+        propertyLat: campus.lat + latOffset,
+        propertyLng: campus.lng + lngOffset,
+        lat: campus.lat + latOffset,
+        lng: campus.lng + lngOffset,
+        rating: rating,
+        distance_miles: distanceMiles,
+        
+        // Room rates object for popup display
+        rates: {
+          "Studio": Math.round(baseRates.IL + (Math.random() - 0.5) * 400),
+          "One Bedroom": Math.round(baseRates.AL + (Math.random() - 0.5) * 500),
+          "Two Bedroom": Math.round(baseRates.SL + (Math.random() - 0.5) * 600),
+          "Memory Care": Math.round(baseRates["AL/MC"] + (Math.random() - 0.5) * 700)
+        },
+        
+        // Average care rate for comparison
+        avgCareRate: Math.round(baseRates.AL + (Math.random() - 0.5) * 300),
+        
+        // Service line data for database compatibility
+        service_line: "AL", // Primary service for database
+        average_rate: Math.round(baseRates.AL),
+        occupancy: (0.75 + Math.random() * 0.20).toFixed(2),
+        total_units: 50 + Math.floor(Math.random() * 100),
+        last_updated: new Date().toISOString().split('T')[0],
+        website: `www.${competitorName.toLowerCase().replace(/\s+/g, '')}.com`,
+        phone: `(${Math.floor(Math.random() * 900) + 100}) ${Math.floor(Math.random() * 900) + 100}-${Math.floor(Math.random() * 9000) + 1000}`,
+        amenities: ["24/7 Care", "Dining Services", "Activities Program", "Transportation", "Fitness Center", "Beauty Salon"].slice(0, 3 + Math.floor(Math.random() * 3)).join(", ")
+      };
+      
+      competitors.push(competitor);
     }
   });
   

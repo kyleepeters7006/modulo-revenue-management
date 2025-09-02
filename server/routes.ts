@@ -1575,18 +1575,50 @@ Keep recommendations specific and quantitative when possible.`;
       await storage.clearRentRollData();
       await storage.clearCompetitors();
       
-      // Add Louisville competitors
-      for (const competitor of demoCompetitors) {
-        await storage.createCompetitor({
-          name: competitor.name,
-          lat: competitor.lat,
-          lng: competitor.lng,
-          studioRate: competitor.rates["Studio"],
-          oneBedRate: competitor.rates["One Bedroom"],
-          twoBedRate: competitor.rates["Two Bedroom"],
-          memoryCareRate: competitor.rates["Memory Care"],
-          avgCareRate: competitor.avgCareRate
-        });
+      // Get all locations first
+      const allLocations = await storage.getLocations();
+      
+      // Generate 3 competitors per location with proper location matching
+      const competitorNames = [
+        "Golden Years", "Harmony House", "Serenity Springs", "Willows Care",
+        "Garden Plaza", "Autumn Leaves", "Crystal Springs", "Haven Health",
+        "Comfort Care", "Liberty Lodge", "Peaceful Pines", "Caring Hands",
+        "Meadowbrook", "Riverside", "Summit View", "Cornerstone", "Bridgeview"
+      ];
+      
+      for (const location of allLocations) {
+        for (let i = 0; i < 3; i++) {
+          // Generate nearby coordinates (within ~20 minutes driving)
+          const angle = (Math.random() * 2 * Math.PI);
+          const distance = 0.05 + (Math.random() * 0.15); // 3-12 miles radius
+          const latOffset = Math.cos(angle) * distance;
+          const lngOffset = Math.sin(angle) * distance;
+          
+          // Generate A/B/C rating
+          const qualityRatings = ['A', 'B', 'C'];
+          const qualityWeights = [0.25, 0.50, 0.25]; // 25% A, 50% B, 25% C
+          let rating = 'B';
+          const rand = Math.random();
+          if (rand < qualityWeights[0]) rating = 'A';
+          else if (rand > qualityWeights[0] + qualityWeights[1]) rating = 'C';
+          
+          const competitorName = competitorNames[(allLocations.indexOf(location) * 3 + i) % competitorNames.length] + ' Senior Living';
+          
+          await storage.createCompetitor({
+            name: competitorName,
+            location: location.name, // Match our property location names for filtering
+            lat: location.latitude + latOffset,
+            lng: location.longitude + lngOffset,
+            rating: rating,
+            avgCareRate: Math.round(800 + (Math.random() - 0.5) * 300),
+            rates: {
+              "Studio": Math.round(3400 + (Math.random() - 0.5) * 400),
+              "One Bedroom": Math.round(4400 + (Math.random() - 0.5) * 500),
+              "Two Bedroom": Math.round(5400 + (Math.random() - 0.5) * 600),
+              "Memory Care": Math.round(6400 + (Math.random() - 0.5) * 700)
+            }
+          });
+        }
       }
       
       // Add demo rent roll data for "Sunset Manor" 

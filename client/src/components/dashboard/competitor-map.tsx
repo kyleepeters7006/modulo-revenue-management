@@ -90,10 +90,11 @@ export function CompetitorMap({
           scrollWheelZoom: true
         });
         
-        // Add tile layer
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors',
-          maxZoom: 18
+        // Add enhanced tile layer with better styling
+        window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          attribution: '© OpenStreetMap contributors © CARTO',
+          maxZoom: 18,
+          subdomains: 'abcd'
         }).addTo(mapInstanceRef.current);
         
         if (!mounted) return;
@@ -130,11 +131,13 @@ export function CompetitorMap({
         address: currentLocation.address
       };
       
-      // Current property icon
+      // Enhanced current property icon
       const currentIcon = window.L.divIcon({
-        html: `<div style="width: 30px; height: 30px; background-color: #2563eb; border: 4px solid white; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.6);"></div>`,
-        iconSize: [38, 38],
-        iconAnchor: [19, 19]
+        html: `<div style="width: 32px; height: 32px; background: linear-gradient(135deg, #0071e3, #005bb5); border: 4px solid white; border-radius: 50%; box-shadow: 0 6px 20px rgba(0,113,227,0.4); position: relative;">
+                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 14px; font-weight: bold;">📍</div>
+               </div>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
       });
       
       const currentMarker = window.L.marker([currentProperty.lat, currentProperty.lng], {
@@ -146,15 +149,24 @@ export function CompetitorMap({
         .join('<br>');
       
       currentMarker.bindPopup(`
-        <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4;">
-          <div style="background: #2563eb; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
-            <b style="font-size: 14px;">${currentProperty.name}</b>
-            <div style="font-size: 11px; opacity: 0.9;">Our Property</div>
+        <div style="color: #1f2937; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; min-width: 280px; max-width: 320px;">
+          <div style="background: linear-gradient(135deg, #0071e3, #005bb5); color: white; padding: 12px; margin: -8px -8px 12px -8px; border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <b style="font-size: 15px; display: flex; align-items: center; gap: 6px;">
+              📍 ${currentProperty.name}
+            </b>
+            <div style="font-size: 11px; opacity: 0.9; margin-top: 2px;">Your Property</div>
           </div>
-          <div style="font-size: 12px;">
-            <div style="margin-bottom: 8px;"><b>Room Rates:</b><br>${currentRates}</div>
-            <div style="margin-bottom: 8px;"><b>Avg Care:</b> $${currentProperty.avgCareRate}</div>
-            <div style="font-size: 11px; color: #6b7280;">${currentProperty.address}</div>
+          <div style="font-size: 12px; padding: 0 4px;">
+            <div style="margin-bottom: 10px; padding: 8px; background: #f0f8ff; border-radius: 4px; border: 1px solid #e0f2fe;">
+              <b style="color: #0071e3; margin-bottom: 6px; display: block;">🏠 Room Rates:</b>
+              <div style="font-size: 11px; line-height: 1.6; color: #374151;">${currentRates}</div>
+            </div>
+            <div style="margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 4px;">
+              <b style="color: #059669;">💰 Avg Care: $${currentProperty.avgCareRate.toLocaleString()}</b>
+            </div>
+            <div style="font-size: 11px; color: #6b7280; text-align: center; padding: 4px; border-top: 1px solid #e5e7eb;">
+              ${currentProperty.address}
+            </div>
           </div>
         </div>
       `);
@@ -163,23 +175,44 @@ export function CompetitorMap({
       competitorData.items.forEach((competitor: any) => {
         if (!competitor.lat || !competitor.lng || !mounted) return;
         
-        // Color based on A/B/C rating
-        const getRatingColor = (rating: string) => {
+        // Enhanced color and styling based on A/B/C rating
+        const getRatingStyle = (rating: string) => {
           switch (rating?.toUpperCase()) {
-            case 'A': return '#22c55e'; // Green for A rating
-            case 'B': return '#f59e0b'; // Amber for B rating  
-            case 'C': return '#ef4444'; // Red for C rating
-            default: return '#6b7280'; // Gray for no rating
+            case 'A': return { 
+              color: '#22c55e', 
+              size: '28px', 
+              gradient: 'linear-gradient(135deg, #22c55e, #16a34a)',
+              emoji: '⭐'
+            };
+            case 'B': return { 
+              color: '#f59e0b', 
+              size: '26px', 
+              gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              emoji: '👍'
+            };
+            case 'C': return { 
+              color: '#ef4444', 
+              size: '24px', 
+              gradient: 'linear-gradient(135deg, #ef4444, #dc2626)',
+              emoji: '⚠️'
+            };
+            default: return { 
+              color: '#6b7280', 
+              size: '24px', 
+              gradient: 'linear-gradient(135deg, #6b7280, #4b5563)',
+              emoji: '📍'
+            };
           }
         };
         
-        const color = getRatingColor(competitor.rating);
-        const size = competitor.rating === 'A' ? '26px' : '24px';
+        const style = getRatingStyle(competitor.rating);
         
         const competitorIcon = window.L.divIcon({
-          html: `<div style="width: ${size}; height: ${size}; background-color: ${color}; border: 3px solid white; border-radius: 50%; box-shadow: 0 3px 8px rgba(0,0,0,0.6);"></div>`,
-          iconSize: [parseInt(size) + 6, parseInt(size) + 6],
-          iconAnchor: [(parseInt(size) + 6) / 2, (parseInt(size) + 6) / 2]
+          html: `<div style="width: ${style.size}; height: ${style.size}; background: ${style.gradient}; border: 3px solid white; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); position: relative; display: flex; align-items: center; justify-content: center;">
+                   <span style="font-size: 12px;">${style.emoji}</span>
+                 </div>`,
+          iconSize: [parseInt(style.size) + 6, parseInt(style.size) + 6],
+          iconAnchor: [(parseInt(style.size) + 6) / 2, (parseInt(style.size) + 6) / 2]
         });
         
         const marker = window.L.marker([competitor.lat, competitor.lng], {
@@ -222,24 +255,31 @@ export function CompetitorMap({
         const directionsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(currentProperty.address)}/${encodedAddress}`;
 
         marker.bindPopup(`
-          <div style="color: #1f2937; font-family: sans-serif; line-height: 1.4; min-width: 250px;">
-            <div style="background: ${color}; color: white; padding: 8px; margin: -8px -8px 8px -8px; border-radius: 4px 4px 0 0;">
-              <b style="font-size: 14px;">${competitor.name}</b>
-              <div style="font-size: 11px; opacity: 0.9;">Competitor • ${rating}</div>
+          <div style="color: #1f2937; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; min-width: 280px; max-width: 320px;">
+            <div style="background: ${style.gradient}; color: white; padding: 12px; margin: -8px -8px 12px -8px; border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <b style="font-size: 15px; display: flex; align-items: center; gap: 6px;">
+                ${style.emoji} ${competitor.name}
+              </b>
+              <div style="font-size: 11px; opacity: 0.9; margin-top: 2px;">Competitor • ${rating} Rating</div>
             </div>
-            <div style="font-size: 12px;">
-              <div style="margin-bottom: 8px;"><b>💰 ${careRate}</b></div>
-              <div style="margin-bottom: 8px;"><b>🏠 Room Rates:</b><br>${roomRatesHtml}</div>
-              <div style="margin-top: 10px;">
-                <a href="${googleMapsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px; margin-right: 10px;">📍 View on Google</a>
-                <a href="${directionsUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-size: 11px;">🚗 Directions</a>
+            <div style="font-size: 12px; padding: 0 4px;">
+              <div style="margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 4px;">
+                <b style="color: #059669;">💰 ${careRate}</b>
+              </div>
+              <div style="margin-bottom: 10px;">
+                <b style="color: #374151; margin-bottom: 6px; display: block;">🏠 Room Rates:</b>
+                <div style="font-size: 11px; line-height: 1.6; color: #6b7280;">${roomRatesHtml}</div>
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 8px;">
+                <a href="${googleMapsUrl}" target="_blank" style="color: #0071e3; text-decoration: none; font-size: 11px; padding: 4px 8px; background: #f0f8ff; border-radius: 4px; flex: 1; text-align: center;">📍 View</a>
+                <a href="${directionsUrl}" target="_blank" style="color: #0071e3; text-decoration: none; font-size: 11px; padding: 4px 8px; background: #f0f8ff; border-radius: 4px; flex: 1; text-align: center;">🚗 Directions</a>
               </div>
             </div>
           </div>
         `);
       });
       
-      // Adjust map to fit all markers
+      // Adjust map to fit all markers with better padding
       if (competitorData.items.length > 0 && mapInstanceRef.current) {
         const bounds = window.L.latLngBounds(
           [[currentProperty.lat, currentProperty.lng]]
@@ -249,7 +289,10 @@ export function CompetitorMap({
             bounds.extend([comp.lat, comp.lng]);
           }
         });
-        mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
+        mapInstanceRef.current.fitBounds(bounds, { 
+          padding: [60, 60],
+          maxZoom: 13 // Prevent excessive zoom-in
+        });
       }
       
       console.log(`Added ${competitorData.items.length + 1} markers to map`);
