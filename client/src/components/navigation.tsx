@@ -44,7 +44,7 @@ export default function Navigation({ className }: NavigationProps) {
             <img 
               src="/@fs/home/runner/workspace/attached_assets/image_1756817717051.png" 
               alt="Modulo" 
-              className="scale-200"
+              className="transform scale-[2.0]"
             />
           </Link>
           
