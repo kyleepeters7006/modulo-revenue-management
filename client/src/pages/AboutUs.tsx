@@ -130,15 +130,12 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Kyle brings deep expertise in senior living operations and technology innovation. 
-                  With experience spanning healthcare technology and data analytics, Kyle focuses on 
-                  building practical solutions that address the real challenges faced by senior living 
-                  operators in today's competitive market.
+                  Co-founder focused on building practical revenue management solutions for senior living communities.
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://linkedin.com', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/kyle-peters', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-kyle"
                 >
@@ -158,15 +155,12 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Michael brings extensive experience in financial analysis and business intelligence 
-                  to Modulo. With a background in developing data-driven strategies for healthcare 
-                  organizations, Michael leads our efforts in creating intuitive analytics tools that 
-                  help operators make confident pricing decisions.
+                  Co-founder bringing analytical expertise to senior living revenue optimization.
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://linkedin.com', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/michael', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-michael"
                 >
@@ -186,15 +180,12 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  As COO, Irisel brings operational excellence and strategic vision to Modulo. 
-                  With extensive experience in senior living operations and technology 
-                  implementation, Irisel ensures our platform delivers practical, actionable 
-                  insights that drive real business results for our clients.
+                  Chief Operating Officer ensuring operational excellence and client success.
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://linkedin.com', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/irisel-johnston', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-irisel"
                 >
