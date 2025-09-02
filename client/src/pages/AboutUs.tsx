@@ -38,7 +38,7 @@ export default function AboutUs() {
             About Modulo
           </h1>
           <p className="text-xl text-[var(--trilogy-grey)]">
-            Revolutionizing Senior Living Revenue Management
+            Revolutionizing Senior Housing Revenue Management
           </p>
         </div>
 
@@ -55,7 +55,7 @@ export default function AboutUs() {
               In programming, it's also a way of managing cycles — ensuring nothing is lost or overlooked as processes repeat.
             </p>
             <p>
-              At Modulo Revenue Management, we carry that same philosophy into senior living and healthcare pricing. 
+              At Modulo Revenue Management, we carry that same philosophy into senior housing and healthcare pricing. 
               Our systems are designed to account for the "remainder" — the overlooked opportunities, the untapped revenue, 
               the margin that too often gets left on the table.
             </p>
@@ -87,21 +87,21 @@ export default function AboutUs() {
           </CardHeader>
           <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
             <p>
-              Modulo brings together decades of experience in senior living operations, technology, 
-              and revenue management. Our team has worked extensively with leading senior living 
+              Modulo brings together decades of experience in senior housing operations, technology, 
+              and revenue management. Our team has worked extensively with leading senior housing 
               operators to understand the unique challenges of pricing optimization in this complex market.
             </p>
             <p>
-              We've built Modulo to address the real-world needs of senior living communities - from 
+              We've built Modulo to address the real-world needs of senior housing communities — from 
               managing diverse service lines and care levels to navigating competitive markets and 
               regulatory requirements. Our platform combines practical industry knowledge with 
               advanced analytics to deliver actionable pricing recommendations.
             </p>
             <p>
-              Our mission is simple: help senior living communities optimize their revenue while 
+              Our mission is simple: help senior housing communities optimize their revenue while 
               maintaining high occupancy and delivering exceptional value to residents. We believe 
               that data-driven decision making, combined with deep industry expertise, is the key 
-              to sustainable growth in senior living.
+              to sustainable growth in senior housing.
             </p>
             <div className="pt-4">
               <Button
@@ -133,7 +133,7 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Kyle Peters is a finance and operations executive with nearly 20 years of experience in senior living, healthcare, and structured finance. As VP of Operations Finance at Trilogy Health Services, he drives value-based care initiatives, portfolio optimization, and revenue management across 130+ campuses. He previously led pricing and analytics at Atria Senior Living and held finance roles at Travelex and EY. Kyle holds a B.S. in Finance from Rutgers and an MBA from Indiana University. At Modulo, he is pioneering dynamic pricing and revenue optimization tools to help operators succeed in any demand environment.
+                  Kyle Peters is a finance and operations executive with nearly 20 years of experience in senior housing, healthcare, and structured finance. As VP of Operations Finance at Trilogy Health Services, he drives value-based care initiatives, portfolio optimization, and revenue management across 130+ campuses. He previously led pricing and analytics at Atria Senior Living and held finance roles at Travelex and EY. Kyle holds a B.S. in Finance from Rutgers and an MBA from Indiana University. At Modulo, he is pioneering dynamic pricing and revenue optimization tools to help operators succeed in any demand environment.
                 </p>
                 <Button
                   variant="outline"
@@ -183,7 +183,7 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Iriscel Johnston is an operations finance analyst at Trilogy Health Services with experience in financial planning, benefits management, and operational analytics. She previously worked with Yum! Brands on healthcare and retirement benefits and held leadership roles at the University of Louisville's Student Activities Center. A Beta Alpha Psi Lifetime Member, she holds a B.S. in Finance with a minor in Economics from the University of Louisville. At Modulo, Iriscel applies her financial and analytical expertise to support dynamic pricing and revenue optimization solutions.
+                  Irisel Johnston is an operations finance analyst at Trilogy Health Services with experience in financial planning, benefits management, and operational analytics. She previously worked with Yum! Brands on healthcare and retirement benefits and held leadership roles at the University of Louisville's Student Activities Center. A Beta Alpha Psi Lifetime Member, she holds a B.S. in Finance with a minor in Economics from the University of Louisville. At Modulo, Irisel applies her financial and analytical expertise to support dynamic pricing and revenue optimization solutions.
                 </p>
                 <Button
                   variant="outline"
@@ -210,8 +210,8 @@ export default function AboutUs() {
           </CardHeader>
           <CardContent className="text-[var(--trilogy-grey)]">
             <p>
-              At Modulo, we believe that successful revenue management requires more than just software - 
-              it requires a deep understanding of the senior living industry's unique dynamics. Our team 
+              At Modulo, we believe that successful revenue management requires more than just software — 
+              it requires a deep understanding of the senior housing industry's unique dynamics. Our team 
               combines hands-on operational experience with advanced analytics expertise to deliver 
               solutions that are both powerful and practical. We work closely with our clients to ensure 
               our platform fits seamlessly into their workflows, providing the insights they need to make 
