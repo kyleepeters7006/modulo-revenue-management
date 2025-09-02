@@ -25,22 +25,21 @@ export default function AboutUs() {
           </CardHeader>
           <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
             <p>
-              Modulo was born from our experience building Aline at Atria Senior Living, where we 
-              pioneered data-driven revenue management for the senior living industry. Our team 
-              successfully developed and implemented a comprehensive pricing optimization system that 
-              transformed how Atria approached revenue management across their portfolio.
+              Modulo brings together decades of experience in senior living operations, technology, 
+              and revenue management. Our team has worked extensively with leading senior living 
+              operators to understand the unique challenges of pricing optimization in this complex market.
             </p>
             <p>
-              At Atria, we built Aline from the ground up, creating sophisticated algorithms that 
-              analyzed market conditions, competitor pricing, and occupancy patterns to optimize 
-              rental rates across hundreds of communities. The system we developed became instrumental 
-              in driving significant revenue growth while maintaining high occupancy rates.
+              We've built Modulo to address the real-world needs of senior living communities - from 
+              managing diverse service lines and care levels to navigating competitive markets and 
+              regulatory requirements. Our platform combines practical industry knowledge with 
+              advanced analytics to deliver actionable pricing recommendations.
             </p>
             <p>
-              Now with Modulo, we're bringing that same expertise and innovation to the broader 
-              senior living market. Our platform combines AI-powered pricing recommendations with 
-              real-time market intelligence, enabling communities to maximize revenue while providing 
-              exceptional value to residents.
+              Our mission is simple: help senior living communities optimize their revenue while 
+              maintaining high occupancy and delivering exceptional value to residents. We believe 
+              that data-driven decision making, combined with deep industry expertise, is the key 
+              to sustainable growth in senior living.
             </p>
             <div className="pt-4">
               <Button
@@ -62,27 +61,27 @@ export default function AboutUs() {
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Co-Founder 1 */}
+            {/* Kyle Peters - Co-Founder */}
             <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
               <CardHeader>
                 <CardTitle className="text-xl font-medium text-[var(--trilogy-dark-blue)]">
-                  Co-Founder
+                  Kyle Peters
                 </CardTitle>
+                <p className="text-sm text-[var(--trilogy-grey)]">Co-Founder</p>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  As co-founder of Modulo, I bring extensive experience in revenue management 
-                  and pricing optimization from our time building Aline at Atria Senior Living. 
-                  My focus is on developing innovative algorithms that help senior living 
-                  communities maximize their revenue potential while maintaining high 
-                  occupancy rates.
+                  Kyle brings deep expertise in senior living operations and technology innovation. 
+                  With experience spanning healthcare technology and data analytics, Kyle focuses on 
+                  building practical solutions that address the real challenges faced by senior living 
+                  operators in today's competitive market.
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => window.open('https://linkedin.com', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
-                  data-testid="button-linkedin-cofounder1"
+                  data-testid="button-linkedin-kyle"
                 >
                   <Linkedin className="mr-2 h-4 w-4" />
                   Connect on LinkedIn
@@ -100,10 +99,10 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Michael co-founded Modulo after our successful experience building Aline at 
-                  Atria Senior Living. With deep expertise in data analytics and market 
-                  intelligence, Michael leads our efforts in developing AI-powered pricing 
-                  models that adapt to changing market conditions and competitor dynamics.
+                  Michael brings extensive experience in financial analysis and business intelligence 
+                  to Modulo. With a background in developing data-driven strategies for healthcare 
+                  organizations, Michael leads our efforts in creating intuitive analytics tools that 
+                  help operators make confident pricing decisions.
                 </p>
                 <Button
                   variant="outline"
@@ -148,23 +147,22 @@ export default function AboutUs() {
           </div>
         </div>
 
-        {/* Atria Legacy */}
+        {/* Our Approach */}
         <Card className="bg-gradient-to-r from-[var(--trilogy-teal)]/10 to-[var(--trilogy-dark-blue)]/10 border-[var(--trilogy-grey)]/20">
           <CardHeader>
             <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
               <Building2 className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
-              The Aline Legacy at Atria
+              Our Approach
             </CardTitle>
           </CardHeader>
           <CardContent className="text-[var(--trilogy-grey)]">
             <p>
-              Our journey began at Atria Senior Living, where we built Aline - a groundbreaking 
-              revenue management system that revolutionized pricing strategies across their entire 
-              portfolio. Aline's success demonstrated the power of data-driven decision making in 
-              senior living, achieving measurable improvements in both revenue per unit and 
-              portfolio-wide occupancy. This experience laid the foundation for Modulo, where we're 
-              now bringing these proven strategies to the broader senior living market with even 
-              more advanced AI capabilities and market intelligence tools.
+              At Modulo, we believe that successful revenue management requires more than just software - 
+              it requires a deep understanding of the senior living industry's unique dynamics. Our team 
+              combines hands-on operational experience with advanced analytics expertise to deliver 
+              solutions that are both powerful and practical. We work closely with our clients to ensure 
+              our platform fits seamlessly into their workflows, providing the insights they need to make 
+              confident pricing decisions while maintaining the personal touch that defines quality senior care.
             </p>
           </CardContent>
         </Card>
