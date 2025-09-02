@@ -1604,6 +1604,13 @@ Keep recommendations specific and quantitative when possible.`;
           
           const competitorName = competitorNames[(allLocations.indexOf(location) * 3 + i) % competitorNames.length] + ' Senior Living';
           
+          const competitorRates = {
+            "Studio": Math.round(3400 + (Math.random() - 0.5) * 400),
+            "One Bedroom": Math.round(4400 + (Math.random() - 0.5) * 500), 
+            "Two Bedroom": Math.round(5400 + (Math.random() - 0.5) * 600),
+            "Memory Care": Math.round(6400 + (Math.random() - 0.5) * 700)
+          };
+          
           await storage.createCompetitor({
             name: competitorName,
             location: location.name, // Match our property location names for filtering
@@ -1611,12 +1618,7 @@ Keep recommendations specific and quantitative when possible.`;
             lng: location.longitude + lngOffset,
             rating: rating,
             avgCareRate: Math.round(800 + (Math.random() - 0.5) * 300),
-            rates: {
-              "Studio": Math.round(3400 + (Math.random() - 0.5) * 400),
-              "One Bedroom": Math.round(4400 + (Math.random() - 0.5) * 500),
-              "Two Bedroom": Math.round(5400 + (Math.random() - 0.5) * 600),
-              "Memory Care": Math.round(6400 + (Math.random() - 0.5) * 700)
-            }
+            rates: competitorRates
           });
         }
       }
