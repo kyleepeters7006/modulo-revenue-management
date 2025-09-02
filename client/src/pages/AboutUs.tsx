@@ -24,11 +24,13 @@ export default function AboutUs() {
         
         {/* Header with Logo */}
         <div className="text-center mb-12">
-          {/* M Logo */}
+          {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
-            <div className="w-24 h-24 bg-gradient-to-br from-[var(--trilogy-teal)] to-[var(--trilogy-dark-blue)] rounded-2xl flex items-center justify-center shadow-lg">
-              <span className="text-5xl font-bold text-white">M</span>
-            </div>
+            <img 
+              src="/attached_assets/Modulo M Logo_1756828313102.png" 
+              alt="Modulo Logo" 
+              className="w-32 h-32 object-contain"
+            />
           </div>
           
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">
