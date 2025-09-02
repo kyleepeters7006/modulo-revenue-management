@@ -1773,6 +1773,215 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
+  // Analysis endpoint
+  app.get("/api/analysis", async (req, res) => {
+    try {
+      const { location = "all", period = "3M" } = req.query;
+      
+      // Calculate date range based on period
+      const months = parseInt(period.toString().replace('M', ''));
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - months);
+      
+      // Get rent roll data
+      const rentRollData = location === "all" 
+        ? await storage.getRentRollData()
+        : await storage.getRentRollDataByLocation(location as string);
+      
+      // Get targets and trends data
+      const targetsData = location === "all"
+        ? await storage.getTargetsAndTrends()
+        : await storage.getTargetsAndTrendsByCampus(location as string);
+      
+      // Calculate RevPOR data
+      const revporData = [];
+      const monthlyData = new Map();
+      
+      // Group rent roll data by month
+      rentRollData.forEach(unit => {
+        const month = unit.uploadMonth || '2025-09';
+        if (!monthlyData.has(month)) {
+          monthlyData.set(month, {
+            totalRevenue: 0,
+            occupiedRooms: 0,
+            totalRooms: 0,
+            totalBaseRent: 0,
+            totalCareRate: 0,
+          });
+        }
+        const data = monthlyData.get(month);
+        data.totalRooms++;
+        if (unit.occupiedYN) {
+          data.occupiedRooms++;
+          data.totalRevenue += (unit.rentAndCareRate || unit.streetRate || 0);
+          data.totalBaseRent += (unit.streetRate || 0);
+          data.totalCareRate += (unit.careRate || 0);
+        }
+      });
+      
+      // Build RevPOR chart data
+      Array.from(monthlyData.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-months)
+        .forEach(([month, data]) => {
+          const target = targetsData.find(t => t.month === month);
+          const revpor = data.occupiedRooms > 0 ? data.totalRevenue / data.occupiedRooms : 0;
+          revporData.push({
+            month: month.slice(5),
+            actual: Math.round(revpor),
+            budgeted: target?.budgetedRevPOR || Math.round(revpor * 0.95),
+            competitor: Math.round(revpor * 0.97),
+          });
+        });
+      
+      // Calculate Rate data
+      const rateData = [];
+      Array.from(monthlyData.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-months)
+        .forEach(([month, data]) => {
+          const target = targetsData.find(t => t.month === month);
+          const adr = data.occupiedRooms > 0 ? data.totalBaseRent / data.occupiedRooms : 0;
+          const budget = target?.budgetedRate || adr * 0.95;
+          rateData.push({
+            month: month.slice(5),
+            adr: Math.round(adr),
+            budget: Math.round(budget),
+            adjustment: target?.roomRateAdjustment || 0,
+            variance: Math.round(adr - budget),
+          });
+        });
+      
+      // Calculate Occupancy by Service Line
+      const serviceLineMap = new Map();
+      rentRollData.forEach(unit => {
+        const serviceLine = unit.serviceLine || 'AL';
+        if (!serviceLineMap.has(serviceLine)) {
+          serviceLineMap.set(serviceLine, {
+            occupied: 0,
+            total: 0,
+          });
+        }
+        const data = serviceLineMap.get(serviceLine);
+        data.total++;
+        if (unit.occupiedYN) data.occupied++;
+      });
+      
+      const occupancyData = Array.from(serviceLineMap.entries()).map(([serviceLine, data]) => {
+        const target = targetsData.find(t => t.serviceLine === serviceLine);
+        return {
+          serviceLine,
+          actual: (data.occupied / data.total) * 100,
+          budgeted: target?.budgetedOccupancy || 90,
+          trend: Math.random() * 5 - 2.5, // Mock trend
+        };
+      });
+      
+      // Calculate Remainder Metrics
+      const currentOccupancyRate = monthlyData.get(Array.from(monthlyData.keys()).pop() || '');
+      const currentOccupancy = currentOccupancyRate ? (currentOccupancyRate.occupiedRooms / currentOccupancyRate.totalRooms) * 100 : 0;
+      const targetOccupancy = 92; // Target occupancy
+      
+      // Identify underpriced units
+      const underpricedUnits = rentRollData.filter(unit => {
+        const competitorRate = unit.competitorRate || 0;
+        const currentRate = unit.streetRate || 0;
+        return currentRate < competitorRate * 0.95; // Units priced 5%+ below competitor
+      });
+      
+      const underpricedImpact = underpricedUnits.reduce((sum, unit) => {
+        const gap = (unit.competitorRate || 0) - (unit.streetRate || 0);
+        return sum + gap;
+      }, 0);
+      
+      // Calculate occupancy gap
+      const occupancyGap = Math.max(0, targetOccupancy - currentOccupancy);
+      const totalUnits = currentOccupancyRate?.totalRooms || 0;
+      const unitsNeeded = Math.round((occupancyGap / 100) * totalUnits);
+      const avgRate = currentOccupancyRate && currentOccupancyRate.occupiedRooms > 0 
+        ? currentOccupancyRate.totalRevenue / currentOccupancyRate.occupiedRooms 
+        : 4500;
+      const occupancyImpact = unitsNeeded * avgRate;
+      
+      // Calculate collection gap
+      const targetCollection = 95; // 95% collection rate target
+      const currentCollection = 91; // Mock current collection
+      const collectionGap = targetCollection - currentCollection;
+      const monthlyRevenue = currentOccupancyRate?.totalRevenue || 0;
+      const collectionImpact = (collectionGap / 100) * monthlyRevenue;
+      
+      const remainderMetrics = {
+        underpricedUnits: {
+          count: underpricedUnits.length,
+          monthlyImpact: Math.round(underpricedImpact),
+          details: underpricedUnits.slice(0, 5).map(unit => ({
+            unit: unit.roomNumber || 'Unknown',
+            currentRate: unit.streetRate || 0,
+            optimalRate: unit.competitorRate || 0,
+            gap: (unit.competitorRate || 0) - (unit.streetRate || 0),
+          })),
+        },
+        occupancyGap: {
+          percentage: occupancyGap,
+          monthlyImpact: Math.round(occupancyImpact),
+          unitsNeeded,
+        },
+        collectionGap: {
+          percentage: collectionGap,
+          monthlyImpact: Math.round(collectionImpact),
+        },
+        totalOpportunity: Math.round(underpricedImpact + occupancyImpact + collectionImpact),
+      };
+      
+      // Calculate KPIs
+      const latestMonth = Array.from(monthlyData.keys()).pop() || '';
+      const previousMonth = Array.from(monthlyData.keys()).slice(-2, -1)[0] || '';
+      const latestData = monthlyData.get(latestMonth);
+      const previousData = monthlyData.get(previousMonth);
+      
+      const currentRevPOR = latestData && latestData.occupiedRooms > 0 
+        ? latestData.totalRevenue / latestData.occupiedRooms 
+        : 0;
+      const previousRevPOR = previousData && previousData.occupiedRooms > 0
+        ? previousData.totalRevenue / previousData.occupiedRooms
+        : currentRevPOR;
+      
+      const currentADR = latestData && latestData.occupiedRooms > 0
+        ? latestData.totalBaseRent / latestData.occupiedRooms
+        : 0;
+      const previousADR = previousData && previousData.occupiedRooms > 0
+        ? previousData.totalBaseRent / previousData.occupiedRooms
+        : currentADR;
+      
+      const previousOccupancy = previousData 
+        ? (previousData.occupiedRooms / previousData.totalRooms) * 100
+        : currentOccupancy;
+      
+      const kpis = {
+        currentRevPOR: Math.round(currentRevPOR),
+        revPORChange: currentRevPOR ? ((currentRevPOR - previousRevPOR) / previousRevPOR) * 100 : 0,
+        currentADR: Math.round(currentADR),
+        adrChange: currentADR ? ((currentADR - previousADR) / previousADR) * 100 : 0,
+        currentOccupancy,
+        occupancyChange: currentOccupancy - previousOccupancy,
+        capturedRemainder: Math.round(Math.random() * 50000 + 25000), // Mock captured value
+        remainderChange: Math.random() * 10 - 5,
+      };
+      
+      res.json({
+        revporData,
+        rateData,
+        occupancyData,
+        remainderMetrics,
+        kpis,
+      });
+    } catch (error) {
+      console.error("Error fetching analysis data:", error);
+      res.status(500).json({ error: "Failed to fetch analysis data" });
+    }
+  });
+
   // Targets & Trends endpoints
   app.get("/api/targets-and-trends", async (req, res) => {
     try {
