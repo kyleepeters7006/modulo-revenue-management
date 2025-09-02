@@ -183,7 +183,7 @@ export default function AboutUs() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Chief Operating Officer ensuring operational excellence and client success.
+                  Iriscel Johnston is an operations finance analyst at Trilogy Health Services with experience in financial planning, benefits management, and operational analytics. She previously worked with Yum! Brands on healthcare and retirement benefits and held leadership roles at the University of Louisville's Student Activities Center. A Beta Alpha Psi Lifetime Member, she holds a B.S. in Finance with a minor in Economics from the University of Louisville. At Modulo, Iriscel applies her financial and analytical expertise to support dynamic pricing and revenue optimization solutions.
                 </p>
                 <Button
                   variant="outline"
