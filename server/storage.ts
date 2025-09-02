@@ -52,6 +52,7 @@ export interface IStorage {
   // Location operations
   getLocations(): Promise<Location[]>;
   getLocationByName(name: string): Promise<Location | undefined>;
+  createLocation(data: InsertLocation): Promise<Location>;
   createOrUpdateLocation(data: InsertLocation): Promise<Location>;
   updateLocationUnits(locationId: string, unitCount: number): Promise<void>;
   
@@ -60,23 +61,28 @@ export interface IStorage {
   getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]>;
   getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
+  uploadRentRollData(month: string, data: any[]): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
   clearRentRollData(): Promise<void>;
   clearRentRollDataByLocation(location: string): Promise<void>;
   
   // Rate card operations
   getRateCardByMonth(uploadMonth: string): Promise<RateCard[]>;
+  createRateCard(data: any): Promise<void>;
   generateRateCard(uploadMonth: string): Promise<void>;
   
   // Upload history
   createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory>;
   
   // Assumptions
+  getAssumptions(): Promise<Assumptions[]>;
   getCurrentAssumptions(): Promise<Assumptions | undefined>;
+  updateAssumptions(data: any): Promise<void>;
   createOrUpdateAssumptions(data: InsertAssumptions): Promise<Assumptions>;
   
   // Pricing weights
-  getPricingWeights(): Promise<PricingWeights[]>;
+  getPricingWeights(): Promise<PricingWeights | undefined>;
+  updatePricingWeights(data: any): Promise<void>;
   getCurrentWeights(): Promise<PricingWeights | undefined>;
   createOrUpdateWeights(data: InsertPricingWeights): Promise<PricingWeights>;
   
@@ -96,6 +102,7 @@ export interface IStorage {
   
   // Guardrails
   getGuardrails(): Promise<Guardrails[]>;
+  updateGuardrails(data: any): Promise<void>;
   getCurrentGuardrails(): Promise<Guardrails | undefined>;
   createOrUpdateGuardrails(data: InsertGuardrails): Promise<Guardrails>;
   
@@ -103,9 +110,27 @@ export interface IStorage {
   generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]>;
   generateAIPricingSuggestions(units: any[]): Promise<any[]>;
   acceptPricingSuggestions(unitIds: string[], suggestionType: string): Promise<number>;
+  
+  // Clear all data
+  clearAllData(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
+  // Clear all data
+  async clearAllData(): Promise<void> {
+    await db.delete(rentRollData);
+    await db.delete(rateCard);
+    await db.delete(uploadHistory);
+    await db.delete(competitors);
+    await db.delete(portfolioCompetitors);
+    await db.delete(targetsAndTrends);
+    await db.delete(locations);
+    await db.delete(attributeRatings);
+    await db.delete(assumptions);
+    await db.delete(pricingWeights);
+    await db.delete(guardrails);
+  }
+
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -128,6 +153,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Location operations
+  async createLocation(data: InsertLocation): Promise<Location> {
+    const [location] = await db.insert(locations).values(data).returning();
+    return location;
+  }
+
   async getLocations(): Promise<Location[]> {
     return await db.select().from(locations);
   }
@@ -189,9 +219,28 @@ export class DatabaseStorage implements IStorage {
     await db.delete(rentRollData).where(eq(rentRollData.location, location));
   }
 
+  async uploadRentRollData(month: string, data: any[]): Promise<void> {
+    // Clear existing data for this month
+    await db.delete(rentRollData).where(eq(rentRollData.uploadMonth, month));
+    
+    // Insert new data
+    if (data.length > 0) {
+      const dataWithMonth = data.map(item => ({ 
+        ...item, 
+        uploadMonth: month,
+        roomNumber: item.roomNumber || item.unitId || 'N/A' // Ensure roomNumber is always set
+      }));
+      await db.insert(rentRollData).values(dataWithMonth);
+    }
+  }
+
   // Rate card operations
   async getRateCardByMonth(uploadMonth: string): Promise<RateCard[]> {
     return await db.select().from(rateCard).where(eq(rateCard.uploadMonth, uploadMonth));
+  }
+
+  async createRateCard(data: any): Promise<void> {
+    await db.insert(rateCard).values(data);
   }
 
   async generateRateCard(uploadMonth: string): Promise<void> {
@@ -324,9 +373,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Assumptions
+  async getAssumptions(): Promise<Assumptions[]> {
+    return await db.select().from(assumptions);
+  }
+
   async getCurrentAssumptions(): Promise<Assumptions | undefined> {
     const [assumption] = await db.select().from(assumptions).limit(1);
     return assumption;
+  }
+
+  async updateAssumptions(data: any): Promise<void> {
+    await db.delete(assumptions);
+    await db.insert(assumptions).values(data);
   }
 
   async createOrUpdateAssumptions(data: InsertAssumptions): Promise<Assumptions> {
@@ -337,8 +395,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Pricing weights
-  async getPricingWeights(): Promise<PricingWeights[]> {
-    return await db.select().from(pricingWeights);
+  async getPricingWeights(): Promise<PricingWeights | undefined> {
+    const [weights] = await db.select().from(pricingWeights).limit(1);
+    return weights;
+  }
+
+  async updatePricingWeights(data: any): Promise<void> {
+    await db.delete(pricingWeights);
+    await db.insert(pricingWeights).values(data);
   }
 
   async getCurrentWeights(): Promise<PricingWeights | undefined> {
@@ -458,6 +522,11 @@ export class DatabaseStorage implements IStorage {
   // Guardrails
   async getGuardrails(): Promise<Guardrails[]> {
     return await db.select().from(guardrails);
+  }
+
+  async updateGuardrails(data: any): Promise<void> {
+    await db.delete(guardrails);
+    await db.insert(guardrails).values(data);
   }
 
   async getCurrentGuardrails(): Promise<Guardrails | undefined> {

@@ -2510,7 +2510,26 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
+  // Generate demo data endpoint
+  app.post("/api/generate-demo-data", async (req, res) => {
+    try {
+      const { processDemoData } = await import('./processDemoData');
+      const result = await processDemoData();
+      res.json({
+        success: true,
+        message: "Demo data generated and processed successfully",
+        details: result
+      });
+    } catch (error) {
+      console.error('Error generating demo data:', error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate demo data",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
-      const pricingWeights = await storage.getPricingWeights();
