@@ -42,9 +42,9 @@ export default function Navigation({ className }: NavigationProps) {
           {/* Logo */}
           <Link href="/overview" className="flex items-center space-x-2" data-testid="link-home">
             <img 
-              src="/@fs/home/runner/workspace/attached_assets/image_1756171963360.png" 
+              src="/@fs/home/runner/workspace/attached_assets/image_1756817717051.png" 
               alt="Modulo" 
-              className="h-14 w-auto"
+              className="h-10 w-auto"
             />
           </Link>
           
