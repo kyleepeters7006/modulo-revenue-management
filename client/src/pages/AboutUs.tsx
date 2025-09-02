@@ -126,11 +126,11 @@ export default function AboutUs() {
                 <CardTitle className="text-xl font-medium text-[var(--trilogy-dark-blue)]">
                   Kyle Peters
                 </CardTitle>
-                <p className="text-sm text-[var(--trilogy-grey)]">Co-Founder</p>
+                <p className="text-sm text-[var(--trilogy-grey)]">Vice President – Operations Finance</p>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Kyle is the Vice President of Operations Finance at Trilogy Health Services, where he leads financial strategy and analytics across a multistate portfolio. With prior experience at Atria Senior Living and EY, he brings a blend of consulting discipline and operational expertise to optimize pricing, strengthen performance, and drive growth.
+                  Kyle Peters is a finance and operations executive with nearly 20 years of experience in senior living, healthcare, and structured finance. As VP of Operations Finance at Trilogy Health Services, he drives value-based care initiatives, portfolio optimization, and revenue management across 130+ campuses. He previously led pricing and analytics at Atria Senior Living and held finance roles at Travelex and EY. Kyle holds a B.S. in Finance from Rutgers and an MBA from Indiana University. At Modulo, he is pioneering dynamic pricing and revenue optimization tools to help operators succeed in any demand environment.
                 </p>
                 <Button
                   variant="outline"
@@ -151,11 +151,11 @@ export default function AboutUs() {
                 <CardTitle className="text-xl font-medium text-[var(--trilogy-dark-blue)]">
                   Michael Kennedy
                 </CardTitle>
-                <p className="text-sm text-[var(--trilogy-grey)]">Co-Founder</p>
+                <p className="text-sm text-[var(--trilogy-grey)]">Director of Revenue Management</p>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-[var(--trilogy-grey)]">
-                  Michael is the Director of Revenue Management at Trilogy Health Services in Louisville, where he designs and implements pricing and revenue strategies across the organization. He is known for turning analytics into clear, actionable insights that improve financial outcomes and align revenue systems with organizational goals.
+                  Michael Kennedy is a revenue management professional with over 10 years of experience in pricing, financial analysis, and business optimization. He is Director of Revenue Management at Trilogy Health Services and previously led pricing strategy at Atria Senior Living after completing GE's Financial Management Program. Michael holds a B.S. in Finance from the University of Kentucky and studied international business at the Burgundy School of Business in France. At Modulo, he focuses on building data-driven pricing systems that enhance performance and market positioning.
                 </p>
                 <Button
                   variant="outline"
