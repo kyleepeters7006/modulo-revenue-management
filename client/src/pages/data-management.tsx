@@ -120,7 +120,7 @@ export default function DataManagement() {
                 </AlertDescription>
               </Alert>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col space-y-3">
                 <Button
                   onClick={handleDownloadUnifiedTemplate}
                   className="w-full bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90 text-white"
