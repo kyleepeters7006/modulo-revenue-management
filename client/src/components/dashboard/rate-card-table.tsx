@@ -33,7 +33,7 @@ interface RateCardTableProps {
 }
 
 export default function RateCardTable({ selectedServiceLine: propServiceLine }: RateCardTableProps) {
-  const [selectedMonth, setSelectedMonth] = useState("2025-08");
+  const [selectedMonth, setSelectedMonth] = useState("2025-09");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
