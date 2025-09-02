@@ -17,8 +17,6 @@ import {
 
 const menuItems = [
   { path: "/overview", label: "Overview", icon: BarChart3 },
-  { path: "/portfolio", label: "Portfolio", icon: Building2 },
-  { path: "/analysis", label: "Analysis", icon: BarChart3 },
   { path: "/data-management", label: "Data Management", icon: Upload },
   { path: "/rate-card", label: "Rate Card", icon: CreditCard },
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
