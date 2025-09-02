@@ -105,7 +105,7 @@ export default function AboutUs() {
             </p>
             <div className="pt-4">
               <Button
-                onClick={() => window.open('/attached_assets/Revenue Mgmt Capabilities - Trilogy_1756773419634.pptx', '_blank')}
+                onClick={() => window.open('/attached_assets/Revenue Mgmt Capabilities - Modulo_1756829257557.pptx', '_blank')}
                 className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
                 data-testid="button-presentation"
               >
