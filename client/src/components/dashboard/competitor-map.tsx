@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import customMarkerIcon from "@assets/image_1756856689618.png";
 
 declare global {
   interface Window {
@@ -133,7 +134,7 @@ export function CompetitorMap({
       
       // Current property icon using custom marker
       const currentIcon = window.L.icon({
-        iconUrl: '/src/assets/image_1756856689618.png',
+        iconUrl: customMarkerIcon,
         iconSize: [40, 40],
         iconAnchor: [20, 40],
         popupAnchor: [0, -40]
@@ -207,7 +208,7 @@ export function CompetitorMap({
         const style = getRatingStyle(competitor.rating);
         
         const competitorIcon = window.L.icon({
-          iconUrl: '/src/assets/image_1756856689618.png',
+          iconUrl: customMarkerIcon,
           iconSize: [parseInt(style.size), parseInt(style.size)],
           iconAnchor: [parseInt(style.size) / 2, parseInt(style.size)],
           popupAnchor: [0, -parseInt(style.size)]
