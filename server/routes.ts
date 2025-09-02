@@ -1920,26 +1920,31 @@ Keep recommendations specific and quantitative when possible.`;
   // Rate card endpoint - shows summary and unit-level view
   app.get("/api/rate-card", async (req, res) => {
     try {
-      const { month, region, division, location } = req.query;
+      const { month, regions, divisions, locations } = req.query;
       const targetMonth = month as string || new Date().toISOString().substring(0, 7);
       
       let unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
       
+      // Convert single values to arrays if needed
+      const selectedRegions = Array.isArray(regions) ? regions : (regions ? [regions] : []);
+      const selectedDivisions = Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []);
+      const selectedLocations = Array.isArray(locations) ? locations : (locations ? [locations] : []);
+      
       // Apply filters
-      if (region && region !== 'All') {
-        const locations = await storage.getLocations();
-        const filteredLocationIds = locations.filter(loc => loc.region === region).map(loc => loc.id);
+      if (selectedRegions.length > 0) {
+        const allLocations = await storage.getLocations();
+        const filteredLocationIds = allLocations.filter(loc => selectedRegions.includes(loc.region || '')).map(loc => loc.id);
         unitLevelData = unitLevelData.filter(unit => filteredLocationIds.includes(unit.locationId || ''));
       }
       
-      if (division && division !== 'All') {
-        const locations = await storage.getLocations();
-        const filteredLocationIds = locations.filter(loc => loc.division === division).map(loc => loc.id);
+      if (selectedDivisions.length > 0) {
+        const allLocations = await storage.getLocations();
+        const filteredLocationIds = allLocations.filter(loc => selectedDivisions.includes(loc.division || '')).map(loc => loc.id);
         unitLevelData = unitLevelData.filter(unit => filteredLocationIds.includes(unit.locationId || ''));
       }
       
-      if (location && location !== 'All') {
-        unitLevelData = unitLevelData.filter(unit => unit.location === location);
+      if (selectedLocations.length > 0) {
+        unitLevelData = unitLevelData.filter(unit => selectedLocations.includes(unit.location));
       }
 
       const rateCardSummary = await storage.getRateCardByMonth(targetMonth);

@@ -30,16 +30,16 @@ import { apiRequest } from "@/lib/queryClient";
 
 interface RateCardTableProps {
   selectedServiceLine?: string;
-  selectedRegion?: string;
-  selectedDivision?: string;
-  selectedLocation?: string;
+  selectedRegions?: string[];
+  selectedDivisions?: string[];
+  selectedLocations?: string[];
 }
 
 export default function RateCardTable({ 
   selectedServiceLine: propServiceLine,
-  selectedRegion,
-  selectedDivision,
-  selectedLocation
+  selectedRegions,
+  selectedDivisions,
+  selectedLocations
 }: RateCardTableProps) {
   const [selectedMonth, setSelectedMonth] = useState("2025-09");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
@@ -61,12 +61,18 @@ export default function RateCardTable({
   }, []);
 
   const { data: rateCardData, isLoading } = useQuery({
-    queryKey: ['/api/rate-card', selectedMonth, selectedRegion, selectedDivision, selectedLocation],
+    queryKey: ['/api/rate-card', selectedMonth, selectedRegions, selectedDivisions, selectedLocations],
     queryFn: async () => {
       const params = new URLSearchParams({ month: selectedMonth });
-      if (selectedRegion && selectedRegion !== 'All') params.append('region', selectedRegion);
-      if (selectedDivision && selectedDivision !== 'All') params.append('division', selectedDivision);
-      if (selectedLocation && selectedLocation !== 'All') params.append('location', selectedLocation);
+      if (selectedRegions && selectedRegions.length > 0) {
+        selectedRegions.forEach(region => params.append('regions', region));
+      }
+      if (selectedDivisions && selectedDivisions.length > 0) {
+        selectedDivisions.forEach(division => params.append('divisions', division));
+      }
+      if (selectedLocations && selectedLocations.length > 0) {
+        selectedLocations.forEach(location => params.append('locations', location));
+      }
       
       const response = await fetch(`/api/rate-card?${params.toString()}`);
       return response.json();
