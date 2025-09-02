@@ -41,7 +41,7 @@ export async function processDemoData() {
     
     // Process each month's data
     for (const [month, monthData] of dataByMonth) {
-      const [monthNum, , year] = month.split('/');
+      const [monthNum, day, year] = month.split('/');
       const monthKey = `${year}-${monthNum.padStart(2, '0')}`;
       
       console.log(`Processing data for ${monthKey}: ${monthData.length} units`);
@@ -75,7 +75,12 @@ export async function processDemoData() {
       }));
       
       // Store the data
-      await storage.uploadRentRollData(monthKey, transformedData);
+      try {
+        await storage.uploadRentRollData(monthKey, transformedData);
+        console.log(`✓ Successfully stored data for ${monthKey}`);
+      } catch (error) {
+        console.error(`✗ Failed to store data for ${monthKey}:`, error);
+      }
     }
     
     // Process competitor data
@@ -216,5 +221,10 @@ export async function processDemoData() {
     console.error('Error processing demo data:', error);
     throw error;
   }
+}
+
+// Run the function when script is executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  processDemoData().catch(console.error);
 }
 
