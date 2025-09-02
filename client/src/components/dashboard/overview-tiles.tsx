@@ -164,15 +164,15 @@ export default function OverviewTiles() {
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
-                    <span className="font-medium">${roomType.avgRate?.toLocaleString() || 0}</span>
+                    <span className="font-medium">${Math.round(roomType.avgRate || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
-                    <span className="font-medium">${roomType.avgCompetitorRate?.toLocaleString() || 0}</span>
+                    <span className="font-medium">${Math.round(roomType.avgCompetitorRate || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
-                    <span className="font-medium text-[var(--trilogy-success)]">${roomType.monthlyRemainder?.toLocaleString() || 0}</span>
+                    <span className="font-medium text-[var(--trilogy-success)]">${Math.round(roomType.monthlyRemainder || 0).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -217,15 +217,15 @@ export default function OverviewTiles() {
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
-                    <span className="font-medium">${serviceLine.avgRate?.toLocaleString() || 0}</span>
+                    <span className="font-medium">${Math.round(serviceLine.avgRate || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
-                    <span className="font-medium">${serviceLine.avgCompetitorRate?.toLocaleString() || 0}</span>
+                    <span className="font-medium">${Math.round(serviceLine.avgCompetitorRate || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
-                    <span className="font-medium text-[var(--trilogy-success)]">${serviceLine.monthlyRemainder?.toLocaleString() || 0}</span>
+                    <span className="font-medium text-[var(--trilogy-success)]">${Math.round(serviceLine.monthlyRemainder || 0).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
