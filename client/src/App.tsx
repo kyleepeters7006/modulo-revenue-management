@@ -10,6 +10,7 @@ import PricingControls from "@/pages/pricing-controls";
 import CompetitorAnalysis from "@/pages/competitor-analysis";
 import AIInsights from "@/pages/ai-insights";
 import PortfolioManager from "@/pages/PortfolioManager";
+import AboutUs from "@/pages/AboutUs";
 import Landing from "@/pages/landing";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/useAuth";
@@ -31,6 +32,7 @@ function Router() {
           <Route path="/pricing-controls" component={PricingControls} />
           <Route path="/competitor-analysis" component={CompetitorAnalysis} />
           <Route path="/ai-insights" component={AIInsights} />
+          <Route path="/about" component={AboutUs} />
         </>
       )}
       <Route component={NotFound} />

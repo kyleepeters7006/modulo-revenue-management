@@ -9,6 +9,7 @@ import {
   Map,
   Brain,
   Building2,
+  Info,
   LogOut,
   Menu,
   X
@@ -22,6 +23,7 @@ const menuItems = [
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
   { path: "/competitor-analysis", label: "Competitors", icon: Map },
   { path: "/ai-insights", label: "AI Insights", icon: Brain },
+  { path: "/about", label: "About Us", icon: Info },
 ];
 
 interface NavigationProps {
