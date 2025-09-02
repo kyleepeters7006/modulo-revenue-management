@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import customMarkerIcon from "@assets/image_1756856689618.png";
+import customMarkerIcon from "@assets/image_1756856984756.png";
 
 declare global {
   interface Window {
