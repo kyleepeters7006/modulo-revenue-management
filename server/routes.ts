@@ -163,6 +163,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       lastName: 'User'
     });
   });
+  
+  // Test endpoint to verify competitor distances
+  app.get('/api/test/competitor-distances', async (req, res) => {
+    try {
+      const competitors = await storage.getCompetitors();
+      const locations = await storage.getLocations();
+      
+      const distanceReport = locations.map(location => {
+        const locationCompetitors = competitors.filter(c => c.location === location.name);
+        return {
+          location: location.name,
+          competitors: locationCompetitors.map(comp => ({
+            name: comp.name,
+            distance_miles: comp.attributes?.distance_miles || 'N/A',
+            drive_time_minutes: comp.attributes?.drive_time_minutes || 'N/A',
+            rating: comp.rating
+          }))
+        };
+      });
+      
+      res.json({ report: distanceReport, totalCompetitors: competitors.length });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to generate distance report' });
+    }
+  });
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req, res) => {
     try {

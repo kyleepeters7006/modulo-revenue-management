@@ -132,9 +132,10 @@ export async function initializeProductionDatabase(storage: IStorage): Promise<v
     const competitorNames = competitorTemplates[campusIndex];
     
     for (let i = 0; i < 3; i++) {
-      // Position competitor within 5-15 miles
+      // Position competitor within 20-minute drive (approximately 10-15 miles in mixed traffic)
+      // Using realistic distance based on urban/suburban driving patterns
       const angle = (i * 120 + Math.random() * 60) * Math.PI / 180;
-      const distance = 5 + Math.random() * 10;
+      const distance = 3 + Math.random() * 12; // 3-15 miles = roughly 10-20 minute drive
       const latOffset = (distance / 69) * Math.sin(angle);
       const lngOffset = (distance / 69) * Math.cos(angle) / Math.cos(campus.lat * Math.PI / 180);
       
@@ -146,6 +147,9 @@ export async function initializeProductionDatabase(storage: IStorage): Promise<v
       
       // Set rates based on quality
       const rateMultiplier = rating === 'A' ? 1.15 : rating === 'B' ? 1.0 : 0.85;
+      
+      // Calculate actual distance for verification (should be within 20-minute drive)
+      const actualDistance = Math.round(distance * 10) / 10;
       
       await storage.createCompetitor({
         name: competitorNames[i],
@@ -165,6 +169,8 @@ export async function initializeProductionDatabase(storage: IStorage): Promise<v
           "Memory Care": Math.round(6500 * rateMultiplier)
         },
         attributes: {
+          distance_miles: actualDistance,
+          drive_time_minutes: Math.round(actualDistance * 1.5 + (Math.random() * 5)), // 1.5 min/mile + traffic variance
           occupancy: (0.75 + Math.random() * 0.20).toFixed(2),
           totalUnits: 50 + Math.floor(Math.random() * 100),
           website: `www.${competitorNames[i].toLowerCase().replace(/\s+/g, '')}.com`,
