@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 export default function CompetitorAnalysis() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(['Sunrise Valley Senior Living']);
 
   // Fetch locations data for filters
   const { data: locationsData } = useQuery({

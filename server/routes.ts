@@ -749,13 +749,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Filter competitors by selected locations
         allCompetitors = allCompetitors.filter(comp => {
-          // Check if competitor location matches any selected location
+          // Check if competitor location matches any selected location exactly
           return Array.from(selectedLocations).some(loc => {
-            // Match by location name or city
-            const compLocation = comp.location?.toLowerCase() || '';
-            const locName = loc.toLowerCase();
-            return compLocation.includes(locName.split(' ').slice(-2).join(' ')) || 
-                   compLocation.includes(locName);
+            const compLocation = comp.location || '';
+            return compLocation === loc; // Exact match only
           });
         });
       }
