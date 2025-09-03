@@ -26,23 +26,9 @@ export default function AboutUs() {
         <div className="text-center mb-12">
           {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
-            <img 
-              src="https://modulorm.replit.app/assets/Modulo M Logo_1756828313102.png" 
-              alt="Modulo Logo" 
-              className="w-48 h-48 object-contain"
-              loading="eager"
-              decoding="async"
-              crossOrigin="anonymous"
-              onError={(e) => {
-                console.error('About logo failed to load, trying fallback');
-                const img = e.target as HTMLImageElement;
-                img.src = '/assets/Modulo M Logo_1756828313102.png';
-                img.onerror = () => {
-                  console.error('Fallback about logo also failed');
-                  img.style.display = 'none';
-                };
-              }}
-            />
+            <div className="w-48 h-48 flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-6xl font-bold rounded-lg">
+              M
+            </div>
           </div>
           
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">

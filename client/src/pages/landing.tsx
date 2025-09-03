@@ -6,23 +6,9 @@ export default function Landing() {
       <div className="max-w-4xl mx-auto text-center">
         {/* Main Logo */}
         <div className="mb-12">
-          <img 
-            src="https://modulorm.replit.app/assets/image_1756172904290.png" 
-            alt="Modulo Revenue Management" 
-            className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto"
-            loading="eager"
-            decoding="async"
-            crossOrigin="anonymous"
-            onError={(e) => {
-              console.error('Main logo failed to load, trying fallback');
-              const img = e.target as HTMLImageElement;
-              img.src = '/assets/image_1756172904290.png';
-              img.onerror = () => {
-                console.error('Fallback logo also failed');
-                img.style.display = 'none';
-              };
-            }}
-          />
+          <div className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-4xl font-bold rounded-lg">
+            MODULO
+          </div>
         </div>
 
         {/* Hero Content */}

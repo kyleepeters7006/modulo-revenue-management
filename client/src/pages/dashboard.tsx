@@ -49,23 +49,9 @@ export default function Dashboard() {
       <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-3 fixed top-0 left-0 right-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <img 
-              src="https://modulorm.replit.app/assets/image_1756174752342.png" 
-              alt="Modulo M Logo" 
-              className="h-20 w-auto"
-              loading="eager"
-              decoding="async"
-              crossOrigin="anonymous"
-              onError={(e) => {
-                console.error('Dashboard logo failed to load, trying fallback');
-                const img = e.target as HTMLImageElement;
-                img.src = '/assets/image_1756174752342.png';
-                img.onerror = () => {
-                  console.error('Fallback dashboard logo also failed');
-                  img.style.display = 'none';
-                };
-              }}
-            />
+            <div className="h-20 w-20 flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-2xl font-bold rounded">
+              M
+            </div>
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetTrigger asChild>
