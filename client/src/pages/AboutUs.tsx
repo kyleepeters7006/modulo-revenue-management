@@ -26,9 +26,15 @@ export default function AboutUs() {
         <div className="text-center mb-12">
           {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
-            <div style={{width: '192px', height: '192px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '80px', fontWeight: 'bold', borderRadius: '20px', border: '4px solid #1d4ed8', fontFamily: 'Arial, sans-serif'}}>
-              M
-            </div>
+            <img 
+              src="/attached_assets/image_1756172904290.png" 
+              alt="Modulo Revenue Management" 
+              className="h-48 object-contain"
+              style={{ 
+                objectPosition: 'center center',
+                display: 'block'
+              }}
+            />
           </div>
           
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">
