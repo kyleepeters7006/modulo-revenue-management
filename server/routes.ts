@@ -1,8 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
-import { demoRentRoll } from "./seed-data";
 import multer from "multer";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
@@ -16,7 +14,6 @@ import {
   insertGuardrailsSchema
 } from "@shared/schema";
 import { demoCompetitors, demoRentRoll } from "./seed-data";
-import * as XLSX from 'xlsx';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -133,19 +130,14 @@ async function fetchSP500Data() {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
-  await setupAuth(app);
-
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      res.json(user);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
+  // Mock auth user endpoint (no authentication required)
+  app.get('/api/auth/user', async (req: any, res) => {
+    res.json({
+      id: 'demo-user',
+      email: 'demo@example.com',
+      firstName: 'Demo',
+      lastName: 'User'
+    });
   });
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req, res) => {
@@ -568,11 +560,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Building maps endpoints
-  app.get("/api/building-maps", isAuthenticated, async (req, res) => {
+  app.get("/api/building-maps", async (req, res) => {
     res.json({ items: buildingMaps });
   });
 
-  app.post("/api/upload-building-map", isAuthenticated, upload.single("buildingMap"), async (req, res) => {
+  app.post("/api/upload-building-map", upload.single("buildingMap"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
@@ -621,7 +613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/building-maps/:id/image", isAuthenticated, async (req, res) => {
+  app.get("/api/building-maps/:id/image", async (req, res) => {
     const buildingMap = buildingMaps.find(map => map.id === req.params.id);
     if (!buildingMap) {
       return res.status(404).json({ error: "Building map not found" });
@@ -631,7 +623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.send(buildingMap.imageBuffer);
   });
 
-  app.delete("/api/building-maps/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/building-maps/:id", async (req, res) => {
     const index = buildingMaps.findIndex(map => map.id === req.params.id);
     if (index === -1) {
       return res.status(404).json({ error: "Building map not found" });
@@ -663,7 +655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Revenue series for chart
-  app.get("/api/series", isAuthenticated, async (req, res) => {
+  app.get("/api/series", async (req, res) => {
     try {
       const timeRange = req.query.timeRange as string || '12M';
       const months = timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24;
@@ -1245,7 +1237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing recommendations
-  app.get("/api/recommendations", isAuthenticated, async (req, res) => {
+  app.get("/api/recommendations", async (req, res) => {
     try {
       let rentRollData = await storage.getRentRollData();
       
@@ -1760,7 +1752,7 @@ Keep recommendations specific and quantitative when possible.`;
   });
 
   // Template download endpoint - exports current portfolio data as template
-  app.get("/api/template/download", isAuthenticated, async (req, res) => {
+  app.get("/api/template/download", async (req, res) => {
     try {
       // Get all portfolio data to export as template
       const portfolioData = await storage.getPortfolioData();
@@ -1858,7 +1850,7 @@ Keep recommendations specific and quantitative when possible.`;
   });
 
   // Data upload endpoint
-  app.post("/api/upload/rent-roll", isAuthenticated, upload.single('file'), async (req, res) => {
+  app.post("/api/upload/rent-roll", upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -1946,7 +1938,7 @@ Keep recommendations specific and quantitative when possible.`;
   });
 
   // Overview dashboard endpoint
-  app.get("/api/overview", isAuthenticated, async (req, res) => {
+  app.get("/api/overview", async (req, res) => {
     try {
       const serviceLineFilter = req.query.serviceLine as string;
       const allRentRollData = await storage.getRentRollData();

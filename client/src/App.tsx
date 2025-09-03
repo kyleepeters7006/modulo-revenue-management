@@ -12,31 +12,21 @@ import AIInsights from "@/pages/ai-insights";
 import PortfolioManager from "@/pages/PortfolioManager";
 import Analysis from "@/pages/Analysis";
 import AboutUs from "@/pages/AboutUs";
-import Landing from "@/pages/landing";
 import NotFound from "@/pages/not-found";
-import { useAuth } from "@/hooks/useAuth";
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
-
   return (
     <Switch>
-      {isLoading || !isAuthenticated ? (
-        <Route path="/" component={Landing} />
-      ) : (
-        <>
-          <Route path="/" component={Overview} />
-          <Route path="/overview" component={Overview} />
-          <Route path="/portfolio" component={PortfolioManager} />
-          <Route path="/analysis" component={Analysis} />
-          <Route path="/data-management" component={DataManagement} />
-          <Route path="/rate-card" component={RateCard} />
-          <Route path="/pricing-controls" component={PricingControls} />
-          <Route path="/competitor-analysis" component={CompetitorAnalysis} />
-          <Route path="/ai-insights" component={AIInsights} />
-          <Route path="/about" component={AboutUs} />
-        </>
-      )}
+      <Route path="/" component={Overview} />
+      <Route path="/overview" component={Overview} />
+      <Route path="/portfolio" component={PortfolioManager} />
+      <Route path="/analysis" component={Analysis} />
+      <Route path="/data-management" component={DataManagement} />
+      <Route path="/rate-card" component={RateCard} />
+      <Route path="/pricing-controls" component={PricingControls} />
+      <Route path="/competitor-analysis" component={CompetitorAnalysis} />
+      <Route path="/ai-insights" component={AIInsights} />
+      <Route path="/about" component={AboutUs} />
       <Route component={NotFound} />
     </Switch>
   );
