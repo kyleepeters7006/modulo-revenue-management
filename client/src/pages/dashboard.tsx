@@ -49,12 +49,9 @@ export default function Dashboard() {
       <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-3 fixed top-0 left-0 right-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <svg className="h-20 w-20" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
-              <rect width="80" height="80" rx="10" fill="#1e40af" stroke="#1d4ed8" strokeWidth="2"/>
-              <text x="40" y="52" textAnchor="middle" fill="white" fontSize="32" fontWeight="bold" fontFamily="Arial, sans-serif">
-                M
-              </text>
-            </svg>
+            <div style={{width: '80px', height: '80px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 'bold', borderRadius: '10px', border: '2px solid #1d4ed8', fontFamily: 'Arial, sans-serif'}}>
+              M
+            </div>
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetTrigger asChild>

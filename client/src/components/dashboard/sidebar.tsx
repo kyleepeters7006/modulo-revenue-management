@@ -17,12 +17,9 @@ export default function Sidebar() {
     <div className="flex flex-col flex-grow bg-[var(--dashboard-surface)] border-r border-[var(--dashboard-border)] h-full">
       {/* Header */}
       <div className="flex items-center justify-center px-4 py-6 border-b border-[var(--dashboard-border)]">
-        <svg className="h-16 w-16" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <rect width="64" height="64" rx="8" fill="#1e40af" stroke="#1d4ed8" strokeWidth="2"/>
-          <text x="32" y="42" textAnchor="middle" fill="white" fontSize="28" fontWeight="bold" fontFamily="Arial, sans-serif">
-            M
-          </text>
-        </svg>
+        <div style={{width: '64px', height: '64px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 'bold', borderRadius: '8px', border: '2px solid #1d4ed8', fontFamily: 'Arial, sans-serif'}}>
+          M
+        </div>
       </div>
 
       {/* Navigation */}
