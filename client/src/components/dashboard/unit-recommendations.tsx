@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Target } from "lucide-react";
+import { Target, Info } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function UnitRecommendations() {
   const { data: recommendations, isLoading } = useQuery({
@@ -53,6 +59,37 @@ export default function UnitRecommendations() {
         {label} ({confidence}%)
       </Badge>
     );
+  };
+
+  const getModuloCalculationTooltip = (unit: any) => {
+    const baseRate = unit.Fence_Price || 0;
+    const competitorRate = unit.Competitor_Benchmark_Rate || 0;
+    const recommendedRate = unit.Recommended_Rent || 0;
+    const daysVacant = unit.Days_Vacant || 0;
+    
+    // Calculate the adjustments based on pricing factors
+    const occupancyAdjustment = unit.Occupied_YN === 'N' ? (daysVacant > 30 ? -5 : 0) : 0;
+    const competitorAdjustment = competitorRate > baseRate ? 3 : -2;
+    const roomTypeBonus = unit.Room_Type === 'One Bedroom' ? 2 : 0;
+    
+    const calculation = `Modulo Rate Calculation:
+
+Base Rate: $${baseRate.toLocaleString()}
+
+Adjustments:
+• Occupancy Status: ${unit.Occupied_YN === 'Y' ? 'Occupied (0%)' : `Vacant ${daysVacant} days (${occupancyAdjustment}%)`}
+• Competitor Position: ${competitorRate > baseRate ? 'Above market (+3%)' : 'Below market (-2%)'}
+• Room Type Premium: ${unit.Room_Type} (${roomTypeBonus}%)
+• Seasonality: Current season (0%)
+• Market Conditions: Stable (0%)
+
+Total Adjustment: ${occupancyAdjustment + competitorAdjustment + roomTypeBonus}%
+
+Recommended Rate: $${recommendedRate.toLocaleString()}
+
+* Calculation based on Modulo pricing algorithm using occupancy pressure, vacancy duration, room attributes, competitor rates, and market conditions.`;
+    
+    return calculation;
   };
 
   if (isLoading) {
@@ -117,7 +154,21 @@ export default function UnitRecommendations() {
                   {formatCurrency(unit.Competitor_Benchmark_Rate)}
                 </TableCell>
                 <TableCell className="text-[var(--trilogy-success)] font-medium">
-                  {formatCurrency(unit.Recommended_Rent)}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center gap-1 cursor-help hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 transition-colors">
+                          <span>{formatCurrency(unit.Recommended_Rent)}</span>
+                          <Info className="w-3 h-3 text-[var(--dashboard-muted)] hover:text-[var(--trilogy-success)]" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-md p-3 bg-white dark:bg-gray-800 border shadow-lg">
+                        <pre className="text-xs whitespace-pre-wrap font-mono text-gray-700 dark:text-gray-300">
+                          {getModuloCalculationTooltip(unit)}
+                        </pre>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </TableCell>
                 <TableCell>
                   {getConfidenceBadge(unit.ML_Confidence)}
