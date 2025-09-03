@@ -286,12 +286,11 @@ export function CompetitorMap({
         
         const style = getRatingStyle(competitor.rating);
         
-        const competitorMarkerIcon = window.L.divIcon({
-          html: `<div style="width: ${style.size}; height: ${style.size}; background: ${style.gradient}; border: 3px solid white; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); position: relative; display: flex; align-items: center; justify-content: center;">
-                   <span style="font-size: 12px;">${style.emoji}</span>
-                 </div>`,
-          iconSize: [parseInt(style.size) + 6, parseInt(style.size) + 6],
-          iconAnchor: [(parseInt(style.size) + 6) / 2, (parseInt(style.size) + 6) / 2]
+        const competitorMarkerIcon = window.L.icon({
+          iconUrl: "/assets/image_1756857075316.png",
+          iconSize: [parseInt(style.size), parseInt(style.size)],
+          iconAnchor: [parseInt(style.size) / 2, parseInt(style.size)],
+          popupAnchor: [0, -parseInt(style.size)]
         });
         
         const marker = window.L.marker([competitor.lat, competitor.lng], {
