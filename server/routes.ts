@@ -135,24 +135,15 @@ async function checkAndInitializeDatabase() {
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
-    // If database has less than 100 units, it needs initialization
-    if (unitCount < 100) {
-      console.log('Production database needs initialization. Populating with demo data...');
+    // If database has less than 19000 units, it needs initialization with full data
+    if (unitCount < 19000) {
+      console.log('Database needs full initialization. Populating with complete demo data...');
       
-      // Clear existing data
-      await storage.clearAllData();
+      // Use the comprehensive initialization
+      const { initializeProductionDatabase } = await import('./initializeProductionData');
+      await initializeProductionDatabase(storage);
       
-      // Insert demo rent roll data (already imported at top)
-      for (const unit of demoRentRoll) {
-        await storage.createRentRollData(unit);
-      }
-      
-      // Insert demo competitors
-      for (const competitor of demoCompetitors) {
-        await storage.createCompetitor(competitor);
-      }
-      
-      console.log(`Initialized production database with ${demoRentRoll.length} units and ${demoCompetitors.length} competitors`);
+      console.log('Database initialization complete with full dataset');
     }
   } catch (error) {
     console.error('Error checking/initializing database:', error);
