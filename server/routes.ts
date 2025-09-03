@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { pricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
@@ -2035,32 +2036,70 @@ Keep recommendations specific and quantitative when possible.`;
         return acc;
       }, {});
 
-      const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
-        const roomTypeUnits = rentRollData.filter(u => u.roomType === roomType);
-        const avgRate = roomTypeUnits.length > 0 ? 
-          roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
-        const avgCompetitorRate = roomTypeUnits.length > 0 ? 
-          roomTypeUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / roomTypeUnits.length : 0;
-        const avgModuloSuggested = roomTypeUnits.length > 0 ? 
-          roomTypeUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / roomTypeUnits.length : 0;
-        
-        // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
-        const currentMonthlyRevenue = avgRate * stats.occupied;
-        const targetOccupancy = Math.round(stats.total * 0.95);
-        const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
-        const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
-        
-        return {
-          roomType,
-          occupied: stats.occupied,
-          total: stats.total,
-          occupancyRate: Math.round((stats.occupied / stats.total) * 100),
-          avgRate,
-          avgCompetitorRate,
-          avgModuloRate: avgModuloSuggested,
-          monthlyRemainder
-        };
-      });
+      const occupancyByRoomType = await Promise.all(
+        Object.entries(roomTypeStats).map(async ([roomType, stats]: [string, any]) => {
+          const roomTypeUnits = rentRollData.filter(u => u.roomType === roomType);
+          const avgRate = roomTypeUnits.length > 0 ? 
+            roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
+          const avgCompetitorRate = roomTypeUnits.length > 0 ? 
+            roomTypeUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / roomTypeUnits.length : 0;
+          
+          // Calculate dynamic Modulo rates using pricing algorithm
+          let avgModuloSuggested = 0;
+          if (roomTypeUnits.length > 0) {
+            try {
+              const promises = roomTypeUnits.map(async (unit) => {
+                try {
+                  const result = await pricingAlgorithm.calculateModuloRate({
+                    unitId: unit.id || '',
+                    roomType: unit.roomType,
+                    serviceLine: unit.serviceLine,
+                    currentRate: unit.streetRate || unit.inHouseRate || 0,
+                    competitorRate: unit.competitorRate || 0,
+                    daysVacant: unit.daysVacant || 0,
+                    occupancyRate: (stats.occupied / stats.total),
+                    totalUnits: stats.total,
+                    occupiedUnits: stats.occupied,
+                    attributes: {
+                      location: unit.preferredLocation ? 'A' : 'B',
+                      size: unit.roomType,
+                      view: 'B', // Default
+                      renovation: 'B', // Default
+                      amenity: 'B' // Default
+                    }
+                  });
+                  return result.recommendedRate;
+                } catch (error) {
+                  console.error('Error calculating Modulo rate for unit:', error);
+                  return unit.moduloSuggestedRate || unit.streetRate || 0;
+                }
+              });
+              const rates = await Promise.all(promises);
+              avgModuloSuggested = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+            } catch (error) {
+              console.error('Error calculating average Modulo rate:', error);
+              avgModuloSuggested = roomTypeUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / roomTypeUnits.length;
+            }
+          }
+          
+          // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
+          const currentMonthlyRevenue = avgRate * stats.occupied;
+          const targetOccupancy = Math.round(stats.total * 0.95);
+          const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
+          const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
+          
+          return {
+            roomType,
+            occupied: stats.occupied,
+            total: stats.total,
+            occupancyRate: Math.round((stats.occupied / stats.total) * 100),
+            avgRate,
+            avgCompetitorRate,
+            avgModuloRate: avgModuloSuggested,
+            monthlyRemainder
+          };
+        })
+      );
 
       // Calculate service line statistics for all data (not filtered)
       const serviceLineStats = allRentRollData.reduce((acc: any, unit: any) => {
@@ -2074,32 +2113,70 @@ Keep recommendations specific and quantitative when possible.`;
         return acc;
       }, {});
 
-      const occupancyByServiceLine = Object.entries(serviceLineStats).map(([serviceLine, stats]: [string, any]) => {
-        const serviceLineUnits = allRentRollData.filter(u => u.serviceLine === serviceLine);
-        const avgRate = serviceLineUnits.length > 0 ? 
-          serviceLineUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / serviceLineUnits.length : 0;
-        const avgCompetitorRate = serviceLineUnits.length > 0 ? 
-          serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
-        const avgModuloSuggested = serviceLineUnits.length > 0 ? 
-          serviceLineUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / serviceLineUnits.length : 0;
-        
-        // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
-        const currentMonthlyRevenue = avgRate * stats.occupied;
-        const targetOccupancy = Math.round(stats.total * 0.95);
-        const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
-        const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
-        
-        return {
-          serviceLine,
-          occupied: stats.occupied,
-          total: stats.total,
-          occupancyRate: Math.round((stats.occupied / stats.total) * 100),
-          avgRate,
-          avgCompetitorRate,
-          avgModuloRate: avgModuloSuggested,
-          monthlyRemainder
-        };
-      });
+      const occupancyByServiceLine = await Promise.all(
+        Object.entries(serviceLineStats).map(async ([serviceLine, stats]: [string, any]) => {
+          const serviceLineUnits = allRentRollData.filter(u => u.serviceLine === serviceLine);
+          const avgRate = serviceLineUnits.length > 0 ? 
+            serviceLineUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / serviceLineUnits.length : 0;
+          const avgCompetitorRate = serviceLineUnits.length > 0 ? 
+            serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
+          
+          // Calculate dynamic Modulo rates using pricing algorithm
+          let avgModuloSuggested = 0;
+          if (serviceLineUnits.length > 0) {
+            try {
+              const promises = serviceLineUnits.map(async (unit) => {
+                try {
+                  const result = await pricingAlgorithm.calculateModuloRate({
+                    unitId: unit.id || '',
+                    roomType: unit.roomType,
+                    serviceLine: unit.serviceLine,
+                    currentRate: unit.streetRate || unit.inHouseRate || 0,
+                    competitorRate: unit.competitorRate || 0,
+                    daysVacant: unit.daysVacant || 0,
+                    occupancyRate: (stats.occupied / stats.total),
+                    totalUnits: stats.total,
+                    occupiedUnits: stats.occupied,
+                    attributes: {
+                      location: unit.preferredLocation ? 'A' : 'B',
+                      size: unit.roomType,
+                      view: 'B', // Default
+                      renovation: 'B', // Default
+                      amenity: 'B' // Default
+                    }
+                  });
+                  return result.recommendedRate;
+                } catch (error) {
+                  console.error('Error calculating Modulo rate for service line unit:', error);
+                  return unit.moduloSuggestedRate || unit.streetRate || 0;
+                }
+              });
+              const rates = await Promise.all(promises);
+              avgModuloSuggested = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+            } catch (error) {
+              console.error('Error calculating average Modulo rate for service line:', error);
+              avgModuloSuggested = serviceLineUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / serviceLineUnits.length;
+            }
+          }
+          
+          // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
+          const currentMonthlyRevenue = avgRate * stats.occupied;
+          const targetOccupancy = Math.round(stats.total * 0.95);
+          const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
+          const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
+          
+          return {
+            serviceLine,
+            occupied: stats.occupied,
+            total: stats.total,
+            occupancyRate: Math.round((stats.occupied / stats.total) * 100),
+            avgRate,
+            avgCompetitorRate,
+            avgModuloRate: avgModuloSuggested,
+            monthlyRemainder
+          };
+        })
+      );
 
       const totalUnits = rentRollData.length;
       const occupiedUnits = rentRollData.filter(u => u.occupiedYN).length;
