@@ -10,6 +10,12 @@ export default function Landing() {
             src="/assets/image_1756172904290.png" 
             alt="Modulo Revenue Management" 
             className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto"
+            loading="eager"
+            decoding="async"
+            onError={(e) => {
+              console.error('Logo failed to load:', e);
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
           />
         </div>
 

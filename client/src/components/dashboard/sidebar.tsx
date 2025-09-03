@@ -21,6 +21,12 @@ export default function Sidebar() {
           src="/assets/image_1756172551638.png" 
           alt="Modulo M Logo" 
           className="h-16 w-auto"
+          loading="eager"
+          decoding="async"
+          onError={(e) => {
+            console.error('Sidebar logo failed to load:', e);
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
         />
       </div>
 

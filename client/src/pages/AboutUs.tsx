@@ -30,6 +30,12 @@ export default function AboutUs() {
               src="/assets/Modulo M Logo_1756828313102.png" 
               alt="Modulo Logo" 
               className="w-48 h-48 object-contain"
+              loading="eager"
+              decoding="async"
+              onError={(e) => {
+                console.error('About logo failed to load:', e);
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
             />
           </div>
           

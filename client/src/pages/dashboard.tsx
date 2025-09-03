@@ -53,6 +53,12 @@ export default function Dashboard() {
               src="/assets/image_1756174752342.png" 
               alt="Modulo M Logo" 
               className="h-20 w-auto"
+              loading="eager"
+              decoding="async"
+              onError={(e) => {
+                console.error('Dashboard logo failed to load:', e);
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
