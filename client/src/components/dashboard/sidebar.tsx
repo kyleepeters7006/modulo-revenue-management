@@ -17,9 +17,11 @@ export default function Sidebar() {
     <div className="flex flex-col flex-grow bg-[var(--dashboard-surface)] border-r border-[var(--dashboard-border)] h-full">
       {/* Header */}
       <div className="flex items-center justify-center px-4 py-6 border-b border-[var(--dashboard-border)]">
-        <div style={{width: '64px', height: '64px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 'bold', borderRadius: '8px', border: '2px solid #1d4ed8', fontFamily: 'Arial, sans-serif'}}>
-          M
-        </div>
+        <img 
+          src="/attached_assets/Modulo M Logo_1756828313102.png" 
+          alt="Modulo" 
+          className="h-16 w-16 object-contain"
+        />
       </div>
 
       {/* Navigation */}

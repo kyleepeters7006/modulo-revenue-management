@@ -10,9 +10,15 @@ export default function Overview() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Main Logo Header */}
         <div className="w-full mb-8 py-6 text-center">
-          <div style={{width: '400px', height: '100px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px', fontWeight: 'bold', borderRadius: '12px', border: '4px solid #1d4ed8', fontFamily: 'Arial, sans-serif', letterSpacing: '2px', margin: '0 auto'}}>
-            MODULO
-          </div>
+          <img 
+            src="/attached_assets/image_1756172904290.png" 
+            alt="Modulo Revenue Management" 
+            className="mx-auto h-80 object-contain"
+            style={{ 
+              objectPosition: 'center center',
+              display: 'block'
+            }}
+          />
         </div>
 
         {/* Page Header */}

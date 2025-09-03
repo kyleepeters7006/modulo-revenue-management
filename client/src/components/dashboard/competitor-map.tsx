@@ -211,9 +211,9 @@ export function CompetitorMap({
         address: currentLocation.address
       };
       
-      // Current property icon - blue marker
+      // Current property icon using original image
       const currentIcon = window.L.icon({
-        iconUrl: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="40" height="40"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24c0-6.6-5.4-12-12-12z" fill="#1e40af"/><circle cx="12" cy="12" r="4" fill="white"/></svg>`),
+        iconUrl: "/attached_assets/image_1756856984756.png",
         iconSize: [40, 40],
         iconAnchor: [20, 40],
         popupAnchor: [0, -40]
@@ -287,7 +287,7 @@ export function CompetitorMap({
         const style = getRatingStyle(competitor.rating);
         
         const competitorMarkerIcon = window.L.icon({
-          iconUrl: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 36" width="${style.size}" height="${style.size}"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24c0-6.6-5.4-12-12-12z" fill="${style.color}"/><circle cx="12" cy="12" r="4" fill="white"/></svg>`),
+          iconUrl: "/attached_assets/image_1756857075316.png",
           iconSize: [parseInt(style.size), parseInt(style.size)],
           iconAnchor: [parseInt(style.size) / 2, parseInt(style.size)],
           popupAnchor: [0, -parseInt(style.size)]

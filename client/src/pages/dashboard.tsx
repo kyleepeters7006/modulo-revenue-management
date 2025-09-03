@@ -49,9 +49,11 @@ export default function Dashboard() {
       <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-3 fixed top-0 left-0 right-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <div style={{width: '80px', height: '80px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 'bold', borderRadius: '10px', border: '2px solid #1d4ed8', fontFamily: 'Arial, sans-serif'}}>
-              M
-            </div>
+            <img 
+              src="/attached_assets/Modulo M Logo_1756828313102.png" 
+              alt="Modulo" 
+              className="h-20 w-20 object-contain"
+            />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetTrigger asChild>
@@ -75,10 +77,16 @@ export default function Dashboard() {
       <div className="flex-1 lg:pl-80 pt-16 lg:pt-0 w-full max-w-full overflow-y-auto">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Main Logo Header - Full logo with text */}
-          <div className="w-full mb-4 lg:mb-8 py-6 lg:py-8 flex justify-center">
-            <div style={{width: '400px', height: '100px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px', fontWeight: 'bold', borderRadius: '12px', border: '4px solid #1d4ed8', fontFamily: 'Arial, sans-serif', letterSpacing: '2px'}}>
-              MODULO
-            </div>
+          <div className="w-full mb-4 lg:mb-8 py-6 lg:py-8">
+            <img 
+              src="/attached_assets/image_1756172904290.png" 
+              alt="Modulo Revenue Management" 
+              className="w-full h-80 sm:h-96 md:h-112 lg:h-128 object-contain"
+              style={{ 
+                objectPosition: 'center center',
+                display: 'block'
+              }}
+            />
           </div>
 
           {/* Page Header */}

@@ -6,9 +6,11 @@ export default function Landing() {
       <div className="max-w-4xl mx-auto text-center">
         {/* Main Logo */}
         <div className="mb-12">
-          <div style={{width: '300px', height: '80px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', fontWeight: 'bold', borderRadius: '8px', border: '3px solid #1d4ed8', fontFamily: 'Arial, sans-serif', margin: '0 auto'}}>
-            MODULO
-          </div>
+          <img 
+            src="/attached_assets/image_1756172904290.png" 
+            alt="Modulo" 
+            className="mx-auto h-32 object-contain"
+          />
         </div>
 
         {/* Hero Content */}
