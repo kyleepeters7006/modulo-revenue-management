@@ -2121,41 +2121,18 @@ Keep recommendations specific and quantitative when possible.`;
           const avgCompetitorRate = serviceLineUnits.length > 0 ? 
             serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
           
-          // Calculate dynamic Modulo rates using pricing algorithm
+          // Use same logic as rate card generation - use stored moduloSuggestedRate values
           let avgModuloSuggested = 0;
           if (serviceLineUnits.length > 0) {
-            try {
-              const promises = serviceLineUnits.map(async (unit) => {
-                try {
-                  const result = await pricingAlgorithm.calculateModuloRate({
-                    unitId: unit.id || '',
-                    roomType: unit.roomType,
-                    serviceLine: unit.serviceLine,
-                    currentRate: unit.streetRate || unit.inHouseRate || 0,
-                    competitorRate: unit.competitorRate || 0,
-                    daysVacant: unit.daysVacant || 0,
-                    occupancyRate: (stats.occupied / stats.total),
-                    totalUnits: stats.total,
-                    occupiedUnits: stats.occupied,
-                    attributes: {
-                      location: unit.preferredLocation ? 'A' : 'B',
-                      size: unit.roomType,
-                      view: 'B', // Default
-                      renovation: 'B', // Default
-                      amenity: 'B' // Default
-                    }
-                  });
-                  return result.recommendedRate;
-                } catch (error) {
-                  console.error('Error calculating Modulo rate for service line unit:', error);
-                  return unit.moduloSuggestedRate || unit.streetRate || 0;
-                }
-              });
-              const rates = await Promise.all(promises);
-              avgModuloSuggested = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
-            } catch (error) {
-              console.error('Error calculating average Modulo rate for service line:', error);
-              avgModuloSuggested = serviceLineUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / serviceLineUnits.length;
+            const moduloRates = serviceLineUnits
+              .map(u => u.moduloSuggestedRate || 0)
+              .filter(rate => rate > 0); // Only include units that have modulo rates
+            
+            if (moduloRates.length > 0) {
+              avgModuloSuggested = moduloRates.reduce((sum, rate) => sum + rate, 0) / moduloRates.length;
+            } else {
+              // If no stored modulo rates, fall back to street rates
+              avgModuloSuggested = avgRate;
             }
           }
           
