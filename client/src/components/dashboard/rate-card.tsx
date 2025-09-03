@@ -162,11 +162,12 @@ export default function RateCard() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <img 
-                  src={currentFloorPlan.floorPlanImage}
-                  alt={`${selectedFloorPlan} floor plan`}
-                  className="w-full h-48 object-cover rounded-lg"
-                />
+                <div className="w-full h-48 bg-gradient-to-br from-[var(--trilogy-light-blue)] to-[var(--trilogy-teal)] rounded-lg flex items-center justify-center">
+                  <div className="text-white text-center">
+                    <div className="text-3xl font-bold mb-2">{selectedFloorPlan}</div>
+                    <div className="text-sm opacity-90">{currentFloorPlan.sqft} sq ft</div>
+                  </div>
+                </div>
                 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">

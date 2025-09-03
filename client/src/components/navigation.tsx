@@ -40,11 +40,9 @@ export default function Navigation({ className }: NavigationProps) {
           {/* Logo */}
           <div className="flex-shrink-0 mr-8">
             <Link href="/overview" className="flex items-center" data-testid="link-home">
-              <img 
-                src="/@fs/home/runner/workspace/attached_assets/image_1756817717051.png" 
-                alt="Modulo" 
-                className="h-20 w-auto"
-              />
+              <div style={{height: '40px', padding: '0 12px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: 'bold', borderRadius: '6px', border: '2px solid #1d4ed8', fontFamily: 'Arial, sans-serif'}}>
+                MODULO
+              </div>
             </Link>
           </div>
           
