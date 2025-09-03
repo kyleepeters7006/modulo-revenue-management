@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import mainLogoPath from "@assets/image_1756172904290.png";
 
 export default function Landing() {
   return (
@@ -8,7 +7,7 @@ export default function Landing() {
         {/* Main Logo */}
         <div className="mb-12">
           <img 
-            src={mainLogoPath} 
+            src="/assets/image_1756172904290.png" 
             alt="Modulo Revenue Management" 
             className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto"
           />

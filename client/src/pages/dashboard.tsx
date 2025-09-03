@@ -6,7 +6,7 @@ import ServiceLineOverview from "@/components/dashboard/service-line-overview";
 import RevenueChart from "@/components/dashboard/revenue-chart";
 import DataUpload from "@/components/dashboard/data-upload";
 import PricingWeights from "@/components/dashboard/pricing-weights";
-import CompetitorMap from "@/components/dashboard/competitor-map";
+import { CompetitorMap } from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
 import ComparisonTable from "@/components/dashboard/comparison-table";
 import UnitRecommendations from "@/components/dashboard/unit-recommendations";
@@ -19,12 +19,7 @@ import RateCard from "@/components/dashboard/rate-card";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import transparentLogoPath from "@assets/image_1756171963360.png";
-import mainLogoPath from "@assets/image_1756172904290.png";
-import newBannerLogoPath from "@assets/image_1756174752342.png";
 
-// Debug: Log the logo path
-console.log('Main logo path:', mainLogoPath);
 
 export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -55,7 +50,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <img 
-              src={newBannerLogoPath} 
+              src="/assets/image_1756174752342.png" 
               alt="Modulo M Logo" 
               className="h-20 w-auto"
             />

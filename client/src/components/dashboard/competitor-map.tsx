@@ -2,8 +2,6 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import currentPropertyIcon from "@assets/image_1756856984756.png";
-import competitorIcon from "@assets/image_1756857075316.png";
 
 declare global {
   interface Window {
@@ -214,17 +212,11 @@ export function CompetitorMap({
       };
       
       // Current property icon using custom marker with fallback
-      const currentIcon = currentPropertyIcon ? window.L.icon({
-        iconUrl: currentPropertyIcon,
+      const currentIcon = window.L.icon({
+        iconUrl: "/assets/image_1756856984756.png",
         iconSize: [40, 40],
         iconAnchor: [20, 40],
         popupAnchor: [0, -40]
-      }) : window.L.divIcon({
-        html: `<div style="width: 32px; height: 32px; background: linear-gradient(135deg, #0071e3, #005bb5); border: 4px solid white; border-radius: 50%; box-shadow: 0 6px 20px rgba(0,113,227,0.4); position: relative;">
-                 <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 14px; font-weight: bold;">📍</div>
-               </div>`,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20]
       });
       
       const currentMarker = window.L.marker([currentProperty.lat, currentProperty.lng], {
@@ -294,12 +286,7 @@ export function CompetitorMap({
         
         const style = getRatingStyle(competitor.rating);
         
-        const competitorMarkerIcon = competitorIcon ? window.L.icon({
-          iconUrl: competitorIcon,
-          iconSize: [parseInt(style.size), parseInt(style.size)],
-          iconAnchor: [parseInt(style.size) / 2, parseInt(style.size)],
-          popupAnchor: [0, -parseInt(style.size)]
-        }) : window.L.divIcon({
+        const competitorMarkerIcon = window.L.divIcon({
           html: `<div style="width: ${style.size}; height: ${style.size}; background: ${style.gradient}; border: 3px solid white; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); position: relative; display: flex; align-items: center; justify-content: center;">
                    <span style="font-size: 12px;">${style.emoji}</span>
                  </div>`,

@@ -2,7 +2,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Linkedin, FileText, Building2, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
-import moduloLogo from "@assets/Modulo M Logo_1756828313102.png";
 
 export default function AboutUs() {
   const [, setLocation] = useLocation();
@@ -28,7 +27,7 @@ export default function AboutUs() {
           {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
             <img 
-              src={moduloLogo} 
+              src="/assets/Modulo M Logo_1756828313102.png" 
               alt="Modulo Logo" 
               className="w-48 h-48 object-contain"
             />
