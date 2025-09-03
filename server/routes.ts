@@ -2003,17 +2003,17 @@ Keep recommendations specific and quantitative when possible.`;
       if (allRentRollData.length === 0) {
         const demoOverview = {
           occupancyByRoomType: [
-            { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0, avgRate: 2400, avgCompetitorRate: 2550, monthlyRemainder: 1800 },
-            { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0, avgRate: 2800, avgCompetitorRate: 2900, monthlyRemainder: 1440 },
-            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3350, monthlyRemainder: 1200 }
+            { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0, avgRate: 2400, avgCompetitorRate: 2550, avgModuloRate: 4500, monthlyRemainder: (4500 * 14) - (2400 * 12) },
+            { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0, avgRate: 2800, avgCompetitorRate: 2900, avgModuloRate: 4800, monthlyRemainder: (4800 * 19) - (2800 * 18) },
+            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3350, avgModuloRate: 5200, monthlyRemainder: (5200 * 10) - (3200 * 8) }
           ],
           occupancyByServiceLine: [
-            { serviceLine: 'AL', occupied: 15, total: 20, occupancyRate: 75.0, avgRate: 2600, avgCompetitorRate: 2750, monthlyRemainder: 2250 },
-            { serviceLine: 'AL/MC', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3400, monthlyRemainder: 1600 },
-            { serviceLine: 'HC', occupied: 6, total: 8, occupancyRate: 75.0, avgRate: 3800, avgCompetitorRate: 4000, monthlyRemainder: 1200 },
-            { serviceLine: 'HC/MC', occupied: 4, total: 5, occupancyRate: 80.0, avgRate: 4200, avgCompetitorRate: 4500, monthlyRemainder: 1200 },
-            { serviceLine: 'IL', occupied: 6, total: 9, occupancyRate: 67.0, avgRate: 2200, avgCompetitorRate: 2300, monthlyRemainder: 600 },
-            { serviceLine: 'SL', occupied: 7, total: 8, occupancyRate: 88.0, avgRate: 1800, avgCompetitorRate: 1950, monthlyRemainder: 1050 }
+            { serviceLine: 'AL', occupied: 15, total: 20, occupancyRate: 75.0, avgRate: 2600, avgCompetitorRate: 2750, avgModuloRate: 4600, monthlyRemainder: (4600 * 19) - (2600 * 15) },
+            { serviceLine: 'AL/MC', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3400, avgModuloRate: 5100, monthlyRemainder: (5100 * 10) - (3200 * 8) },
+            { serviceLine: 'HC', occupied: 6, total: 8, occupancyRate: 75.0, avgRate: 3800, avgCompetitorRate: 4000, avgModuloRate: 5500, monthlyRemainder: (5500 * 8) - (3800 * 6) },
+            { serviceLine: 'HC/MC', occupied: 4, total: 5, occupancyRate: 80.0, avgRate: 4200, avgCompetitorRate: 4500, avgModuloRate: 5800, monthlyRemainder: (5800 * 5) - (4200 * 4) },
+            { serviceLine: 'IL', occupied: 6, total: 9, occupancyRate: 67.0, avgRate: 2200, avgCompetitorRate: 2300, avgModuloRate: 4200, monthlyRemainder: (4200 * 9) - (2200 * 6) },
+            { serviceLine: 'SL', occupied: 7, total: 8, occupancyRate: 88.0, avgRate: 1800, avgCompetitorRate: 1950, avgModuloRate: 3800, monthlyRemainder: (3800 * 8) - (1800 * 7) }
           ],
           currentAnnualRevenue: 2100000,
           potentialAnnualRevenue: 2700000,
@@ -2043,9 +2043,12 @@ Keep recommendations specific and quantitative when possible.`;
           roomTypeUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / roomTypeUnits.length : 0;
         const avgModuloSuggested = roomTypeUnits.length > 0 ? 
           roomTypeUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / roomTypeUnits.length : 0;
-        // Calculate monthly remainder: (Modulo Rate - Current Rate) × Occupied Units
-        // This represents the monthly opportunity if we moved to optimal Modulo pricing at 95% occupancy
-        const monthlyRemainder = (avgModuloSuggested - avgRate) * stats.occupied;
+        
+        // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
+        const currentMonthlyRevenue = avgRate * stats.occupied;
+        const targetOccupancy = Math.round(stats.total * 0.95);
+        const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
+        const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
         return {
           roomType,
@@ -2079,9 +2082,12 @@ Keep recommendations specific and quantitative when possible.`;
           serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
         const avgModuloSuggested = serviceLineUnits.length > 0 ? 
           serviceLineUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / serviceLineUnits.length : 0;
-        // Calculate monthly remainder: (Modulo Rate - Current Rate) × Occupied Units
-        // This represents the monthly opportunity if we moved to optimal Modulo pricing at 95% occupancy
-        const monthlyRemainder = (avgModuloSuggested - avgRate) * stats.occupied;
+        
+        // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
+        const currentMonthlyRevenue = avgRate * stats.occupied;
+        const targetOccupancy = Math.round(stats.total * 0.95);
+        const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
+        const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
         return {
           serviceLine,

@@ -110,7 +110,10 @@ export default function OverviewTiles() {
     const total = item.total || 0;
     const targetOccupancy = Math.round(total * 0.95); // 95% occupancy target
     
-    const calculation = `Calculation: (Modulo Rate - Current Rate) × Occupied Units = ($${Math.round(moduloRate).toLocaleString()} - $${Math.round(avgRate).toLocaleString()}) × ${occupied.toLocaleString()} = $${Math.round(remainder).toLocaleString()}/month`;
+    const currentMonthlyRevenue = avgRate * occupied;
+    const potentialMonthlyRevenue = moduloRate * targetOccupancy;
+    
+    const calculation = `Detailed Breakdown:\n\nCurrent Monthly Revenue:\n$${Math.round(avgRate).toLocaleString()} × ${occupied} units = $${Math.round(currentMonthlyRevenue).toLocaleString()}\n\nPotential at 95% Occupancy:\n$${Math.round(moduloRate).toLocaleString()} × ${targetOccupancy} units = $${Math.round(potentialMonthlyRevenue).toLocaleString()}\n\nMonthly Remainder:\n$${Math.round(potentialMonthlyRevenue).toLocaleString()} - $${Math.round(currentMonthlyRevenue).toLocaleString()} = $${Math.round(remainder).toLocaleString()}`;
     
     return (
       <TooltipProvider>
@@ -124,10 +127,10 @@ export default function OverviewTiles() {
               </div>
             </div>
           </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-xs">
+          <TooltipContent side="bottom" className="max-w-sm">
             <div className="text-sm">
               <p className="font-medium mb-2">{type} Remainder Calculation</p>
-              <p className="text-xs">{calculation}</p>
+              <div className="text-xs font-mono whitespace-pre-line">{calculation}</div>
             </div>
           </TooltipContent>
         </Tooltip>
