@@ -6,6 +6,8 @@ import Papa from "papaparse";
 import * as xlsx from "xlsx";
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
+import express from "express";
+import path from "path";
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
@@ -153,6 +155,9 @@ async function checkAndInitializeDatabase() {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
+  
+  // Serve attached assets statically
+  app.use('/attached_assets', express.static(path.resolve('attached_assets')));
   
   // Mock auth user endpoint (no authentication required)
   app.get('/api/auth/user', async (req: any, res) => {
