@@ -2043,6 +2043,8 @@ Keep recommendations specific and quantitative when possible.`;
           roomTypeUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / roomTypeUnits.length : 0;
         const avgModuloSuggested = roomTypeUnits.length > 0 ? 
           roomTypeUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / roomTypeUnits.length : 0;
+        // Calculate monthly remainder: (Modulo Rate - Current Rate) × Occupied Units
+        // This represents the monthly opportunity if we moved to optimal Modulo pricing at 95% occupancy
         const monthlyRemainder = (avgModuloSuggested - avgRate) * stats.occupied;
         
         return {
@@ -2052,6 +2054,7 @@ Keep recommendations specific and quantitative when possible.`;
           occupancyRate: Math.round((stats.occupied / stats.total) * 100),
           avgRate,
           avgCompetitorRate,
+          avgModuloRate: avgModuloSuggested,
           monthlyRemainder
         };
       });
@@ -2076,6 +2079,8 @@ Keep recommendations specific and quantitative when possible.`;
           serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
         const avgModuloSuggested = serviceLineUnits.length > 0 ? 
           serviceLineUnits.reduce((sum, u) => sum + (u.moduloSuggestedRate || 0), 0) / serviceLineUnits.length : 0;
+        // Calculate monthly remainder: (Modulo Rate - Current Rate) × Occupied Units
+        // This represents the monthly opportunity if we moved to optimal Modulo pricing at 95% occupancy
         const monthlyRemainder = (avgModuloSuggested - avgRate) * stats.occupied;
         
         return {
@@ -2085,6 +2090,7 @@ Keep recommendations specific and quantitative when possible.`;
           occupancyRate: Math.round((stats.occupied / stats.total) * 100),
           avgRate,
           avgCompetitorRate,
+          avgModuloRate: avgModuloSuggested,
           monthlyRemainder
         };
       });

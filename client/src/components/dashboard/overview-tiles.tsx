@@ -16,6 +16,7 @@ interface OverviewData {
     occupancyRate: number;
     avgRate?: number;
     avgCompetitorRate?: number;
+    avgModuloRate?: number;
     monthlyRemainder?: number;
   }[];
   occupancyByServiceLine: {
@@ -25,6 +26,7 @@ interface OverviewData {
     occupancyRate: number;
     avgRate?: number;
     avgCompetitorRate?: number;
+    avgModuloRate?: number;
     monthlyRemainder?: number;
   }[];
   currentAnnualRevenue: number;
@@ -102,11 +104,13 @@ export default function OverviewTiles() {
 
   const renderRemainderWithTooltip = (item: any, type: string) => {
     const avgRate = item.avgRate || 0;
-    const competitorRate = item.avgCompetitorRate || 0;
+    const moduloRate = item.avgModuloRate || 0;
     const remainder = item.monthlyRemainder || 0;
     const occupied = item.occupied || 0;
+    const total = item.total || 0;
+    const targetOccupancy = Math.round(total * 0.95); // 95% occupancy target
     
-    const calculation = `Calculation: (Competitor Rate - Our Rate) × Occupied Units = ($${Math.round(competitorRate).toLocaleString()} - $${Math.round(avgRate).toLocaleString()}) × ${occupied.toLocaleString()} = $${Math.round(remainder).toLocaleString()}/month`;
+    const calculation = `Calculation: (Modulo Rate - Current Rate) × Occupied Units = ($${Math.round(moduloRate).toLocaleString()} - $${Math.round(avgRate).toLocaleString()}) × ${occupied.toLocaleString()} = $${Math.round(remainder).toLocaleString()}/month`;
     
     return (
       <TooltipProvider>
