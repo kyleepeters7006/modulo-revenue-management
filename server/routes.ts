@@ -606,10 +606,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Pricing weights CRUD
   app.post("/api/weights", async (req, res) => {
     try {
-      const validatedData = insertPricingWeightsSchema.parse(req.body);
+      console.log('Received weights data:', JSON.stringify(req.body, null, 2));
+      // Transform the incoming data to match the schema field names
+      const transformedData = {
+        occupancyPressure: req.body.occupancy_pressure,
+        daysVacantDecay: req.body.days_vacant_decay,
+        roomAttributes: req.body.room_attributes,
+        seasonality: req.body.seasonality,
+        competitorRates: req.body.competitor_rates,
+        stockMarket: req.body.stock_market,
+      };
+      console.log('Transformed data:', JSON.stringify(transformedData, null, 2));
+      const validatedData = insertPricingWeightsSchema.parse(transformedData);
+      console.log('Validated weights data:', JSON.stringify(validatedData, null, 2));
       const weights = await storage.createOrUpdateWeights(validatedData);
       res.json({ ok: true, weights });
     } catch (error) {
+      console.error('Weights validation error:', error);
       res.status(400).json({ error: "Invalid weights data" });
     }
   });
