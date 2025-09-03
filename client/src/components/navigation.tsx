@@ -17,12 +17,12 @@ import {
 
 const menuItems = [
   { path: "/overview", label: "Overview", icon: BarChart3 },
-  { path: "/data-management", label: "Data Management", icon: Upload },
   { path: "/rate-card", label: "Rate Card", icon: CreditCard },
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
   { path: "/competitor-analysis", label: "Competitors", icon: Map },
   { path: "/ai-insights", label: "AI Insights", icon: Brain },
   { path: "/about", label: "About Us", icon: Info },
+  { path: "/data-management", label: "Data Management", icon: Upload },
 ];
 
 interface NavigationProps {
