@@ -75,16 +75,10 @@ export default function Dashboard() {
       <div className="flex-1 lg:pl-80 pt-16 lg:pt-0 w-full max-w-full overflow-y-auto">
         <main className="flex-1 px-2 py-4 sm:px-4 sm:py-6 lg:p-12 w-full max-w-full overflow-x-hidden">
           {/* Main Logo Header - Full logo with text */}
-          <div className="w-full mb-4 lg:mb-8 py-6 lg:py-8">
-            <img 
-              src={mainLogoPath} 
-              alt="Modulo Revenue Management" 
-              className="w-full h-80 sm:h-96 md:h-112 lg:h-128 object-contain"
-              style={{ 
-                objectPosition: 'center center',
-                display: 'block'
-              }}
-            />
+          <div className="w-full mb-4 lg:mb-8 py-6 lg:py-8 flex justify-center">
+            <div style={{width: '400px', height: '100px', backgroundColor: '#1e40af', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px', fontWeight: 'bold', borderRadius: '12px', border: '4px solid #1d4ed8', fontFamily: 'Arial, sans-serif', letterSpacing: '2px'}}>
+              MODULO
+            </div>
           </div>
 
           {/* Page Header */}
