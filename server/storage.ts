@@ -58,6 +58,7 @@ export interface IStorage {
   
   // Rent roll data operations
   getRentRollData(): Promise<RentRollData[]>;
+  getTotalUnits(): Promise<number>;
   getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]>;
   getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
@@ -191,6 +192,11 @@ export class DatabaseStorage implements IStorage {
   // Rent roll data operations
   async getRentRollData(): Promise<RentRollData[]> {
     return await db.select().from(rentRollData);
+  }
+
+  async getTotalUnits(): Promise<number> {
+    const units = await db.select().from(rentRollData);
+    return units.length;
   }
 
   async getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]> {

@@ -129,7 +129,40 @@ async function fetchSP500Data() {
   return marketDataCache.lastMonthReturnPct;
 }
 
+// Check if database needs initialization on startup
+async function checkAndInitializeDatabase() {
+  try {
+    const unitCount = await storage.getTotalUnits();
+    console.log(`Database has ${unitCount} units`);
+    
+    // If database has less than 100 units, it needs initialization
+    if (unitCount < 100) {
+      console.log('Production database needs initialization. Populating with demo data...');
+      
+      // Clear existing data
+      await storage.clearAllData();
+      
+      // Insert demo rent roll data (already imported at top)
+      for (const unit of demoRentRoll) {
+        await storage.createRentRollData(unit);
+      }
+      
+      // Insert demo competitors
+      for (const competitor of demoCompetitors) {
+        await storage.createCompetitor(competitor);
+      }
+      
+      console.log(`Initialized production database with ${demoRentRoll.length} units and ${demoCompetitors.length} competitors`);
+    }
+  } catch (error) {
+    console.error('Error checking/initializing database:', error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize database on startup if needed
+  await checkAndInitializeDatabase();
+  
   // Mock auth user endpoint (no authentication required)
   app.get('/api/auth/user', async (req: any, res) => {
     res.json({
