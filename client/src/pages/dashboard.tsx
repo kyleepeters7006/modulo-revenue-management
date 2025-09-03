@@ -49,7 +49,7 @@ export default function Dashboard() {
       <div className="lg:hidden bg-[var(--dashboard-surface)] border-b border-[var(--dashboard-border)] px-4 py-3 fixed top-0 left-0 right-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <div className="h-20 w-20 flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-2xl font-bold rounded">
+            <div className="h-20 w-20 flex items-center justify-center bg-blue-900 text-white text-2xl font-bold rounded border-2 border-blue-700">
               M
             </div>
           </div>

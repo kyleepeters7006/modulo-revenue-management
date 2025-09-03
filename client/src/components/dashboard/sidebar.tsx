@@ -17,7 +17,7 @@ export default function Sidebar() {
     <div className="flex flex-col flex-grow bg-[var(--dashboard-surface)] border-r border-[var(--dashboard-border)] h-full">
       {/* Header */}
       <div className="flex items-center justify-center px-4 py-6 border-b border-[var(--dashboard-border)]">
-        <div className="h-16 w-16 flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-2xl font-bold rounded">
+        <div className="h-16 w-16 flex items-center justify-center bg-blue-900 text-white text-2xl font-bold rounded border-2 border-blue-700">
           M
         </div>
       </div>

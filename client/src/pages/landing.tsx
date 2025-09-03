@@ -6,7 +6,7 @@ export default function Landing() {
       <div className="max-w-4xl mx-auto text-center">
         {/* Main Logo */}
         <div className="mb-12">
-          <div className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-4xl font-bold rounded-lg">
+          <div className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto flex items-center justify-center bg-blue-900 text-white text-4xl font-bold rounded-lg border-2 border-blue-700">
             MODULO
           </div>
         </div>

@@ -26,7 +26,7 @@ export default function AboutUs() {
         <div className="text-center mb-12">
           {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
-            <div className="w-48 h-48 flex items-center justify-center bg-[var(--trilogy-dark-blue)] text-white text-6xl font-bold rounded-lg">
+            <div className="w-48 h-48 flex items-center justify-center bg-blue-900 text-white text-6xl font-bold rounded-lg border-4 border-blue-700">
               M
             </div>
           </div>
