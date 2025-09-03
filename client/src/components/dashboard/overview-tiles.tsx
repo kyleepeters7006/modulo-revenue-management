@@ -68,7 +68,7 @@ export default function OverviewTiles() {
     },
     {
       title: "Current Annual Revenue", 
-      value: `$${(overviewData.currentAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`,
+      value: `$${(overviewData.currentAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`,
       subtitle: "Based on current occupancy",
       icon: DollarSign,
       color: "amber",
@@ -76,7 +76,7 @@ export default function OverviewTiles() {
     },
     {
       title: "Potential Annual Revenue",
-      value: `$${(overviewData.potentialAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`, 
+      value: `$${(overviewData.potentialAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`, 
       subtitle: "At full occupancy",
       icon: TrendingUp,
       color: "purple",
