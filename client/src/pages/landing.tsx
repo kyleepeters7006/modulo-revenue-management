@@ -6,9 +6,12 @@ export default function Landing() {
       <div className="max-w-4xl mx-auto text-center">
         {/* Main Logo */}
         <div className="mb-12">
-          <div className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto flex items-center justify-center bg-blue-900 text-white text-4xl font-bold rounded-lg border-2 border-blue-700">
-            MODULO
-          </div>
+          <svg className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+            <rect width="400" height="120" rx="15" fill="#1e40af" stroke="#1d4ed8" strokeWidth="4"/>
+            <text x="200" y="75" textAnchor="middle" fill="white" fontSize="32" fontWeight="bold" fontFamily="Arial, sans-serif">
+              MODULO
+            </text>
+          </svg>
         </div>
 
         {/* Hero Content */}

@@ -26,9 +26,12 @@ export default function AboutUs() {
         <div className="text-center mb-12">
           {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
-            <div className="w-48 h-48 flex items-center justify-center bg-blue-900 text-white text-6xl font-bold rounded-lg border-4 border-blue-700">
-              M
-            </div>
+            <svg className="w-48 h-48" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+              <rect width="192" height="192" rx="20" fill="#1e40af" stroke="#1d4ed8" strokeWidth="4"/>
+              <text x="96" y="125" textAnchor="middle" fill="white" fontSize="80" fontWeight="bold" fontFamily="Arial, sans-serif">
+                M
+              </text>
+            </svg>
           </div>
           
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">
