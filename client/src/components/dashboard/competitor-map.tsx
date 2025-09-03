@@ -85,9 +85,10 @@ export function CompetitorMap({
       mapRef.current.innerHTML = '';
       
       try {
-        // Create new map
+        // Create new map with dynamic center based on data
+        const mapCenter = getMapCenter();
         mapInstanceRef.current = window.L.map(mapRef.current, {
-          center: [38.2527, -85.7585],
+          center: mapCenter,
           zoom: 11,
           scrollWheelZoom: true
         });
@@ -109,6 +110,49 @@ export function CompetitorMap({
       }
     };
     
+    const getMapCenter = () => {
+      // Default fallback coordinates (Louisville area)
+      const defaultCenter = [38.2527, -85.7585];
+      
+      if (!competitors?.items?.length) return defaultCenter;
+      
+      try {
+        // If we have a single location selected, center on that location's competitors
+        if (selectedLocations.length === 1) {
+          const locationCompetitors = competitors.items.filter((comp: any) => 
+            comp.location === selectedLocations[0]
+          );
+          
+          if (locationCompetitors.length > 0) {
+            const avgLat = locationCompetitors.reduce((sum: number, comp: any) => sum + (comp.lat || 0), 0) / locationCompetitors.length;
+            const avgLng = locationCompetitors.reduce((sum: number, comp: any) => sum + (comp.lng || 0), 0) / locationCompetitors.length;
+            
+            // Validate coordinates
+            if (avgLat && avgLng && !isNaN(avgLat) && !isNaN(avgLng)) {
+              return [avgLat, avgLng];
+            }
+          }
+        }
+        
+        // Calculate center from all visible competitors
+        if (competitors.items.length > 0) {
+          const validCompetitors = competitors.items.filter((comp: any) => 
+            comp.lat && comp.lng && !isNaN(comp.lat) && !isNaN(comp.lng)
+          );
+          
+          if (validCompetitors.length > 0) {
+            const avgLat = validCompetitors.reduce((sum: number, comp: any) => sum + comp.lat, 0) / validCompetitors.length;
+            const avgLng = validCompetitors.reduce((sum: number, comp: any) => sum + comp.lng, 0) / validCompetitors.length;
+            return [avgLat, avgLng];
+          }
+        }
+      } catch (error) {
+        console.log('Error calculating map center:', error);
+      }
+      
+      return defaultCenter;
+    };
+
     const addMarkers = () => {
       if (!mapInstanceRef.current || !window.L || !competitors || !mounted) return;
       
