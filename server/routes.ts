@@ -1806,45 +1806,45 @@ Keep recommendations specific and quantitative when possible.`;
   // Template download endpoint - exports current portfolio data as template
   app.get("/api/template/download", async (req, res) => {
     try {
-      // Get all portfolio data to export as template
-      const portfolioData = await storage.getPortfolioData();
+      // Get all rent roll data to export as template
+      const portfolioData = await storage.getRentRollData();
       
       let templateData;
       
       if (portfolioData.length > 0) {
         // Export actual portfolio data
         templateData = portfolioData.map(unit => ({
-          date: unit.date,
-          region: unit.region || '',
-          division: unit.division || '',
-          location: unit.location,
-          'room number': unit.roomNumber,
-          'room type': unit.roomType,
-          'service line': unit.serviceLine || '',
-          'occupied Y/N': unit.occupiedYN ? 'Y' : 'N',
-          'days vacant': unit.daysVacant || 0,
-          'preferred location': unit.preferredLocation || '',
-          size: unit.size || '',
-          view: unit.view || '',
-          renovated: unit.renovated || '',
-          'other premium feature': unit.otherPremiumFeature || '',
-          'location rating': unit.locationRating || '',
-          'size rating': unit.sizeRating || '',
-          'view rating': unit.viewRating || '',
-          'renovation rating': unit.renovationRating || '',
-          'amenity rating': unit.amenityRating || '',
-          'street rate': unit.streetRate || 0,
-          'in-house rate': unit.inHouseRate || 0,
-          'discount to street rate': unit.discountToStreetRate || 0,
-          'care level': unit.careLevel || '',
-          'care rate': unit.careRate || 0,
-          'rent and care rate': unit.rentAndCareRate || 0,
-          'competitor rate': unit.competitorRate || 0,
-          'competitor average care rate': unit.competitorAvgCareRate || 0,
-          'competitor final rate': unit.competitorFinalRate || 0,
-          'modulo suggested rate': unit.moduloSuggestedRate || 0,
-          'ai suggested rate': unit.aiSuggestedRate || 0,
-          'promotion allowance': unit.promotionAllowance || 0
+          Date: unit.date || '2024-01-01',
+          Region: unit.region || 'East',
+          Division: unit.division || 'Mid-Atlantic',
+          Location: unit.location,
+          'Room Number': unit.roomNumber,
+          'Room Type': unit.roomType,
+          'Service Line': unit.serviceLine || 'AL',
+          'Occupied Y/N': unit.occupiedYN ? 'Y' : 'N',
+          'Days Vacant': unit.daysVacant || 0,
+          'Preferred Location': unit.preferredLocation || 'N',
+          Size: unit.size || unit.roomType,
+          View: unit.view || 'Standard',
+          Renovated: unit.renovated || 'N',
+          'Other Premium Feature': unit.otherPremiumFeature || '',
+          'Location Rating': unit.locationRating || 'B',
+          'Size Rating': unit.sizeRating || 'B',
+          'View Rating': unit.viewRating || 'B',
+          'Renovation Rating': unit.renovationRating || 'B',
+          'Amenity Rating': unit.amenityRating || 'B',
+          'Street Rate': unit.streetRate || 0,
+          'In-House Rate': unit.inHouseRate || 0,
+          'Discount to Street Rate': unit.discountToStreetRate || 0,
+          'Care Level': unit.careLevel || 'Level 1',
+          'Care Rate': unit.careRate || 0,
+          'Rent and Care Rate': unit.rentAndCareRate || 0,
+          'Competitor Rate': unit.competitorRate || 0,
+          'Competitor Avg Care Rate': unit.competitorAvgCareRate || 0,
+          'Competitor Final Rate': unit.competitorFinalRate || 0,
+          'Modulo Suggested Rate': unit.moduloSuggestedRate || 0,
+          'AI Suggested Rate': unit.aiSuggestedRate || 0,
+          'Promotion Allowance': unit.promotionAllowance || 0
         }));
       } else {
         // If no data, provide template with example row
