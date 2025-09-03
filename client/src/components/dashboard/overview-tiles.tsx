@@ -1,6 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
-import { DollarSign, Home, Users, TrendingUp } from "lucide-react";
+import { DollarSign, Home, Users, TrendingUp, Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface OverviewData {
   occupancyByRoomType: {
@@ -94,6 +100,37 @@ export default function OverviewTiles() {
     return colors[color as keyof typeof colors] || colors.emerald;
   };
 
+  const renderRemainderWithTooltip = (item: any, type: string) => {
+    const avgRate = item.avgRate || 0;
+    const competitorRate = item.avgCompetitorRate || 0;
+    const remainder = item.monthlyRemainder || 0;
+    const occupied = item.occupied || 0;
+    
+    const calculation = `Calculation: (Competitor Rate - Our Rate) × Occupied Units = ($${Math.round(competitorRate).toLocaleString()} - $${Math.round(avgRate).toLocaleString()}) × ${occupied.toLocaleString()} = $${Math.round(remainder).toLocaleString()}/month`;
+    
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex justify-between items-center cursor-help hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 transition-colors">
+              <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
+              <div className="flex items-center gap-1">
+                <span className="font-medium text-[var(--trilogy-success)]">${Math.round(remainder).toLocaleString()}</span>
+                <Info className="w-3 h-3 text-[var(--dashboard-muted)]" />
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            <div className="text-sm">
+              <p className="font-medium mb-2">{type} Remainder Calculation</p>
+              <p className="text-xs">{calculation}</p>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
+
   return (
     <div className="space-y-8">
       {/* Main Overview Tiles */}
@@ -128,59 +165,6 @@ export default function OverviewTiles() {
         })}
       </div>
 
-      {/* Occupancy by Room Type Breakdown */}
-      <Card className="dashboard-card">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
-            Occupancy by Room Type
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {overviewData.occupancyByRoomType.map((roomType) => (
-              <div 
-                key={roomType.roomType} 
-                className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-medium text-[var(--dashboard-text)]">
-                    {roomType.roomType}
-                  </h4>
-                  <span className="text-sm font-bold text-[var(--trilogy-blue)]">
-                    {roomType.occupancyRate.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="text-sm text-[var(--dashboard-muted)] mb-2">
-                  {roomType.occupied.toLocaleString()} / {roomType.total.toLocaleString()} units
-                </div>
-                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
-                  <div 
-                    className="bg-[var(--trilogy-blue)] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${roomType.occupancyRate}%` }}
-                  ></div>
-                </div>
-                
-                {/* Rate Information */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
-                    <span className="font-medium">${Math.round(roomType.avgRate || 0).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
-                    <span className="font-medium">${Math.round(roomType.avgCompetitorRate || 0).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
-                    <span className="font-medium text-[var(--trilogy-success)]">${Math.round(roomType.monthlyRemainder || 0).toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-      
       {/* Occupancy by Service Line Breakdown */}
       <Card className="dashboard-card">
         <CardHeader>
@@ -223,13 +207,60 @@ export default function OverviewTiles() {
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
                     <span className="font-medium">${Math.round(serviceLine.avgCompetitorRate || 0).toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
-                    <span className="font-medium text-[var(--trilogy-success)]">${Math.round(serviceLine.monthlyRemainder || 0).toLocaleString()}</span>
-                  </div>
+                  {renderRemainderWithTooltip(serviceLine, serviceLine.serviceLine)}
                 </div>
               </div>
             )) || []}
+          </div>
+        </CardContent>
+      </Card>
+      
+      {/* Occupancy by Room Type Breakdown */}
+      <Card className="dashboard-card">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
+            Occupancy by Room Type
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {overviewData.occupancyByRoomType.map((roomType) => (
+              <div 
+                key={roomType.roomType} 
+                className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="font-medium text-[var(--dashboard-text)]">
+                    {roomType.roomType}
+                  </h4>
+                  <span className="text-sm font-bold text-[var(--trilogy-blue)]">
+                    {roomType.occupancyRate.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="text-sm text-[var(--dashboard-muted)] mb-2">
+                  {roomType.occupied.toLocaleString()} / {roomType.total.toLocaleString()} units
+                </div>
+                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
+                  <div 
+                    className="bg-[var(--trilogy-blue)] h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${roomType.occupancyRate}%` }}
+                  ></div>
+                </div>
+                
+                {/* Rate Information */}
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
+                    <span className="font-medium">${Math.round(roomType.avgRate || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
+                    <span className="font-medium">${Math.round(roomType.avgCompetitorRate || 0).toLocaleString()}</span>
+                  </div>
+                  {renderRemainderWithTooltip(roomType, roomType.roomType)}
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
