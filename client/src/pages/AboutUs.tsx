@@ -27,14 +27,20 @@ export default function AboutUs() {
           {/* Modulo Logo */}
           <div className="flex justify-center mb-6">
             <img 
-              src="/assets/Modulo M Logo_1756828313102.png" 
+              src="https://modulorm.replit.app/assets/Modulo M Logo_1756828313102.png" 
               alt="Modulo Logo" 
               className="w-48 h-48 object-contain"
               loading="eager"
               decoding="async"
+              crossOrigin="anonymous"
               onError={(e) => {
-                console.error('About logo failed to load:', e);
-                (e.target as HTMLImageElement).style.display = 'none';
+                console.error('About logo failed to load, trying fallback');
+                const img = e.target as HTMLImageElement;
+                img.src = '/assets/Modulo M Logo_1756828313102.png';
+                img.onerror = () => {
+                  console.error('Fallback about logo also failed');
+                  img.style.display = 'none';
+                };
               }}
             />
           </div>

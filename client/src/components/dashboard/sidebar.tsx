@@ -18,14 +18,20 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-center px-4 py-6 border-b border-[var(--dashboard-border)]">
         <img 
-          src="/assets/image_1756172551638.png" 
+          src="https://modulorm.replit.app/assets/image_1756172551638.png" 
           alt="Modulo M Logo" 
           className="h-16 w-auto"
           loading="eager"
           decoding="async"
+          crossOrigin="anonymous"
           onError={(e) => {
-            console.error('Sidebar logo failed to load:', e);
-            (e.target as HTMLImageElement).style.display = 'none';
+            console.error('Sidebar logo failed to load, trying fallback');
+            const img = e.target as HTMLImageElement;
+            img.src = '/assets/image_1756172551638.png';
+            img.onerror = () => {
+              console.error('Fallback sidebar logo also failed');
+              img.style.display = 'none';
+            };
           }}
         />
       </div>

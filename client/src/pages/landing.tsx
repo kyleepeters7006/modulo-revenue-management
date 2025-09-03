@@ -7,14 +7,20 @@ export default function Landing() {
         {/* Main Logo */}
         <div className="mb-12">
           <img 
-            src="/assets/image_1756172904290.png" 
+            src="https://modulorm.replit.app/assets/image_1756172904290.png" 
             alt="Modulo Revenue Management" 
             className="h-32 sm:h-40 md:h-48 lg:h-56 w-auto mx-auto"
             loading="eager"
             decoding="async"
+            crossOrigin="anonymous"
             onError={(e) => {
-              console.error('Logo failed to load:', e);
-              (e.target as HTMLImageElement).style.display = 'none';
+              console.error('Main logo failed to load, trying fallback');
+              const img = e.target as HTMLImageElement;
+              img.src = '/assets/image_1756172904290.png';
+              img.onerror = () => {
+                console.error('Fallback logo also failed');
+                img.style.display = 'none';
+              };
             }}
           />
         </div>

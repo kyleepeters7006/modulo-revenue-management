@@ -50,14 +50,20 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <img 
-              src="/assets/image_1756174752342.png" 
+              src="https://modulorm.replit.app/assets/image_1756174752342.png" 
               alt="Modulo M Logo" 
               className="h-20 w-auto"
               loading="eager"
               decoding="async"
+              crossOrigin="anonymous"
               onError={(e) => {
-                console.error('Dashboard logo failed to load:', e);
-                (e.target as HTMLImageElement).style.display = 'none';
+                console.error('Dashboard logo failed to load, trying fallback');
+                const img = e.target as HTMLImageElement;
+                img.src = '/assets/image_1756174752342.png';
+                img.onerror = () => {
+                  console.error('Fallback dashboard logo also failed');
+                  img.style.display = 'none';
+                };
               }}
             />
           </div>
