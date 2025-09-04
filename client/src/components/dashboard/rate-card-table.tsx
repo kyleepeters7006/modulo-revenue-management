@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { 
   Table, 
   TableBody, 
@@ -24,7 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info } from "lucide-react";
+import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -281,25 +282,50 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex space-x-4">
-            <Button
-              onClick={() => generateModuloMutation.mutate()}
-              disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
-              data-testid="button-generate-modulo"
-            >
-              <Calculator className="h-4 w-4 mr-2" />
-              Generate Modulo Suggestions
-            </Button>
+          <div className="space-y-4">
+            <div className="flex space-x-4">
+              <Button
+                onClick={() => generateModuloMutation.mutate()}
+                disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
+                data-testid="button-generate-modulo"
+              >
+                {generateModuloMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Calculator className="h-4 w-4 mr-2" />
+                )}
+                {generateModuloMutation.isPending ? "Generating..." : "Generate Modulo Suggestions"}
+              </Button>
+              
+              <Button
+                onClick={() => generateAIMutation.mutate()}
+                disabled={generateAIMutation.isPending || filteredUnits.length === 0}
+                variant="outline"
+                data-testid="button-generate-ai"
+              >
+                {generateAIMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Brain className="h-4 w-4 mr-2" />
+                )}
+                {generateAIMutation.isPending ? "Generating..." : "Generate AI Suggestions"}
+              </Button>
+            </div>
             
-            <Button
-              onClick={() => generateAIMutation.mutate()}
-              disabled={generateAIMutation.isPending || filteredUnits.length === 0}
-              variant="outline"
-              data-testid="button-generate-ai"
-            >
-              <Brain className="h-4 w-4 mr-2" />
-              Generate AI Suggestions
-            </Button>
+            {/* Progress bars for loading states */}
+            {generateModuloMutation.isPending && (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">Calculating Modulo pricing recommendations...</div>
+                <Progress value={33} className="h-2" />
+              </div>
+            )}
+            
+            {generateAIMutation.isPending && (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">AI analyzing market conditions...</div>
+                <Progress value={33} className="h-2" />
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
