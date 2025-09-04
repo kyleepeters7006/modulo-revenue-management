@@ -707,6 +707,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI-specific pricing weights endpoints
+  app.get("/api/ai-pricing-weights", async (req, res) => {
+    try {
+      const weights = await storage.getAiPricingWeights();
+      if (weights) {
+        res.json(weights);
+      } else {
+        // Return default AI weights if none exist
+        res.json({
+          occupancyPressure: 20,
+          daysVacantDecay: 20,
+          roomAttributes: 15,
+          competitorRates: 15,
+          seasonality: 15,
+          stockMarket: 15
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching AI pricing weights:', error);
+      res.status(500).json({ error: 'Failed to fetch AI pricing weights' });
+    }
+  });
+
+  app.put("/api/ai-pricing-weights", async (req, res) => {
+    try {
+      const { insertAiPricingWeightsSchema } = await import('@shared/schema');
+      const validatedData = insertAiPricingWeightsSchema.parse(req.body);
+      const weights = await storage.createOrUpdateAiPricingWeights(validatedData);
+      res.json(weights);
+    } catch (error) {
+      console.error('Error updating AI pricing weights:', error);
+      res.status(400).json({ error: 'Invalid AI pricing weights data' });
+    }
+  });
+
+  // AI-specific adjustment ranges endpoints  
+  app.get("/api/ai-adjustment-ranges", async (req, res) => {
+    try {
+      const ranges = await storage.getAiAdjustmentRanges();
+      if (ranges) {
+        res.json(ranges);
+      } else {
+        // Return default AI ranges if none exist
+        res.json({
+          occupancyMin: -0.15,
+          occupancyMax: 0.15,
+          vacancyMin: -0.30,
+          vacancyMax: 0.00,
+          attributesMin: 0.00,
+          attributesMax: 0.20,
+          competitorMin: -0.15,
+          competitorMax: 0.15,
+          seasonalMin: -0.08,
+          seasonalMax: 0.08,
+          marketMin: 0.00,
+          marketMax: 0.05
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching AI adjustment ranges:', error);
+      res.status(500).json({ error: 'Failed to fetch AI adjustment ranges' });
+    }
+  });
+
+  app.put("/api/ai-adjustment-ranges", async (req, res) => {
+    try {
+      const { insertAiAdjustmentRangesSchema } = await import('@shared/schema');
+      const validatedData = insertAiAdjustmentRangesSchema.parse(req.body);
+      const ranges = await storage.createOrUpdateAiAdjustmentRanges(validatedData);
+      res.json(ranges);
+    } catch (error) {
+      console.error('Error updating AI adjustment ranges:', error);
+      res.status(400).json({ error: 'Invalid AI adjustment ranges data' });
+    }
+  });
+
   // Building maps endpoints
   app.get("/api/building-maps", async (req, res) => {
     res.json({ items: buildingMaps });
@@ -2484,9 +2560,29 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log(`Generating AI suggestions for ${units.length} filtered units`);
       
-      // Get current weights and ranges for calculation (same as Modulo)
-      const weights = await storage.getLatestWeights();
-      const ranges = await storage.getAdjustmentRanges();
+      // Get AI-specific weights and ranges for calculation
+      const weights = await storage.getAiPricingWeights() || {
+        occupancyPressure: 20,
+        daysVacantDecay: 20,
+        roomAttributes: 15,
+        competitorRates: 15,
+        seasonality: 15,
+        stockMarket: 15
+      };
+      const ranges = await storage.getAiAdjustmentRanges() || {
+        occupancyMin: -0.15,
+        occupancyMax: 0.15,
+        vacancyMin: -0.30,
+        vacancyMax: 0.00,
+        attributesMin: 0.00,
+        attributesMax: 0.20,
+        competitorMin: -0.15,
+        competitorMax: 0.15,
+        seasonalMin: -0.08,
+        seasonalMax: 0.08,
+        marketMin: 0.00,
+        marketMax: 0.05
+      };
       
       // Generate AI suggestions using the same weights/ranges as Modulo but with AI-specific curves
       for (const unit of units) {

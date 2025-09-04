@@ -13,6 +13,8 @@ import {
   locations,
   portfolioCompetitors,
   targetsAndTrends,
+  aiPricingWeights,
+  aiAdjustmentRanges,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -40,7 +42,11 @@ import {
   type PortfolioCompetitor,
   type InsertPortfolioCompetitor,
   type TargetsAndTrends,
-  type InsertTargetsAndTrends
+  type InsertTargetsAndTrends,
+  type AiPricingWeights,
+  type InsertAiPricingWeights,
+  type AiAdjustmentRanges,
+  type InsertAiAdjustmentRanges
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -596,6 +602,30 @@ export class DatabaseStorage implements IStorage {
   async createOrUpdateAdjustmentRanges(data: InsertAdjustmentRanges): Promise<AdjustmentRanges> {
     await db.delete(adjustmentRanges);
     const [ranges] = await db.insert(adjustmentRanges).values(data).returning();
+    return ranges;
+  }
+  
+  // AI-specific Pricing Weights
+  async getAiPricingWeights(): Promise<AiPricingWeights | undefined> {
+    const [weights] = await db.select().from(aiPricingWeights).limit(1);
+    return weights;
+  }
+  
+  async createOrUpdateAiPricingWeights(data: InsertAiPricingWeights): Promise<AiPricingWeights> {
+    await db.delete(aiPricingWeights);
+    const [weights] = await db.insert(aiPricingWeights).values(data).returning();
+    return weights;
+  }
+  
+  // AI-specific Adjustment Ranges  
+  async getAiAdjustmentRanges(): Promise<AiAdjustmentRanges | undefined> {
+    const [ranges] = await db.select().from(aiAdjustmentRanges).limit(1);
+    return ranges;
+  }
+  
+  async createOrUpdateAiAdjustmentRanges(data: InsertAiAdjustmentRanges): Promise<AiAdjustmentRanges> {
+    await db.delete(aiAdjustmentRanges);
+    const [ranges] = await db.insert(aiAdjustmentRanges).values(data).returning();
     return ranges;
   }
 

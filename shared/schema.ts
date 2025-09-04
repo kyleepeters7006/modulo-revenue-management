@@ -256,6 +256,37 @@ export const portfolioCompetitors = pgTable("portfolio_competitors", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// AI-specific pricing weights
+export const aiPricingWeights = pgTable("ai_pricing_weights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  occupancyPressure: real("occupancy_pressure").default(20), // weight as percentage
+  daysVacantDecay: real("days_vacant_decay").default(20),
+  roomAttributes: real("room_attributes").default(15),
+  competitorRates: real("competitor_rates").default(15),
+  seasonality: real("seasonality").default(15),
+  stockMarket: real("stock_market").default(15),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// AI-specific adjustment ranges
+export const aiAdjustmentRanges = pgTable("ai_adjustment_ranges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  occupancyMin: real("occupancy_min").default(-0.15), // -15%
+  occupancyMax: real("occupancy_max").default(0.15),  // +15%
+  vacancyMin: real("vacancy_min").default(-0.30),     // -30%
+  vacancyMax: real("vacancy_max").default(0),          // 0%
+  attributesMin: real("attributes_min").default(0),    // 0%
+  attributesMax: real("attributes_max").default(0.20), // +20%
+  competitorMin: real("competitor_min").default(-0.15),// -15%
+  competitorMax: real("competitor_max").default(0.15), // +15%
+  seasonalMin: real("seasonal_min").default(-0.08),   // -8%
+  seasonalMax: real("seasonal_max").default(0.08),    // +8%
+  marketMin: real("market_min").default(0),            // 0%
+  marketMax: real("market_max").default(0.05),         // +5%
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
@@ -325,6 +356,17 @@ export const insertAttributeRatingsSchema = createInsertSchema(attributeRatings)
   updatedAt: true,
 });
 
+export const insertAiPricingWeightsSchema = createInsertSchema(aiPricingWeights).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAiAdjustmentRangesSchema = createInsertSchema(aiAdjustmentRanges).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertTargetsAndTrendsSchema = createInsertSchema(targetsAndTrends).omit({
   id: true,
   createdAt: true,
@@ -358,3 +400,7 @@ export type PortfolioCompetitor = typeof portfolioCompetitors.$inferSelect;
 export type InsertPortfolioCompetitor = z.infer<typeof insertPortfolioCompetitorsSchema>;
 export type TargetsAndTrends = typeof targetsAndTrends.$inferSelect;
 export type InsertTargetsAndTrends = z.infer<typeof insertTargetsAndTrendsSchema>;
+export type AiPricingWeights = typeof aiPricingWeights.$inferSelect;
+export type InsertAiPricingWeights = z.infer<typeof insertAiPricingWeightsSchema>;
+export type AiAdjustmentRanges = typeof aiAdjustmentRanges.$inferSelect;
+export type InsertAiAdjustmentRanges = z.infer<typeof insertAiAdjustmentRangesSchema>;
