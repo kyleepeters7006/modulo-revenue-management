@@ -7,6 +7,7 @@ import {
   pricingWeights,
   competitors,
   guardrails,
+  adjustmentRanges,
   attributeRatings,
   locations,
   portfolioCompetitors,
@@ -27,6 +28,8 @@ import {
   type InsertCompetitor,
   type Guardrails,
   type InsertGuardrails,
+  type AdjustmentRanges,
+  type InsertAdjustmentRanges,
   type AttributeRatings,
   type InsertAttributeRatings,
   type Location,
@@ -100,6 +103,11 @@ export interface IStorage {
   // Portfolio Competitors
   getPortfolioCompetitors(): Promise<PortfolioCompetitor[]>;
   createOrUpdatePortfolioCompetitor(data: InsertPortfolioCompetitor): Promise<PortfolioCompetitor>;
+  
+  // Adjustment Ranges
+  getAdjustmentRanges(): Promise<AdjustmentRanges | undefined>;
+  updateAdjustmentRanges(data: InsertAdjustmentRanges): Promise<void>;
+  createOrUpdateAdjustmentRanges(data: InsertAdjustmentRanges): Promise<AdjustmentRanges>;
   
   // Guardrails
   getGuardrails(): Promise<Guardrails[]>;
@@ -531,6 +539,23 @@ export class DatabaseStorage implements IStorage {
       const [created] = await db.insert(portfolioCompetitors).values(data).returning();
       return created;
     }
+  }
+
+  // Adjustment Ranges
+  async getAdjustmentRanges(): Promise<AdjustmentRanges | undefined> {
+    const [ranges] = await db.select().from(adjustmentRanges).limit(1);
+    return ranges;
+  }
+
+  async updateAdjustmentRanges(data: InsertAdjustmentRanges): Promise<void> {
+    await db.delete(adjustmentRanges);
+    await db.insert(adjustmentRanges).values(data);
+  }
+
+  async createOrUpdateAdjustmentRanges(data: InsertAdjustmentRanges): Promise<AdjustmentRanges> {
+    await db.delete(adjustmentRanges);
+    const [ranges] = await db.insert(adjustmentRanges).values(data).returning();
+    return ranges;
   }
 
   // Guardrails

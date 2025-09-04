@@ -177,6 +177,25 @@ export const competitors = pgTable("competitors", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Adjustment ranges for each pricing factor
+export const adjustmentRanges = pgTable("adjustment_ranges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  occupancyMin: real("occupancy_min").notNull().default(-0.10), // -10% at low occupancy
+  occupancyMax: real("occupancy_max").notNull().default(0.05), // +5% at high occupancy
+  vacancyMin: real("vacancy_min").notNull().default(-0.15), // -15% for long vacancy
+  vacancyMax: real("vacancy_max").notNull().default(0.00), // 0% for new vacancy
+  attributesMin: real("attributes_min").notNull().default(-0.05), // -5% for poor attributes
+  attributesMax: real("attributes_max").notNull().default(0.10), // +10% for premium attributes
+  seasonalityMin: real("seasonality_min").notNull().default(-0.05), // -5% off-season
+  seasonalityMax: real("seasonality_max").notNull().default(0.10), // +10% peak season
+  competitorMin: real("competitor_min").notNull().default(-0.10), // -10% when above market
+  competitorMax: real("competitor_max").notNull().default(0.10), // +10% when below market
+  marketMin: real("market_min").notNull().default(-0.05), // -5% bear market
+  marketMax: real("market_max").notNull().default(0.05), // +5% bull market
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Dynamic pricing guardrails
 export const guardrails = pgTable("guardrails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -254,6 +273,12 @@ export const insertCompetitorSchema = createInsertSchema(competitors).omit({
   createdAt: true,
 });
 
+export const insertAdjustmentRangesSchema = createInsertSchema(adjustmentRanges).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertGuardrailsSchema = createInsertSchema(guardrails).omit({
   id: true,
   createdAt: true,
@@ -298,6 +323,8 @@ export type PricingWeights = typeof pricingWeights.$inferSelect;
 export type InsertPricingWeights = z.infer<typeof insertPricingWeightsSchema>;
 export type Competitor = typeof competitors.$inferSelect;
 export type InsertCompetitor = z.infer<typeof insertCompetitorSchema>;
+export type AdjustmentRanges = typeof adjustmentRanges.$inferSelect;
+export type InsertAdjustmentRanges = z.infer<typeof insertAdjustmentRangesSchema>;
 export type Guardrails = typeof guardrails.$inferSelect;
 export type InsertGuardrails = z.infer<typeof insertGuardrailsSchema>;
 export type RateCard = typeof rateCard.$inferSelect;

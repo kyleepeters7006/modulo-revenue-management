@@ -646,6 +646,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Adjustment ranges endpoints
+  app.get("/api/adjustment-ranges", async (req, res) => {
+    try {
+      const ranges = await storage.getAdjustmentRanges();
+      if (ranges) {
+        res.json(ranges);
+      } else {
+        // Return default ranges if none exist
+        const defaultRanges = {
+          occupancyMin: -0.10,
+          occupancyMax: 0.05,
+          vacancyMin: -0.15,
+          vacancyMax: 0.00,
+          attributesMin: -0.05,
+          attributesMax: 0.10,
+          seasonalityMin: -0.05,
+          seasonalityMax: 0.10,
+          competitorMin: -0.10,
+          competitorMax: 0.10,
+          marketMin: -0.05,
+          marketMax: 0.05,
+        };
+        res.json(defaultRanges);
+      }
+    } catch (error) {
+      console.error('Error fetching adjustment ranges:', error);
+      res.status(500).json({ error: 'Failed to fetch adjustment ranges' });
+    }
+  });
+
+  app.put("/api/adjustment-ranges", async (req, res) => {
+    try {
+      const { insertAdjustmentRangesSchema } = await import('@shared/schema');
+      const validatedData = insertAdjustmentRangesSchema.parse(req.body);
+      await storage.createOrUpdateAdjustmentRanges(validatedData);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Error updating adjustment ranges:', error);
+      res.status(400).json({ error: 'Invalid adjustment ranges data' });
+    }
+  });
+
   // Building maps endpoints
   app.get("/api/building-maps", async (req, res) => {
     res.json({ items: buildingMaps });
@@ -2883,16 +2925,16 @@ Keep recommendations specific and quantitative when possible.`;
       const { roomType } = req.params;
       const { unitId, currentRate } = req.query;
       
-      // Get the actual pricing weights and assumptions
+      // Get the actual pricing weights, ranges, and assumptions
       const weights = await storage.getPricingWeights();
+      const ranges = await storage.getAdjustmentRanges();
       const assumptions = await storage.getAssumptions();
       
       // Use the actual street rate passed from the frontend
       console.log('Street rate param:', currentRate);
       const streetRate = currentRate ? parseFloat(currentRate as string) : 3185;
       
-      // Calculate adjustments using actual weights (each weight is a percentage 0-100)
-      // Convert weights to decimals and apply typical adjustment factors
+      // Get weight percentages (0-100)
       const occupancyWeight = weights?.occupancyPressure ?? 25;
       const vacancyWeight = weights?.daysVacantDecay ?? 20;
       const attributeWeight = weights?.roomAttributes ?? 25;
@@ -2900,13 +2942,59 @@ Keep recommendations specific and quantitative when possible.`;
       const competitorWeight = weights?.competitorRates ?? 10;
       const marketWeight = weights?.stockMarket ?? 10;
       
-      // Calculate adjustments based on weights (scaled to typical ranges)
-      const occupancyAdjustment = occupancyWeight > 0 ? -0.040 * (occupancyWeight / 25) : 0;
-      const vacancyAdjustment = vacancyWeight > 0 ? 0.00 * (vacancyWeight / 20) : 0;
-      const attributeAdjustment = attributeWeight > 0 ? 0.014 * (attributeWeight / 25) : 0;
-      const seasonalAdjustment = seasonalWeight > 0 ? 0.05 * (seasonalWeight / 10) : 0;
-      const competitorAdjustment = competitorWeight > 0 ? -0.04 * (competitorWeight / 10) : 0;
-      const marketAdjustment = marketWeight > 0 ? 0.02 * (marketWeight / 10) : 0;
+      // Get adjustment ranges, using defaults if not configured
+      const occupancyMin = ranges?.occupancyMin ?? -0.10;
+      const occupancyMax = ranges?.occupancyMax ?? 0.05;
+      const vacancyMin = ranges?.vacancyMin ?? -0.15;
+      const vacancyMax = ranges?.vacancyMax ?? 0.00;
+      const attributesMin = ranges?.attributesMin ?? -0.05;
+      const attributesMax = ranges?.attributesMax ?? 0.10;
+      const seasonalityMin = ranges?.seasonalityMin ?? -0.05;
+      const seasonalityMax = ranges?.seasonalityMax ?? 0.10;
+      const competitorMin = ranges?.competitorMin ?? -0.10;
+      const competitorMax = ranges?.competitorMax ?? 0.10;
+      const marketMin = ranges?.marketMin ?? -0.05;
+      const marketMax = ranges?.marketMax ?? 0.05;
+      
+      // Calculate adjustments: weight determines how much of the range is applied
+      // For demo purposes, we'll assume mid-range conditions for each factor
+      // In production, these would be calculated based on actual data
+      
+      // Occupancy: Assume 90% occupancy (slightly below target)
+      const occupancyFactor = 0.3; // 30% toward min (need to lower rates slightly)
+      const occupancyAdjustment = occupancyWeight > 0 
+        ? (occupancyMin * occupancyFactor + occupancyMax * (1 - occupancyFactor)) * (occupancyWeight / 100)
+        : 0;
+      
+      // Vacancy: Assume unit is recently vacant
+      const vacancyFactor = 0.2; // 20% toward min
+      const vacancyAdjustment = vacancyWeight > 0
+        ? (vacancyMin * vacancyFactor + vacancyMax * (1 - vacancyFactor)) * (vacancyWeight / 100)
+        : 0;
+      
+      // Attributes: Assume average attributes
+      const attributesFactor = 0.6; // 60% toward max (slightly above average)
+      const attributeAdjustment = attributeWeight > 0
+        ? (attributesMin * (1 - attributesFactor) + attributesMax * attributesFactor) * (attributeWeight / 100)
+        : 0;
+      
+      // Seasonality: Assume peak season
+      const seasonalityFactor = 0.8; // 80% toward max
+      const seasonalAdjustment = seasonalWeight > 0
+        ? (seasonalityMin * (1 - seasonalityFactor) + seasonalityMax * seasonalityFactor) * (seasonalWeight / 100)
+        : 0;
+      
+      // Competitor: Assume we're slightly above market
+      const competitorFactor = 0.4; // 40% toward min (need to be more competitive)
+      const competitorAdjustment = competitorWeight > 0
+        ? (competitorMin * competitorFactor + competitorMax * (1 - competitorFactor)) * (competitorWeight / 100)
+        : 0;
+      
+      // Market: Assume neutral market conditions
+      const marketFactor = 0.6; // 60% toward max (slight bullish)
+      const marketAdjustment = marketWeight > 0
+        ? (marketMin * (1 - marketFactor) + marketMax * marketFactor) * (marketWeight / 100)
+        : 0;
       
       // Calculate total adjustment to get the actual Modulo rate
       const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
