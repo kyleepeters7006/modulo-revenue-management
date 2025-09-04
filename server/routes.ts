@@ -615,6 +615,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         competitorRates: req.body.competitor_rates,
         stockMarket: req.body.stock_market,
       };
+      
+      // Validate that weights total 100
+      const total = transformedData.occupancyPressure + transformedData.daysVacantDecay + 
+                    transformedData.roomAttributes + transformedData.seasonality + 
+                    transformedData.competitorRates + transformedData.stockMarket;
+      
+      if (total !== 100) {
+        return res.status(400).json({ error: `Weights must total 100%, currently ${total}%` });
+      }
+      
       const validatedData = insertPricingWeightsSchema.parse(transformedData);
       const weights = await storage.createOrUpdateWeights(validatedData);
       res.json({ ok: true, weights });
