@@ -139,7 +139,7 @@ export function AiAdjustmentRanges() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -155,7 +155,7 @@ export function AiAdjustmentRanges() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -179,7 +179,7 @@ export function AiAdjustmentRanges() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -195,7 +195,7 @@ export function AiAdjustmentRanges() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -219,7 +219,7 @@ export function AiAdjustmentRanges() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -235,7 +235,7 @@ export function AiAdjustmentRanges() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -259,7 +259,7 @@ export function AiAdjustmentRanges() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -275,7 +275,7 @@ export function AiAdjustmentRanges() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -299,7 +299,7 @@ export function AiAdjustmentRanges() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -315,7 +315,7 @@ export function AiAdjustmentRanges() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -339,7 +339,7 @@ export function AiAdjustmentRanges() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
@@ -355,7 +355,7 @@ export function AiAdjustmentRanges() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">

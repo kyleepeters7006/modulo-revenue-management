@@ -99,8 +99,8 @@ export default function AdjustmentRanges() {
   };
 
   const getIcon = (value: number) => {
-    if (value > 0) return <TrendingUp className="w-3 h-3 text-green-600" />;
-    if (value < 0) return <TrendingDown className="w-3 h-3 text-red-600" />;
+    if (value > 0) return <TrendingUp className="w-6 h-6 text-green-600" strokeWidth={3.5} />;
+    if (value < 0) return <TrendingDown className="w-6 h-6 text-red-600" strokeWidth={3.5} />;
     return null;
   };
 
@@ -206,9 +206,7 @@ export default function AdjustmentRanges() {
                         step="1"
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
-                      <span className={`text-xs ${minValue < 0 ? 'text-red-600' : minValue > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                        {minValue < 0 ? '↓' : minValue > 0 ? '↑' : '—'}
-                      </span>
+                      {minValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : minValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-gray-500">—</span>}
                     </div>
                   </div>
 
@@ -228,9 +226,7 @@ export default function AdjustmentRanges() {
                         step="1"
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
-                      <span className={`text-xs ${maxValue < 0 ? 'text-red-600' : maxValue > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                        {maxValue < 0 ? '↓' : maxValue > 0 ? '↑' : '—'}
-                      </span>
+                      {maxValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : maxValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-gray-500">—</span>}
                     </div>
                   </div>
                 </div>
