@@ -116,11 +116,11 @@ export default function PricingWeights() {
                 className="px-2 py-1 text-xs font-mono bg-[var(--dashboard-bg)] border border-[var(--dashboard-border)] rounded text-[var(--dashboard-text)]"
                 data-testid={`value-weight-${config.key}`}
               >
-                {weights[config.key] || config.default}
+                {weights[config.key] !== undefined ? weights[config.key] : config.default}
               </span>
             </div>
             <Slider
-              value={[weights[config.key] || config.default]}
+              value={[weights[config.key] !== undefined ? weights[config.key] : config.default]}
               onValueChange={(value) => handleWeightChange(config.key, value)}
               min={0}
               max={100}
