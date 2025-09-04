@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, AlertCircle } from "lucide-react";
+import { Settings, AlertCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
@@ -156,6 +156,18 @@ export default function PricingWeights() {
     saveWeightsMutation.mutate(weights);
   };
 
+  const handleResetToDefaults = () => {
+    const defaultWeights: Record<string, number> = {};
+    weightConfigs.forEach(config => {
+      defaultWeights[config.key] = config.default;
+    });
+    setWeights(defaultWeights);
+    toast({
+      title: "Weights Reset",
+      description: "Weights have been reset to default values",
+    });
+  };
+
   return (
     <div className="dashboard-card mb-8">
       <div className="flex items-center space-x-3 mb-6">
@@ -170,10 +182,10 @@ export default function PricingWeights() {
             Adjust factors influencing dynamic pricing decisions
           </p>
         </div>
-        <div className={`px-3 py-1 rounded-lg text-sm font-medium ${
+        <div className={`px-3 py-1 rounded-lg text-sm font-semibold ${
           isValid 
-            ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300' 
-            : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+            ? 'bg-green-100 text-green-900 dark:bg-green-900/20 dark:text-green-200' 
+            : 'bg-red-100 text-red-900 dark:bg-red-900/20 dark:text-red-200'
         }`}>
           Total: {totalWeight}%
         </div>
@@ -219,14 +231,25 @@ export default function PricingWeights() {
         <div className="text-sm text-[var(--dashboard-muted)]">
           {!isValid ? "Adjust weights to total 100%" : "Weights ready to save"}
         </div>
-        <Button
-          onClick={handleSave}
-          className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
-          disabled={saveWeightsMutation.isPending || !isValid}
-          data-testid="button-save-weights"
-        >
-          {saveWeightsMutation.isPending ? "Saving..." : "Save Weights"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleResetToDefaults}
+            variant="outline"
+            className="border-[var(--dashboard-border)] hover:bg-[var(--dashboard-bg)]"
+            data-testid="button-reset-weights"
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reset to Default
+          </Button>
+          <Button
+            onClick={handleSave}
+            className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
+            disabled={saveWeightsMutation.isPending || !isValid}
+            data-testid="button-save-weights"
+          >
+            {saveWeightsMutation.isPending ? "Saving..." : "Save Weights"}
+          </Button>
+        </div>
       </div>
     </div>
   );
