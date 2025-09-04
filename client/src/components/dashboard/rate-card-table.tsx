@@ -29,6 +29,7 @@ import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2 } from
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
+import AICalculationDialog from "./ai-calculation-dialog";
 
 interface RateCardTableProps {
   selectedServiceLine?: string;
@@ -47,6 +48,7 @@ export default function RateCardTable({
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
+  const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -460,32 +462,22 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {unit.aiSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <div className="relative">
-                              <button 
-                                className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const tooltipId = `ai-${unit.id}`;
-                                  setOpenTooltip(openTooltip === tooltipId ? null : tooltipId);
-                                }}
-                                data-testid={`tooltip-ai-${unit.roomNumber}`}
-                              >
-                                <span>${Math.round(unit.aiSuggestedRate).toLocaleString()}</span>
-                                <Info className="h-3 w-3" />
-                              </button>
-                              {openTooltip === `ai-${unit.id}` && (
-                                <div className="absolute z-50 left-0 top-full mt-1 bg-black text-white text-xs p-3 rounded shadow-lg max-w-xs whitespace-pre-wrap">
-                                  {getAITooltip(unit)}
-                                  <button
-                                    className="absolute top-1 right-1 text-gray-300 hover:text-white"
-                                    onClick={() => setOpenTooltip(null)}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                            <button 
+                              className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAIDialogUnit({
+                                  unitId: unit.id,
+                                  roomType: unit.roomType,
+                                  streetRate: unit.streetRate
+                                });
+                              }}
+                              data-testid={`tooltip-ai-${unit.roomNumber}`}
+                            >
+                              <span>${Math.round(unit.aiSuggestedRate).toLocaleString()}</span>
+                              <Info className="h-3 w-3" />
+                            </button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -700,6 +692,17 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           )}
         </CardContent>
       </Card>
+      
+      {/* AI Calculation Dialog */}
+      {aiDialogUnit && (
+        <AICalculationDialog
+          open={!!aiDialogUnit}
+          onOpenChange={(open) => !open && setAIDialogUnit(null)}
+          unitId={aiDialogUnit.unitId}
+          roomType={aiDialogUnit.roomType}
+          streetRate={aiDialogUnit.streetRate}
+        />
+      )}
     </div>
     </TooltipProvider>
   );

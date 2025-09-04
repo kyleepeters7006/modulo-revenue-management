@@ -2484,28 +2484,85 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log(`Generating AI suggestions for ${units.length} filtered units`);
       
-      // Generate AI suggestions (mock implementation)
+      // Get current weights and ranges for calculation (same as Modulo)
+      const weights = await storage.getLatestWeights();
+      const ranges = await storage.getAdjustmentRanges();
+      
+      // Generate AI suggestions using the same logic as Modulo but with AI variations
       for (const unit of units) {
         let aiSuggestion = unit.streetRate;
+        let adjustmentFactors = [];
         
-        // AI considers multiple factors with different weightings
-        if (unit.occupiedYN) {
-          aiSuggestion *= 1.05; // Increase if occupied (demand signal)
-        } else if (unit.daysVacant > 60) {
-          aiSuggestion *= 0.92; // Decrease for long vacancies
+        // Apply occupancy pressure (same as Modulo but with AI variation)
+        if (weights?.occupancyPressure) {
+          const occupancyRate = unit.occupiedYN ? 0.88 : 0.72; // Slightly different from Modulo
+          const pressureAdjustment = (occupancyRate - 0.8) * (weights.occupancyPressure / 100);
+          aiSuggestion *= (1 + pressureAdjustment);
+          adjustmentFactors.push(`Occupancy: ${(pressureAdjustment * 100).toFixed(1)}%`);
         }
         
-        // Premium features boost
-        if (unit.view === "Garden View") aiSuggestion *= 1.08;
-        if (unit.renovated) aiSuggestion *= 1.06;
-        
-        // Market positioning vs competitors
-        if (unit.competitorRate && unit.streetRate < unit.competitorRate * 0.95) {
-          aiSuggestion = unit.competitorRate * 0.98; // Price closer to competitors
+        // Apply days vacant decay (same weights but different curve)
+        if (unit.daysVacant > 0 && weights?.daysVacantDecay) {
+          const vacancyPenalty = Math.min(unit.daysVacant / 50, 0.30); // More aggressive than Modulo
+          const decay = vacancyPenalty * (weights.daysVacantDecay / 100);
+          aiSuggestion *= (1 - decay);
+          if (decay > 0.01) adjustmentFactors.push(`Vacancy: -${(decay * 100).toFixed(1)}%`);
         }
+        
+        // Apply room attributes premium (same weights, different values)
+        let attributeBonus = 0;
+        if (unit.view && weights?.roomAttributes) {
+          attributeBonus += weights.roomAttributes / 100 * 0.06; // 6% for view (vs 5% in Modulo)
+        }
+        if (unit.renovated && weights?.roomAttributes) {
+          attributeBonus += weights.roomAttributes / 100 * 0.09; // 9% for renovation (vs 8% in Modulo)
+        }
+        if (attributeBonus > 0) {
+          aiSuggestion *= (1 + attributeBonus);
+          adjustmentFactors.push(`Attributes: +${(attributeBonus * 100).toFixed(1)}%`);
+        }
+        
+        // Apply competitor rate adjustment (more aggressive than Modulo)
+        if (unit.competitorRate && weights?.competitorRates && unit.competitorRate !== unit.streetRate) {
+          const competitorDiff = (unit.competitorRate - unit.streetRate) / unit.streetRate;
+          const adjustment = competitorDiff * (weights.competitorRates / 100) * 0.7; // 70% of competitor difference (vs 50% in Modulo)
+          aiSuggestion *= (1 + adjustment);
+          if (Math.abs(adjustment) > 0.01) adjustmentFactors.push(`Competitor: ${adjustment > 0 ? '+' : ''}${(adjustment * 100).toFixed(1)}%`);
+        }
+        
+        // Apply seasonality (using weights)
+        if (weights?.seasonality) {
+          const month = new Date().getMonth();
+          let seasonalAdjustment = 0;
+          if (month >= 8 && month <= 10) seasonalAdjustment = 0.06; // 6% peak season
+          else if (month >= 11 || month <= 1) seasonalAdjustment = -0.04; // -4% low season
+          
+          if (seasonalAdjustment !== 0) {
+            const weightedAdjustment = seasonalAdjustment * (weights.seasonality / 100);
+            aiSuggestion *= (1 + weightedAdjustment);
+            adjustmentFactors.push(`Seasonal: ${weightedAdjustment > 0 ? '+' : ''}${(weightedAdjustment * 100).toFixed(1)}%`);
+          }
+        }
+        
+        // Apply market adjustment (using weights)
+        if (weights?.stockMarket) {
+          const marketAdjustment = 0.025 * (weights.stockMarket / 100); // 2.5% market growth
+          aiSuggestion *= (1 + marketAdjustment);
+          adjustmentFactors.push(`Market: +${(marketAdjustment * 100).toFixed(1)}%`);
+        }
+        
+        // Store calculation details for the popup (like Modulo)
+        const aiCalculationDetails = {
+          baseRate: unit.streetRate,
+          adjustments: adjustmentFactors,
+          finalRate: Math.round(aiSuggestion),
+          weights: weights || {},
+          ranges: ranges || {}
+        };
         
         await storage.updateRentRollData(unit.id, {
-          aiSuggestedRate: Math.round(aiSuggestion)
+          aiSuggestedRate: Math.round(aiSuggestion),
+          aiCalculationDetails: JSON.stringify(aiCalculationDetails) // Store for popup display
         });
       }
       
@@ -2825,6 +2882,32 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Error updating unit attributes:', error);
       res.status(500).json({ error: 'Failed to update unit attributes' });
+    }
+  });
+
+  // Get detailed calculation for a specific unit's AI rate
+  app.get("/api/ai-calculation/:unitId", async (req, res) => {
+    try {
+      const { unitId } = req.params;
+      const unit = await storage.getRentRollDataById(unitId);
+      
+      if (!unit || !unit.aiCalculationDetails) {
+        return res.status(404).json({ error: 'AI calculation not found' });
+      }
+      
+      // Parse the stored calculation details
+      const calculationDetails = JSON.parse(unit.aiCalculationDetails);
+      
+      res.json({
+        unitId: unit.id,
+        roomType: unit.roomType,
+        streetRate: unit.streetRate,
+        aiSuggestedRate: unit.aiSuggestedRate,
+        calculation: calculationDetails
+      });
+    } catch (error) {
+      console.error('AI calculation fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch AI calculation details' });
     }
   });
 

@@ -117,6 +117,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   competitorFinalRate: real("competitor_final_rate"),
   moduloSuggestedRate: real("modulo_suggested_rate"),
   aiSuggestedRate: real("ai_suggested_rate"),
+  aiCalculationDetails: text("ai_calculation_details"), // JSON string of AI calculation breakdown
   promotionAllowance: real("promotion_allowance"),
   createdAt: timestamp("created_at").defaultNow(),
 });
