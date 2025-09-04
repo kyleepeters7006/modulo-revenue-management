@@ -2488,65 +2488,89 @@ Keep recommendations specific and quantitative when possible.`;
       const weights = await storage.getLatestWeights();
       const ranges = await storage.getAdjustmentRanges();
       
-      // Generate AI suggestions using the same logic as Modulo but with AI variations
+      // Generate AI suggestions using the same weights/ranges as Modulo but with AI-specific curves
       for (const unit of units) {
         let aiSuggestion = unit.streetRate;
         let adjustmentFactors = [];
         
-        // Apply occupancy pressure (same as Modulo but with AI variation)
+        // Apply occupancy pressure (respecting both weight AND range limits)
         if (weights?.occupancyPressure) {
-          const occupancyRate = unit.occupiedYN ? 0.88 : 0.72; // Slightly different from Modulo
-          const pressureAdjustment = (occupancyRate - 0.8) * (weights.occupancyPressure / 100);
+          const occupancyRate = unit.occupiedYN ? 0.88 : 0.72; // AI-specific occupancy rates
+          const rawPressureAdjustment = (occupancyRate - 0.8) * (weights.occupancyPressure / 100);
+          // Apply range limits from adjustment ranges
+          const minAdj = ranges?.occupancyMin || -0.1;
+          const maxAdj = ranges?.occupancyMax || 0.1;
+          const pressureAdjustment = Math.max(minAdj, Math.min(maxAdj, rawPressureAdjustment));
           aiSuggestion *= (1 + pressureAdjustment);
           adjustmentFactors.push(`Occupancy: ${(pressureAdjustment * 100).toFixed(1)}%`);
         }
         
-        // Apply days vacant decay (same weights but different curve)
+        // Apply days vacant decay (respecting both weight AND range limits)
         if (unit.daysVacant > 0 && weights?.daysVacantDecay) {
-          const vacancyPenalty = Math.min(unit.daysVacant / 50, 0.30); // More aggressive than Modulo
-          const decay = vacancyPenalty * (weights.daysVacantDecay / 100);
+          const vacancyPenalty = Math.min(unit.daysVacant / 50, 0.30); // AI curve: more aggressive
+          const rawDecay = vacancyPenalty * (weights.daysVacantDecay / 100);
+          // Apply range limits
+          const minAdj = ranges?.vacancyMin || -0.25;
+          const maxAdj = ranges?.vacancyMax || 0;
+          const decay = Math.abs(Math.max(minAdj, Math.min(maxAdj, -rawDecay)));
           aiSuggestion *= (1 - decay);
           if (decay > 0.01) adjustmentFactors.push(`Vacancy: -${(decay * 100).toFixed(1)}%`);
         }
         
-        // Apply room attributes premium (same weights, different values)
-        let attributeBonus = 0;
+        // Apply room attributes premium (respecting both weight AND range limits)
+        let rawAttributeBonus = 0;
         if (unit.view && weights?.roomAttributes) {
-          attributeBonus += weights.roomAttributes / 100 * 0.06; // 6% for view (vs 5% in Modulo)
+          rawAttributeBonus += weights.roomAttributes / 100 * 0.06; // AI: 6% for view
         }
         if (unit.renovated && weights?.roomAttributes) {
-          attributeBonus += weights.roomAttributes / 100 * 0.09; // 9% for renovation (vs 8% in Modulo)
+          rawAttributeBonus += weights.roomAttributes / 100 * 0.09; // AI: 9% for renovation
         }
+        // Apply range limits
+        const minAttr = ranges?.attributesMin || 0;
+        const maxAttr = ranges?.attributesMax || 0.15;
+        const attributeBonus = Math.max(minAttr, Math.min(maxAttr, rawAttributeBonus));
         if (attributeBonus > 0) {
           aiSuggestion *= (1 + attributeBonus);
           adjustmentFactors.push(`Attributes: +${(attributeBonus * 100).toFixed(1)}%`);
         }
         
-        // Apply competitor rate adjustment (more aggressive than Modulo)
+        // Apply competitor rate adjustment (respecting both weight AND range limits)
         if (unit.competitorRate && weights?.competitorRates && unit.competitorRate !== unit.streetRate) {
           const competitorDiff = (unit.competitorRate - unit.streetRate) / unit.streetRate;
-          const adjustment = competitorDiff * (weights.competitorRates / 100) * 0.7; // 70% of competitor difference (vs 50% in Modulo)
+          const rawAdjustment = competitorDiff * (weights.competitorRates / 100) * 0.7; // AI: 70% of competitor difference
+          // Apply range limits
+          const minComp = ranges?.competitorMin || -0.1;
+          const maxComp = ranges?.competitorMax || 0.1;
+          const adjustment = Math.max(minComp, Math.min(maxComp, rawAdjustment));
           aiSuggestion *= (1 + adjustment);
           if (Math.abs(adjustment) > 0.01) adjustmentFactors.push(`Competitor: ${adjustment > 0 ? '+' : ''}${(adjustment * 100).toFixed(1)}%`);
         }
         
-        // Apply seasonality (using weights)
+        // Apply seasonality (respecting both weight AND range limits)
         if (weights?.seasonality) {
           const month = new Date().getMonth();
-          let seasonalAdjustment = 0;
-          if (month >= 8 && month <= 10) seasonalAdjustment = 0.06; // 6% peak season
-          else if (month >= 11 || month <= 1) seasonalAdjustment = -0.04; // -4% low season
+          let rawSeasonalAdjustment = 0;
+          if (month >= 8 && month <= 10) rawSeasonalAdjustment = 0.06; // AI: 6% peak season
+          else if (month >= 11 || month <= 1) rawSeasonalAdjustment = -0.04; // AI: -4% low season
           
-          if (seasonalAdjustment !== 0) {
-            const weightedAdjustment = seasonalAdjustment * (weights.seasonality / 100);
-            aiSuggestion *= (1 + weightedAdjustment);
-            adjustmentFactors.push(`Seasonal: ${weightedAdjustment > 0 ? '+' : ''}${(weightedAdjustment * 100).toFixed(1)}%`);
+          if (rawSeasonalAdjustment !== 0) {
+            const weightedAdjustment = rawSeasonalAdjustment * (weights.seasonality / 100);
+            // Apply range limits
+            const minSeason = ranges?.seasonalMin || -0.05;
+            const maxSeason = ranges?.seasonalMax || 0.05;
+            const seasonalAdjustment = Math.max(minSeason, Math.min(maxSeason, weightedAdjustment));
+            aiSuggestion *= (1 + seasonalAdjustment);
+            adjustmentFactors.push(`Seasonal: ${seasonalAdjustment > 0 ? '+' : ''}${(seasonalAdjustment * 100).toFixed(1)}%`);
           }
         }
         
-        // Apply market adjustment (using weights)
+        // Apply market adjustment (respecting both weight AND range limits)
         if (weights?.stockMarket) {
-          const marketAdjustment = 0.025 * (weights.stockMarket / 100); // 2.5% market growth
+          const rawMarketAdjustment = 0.025 * (weights.stockMarket / 100); // AI: 2.5% market growth
+          // Apply range limits
+          const minMarket = ranges?.marketMin || 0;
+          const maxMarket = ranges?.marketMax || 0.03;
+          const marketAdjustment = Math.max(minMarket, Math.min(maxMarket, rawMarketAdjustment));
           aiSuggestion *= (1 + marketAdjustment);
           adjustmentFactors.push(`Market: +${(marketAdjustment * 100).toFixed(1)}%`);
         }
