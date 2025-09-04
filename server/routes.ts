@@ -2912,8 +2912,8 @@ Keep recommendations specific and quantitative when possible.`;
       const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
                              seasonalAdjustment + competitorAdjustment + marketAdjustment;
       
-      // For now, return the base rate as the recommended rate since it matches the table
-      const recommendedRate = baseRate;
+      // Apply the adjustment to get the recommended rate
+      const recommendedRate = Math.round(baseRate * (1 + totalAdjustment));
       
       res.json({
         recommendedRate,
