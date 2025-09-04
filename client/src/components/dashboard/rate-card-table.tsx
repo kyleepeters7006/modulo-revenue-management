@@ -27,6 +27,7 @@ import {
 import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import ModuloCalculationDialog from "./modulo-calculation-dialog";
 
 interface RateCardTableProps {
   selectedServiceLine?: string;
@@ -391,32 +392,19 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {unit.moduloSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <div className="relative">
+                            <ModuloCalculationDialog
+                              roomType={unit.roomType}
+                              currentRate={unit.streetRate || 3000}
+                            >
                               <button 
-                                className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                                className="cursor-pointer flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const tooltipId = `modulo-${unit.id}`;
-                                  setOpenTooltip(openTooltip === tooltipId ? null : tooltipId);
-                                }}
                                 data-testid={`tooltip-modulo-${unit.roomNumber}`}
                               >
                                 <span>${Math.round(unit.moduloSuggestedRate).toLocaleString()}</span>
                                 <Info className="h-3 w-3" />
                               </button>
-                              {openTooltip === `modulo-${unit.id}` && (
-                                <div className="absolute z-50 left-0 top-full mt-1 bg-black text-white text-xs p-3 rounded shadow-lg max-w-xs whitespace-pre-wrap">
-                                  {getModuloTooltip(unit)}
-                                  <button
-                                    className="absolute top-1 right-1 text-gray-300 hover:text-white"
-                                    onClick={() => setOpenTooltip(null)}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                            </ModuloCalculationDialog>
                             <Button
                               size="sm"
                               variant="outline"
