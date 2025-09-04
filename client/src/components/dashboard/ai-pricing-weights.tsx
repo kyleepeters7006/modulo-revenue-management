@@ -156,7 +156,7 @@ export function AiPricingWeights() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-sm font-medium ${Math.abs(total - 100) < 0.1 ? 'text-green-600' : 'text-red-600'}`}>
+            <span className={`text-sm font-bold ${Math.abs(total - 100) < 0.1 ? 'text-green-700' : 'text-red-700'}`}>
               Total: {total}%
             </span>
           </div>

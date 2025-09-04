@@ -205,10 +205,10 @@ export default function PricingWeights() {
             Adjust factors influencing dynamic pricing decisions
           </p>
         </div>
-        <div className={`px-3 py-1 rounded-lg text-sm font-semibold ${
+        <div className={`px-3 py-1 rounded-lg text-sm font-bold ${
           isValid 
-            ? 'bg-green-100 text-green-900 dark:bg-green-900/20 dark:text-green-200' 
-            : 'bg-red-100 text-red-900 dark:bg-red-900/20 dark:text-red-200'
+            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-100' 
+            : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-100'
         }`}>
           Total: {totalWeight}%
         </div>
