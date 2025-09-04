@@ -1978,12 +1978,12 @@ Keep recommendations specific and quantitative when possible.`;
         ];
       }
 
-      const worksheet = XLSX.utils.json_to_sheet(templateData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Portfolio Data');
+      const worksheet = xlsx.utils.json_to_sheet(templateData);
+      const workbook = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'Portfolio Data');
 
       // Write to buffer
-      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename=portfolio_template.xlsx');
@@ -2010,10 +2010,10 @@ Keep recommendations specific and quantitative when possible.`;
         const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
         jsonData = parsed.data as any[];
       } else if (req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
-        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const workbook = xlsx.read(buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        jsonData = XLSX.utils.sheet_to_json(worksheet);
+        jsonData = xlsx.utils.sheet_to_json(worksheet);
       } else {
         return res.status(400).json({ error: 'Unsupported file format. Please use CSV or Excel files.' });
       }
