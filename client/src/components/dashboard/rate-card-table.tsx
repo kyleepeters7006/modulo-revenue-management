@@ -83,7 +83,13 @@ export default function RateCardTable({
   });
 
   const generateModuloMutation = useMutation({
-    mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { month: selectedMonth }),
+    mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { 
+      month: selectedMonth,
+      serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
+      regions: selectedRegions,
+      divisions: selectedDivisions,
+      locations: selectedLocations
+    }),
     onSuccess: () => {
       toast({
         title: "Modulo suggestions generated",
@@ -101,7 +107,13 @@ export default function RateCardTable({
   });
 
   const generateAIMutation = useMutation({
-    mutationFn: () => apiRequest('/api/pricing/generate-ai', 'POST', { month: selectedMonth }),
+    mutationFn: () => apiRequest('/api/pricing/generate-ai', 'POST', { 
+      month: selectedMonth,
+      serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
+      regions: selectedRegions,
+      divisions: selectedDivisions,
+      locations: selectedLocations
+    }),
     onSuccess: () => {
       toast({
         title: "AI suggestions generated",

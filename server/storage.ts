@@ -8,6 +8,7 @@ import {
   competitors,
   guardrails,
   adjustmentRanges,
+  stockMarketCache,
   attributeRatings,
   locations,
   portfolioCompetitors,
@@ -30,6 +31,8 @@ import {
   type InsertGuardrails,
   type AdjustmentRanges,
   type InsertAdjustmentRanges,
+  type StockMarketCache,
+  type InsertStockMarketCache,
   type AttributeRatings,
   type InsertAttributeRatings,
   type Location,
@@ -103,6 +106,10 @@ export interface IStorage {
   // Portfolio Competitors
   getPortfolioCompetitors(): Promise<PortfolioCompetitor[]>;
   createOrUpdatePortfolioCompetitor(data: InsertPortfolioCompetitor): Promise<PortfolioCompetitor>;
+  
+  // Stock Market Cache
+  getCachedStockData(symbol: string, dataType: string): Promise<StockMarketCache | undefined>;
+  setCachedStockData(data: InsertStockMarketCache): Promise<StockMarketCache>;
   
   // Adjustment Ranges
   getAdjustmentRanges(): Promise<AdjustmentRanges | undefined>;
@@ -539,6 +546,40 @@ export class DatabaseStorage implements IStorage {
       const [created] = await db.insert(portfolioCompetitors).values(data).returning();
       return created;
     }
+  }
+
+  // Stock Market Cache
+  async getCachedStockData(symbol: string, dataType: string): Promise<StockMarketCache | undefined> {
+    const now = new Date();
+    const [cached] = await db.select()
+      .from(stockMarketCache)
+      .where(
+        and(
+          eq(stockMarketCache.symbol, symbol),
+          eq(stockMarketCache.dataType, dataType)
+        )
+      );
+    
+    // Return cached data only if it hasn't expired
+    if (cached && cached.expiresAt > now) {
+      return cached;
+    }
+    return undefined;
+  }
+
+  async setCachedStockData(data: InsertStockMarketCache): Promise<StockMarketCache> {
+    // Delete old cache for this symbol/dataType combo
+    await db.delete(stockMarketCache)
+      .where(
+        and(
+          eq(stockMarketCache.symbol, data.symbol),
+          eq(stockMarketCache.dataType, data.dataType)
+        )
+      );
+    
+    // Insert new cache entry
+    const [cache] = await db.insert(stockMarketCache).values(data).returning();
+    return cache;
   }
 
   // Adjustment Ranges

@@ -80,7 +80,7 @@ let marketDataCache = {
   previousMonthPrice: 0
 };
 
-// Fetch real S&P 500 data from Alpha Vantage
+// Fetch real S&P 500 data from Alpha Vantage with database caching
 async function fetchSP500Data() {
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
   if (!apiKey) {
@@ -88,16 +88,20 @@ async function fetchSP500Data() {
     return marketDataCache.lastMonthReturnPct;
   }
 
-  // Only fetch if cache is older than 1 hour
-  const now = Date.now();
-  if (now - marketDataCache.lastFetched < 3600000) {
-    return marketDataCache.lastMonthReturnPct;
+  // Check database cache first
+  const cached = await storage.getCachedStockData('SPY', 'monthly_return');
+  if (cached) {
+    console.log("Using cached S&P 500 data from database");
+    marketDataCache.lastMonthReturnPct = cached.value;
+    marketDataCache.currentPrice = (cached.metadata as any)?.currentPrice || 0;
+    marketDataCache.previousMonthPrice = (cached.metadata as any)?.previousMonthPrice || 0;
+    return cached.value;
   }
 
   try {
     // Use SPY ETF as S&P 500 proxy (more reliable data)
     const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=SPY&apikey=${apiKey}`;
-    console.log("Fetching S&P 500 data from Alpha Vantage...");
+    console.log("Fetching fresh S&P 500 data from Alpha Vantage...");
     
     const response = await fetch(url);
     const data = await response.json();
@@ -112,13 +116,28 @@ async function fetchSP500Data() {
         const previousMonth = parseFloat(timeSeries[dates[1]]["4. close"]);
         
         const monthlyReturn = ((currentMonth - previousMonth) / previousMonth) * 100;
+        const returnValue = Math.round(monthlyReturn * 100) / 100;
+        
+        // Cache in database for 24 hours
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await storage.setCachedStockData({
+          symbol: 'SPY',
+          dataType: 'monthly_return',
+          value: returnValue,
+          metadata: {
+            currentPrice: currentMonth,
+            previousMonthPrice: previousMonth,
+            fullResponse: data
+          },
+          expiresAt
+        });
         
         marketDataCache.currentPrice = currentMonth;
         marketDataCache.previousMonthPrice = previousMonth;
-        marketDataCache.lastMonthReturnPct = Math.round(monthlyReturn * 100) / 100;
-        marketDataCache.lastFetched = now;
+        marketDataCache.lastMonthReturnPct = returnValue;
+        marketDataCache.lastFetched = Date.now();
         
-        console.log(`S&P 500 (SPY ETF) Monthly Return: ${marketDataCache.lastMonthReturnPct}% (${previousMonth.toFixed(2)} -> ${currentMonth.toFixed(2)})`);
+        console.log(`S&P 500 (SPY ETF) Monthly Return: ${returnValue}% (${previousMonth.toFixed(2)} -> ${currentMonth.toFixed(2)}) - Cached for 24 hours`);
       }
     } else if (data["Note"]) {
       console.warn("Alpha Vantage API limit reached:", data["Note"]);
@@ -2352,12 +2371,30 @@ Keep recommendations specific and quantitative when possible.`;
   // Generate Modulo pricing suggestions
   app.post("/api/pricing/generate-modulo", async (req, res) => {
     try {
-      const { month } = req.body;
+      const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
       
       // Get current weights for calculation
       const weights = await storage.getLatestWeights();
-      const units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // Get all units for the month
+      let units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // Apply filters to units
+      if (serviceLine) {
+        units = units.filter(unit => unit.serviceLine === serviceLine);
+      }
+      if (regions && regions.length > 0) {
+        units = units.filter(unit => unit.regionBrookdale && regions.includes(unit.regionBrookdale));
+      }
+      if (divisions && divisions.length > 0) {
+        units = units.filter(unit => unit.divisionBrookdale && divisions.includes(unit.divisionBrookdale));
+      }
+      if (locations && locations.length > 0) {
+        units = units.filter(unit => unit.communityCodeBrookdale && locations.includes(unit.communityCodeBrookdale));
+      }
+      
+      console.log(`Generating Modulo for ${units.length} filtered units`);
       
       // Generate Modulo suggestions using more aggressive algorithm
       for (const unit of units) {
@@ -2425,10 +2462,27 @@ Keep recommendations specific and quantitative when possible.`;
   // Generate AI pricing suggestions  
   app.post("/api/pricing/generate-ai", async (req, res) => {
     try {
-      const { month } = req.body;
+      const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
       
-      const units = await storage.getRentRollDataByMonth(targetMonth);
+      // Get all units for the month
+      let units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // Apply filters to units
+      if (serviceLine) {
+        units = units.filter(unit => unit.serviceLine === serviceLine);
+      }
+      if (regions && regions.length > 0) {
+        units = units.filter(unit => unit.regionBrookdale && regions.includes(unit.regionBrookdale));
+      }
+      if (divisions && divisions.length > 0) {
+        units = units.filter(unit => unit.divisionBrookdale && divisions.includes(unit.divisionBrookdale));
+      }
+      if (locations && locations.length > 0) {
+        units = units.filter(unit => unit.communityCodeBrookdale && locations.includes(unit.communityCodeBrookdale));
+      }
+      
+      console.log(`Generating AI suggestions for ${units.length} filtered units`);
       
       // Generate AI suggestions (mock implementation)
       for (const unit of units) {

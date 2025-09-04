@@ -177,6 +177,18 @@ export const competitors = pgTable("competitors", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Stock market data cache
+export const stockMarketCache = pgTable("stock_market_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  symbol: text("symbol").notNull(), // e.g., "SPY" for S&P 500
+  dataType: text("data_type").notNull(), // e.g., "monthly_return", "daily_price"
+  value: real("value").notNull(),
+  metadata: jsonb("metadata"), // Additional data like full API response
+  fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(), // When this cache entry expires
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Adjustment ranges for each pricing factor
 export const adjustmentRanges = pgTable("adjustment_ranges", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -273,6 +285,12 @@ export const insertCompetitorSchema = createInsertSchema(competitors).omit({
   createdAt: true,
 });
 
+export const insertStockMarketCacheSchema = createInsertSchema(stockMarketCache).omit({
+  id: true,
+  fetchedAt: true,
+  createdAt: true,
+});
+
 export const insertAdjustmentRangesSchema = createInsertSchema(adjustmentRanges).omit({
   id: true,
   createdAt: true,
@@ -323,6 +341,8 @@ export type PricingWeights = typeof pricingWeights.$inferSelect;
 export type InsertPricingWeights = z.infer<typeof insertPricingWeightsSchema>;
 export type Competitor = typeof competitors.$inferSelect;
 export type InsertCompetitor = z.infer<typeof insertCompetitorSchema>;
+export type StockMarketCache = typeof stockMarketCache.$inferSelect;
+export type InsertStockMarketCache = z.infer<typeof insertStockMarketCacheSchema>;
 export type AdjustmentRanges = typeof adjustmentRanges.$inferSelect;
 export type InsertAdjustmentRanges = z.infer<typeof insertAdjustmentRangesSchema>;
 export type Guardrails = typeof guardrails.$inferSelect;
