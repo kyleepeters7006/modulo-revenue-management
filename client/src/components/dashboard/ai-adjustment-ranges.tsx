@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { Save, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { DialPicker } from '@/components/ui/dial-picker';
 
 interface AiAdjustmentRanges {
   occupancyMin: number;
@@ -143,10 +144,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.occupancyMin)}
-                  onChange={(e) => handleRangeChange('occupancyMin', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.occupancyMin))}
+                  onChange={(value) => handleRangeChange('occupancyMin', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-occupancy-min"
                 />
@@ -159,10 +163,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.occupancyMax)}
-                  onChange={(e) => handleRangeChange('occupancyMax', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.occupancyMax))}
+                  onChange={(value) => handleRangeChange('occupancyMax', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-occupancy-max"
                 />
@@ -183,10 +190,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.vacancyMin)}
-                  onChange={(e) => handleRangeChange('vacancyMin', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.vacancyMin))}
+                  onChange={(value) => handleRangeChange('vacancyMin', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-vacancy-min"
                 />
@@ -199,10 +209,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.vacancyMax)}
-                  onChange={(e) => handleRangeChange('vacancyMax', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.vacancyMax))}
+                  onChange={(value) => handleRangeChange('vacancyMax', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-vacancy-max"
                 />
@@ -223,10 +236,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.attributesMin)}
-                  onChange={(e) => handleRangeChange('attributesMin', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.attributesMin))}
+                  onChange={(value) => handleRangeChange('attributesMin', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-attributes-min"
                 />
@@ -239,10 +255,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.attributesMax)}
-                  onChange={(e) => handleRangeChange('attributesMax', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.attributesMax))}
+                  onChange={(value) => handleRangeChange('attributesMax', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-attributes-max"
                 />
@@ -263,10 +282,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.competitorMin)}
-                  onChange={(e) => handleRangeChange('competitorMin', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.competitorMin))}
+                  onChange={(value) => handleRangeChange('competitorMin', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-competitor-min"
                 />
@@ -279,10 +301,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.competitorMax)}
-                  onChange={(e) => handleRangeChange('competitorMax', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.competitorMax))}
+                  onChange={(value) => handleRangeChange('competitorMax', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-competitor-max"
                 />
@@ -303,10 +328,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.seasonalMin)}
-                  onChange={(e) => handleRangeChange('seasonalMin', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.seasonalMin))}
+                  onChange={(value) => handleRangeChange('seasonalMin', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-seasonal-min"
                 />
@@ -319,10 +347,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.seasonalMax)}
-                  onChange={(e) => handleRangeChange('seasonalMax', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.seasonalMax))}
+                  onChange={(value) => handleRangeChange('seasonalMax', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-seasonal-max"
                 />
@@ -343,10 +374,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Min Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.marketMin)}
-                  onChange={(e) => handleRangeChange('marketMin', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.marketMin))}
+                  onChange={(value) => handleRangeChange('marketMin', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-market-min"
                 />
@@ -359,10 +393,13 @@ export function AiAdjustmentRanges() {
                 <Label className="text-xs">Max Adjustment</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  value={formatPercentage(localRanges.marketMax)}
-                  onChange={(e) => handleRangeChange('marketMax', parsePercentage(e.target.value).toString())}
+                <DialPicker
+                  value={parseFloat(formatPercentage(localRanges.marketMax))}
+                  onChange={(value) => handleRangeChange('marketMax', parsePercentage(value.toString()).toString())}
+                  min={-50}
+                  max={50}
+                  step={1}
+                  suffix="%"
                   className="w-20"
                   data-testid="input-ai-market-max"
                 />

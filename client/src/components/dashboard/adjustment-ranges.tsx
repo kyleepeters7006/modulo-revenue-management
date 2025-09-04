@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Save, RotateCcw, TrendingUp, TrendingDown } from "lucide-react";
+import { DialPicker } from "@/components/ui/dial-picker";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -195,15 +196,14 @@ export default function AdjustmentRanges() {
                       Minimum Adjustment {getIcon(minValue)}
                     </Label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={formatPercent(minValue)}
-                        onChange={(e) => handleRangeChange(factor.key, 'Min', e.target.value)}
-                        className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                                   focus:ring-2 focus:ring-[var(--trilogy-teal)] focus:border-transparent
-                                   dark:bg-gray-800 dark:text-white"
+                      <DialPicker
+                        value={parseFloat(formatPercent(minValue))}
+                        onChange={(value) => handleRangeChange(factor.key, 'Min', value.toString())}
+                        min={-50}
+                        max={50}
+                        step={1}
+                        suffix="%"
                         data-testid={`input-${factor.key}-min`}
-                        step="1"
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
                       {minValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : minValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-gray-500">—</span>}
@@ -215,15 +215,14 @@ export default function AdjustmentRanges() {
                       Maximum Adjustment {getIcon(maxValue)}
                     </Label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={formatPercent(maxValue)}
-                        onChange={(e) => handleRangeChange(factor.key, 'Max', e.target.value)}
-                        className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                                   focus:ring-2 focus:ring-[var(--trilogy-teal)] focus:border-transparent
-                                   dark:bg-gray-800 dark:text-white"
+                      <DialPicker
+                        value={parseFloat(formatPercent(maxValue))}
+                        onChange={(value) => handleRangeChange(factor.key, 'Max', value.toString())}
+                        min={-50}
+                        max={50}
+                        step={1}
+                        suffix="%"
                         data-testid={`input-${factor.key}-max`}
-                        step="1"
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
                       {maxValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : maxValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-gray-500">—</span>}
