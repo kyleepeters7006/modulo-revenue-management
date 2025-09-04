@@ -199,9 +199,9 @@ export class PricingAlgorithm {
   }
   
   private calculateMarketAdjustment(weight: number): number {
-    // Simple market adjustment (could be enhanced with real market data)
-    // For now, small positive adjustment for general market growth
-    return 0.02; // 2% general market growth
+    // Simple market adjustment (static for calculation display)
+    // Avoid external API calls during individual calculations
+    return 0.02; // 2% general market growth (static)
   }
   
   private applyGuardrails(
