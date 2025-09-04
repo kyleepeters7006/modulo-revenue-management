@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { pricingAlgorithm } from "./pricingAlgorithm";
+import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
@@ -606,7 +606,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Pricing weights CRUD
   app.post("/api/weights", async (req, res) => {
     try {
-      console.log('Received weights data:', JSON.stringify(req.body, null, 2));
       // Transform the incoming data to match the schema field names
       const transformedData = {
         occupancyPressure: req.body.occupancy_pressure,
@@ -616,13 +615,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         competitorRates: req.body.competitor_rates,
         stockMarket: req.body.stock_market,
       };
-      console.log('Transformed data:', JSON.stringify(transformedData, null, 2));
       const validatedData = insertPricingWeightsSchema.parse(transformedData);
-      console.log('Validated weights data:', JSON.stringify(validatedData, null, 2));
       const weights = await storage.createOrUpdateWeights(validatedData);
       res.json({ ok: true, weights });
     } catch (error) {
-      console.error('Weights validation error:', error);
       res.status(400).json({ error: "Invalid weights data" });
     }
   });
@@ -2855,6 +2851,45 @@ Keep recommendations specific and quantitative when possible.`;
         message: "Failed to generate demo data",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+    }
+  });
+
+  // Get detailed calculation for a specific unit's Modulo rate
+  app.get("/api/calculation/:roomType", async (req, res) => {
+    try {
+      const { roomType } = req.params;
+      const pricingAlgorithm = new PricingAlgorithm();
+      
+      // Get sample unit data for the room type
+      const sampleUnit = await storage.getSampleUnitByRoomType(roomType);
+      if (!sampleUnit) {
+        return res.status(404).json({ error: "Room type not found" });
+      }
+      
+      // Calculate detailed pricing
+      const result = await pricingAlgorithm.calculateModuloRate({
+        unitId: sampleUnit.id,
+        roomType: sampleUnit.Unit_Type,
+        serviceLine: sampleUnit.Service_Line,
+        currentRate: sampleUnit.Street_Rate || 3000,
+        competitorRate: sampleUnit.Street_Rate * 0.95 || 2850,
+        daysVacant: sampleUnit.Days_Vacant || 30,
+        occupancyRate: 0.87, // Current portfolio occupancy
+        totalUnits: 100,
+        occupiedUnits: 87,
+        attributes: {
+          location: sampleUnit.Location_Rating || 'B',
+          size: sampleUnit.Size_Rating || 'B',
+          view: sampleUnit.View_Rating || 'B',
+          renovation: sampleUnit.Renovation_Rating || 'B',
+          amenity: sampleUnit.Amenity_Rating || 'B'
+        }
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Calculation error:', error);
+      res.status(500).json({ error: "Failed to calculate pricing details" });
     }
   });
 

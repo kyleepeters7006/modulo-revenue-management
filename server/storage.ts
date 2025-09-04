@@ -114,6 +114,9 @@ export interface IStorage {
   
   // Clear all data
   clearAllData(): Promise<void>;
+  
+  // Get sample unit for calculation details
+  getSampleUnitByRoomType(roomType: string): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -130,6 +133,11 @@ export class DatabaseStorage implements IStorage {
     await db.delete(assumptions);
     await db.delete(pricingWeights);
     await db.delete(guardrails);
+  }
+
+  async getSampleUnitByRoomType(roomType: string): Promise<any> {
+    const units = await this.getRentRollData();
+    return units.find(unit => unit.Unit_Type === roomType) || units[0];
   }
 
   // User operations

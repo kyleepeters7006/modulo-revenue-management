@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Home, Users, Bed, Shield, Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import ModuloCalculationDialog from "./modulo-calculation-dialog";
 
 const floorPlanData = {
   Studio: {
@@ -214,9 +215,15 @@ export default function RateCard() {
                   
                   <div className="flex justify-between items-center pb-3 border-b border-[var(--dashboard-border)]">
                     <span className="text-sm text-[var(--trilogy-teal)]">Modulo Recommended</span>
-                    <span className="text-lg font-semibold text-[var(--trilogy-teal)]">
-                      {formatCurrency(recommendedPrice || currentFloorPlan.basePrice)}
-                    </span>
+                    <ModuloCalculationDialog 
+                      roomType={selectedFloorPlan} 
+                      currentRate={currentFloorPlan.basePrice}
+                    >
+                      <span className="text-lg font-semibold text-[var(--trilogy-teal)] hover:underline cursor-pointer flex items-center space-x-1">
+                        <span>{formatCurrency(recommendedPrice || currentFloorPlan.basePrice)}</span>
+                        <span className="text-xs opacity-60">📊</span>
+                      </span>
+                    </ModuloCalculationDialog>
                   </div>
 
                   <div className="flex justify-between items-center pb-3 border-b border-[var(--dashboard-border)]">
