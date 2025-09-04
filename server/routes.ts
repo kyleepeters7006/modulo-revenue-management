@@ -2887,9 +2887,9 @@ Keep recommendations specific and quantitative when possible.`;
       const weights = await storage.getPricingWeights();
       const assumptions = await storage.getAssumptions();
       
-      // Use the actual current rate passed from the frontend
-      console.log('Current rate param:', currentRate);
-      const baseRate = currentRate ? parseFloat(currentRate as string) : 3185;
+      // Use the actual street rate passed from the frontend
+      console.log('Street rate param:', currentRate);
+      const streetRate = currentRate ? parseFloat(currentRate as string) : 3185;
       
       // Calculate adjustments using actual weights (each weight is a percentage 0-100)
       // Convert weights to decimals and apply typical adjustment factors
@@ -2913,12 +2913,12 @@ Keep recommendations specific and quantitative when possible.`;
                              seasonalAdjustment + competitorAdjustment + marketAdjustment;
       
       // Apply the adjustment to get the recommended rate
-      const recommendedRate = Math.round(baseRate * (1 + totalAdjustment));
+      const recommendedRate = Math.round(streetRate * (1 + totalAdjustment));
       
       res.json({
         recommendedRate,
         calculation: {
-          baseRate,
+          baseRate: streetRate, // Keep as baseRate for backwards compatibility with frontend
           occupancyAdjustment,
           vacancyAdjustment,
           attributeAdjustment,

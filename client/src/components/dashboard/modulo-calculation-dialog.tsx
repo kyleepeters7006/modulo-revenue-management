@@ -94,7 +94,7 @@ export default function ModuloCalculationDialog({
                 </span>
               </div>
               <div className="text-sm text-gray-500 mt-1">
-                Base Rate: {formatCurrency(calculation.calculation.baseRate)}
+                Street Rate: {formatCurrency(calculation.calculation.baseRate)}
               </div>
             </div>
 
@@ -254,7 +254,7 @@ export default function ModuloCalculationDialog({
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Formula:</h3>
               <div className="text-xs font-mono text-gray-600 dark:text-gray-400 space-y-1">
-                <div>Base Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
+                <div>Street Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
                 <div>
                   {formatCurrency(calculation.calculation.baseRate)} × (1 + {formatPercent(calculation.calculation.totalAdjustment)}) = {formatCurrency(calculation.recommendedRate)}
                 </div>
