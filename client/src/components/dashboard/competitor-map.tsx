@@ -297,39 +297,28 @@ export function CompetitorMap({
           icon: competitorMarkerIcon
         }).addTo(mapInstanceRef.current);
         
-        const careRateDiff = competitor.avgCareRate ? (competitor.avgCareRate - currentProperty.avgCareRate) : 0;
-        const careRate = competitor.avgCareRate 
-          ? `Avg Care: $${competitor.avgCareRate.toLocaleString()} (${careRateDiff > 0 ? '+' : ''}$${careRateDiff.toLocaleString()})`
-          : 'Avg Care: Not available';
+        // Calculate comparison to portfolio
+        const avgPortfolioRate = currentProperty.avgRate || 3500;
+        const avgCompetitorRate = competitor.streetRate || competitor.avgRate || 3500;
+        const avgCareRate = competitor.avgCareRate || 500;
+        const totalRate = avgCompetitorRate + avgCareRate;
+        const totalPortfolioRate = avgPortfolioRate + (currentProperty.avgCareRate || 500);
+        const comparison = totalRate - totalPortfolioRate;
+        const comparisonText = comparison > 0 ? `+$${comparison.toLocaleString()}` : comparison < 0 ? `-$${Math.abs(comparison).toLocaleString()}` : 'Same';
+        const comparisonColor = comparison > 0 ? '#10b981' : comparison < 0 ? '#ef4444' : '#6b7280';
 
-        // Format room rates from the rates object
-        let roomRatesHtml = 'No room rates provided';
+        // Format room rates more elegantly
+        let primaryRate = avgCompetitorRate;
+        let roomTypeLabel = 'Avg Rate';
         if (competitor.rates && typeof competitor.rates === 'object') {
-          const rates = [];
-          // Check for both camelCase and proper case keys
           if (competitor.rates.Studio || competitor.rates.studio) {
-            const rate = competitor.rates.Studio || competitor.rates.studio;
-            rates.push(`Studio: $${Number(rate).toLocaleString()}`);
-          }
-          if (competitor.rates['One Bedroom'] || competitor.rates.oneBedroom) {
-            const rate = competitor.rates['One Bedroom'] || competitor.rates.oneBedroom;
-            rates.push(`One Bedroom: $${Number(rate).toLocaleString()}`);
-          }
-          if (competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom) {
-            const rate = competitor.rates['Two Bedroom'] || competitor.rates.twoBedroom;
-            rates.push(`Two Bedroom: $${Number(rate).toLocaleString()}`);
-          }
-          if (competitor.rates['Memory Care'] || competitor.rates.memoryCare) {
-            const rate = competitor.rates['Memory Care'] || competitor.rates.memoryCare;
-            rates.push(`Memory Care: $${Number(rate).toLocaleString()}`);
-          }
-          
-          if (rates.length > 0) {
-            roomRatesHtml = rates.join('<br>');
+            primaryRate = competitor.rates.Studio || competitor.rates.studio;
+            roomTypeLabel = 'Studio';
+          } else if (competitor.rates['One Bedroom'] || competitor.rates.oneBedroom) {
+            primaryRate = competitor.rates['One Bedroom'] || competitor.rates.oneBedroom;
+            roomTypeLabel = '1BR';
           }
         }
-
-        const rating = competitor.rating ? `${competitor.rating} rating` : 'No rating';
 
         const searchTerm = competitor.address || `${competitor.name} Louisville KY`;
         const encodedAddress = encodeURIComponent(searchTerm);
@@ -337,24 +326,60 @@ export function CompetitorMap({
         const directionsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(currentProperty.address)}/${encodedAddress}`;
 
         marker.bindPopup(`
-          <div style="color: #1f2937; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; min-width: 280px; max-width: 320px;">
-            <div style="background: ${style.gradient}; color: white; padding: 12px; margin: -8px -8px 12px -8px; border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-              <b style="font-size: 15px; display: flex; align-items: center; gap: 6px;">
-                ${style.emoji} ${competitor.name}
-              </b>
-              <div style="font-size: 11px; opacity: 0.9; margin-top: 2px;">Competitor • ${rating} Rating</div>
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 320px; max-width: 360px; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
+            <!-- Header with gradient background -->
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 20px; position: relative;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <h3 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.5px;">${competitor.name}</h3>
+                <span style="background: ${style.color}20; color: ${style.color}; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">${competitor.rating || 'N/A'}</span>
+              </div>
+              <p style="margin: 0; font-size: 13px; opacity: 0.85; font-weight: 300;">Competitor Location</p>
             </div>
-            <div style="font-size: 12px; padding: 0 4px;">
-              <div style="margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 4px;">
-                <b style="color: #059669;">💰 ${careRate}</b>
+            
+            <!-- Main content with key metrics -->
+            <div style="padding: 20px;">
+              <!-- Rate Section -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
+                <!-- Room Rate -->
+                <div style="text-align: center;">
+                  <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">RATE</p>
+                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${Number(primaryRate).toLocaleString()}</p>
+                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${roomTypeLabel}</p>
+                </div>
+                
+                <!-- Care Rate -->
+                <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
+                  <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">CARE</p>
+                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${avgCareRate.toLocaleString()}</p>
+                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Average</p>
+                </div>
+                
+                <!-- Total -->
+                <div style="text-align: center;">
+                  <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">TOTAL</p>
+                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${totalRate.toLocaleString()}</p>
+                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Combined</p>
+                </div>
               </div>
-              <div style="margin-bottom: 10px;">
-                <b style="color: #374151; margin-bottom: 6px; display: block;">🏠 Room Rates:</b>
-                <div style="font-size: 11px; line-height: 1.6; color: #6b7280;">${roomRatesHtml}</div>
+              
+              <!-- Comparison Section -->
+              <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-size: 12px; color: #64748b; font-weight: 500;">vs. Portfolio Average</span>
+                  <span style="font-size: 16px; font-weight: 600; color: ${comparisonColor};">${comparisonText}</span>
+                </div>
               </div>
-              <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px solid #e5e7eb; padding-top: 8px;">
-                <a href="${googleMapsUrl}" target="_blank" style="color: #0071e3; text-decoration: none; font-size: 11px; padding: 4px 8px; background: #f0f8ff; border-radius: 4px; flex: 1; text-align: center;">📍 View</a>
-                <a href="${directionsUrl}" target="_blank" style="color: #0071e3; text-decoration: none; font-size: 11px; padding: 4px 8px; background: #f0f8ff; border-radius: 4px; flex: 1; text-align: center;">🚗 Directions</a>
+              
+              <!-- Action Links -->
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+                <a href="${googleMapsUrl}" target="_blank" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; transition: all 0.2s; border: 1px solid #e2e8f0;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  View Location
+                </a>
+                <a href="${directionsUrl}" target="_blank" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; transition: all 0.2s; border: 1px solid #e2e8f0;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l14 0"/><path d="M13 5l7 7-7 7"/></svg>
+                  Get Directions
+                </a>
               </div>
             </div>
           </div>
