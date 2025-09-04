@@ -207,7 +207,7 @@ export default function AdjustmentRanges() {
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
                       <span className={`text-xs ${minValue < 0 ? 'text-red-600' : minValue > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                        ({minValue < 0 ? 'decrease' : minValue > 0 ? 'increase' : 'no change'})
+                        {minValue < 0 ? '↓' : minValue > 0 ? '↑' : '—'}
                       </span>
                     </div>
                   </div>
@@ -229,7 +229,7 @@ export default function AdjustmentRanges() {
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
                       <span className={`text-xs ${maxValue < 0 ? 'text-red-600' : maxValue > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                        ({maxValue < 0 ? 'decrease' : maxValue > 0 ? 'increase' : 'no change'})
+                        {maxValue < 0 ? '↓' : maxValue > 0 ? '↑' : '—'}
                       </span>
                     </div>
                   </div>
