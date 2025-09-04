@@ -102,7 +102,7 @@ export default function PricingWeights() {
     const otherKeys = Object.keys(weights).filter(k => k !== key);
     const otherTotal = otherKeys.reduce((sum, k) => sum + weights[k], 0);
     
-    if (otherTotal === 0) {
+    if (otherTotal === 0 && otherKeys.length > 0) {
       // If all others are 0, distribute the remainder equally
       const remainingValue = 100 - newValue;
       const perWeight = Math.floor(remainingValue / otherKeys.length);
@@ -118,26 +118,49 @@ export default function PricingWeights() {
       });
       
       setWeights(newWeights);
-    } else {
-      // Proportionally adjust other weights
+    } else if (otherKeys.length > 0) {
+      // Proportionally adjust other weights based on their current ratios
       const newWeights = { ...weights, [key]: newValue };
       const targetTotal = 100 - newValue;
       
-      if (targetTotal >= 0) {
-        // Scale other weights proportionally
-        otherKeys.forEach(k => {
-          newWeights[k] = Math.round((weights[k] / otherTotal) * targetTotal);
-        });
-        
-        // Adjust for rounding errors
-        const currentTotal = Object.values(newWeights).reduce((sum, w) => sum + w, 0);
-        if (currentTotal !== 100) {
-          // Find the weight with the largest value to adjust
-          const largestOtherKey = otherKeys.reduce((max, k) => 
-            newWeights[k] > newWeights[max] ? k : max
-          );
-          newWeights[largestOtherKey] += 100 - currentTotal;
+      // Ensure we don't have negative target total
+      if (targetTotal >= 0 && targetTotal <= 100) {
+        if (otherTotal > 0) {
+          // Scale other weights proportionally to their current values
+          otherKeys.forEach(k => {
+            // Maintain the relative proportion of each other weight
+            const proportion = weights[k] / otherTotal;
+            newWeights[k] = Math.round(proportion * targetTotal);
+          });
+        } else {
+          // If somehow all others are 0, distribute equally
+          const perWeight = Math.floor(targetTotal / otherKeys.length);
+          otherKeys.forEach((k, index) => {
+            if (index === otherKeys.length - 1) {
+              newWeights[k] = targetTotal - (perWeight * (otherKeys.length - 1));
+            } else {
+              newWeights[k] = perWeight;
+            }
+          });
         }
+        
+        // Adjust for rounding errors to ensure exactly 100%
+        const currentTotal = Object.values(newWeights).reduce((sum, w) => sum + w, 0);
+        if (currentTotal !== 100 && otherKeys.length > 0) {
+          // Find the weight with the largest value among others to adjust
+          const largestOtherKey = otherKeys.reduce((max, k) => 
+            (newWeights[k] > newWeights[max] ? k : max), otherKeys[0]
+          );
+          if (largestOtherKey) {
+            newWeights[largestOtherKey] += 100 - currentTotal;
+          }
+        }
+      } else if (targetTotal < 0) {
+        // If trying to set more than 100%, cap at 100%
+        newWeights[key] = 100;
+        otherKeys.forEach(k => {
+          newWeights[k] = 0;
+        });
       }
       
       setWeights(newWeights);
