@@ -2891,13 +2891,22 @@ Keep recommendations specific and quantitative when possible.`;
       console.log('Current rate param:', currentRate);
       const baseRate = currentRate ? parseFloat(currentRate as string) : 3185;
       
-      // Calculate adjustments dynamically based on the actual base rate
-      const occupancyAdjustment = -0.040; // 4% decrease for low occupancy
-      const vacancyAdjustment = 0.00;     // No vacancy adjustment for occupied units
-      const attributeAdjustment = 0.014;  // 1.4% for B-rated attributes
-      const seasonalAdjustment = 0.05;    // 5% peak season
-      const competitorAdjustment = -0.04; // 4% competitive positioning
-      const marketAdjustment = 0.02;      // 2% market growth
+      // Calculate adjustments using actual weights (each weight is a percentage 0-100)
+      // Convert weights to decimals and apply typical adjustment factors
+      const occupancyWeight = weights?.occupancyPressure ?? 25;
+      const vacancyWeight = weights?.daysVacantDecay ?? 20;
+      const attributeWeight = weights?.roomAttributes ?? 25;
+      const seasonalWeight = weights?.seasonality ?? 10;
+      const competitorWeight = weights?.competitorRates ?? 10;
+      const marketWeight = weights?.stockMarket ?? 10;
+      
+      // Calculate adjustments based on weights (scaled to typical ranges)
+      const occupancyAdjustment = occupancyWeight > 0 ? -0.040 * (occupancyWeight / 25) : 0;
+      const vacancyAdjustment = vacancyWeight > 0 ? 0.00 * (vacancyWeight / 20) : 0;
+      const attributeAdjustment = attributeWeight > 0 ? 0.014 * (attributeWeight / 25) : 0;
+      const seasonalAdjustment = seasonalWeight > 0 ? 0.05 * (seasonalWeight / 10) : 0;
+      const competitorAdjustment = competitorWeight > 0 ? -0.04 * (competitorWeight / 10) : 0;
+      const marketAdjustment = marketWeight > 0 ? 0.02 * (marketWeight / 10) : 0;
       
       // Calculate total adjustment to get the actual Modulo rate
       const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
