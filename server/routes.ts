@@ -627,7 +627,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validatedData = insertPricingWeightsSchema.parse(transformedData);
       const weights = await storage.createOrUpdateWeights(validatedData);
-      res.json({ ok: true, weights });
+      
+      // Return the weights in the same format as /api/status for consistency
+      res.json({ 
+        ok: true, 
+        weights: {
+          id: weights.id,
+          occupancy_pressure: weights.occupancyPressure,
+          days_vacant_decay: weights.daysVacantDecay,
+          room_attributes: weights.roomAttributes,
+          seasonality: weights.seasonality,
+          competitor_rates: weights.competitorRates,
+          stock_market: weights.stockMarket
+        }
+      });
     } catch (error) {
       res.status(400).json({ error: "Invalid weights data" });
     }

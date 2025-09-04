@@ -32,31 +32,28 @@ export default function PricingWeights() {
     if (status && 'weights' in status && status.weights) {
       const apiWeights = status.weights as any;
       const loadedWeights = {
-        occupancyPressure: apiWeights.occupancy_pressure || 25,
-        daysVacantDecay: apiWeights.days_vacant_decay || 20,
-        roomAttributes: apiWeights.room_attributes || 25,
-        seasonality: apiWeights.seasonality || 10,
-        competitorRates: apiWeights.competitor_rates || 10,
-        stockMarket: apiWeights.stock_market || 10,
+        occupancyPressure: apiWeights.occupancy_pressure ?? 25,
+        daysVacantDecay: apiWeights.days_vacant_decay ?? 20,
+        roomAttributes: apiWeights.room_attributes ?? 25,
+        seasonality: apiWeights.seasonality ?? 10,
+        competitorRates: apiWeights.competitor_rates ?? 10,
+        stockMarket: apiWeights.stock_market ?? 10,
       };
       
-      // Ensure weights total 100
+      // Verify weights total 100 (they should from backend)
       const currentTotal = Object.values(loadedWeights).reduce((sum, w) => sum + w, 0);
-      if (currentTotal !== 100) {
-        // Normalize to 100
-        const factor = 100 / currentTotal;
-        Object.keys(loadedWeights).forEach(key => {
-          loadedWeights[key] = Math.round(loadedWeights[key] * factor);
+      if (currentTotal === 100) {
+        setWeights(loadedWeights);
+      } else {
+        // This shouldn't happen if backend validates, but handle it gracefully
+        console.warn(`Weights from API total ${currentTotal}, expected 100`);
+        // Set defaults instead
+        const defaultWeights: Record<string, number> = {};
+        weightConfigs.forEach(config => {
+          defaultWeights[config.key] = config.default;
         });
-        
-        // Adjust for rounding errors
-        const newTotal = Object.values(loadedWeights).reduce((sum, w) => sum + w, 0);
-        if (newTotal !== 100) {
-          loadedWeights.occupancyPressure += 100 - newTotal;
-        }
+        setWeights(defaultWeights);
       }
-      
-      setWeights(loadedWeights);
     } else {
       // Set defaults (which already total 100)
       const defaultWeights: Record<string, number> = {};
