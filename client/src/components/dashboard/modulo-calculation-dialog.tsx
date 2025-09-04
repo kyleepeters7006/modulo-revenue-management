@@ -34,7 +34,7 @@ export default function ModuloCalculationDialog({
   const [open, setOpen] = useState(false);
 
   const { data: calculation, isLoading } = useQuery<CalculationResult>({
-    queryKey: [`/api/calculation/${roomType}`],
+    queryKey: [`/api/calculation/${roomType}?currentRate=${currentRate}`],
     enabled: open, // Only fetch when dialog is open
   });
 
