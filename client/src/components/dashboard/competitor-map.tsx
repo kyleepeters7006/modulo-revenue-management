@@ -223,28 +223,64 @@ export function CompetitorMap({
         icon: currentIcon
       }).addTo(mapInstanceRef.current);
       
-      const currentRates = Object.entries(currentProperty.rates)
-        .map(([roomType, rate]) => `${roomType}: $${rate.toLocaleString()}`)
-        .join('<br>');
-      
+      // Calculate portfolio metrics
+      const primaryRate = currentProperty.rates.Studio || currentProperty.rates["One Bedroom"];
+      const roomTypeLabel = currentProperty.rates.Studio ? 'Studio' : '1BR';
+      const totalRate = primaryRate + currentProperty.avgCareRate;
+
       currentMarker.bindPopup(`
-        <div style="color: #1f2937; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; min-width: 280px; max-width: 320px;">
-          <div style="background: linear-gradient(135deg, #0071e3, #005bb5); color: white; padding: 12px; margin: -8px -8px 12px -8px; border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <b style="font-size: 15px; display: flex; align-items: center; gap: 6px;">
-              📍 ${currentProperty.name}
-            </b>
-            <div style="font-size: 11px; opacity: 0.9; margin-top: 2px;">Your Property</div>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 320px; max-width: 360px; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
+          <!-- Header with gradient background -->
+          <div style="background: linear-gradient(135deg, #0071e3 0%, #005bb5 100%); color: white; padding: 20px; position: relative;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <h3 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.5px;">${currentProperty.name}</h3>
+              <span style="background: rgba(255,255,255,0.2); color: white; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">YOUR PROPERTY</span>
+            </div>
+            <p style="margin: 0; font-size: 13px; opacity: 0.85; font-weight: 300;">Portfolio Location</p>
           </div>
-          <div style="font-size: 12px; padding: 0 4px;">
-            <div style="margin-bottom: 10px; padding: 8px; background: #f0f8ff; border-radius: 4px; border: 1px solid #e0f2fe;">
-              <b style="color: #0071e3; margin-bottom: 6px; display: block;">🏠 Room Rates:</b>
-              <div style="font-size: 11px; line-height: 1.6; color: #374151;">${currentRates}</div>
+          
+          <!-- Main content with key metrics -->
+          <div style="padding: 20px;">
+            <!-- Rate Section -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
+              <!-- Room Rate -->
+              <div style="text-align: center;">
+                <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">RATE</p>
+                <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${Number(primaryRate).toLocaleString()}</p>
+                <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${roomTypeLabel}</p>
+              </div>
+              
+              <!-- Care Rate -->
+              <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
+                <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">CARE</p>
+                <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${currentProperty.avgCareRate.toLocaleString()}</p>
+                <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Average</p>
+              </div>
+              
+              <!-- Total -->
+              <div style="text-align: center;">
+                <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">TOTAL</p>
+                <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${totalRate.toLocaleString()}</p>
+                <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Combined</p>
+              </div>
             </div>
-            <div style="margin-bottom: 10px; padding: 8px; background: #f8fafc; border-radius: 4px;">
-              <b style="color: #059669;">💰 Avg Care: $${currentProperty.avgCareRate.toLocaleString()}</b>
+            
+            <!-- Property Information Section -->
+            <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+              <div style="text-align: center;">
+                <span style="font-size: 12px; color: #64748b; font-weight: 500;">Property Address</span>
+                <p style="margin: 4px 0 0 0; font-size: 13px; font-weight: 500; color: #1e293b;">${currentProperty.address}</p>
+              </div>
             </div>
-            <div style="font-size: 11px; color: #6b7280; text-align: center; padding: 4px; border-top: 1px solid #e5e7eb;">
-              ${currentProperty.address}
+            
+            <!-- Room Types Grid -->
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+              ${Object.entries(currentProperty.rates).map(([roomType, rate]) => `
+                <div style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 10px;">${roomType}:</span>
+                  <span style="font-weight: 600;">$${Number(rate).toLocaleString()}</span>
+                </div>
+              `).join('')}
             </div>
           </div>
         </div>
