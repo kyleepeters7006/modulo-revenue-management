@@ -2453,20 +2453,11 @@ Keep recommendations specific and quantitative when possible.`;
       // Get current weights for calculation
       const weights = await storage.getLatestWeights();
       
-      // Get all units for the month
-      let units = await storage.getRentRollDataByMonth(targetMonth);
+      // Get all units for the month - always process ALL units regardless of filters
+      // This ensures pricing is generated for the entire portfolio
+      const units = await storage.getRentRollDataByMonth(targetMonth);
       
-      // Apply filters to units
-      if (serviceLine) {
-        units = units.filter(unit => unit.serviceLine === serviceLine);
-      }
-      // Skip region/division filtering as these fields don't exist in our data
-      // Only apply location filtering if specified
-      if (locations && locations.length > 0) {
-        units = units.filter(unit => unit.location && locations.includes(unit.location));
-      }
-      
-      console.log(`Generating Modulo for ${units.length} filtered units`);
+      console.log(`Generating Modulo for ${units.length} units`);
       
       // Generate Modulo suggestions using more aggressive algorithm
       for (const unit of units) {
