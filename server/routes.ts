@@ -2460,14 +2460,10 @@ Keep recommendations specific and quantitative when possible.`;
       if (serviceLine) {
         units = units.filter(unit => unit.serviceLine === serviceLine);
       }
-      if (regions && regions.length > 0) {
-        units = units.filter(unit => unit.regionBrookdale && regions.includes(unit.regionBrookdale));
-      }
-      if (divisions && divisions.length > 0) {
-        units = units.filter(unit => unit.divisionBrookdale && divisions.includes(unit.divisionBrookdale));
-      }
+      // Skip region/division filtering as these fields don't exist in our data
+      // Only apply location filtering if specified
       if (locations && locations.length > 0) {
-        units = units.filter(unit => unit.communityCodeBrookdale && locations.includes(unit.communityCodeBrookdale));
+        units = units.filter(unit => unit.location && locations.includes(unit.location));
       }
       
       console.log(`Generating Modulo for ${units.length} filtered units`);
@@ -2548,14 +2544,10 @@ Keep recommendations specific and quantitative when possible.`;
       if (serviceLine) {
         units = units.filter(unit => unit.serviceLine === serviceLine);
       }
-      if (regions && regions.length > 0) {
-        units = units.filter(unit => unit.regionBrookdale && regions.includes(unit.regionBrookdale));
-      }
-      if (divisions && divisions.length > 0) {
-        units = units.filter(unit => unit.divisionBrookdale && divisions.includes(unit.divisionBrookdale));
-      }
+      // Skip region/division filtering as these fields don't exist in our data
+      // Only apply location filtering if specified
       if (locations && locations.length > 0) {
-        units = units.filter(unit => unit.communityCodeBrookdale && locations.includes(unit.communityCodeBrookdale));
+        units = units.filter(unit => unit.location && locations.includes(unit.location));
       }
       
       console.log(`Generating AI suggestions for ${units.length} filtered units`);
