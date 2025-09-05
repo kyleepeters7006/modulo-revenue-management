@@ -3174,8 +3174,8 @@ Keep recommendations specific and quantitative when possible.`;
       let sampleUnit;
       if (unitId) {
         // If unitId provided, get that specific unit
-        const allUnits = await storage.getRentRollData();
-        sampleUnit = allUnits.find(unit => unit.unitId === unitId);
+        const allUnits = await storage.getRentRollDataByMonth('2024-11');
+        sampleUnit = allUnits.find(unit => unit.id === unitId);
       }
       
       // Fallback to getting a sample unit of this room type
@@ -3185,7 +3185,7 @@ Keep recommendations specific and quantitative when possible.`;
       
       // Use the actual street rate from the unit data, not hardcoded floor plan values
       const streetRate = sampleUnit?.streetRate || (currentRate ? parseFloat(currentRate as string) : 3185);
-      console.log('Street rate from unit:', streetRate, 'for unit:', sampleUnit?.unitId || 'none');
+      console.log('Street rate from unit:', streetRate, 'for unit:', sampleUnit?.roomNumber || sampleUnit?.id || 'none');
       
       // Get all units to calculate actual occupancy rate
       const allUnits = await storage.getRentRollData();
