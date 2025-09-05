@@ -414,8 +414,12 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUnits.slice(0, 20).map((unit: any) => (
-                    <TableRow key={unit.id}>
+                  {filteredUnits.slice(0, 20).map((unit: any) => {
+                    // Debug logging
+                    if (unit.roomNumber === 'SUNRISE-IL-005') {
+                      console.log('SUNRISE-IL-005 unit data:', { id: unit.id, roomNumber: unit.roomNumber });
+                    }
+                    return (<TableRow key={unit.id}>
                       <TableCell className="font-medium">
                         {unit.roomNumber}
                       </TableCell>
@@ -678,7 +682,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  );})}
                 </TableBody>
               </Table>
               
