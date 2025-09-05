@@ -666,53 +666,111 @@ export class DatabaseStorage implements IStorage {
   async generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]> {
     const updatedUnits = [];
     
+    // Get adjustment ranges, using same defaults as real-time calculation
+    const ranges = await this.getAdjustmentRanges();
+    const occupancyMin = ranges?.occupancyMin ?? -0.10;
+    const occupancyMax = ranges?.occupancyMax ?? 0.05;
+    const vacancyMin = ranges?.vacancyMin ?? -0.15;
+    const vacancyMax = ranges?.vacancyMax ?? 0.00;
+    const attributesMin = ranges?.attributesMin ?? -0.05;
+    const attributesMax = ranges?.attributesMax ?? 0.10;
+    const seasonalityMin = ranges?.seasonalityMin ?? -0.05;
+    const seasonalityMax = ranges?.seasonalityMax ?? 0.10;
+    const competitorMin = ranges?.competitorMin ?? -0.10;
+    const competitorMax = ranges?.competitorMax ?? 0.10;
+    const marketMin = ranges?.marketMin ?? -0.05;
+    const marketMax = ranges?.marketMax ?? 0.05;
+    
+    // Calculate actual occupancy rate
+    const actualOccupancyRate = units.filter(u => u.occupiedYN).length / units.length;
+    
     for (const unit of units) {
-      // Apply Modulo pricing algorithm
-      let baseRate = unit.streetRate;
-      let adjustment = 0;
-
-      // Occupancy pressure adjustment
-      const occupancyRate = units.filter(u => u.occupiedYN).length / units.length;
-      if (occupancyRate < 0.8) {
-        adjustment -= baseRate * 0.02 * (weights.occupancyPressure / 100);
-      } else if (occupancyRate > 0.95) {
-        adjustment += baseRate * 0.03 * (weights.occupancyPressure / 100);
+      const streetRate = unit.streetRate;
+      
+      // Use the same conditional logic as the real-time calculation endpoint
+      
+      // 1. Occupancy Pressure - only adjust if occupancy is outside target range (85-95%)
+      let occupancyAdjustment = 0;
+      if (weights.occupancyPressure > 0) {
+        if (actualOccupancyRate < 0.85) {
+          // Low occupancy - apply downward pressure
+          const severity = Math.min((0.85 - actualOccupancyRate) / 0.15, 1);
+          occupancyAdjustment = occupancyMin * severity * (weights.occupancyPressure / 100);
+        } else if (actualOccupancyRate > 0.95) {
+          // High occupancy - apply upward pressure
+          const severity = Math.min((actualOccupancyRate - 0.95) / 0.05, 1);
+          occupancyAdjustment = occupancyMax * severity * (weights.occupancyPressure / 100);
+        }
       }
-
-      // Days vacant adjustment
-      if (unit.daysVacant > 30) {
-        adjustment -= baseRate * 0.01 * Math.min(unit.daysVacant / 30, 5) * (weights.daysVacantDecay / 100);
+      
+      // 2. Days Vacant - only apply to vacant units with days vacant > 30
+      let vacancyAdjustment = 0;
+      if (weights.daysVacantDecay > 0 && !unit.occupiedYN && unit.daysVacant > 30) {
+        const severity = Math.min(unit.daysVacant / 90, 1);
+        vacancyAdjustment = vacancyMin * severity * (weights.daysVacantDecay / 100);
       }
-
-      // Attribute adjustments
-      if (unit.renovated) {
-        adjustment += baseRate * 0.05 * (weights.roomAttributes / 100);
+      
+      // 3. Room Attributes - only apply if unit has premium attributes
+      let attributeAdjustment = 0;
+      if (weights.roomAttributes > 0) {
+        let attributeScore = 0;
+        if (unit.view) attributeScore += 0.3;
+        if (unit.renovated) attributeScore += 0.4;
+        if (unit.otherPremiumFeature) attributeScore += 0.3;
+        
+        if (attributeScore > 0) {
+          const direction = attributeScore > 0.5 ? 1 : -0.5;
+          const range = direction > 0 ? attributesMax : attributesMin;
+          attributeAdjustment = range * attributeScore * (weights.roomAttributes / 100);
+        }
       }
-      if (unit.view && unit.view.includes('Garden')) {
-        adjustment += baseRate * 0.03 * (weights.roomAttributes / 100);
+      
+      // 4. Competitor Rates - only apply if competitor rate exists and differs significantly
+      let competitorAdjustment = 0;
+      if (weights.competitorRates > 0 && unit.competitorRate) {
+        const competitorRate = unit.competitorRate;
+        const priceDifference = (streetRate - competitorRate) / competitorRate;
+        
+        if (Math.abs(priceDifference) > 0.05) {
+          const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
+          const direction = priceDifference > 0 ? -1 : 1;
+          const range = direction > 0 ? competitorMax : competitorMin;
+          competitorAdjustment = range * severity * (weights.competitorRates / 100);
+        }
       }
-
-      // Competitor rate adjustment
-      if (unit.competitorRate && unit.competitorRate > 0) {
-        const competitorDiff = (unit.competitorRate - baseRate) / baseRate;
-        adjustment += baseRate * competitorDiff * 0.5 * (weights.competitorRates / 100);
+      
+      // 5. Seasonality - apply based on current month
+      let seasonalAdjustment = 0;
+      if (weights.seasonality > 0) {
+        const currentMonth = new Date().getMonth();
+        const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
+        
+        if (isPeakSeason) {
+          seasonalAdjustment = seasonalityMax * 0.8 * (weights.seasonality / 100);
+        } else {
+          seasonalAdjustment = seasonalityMin * 0.5 * (weights.seasonality / 100);
+        }
       }
-
-      // Apply guardrails
-      const suggestedRate = Math.max(
-        baseRate * (1 - (guardrails.minRateDecrease || 0.05)),
-        Math.min(
-          baseRate * (1 + (guardrails.maxRateIncrease || 0.15)),
-          baseRate + adjustment
-        )
-      );
+      
+      // 6. Market Conditions
+      let marketAdjustment = 0;
+      if (weights.stockMarket > 0) {
+        marketAdjustment = marketMax * 0.3 * (weights.stockMarket / 100);
+      }
+      
+      // Calculate total adjustment
+      const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
+                             seasonalAdjustment + competitorAdjustment + marketAdjustment;
+      
+      // Apply the adjustment to get the recommended rate
+      const suggestedRate = Math.round(streetRate * (1 + totalAdjustment));
 
       // Update unit
       await db.update(rentRollData)
-        .set({ moduloSuggestedRate: Math.round(suggestedRate) })
+        .set({ moduloSuggestedRate: suggestedRate })
         .where(eq(rentRollData.id, unit.id));
 
-      updatedUnits.push({...unit, moduloSuggestedRate: Math.round(suggestedRate)});
+      updatedUnits.push({...unit, moduloSuggestedRate: suggestedRate});
     }
 
     return updatedUnits;
