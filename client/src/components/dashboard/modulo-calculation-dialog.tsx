@@ -23,18 +23,20 @@ interface CalculationResult {
 interface ModuloCalculationDialogProps {
   roomType: string;
   currentRate: number;
+  unitId?: string;
   children: React.ReactNode;
 }
 
 export default function ModuloCalculationDialog({ 
   roomType, 
   currentRate, 
+  unitId,
   children 
 }: ModuloCalculationDialogProps) {
   const [open, setOpen] = useState(false);
 
   const { data: calculation, isLoading } = useQuery<CalculationResult>({
-    queryKey: [`/api/calculation/${roomType}?currentRate=${currentRate}`],
+    queryKey: [`/api/calculation/${roomType}?currentRate=${currentRate}${unitId ? `&unitId=${unitId}` : ''}`],
     enabled: open, // Only fetch when dialog is open
   });
 

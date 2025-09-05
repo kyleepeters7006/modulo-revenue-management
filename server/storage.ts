@@ -158,7 +158,19 @@ export class DatabaseStorage implements IStorage {
 
   async getSampleUnitByRoomType(roomType: string): Promise<any> {
     const units = await this.getRentRollData();
-    return units.find(unit => unit.Unit_Type === roomType) || units[0];
+    const matchingUnits = units.filter(unit => unit.Unit_Type === roomType);
+    
+    if (matchingUnits.length === 0) {
+      return units[0]; // Fallback to first unit if no matching type
+    }
+    
+    // Return the unit with the highest street rate for consistency
+    // This ensures we get the same unit every time for the same room type
+    return matchingUnits.reduce((highest, current) => {
+      const highestRate = highest.streetRate || 0;
+      const currentRate = current.streetRate || 0;
+      return currentRate > highestRate ? current : highest;
+    });
   }
 
   // User operations
