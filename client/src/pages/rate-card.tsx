@@ -8,10 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-// Helper functions for localStorage persistence
+// Helper functions for localStorage persistence - using shared key for cross-page sync
 const saveFiltersToStorage = (filters: any) => {
   try {
-    localStorage.setItem('rateCardFilters', JSON.stringify(filters));
+    localStorage.setItem('appFilters', JSON.stringify(filters));
   } catch (error) {
     console.warn('Failed to save filters to localStorage:', error);
   }
@@ -19,7 +19,7 @@ const saveFiltersToStorage = (filters: any) => {
 
 const loadFiltersFromStorage = () => {
   try {
-    const stored = localStorage.getItem('rateCardFilters');
+    const stored = localStorage.getItem('appFilters');
     return stored ? JSON.parse(stored) : null;
   } catch (error) {
     console.warn('Failed to load filters from localStorage:', error);

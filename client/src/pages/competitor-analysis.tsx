@@ -9,10 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-// Helper functions for localStorage persistence
+// Helper functions for localStorage persistence - using shared key for cross-page sync
 const saveCompetitorFiltersToStorage = (filters: any) => {
   try {
-    localStorage.setItem('competitorAnalysisFilters', JSON.stringify(filters));
+    localStorage.setItem('appFilters', JSON.stringify(filters));
   } catch (error) {
     console.warn('Failed to save competitor filters to localStorage:', error);
   }
@@ -20,7 +20,7 @@ const saveCompetitorFiltersToStorage = (filters: any) => {
 
 const loadCompetitorFiltersFromStorage = () => {
   try {
-    const stored = localStorage.getItem('competitorAnalysisFilters');
+    const stored = localStorage.getItem('appFilters');
     return stored ? JSON.parse(stored) : null;
   } catch (error) {
     console.warn('Failed to load competitor filters from localStorage:', error);
@@ -38,6 +38,7 @@ export default function CompetitorAnalysis() {
   // Save filters to localStorage whenever they change
   useEffect(() => {
     const filters = {
+      serviceLine: "All", // Default service line for competitor page
       regions: selectedRegions,
       divisions: selectedDivisions,
       locations: selectedLocations
