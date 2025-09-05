@@ -3187,9 +3187,27 @@ Keep recommendations specific and quantitative when possible.`;
       const ranges = await storage.getAdjustmentRanges();
       const assumptions = await storage.getAssumptions();
       
-      // Use the actual street rate passed from the frontend
-      console.log('Street rate param:', currentRate);
-      const streetRate = currentRate ? parseFloat(currentRate as string) : 3185;
+      // Get actual unit data from database instead of using hardcoded values
+      let sampleUnit;
+      if (unitId) {
+        // If unitId provided, get that specific unit
+        const allUnits = await storage.getRentRollData();
+        sampleUnit = allUnits.find(unit => unit.unitId === unitId);
+      }
+      
+      // Fallback to getting a sample unit of this room type
+      if (!sampleUnit) {
+        sampleUnit = await storage.getSampleUnitByRoomType(roomType);
+      }
+      
+      // Use the actual street rate from the unit data, not hardcoded floor plan values
+      const streetRate = sampleUnit?.streetRate || (currentRate ? parseFloat(currentRate as string) : 3185);
+      console.log('Street rate from unit:', streetRate, 'for unit:', sampleUnit?.unitId || 'none');
+      
+      // Get all units to calculate actual occupancy rate
+      const allUnits = await storage.getRentRollData();
+      const occupiedUnits = allUnits.filter(unit => unit.occupiedYN);
+      const actualOccupancyRate = occupiedUnits.length / allUnits.length;
       
       // Get weight percentages (0-100)
       const occupancyWeight = weights?.occupancyPressure ?? 25;
@@ -3213,47 +3231,89 @@ Keep recommendations specific and quantitative when possible.`;
       const marketMin = ranges?.marketMin ?? -0.05;
       const marketMax = ranges?.marketMax ?? 0.05;
       
-      // Calculate adjustments: weight determines how much of the range is applied
-      // For demo purposes, we'll assume mid-range conditions for each factor
-      // In production, these would be calculated based on actual data
+      // CONDITIONAL LOGIC: Only apply adjustments when criteria are met
       
-      // Occupancy: Assume 90% occupancy (slightly below target)
-      const occupancyFactor = 0.3; // 30% toward min (need to lower rates slightly)
-      const occupancyAdjustment = occupancyWeight > 0 
-        ? (occupancyMin * occupancyFactor + occupancyMax * (1 - occupancyFactor)) * (occupancyWeight / 100)
-        : 0;
+      // 1. Occupancy Pressure - only adjust if occupancy is outside target range (85-95%)
+      let occupancyAdjustment = 0;
+      if (occupancyWeight > 0) {
+        if (actualOccupancyRate < 0.85) {
+          // Low occupancy - apply downward pressure (toward min range)
+          const severity = Math.min((0.85 - actualOccupancyRate) / 0.15, 1); // 0-1 based on how low
+          occupancyAdjustment = occupancyMin * severity * (occupancyWeight / 100);
+        } else if (actualOccupancyRate > 0.95) {
+          // High occupancy - apply upward pressure (toward max range)
+          const severity = Math.min((actualOccupancyRate - 0.95) / 0.05, 1); // 0-1 based on how high
+          occupancyAdjustment = occupancyMax * severity * (occupancyWeight / 100);
+        }
+        // If occupancy is 85-95%, no adjustment is applied
+      }
       
-      // Vacancy: Assume unit is recently vacant
-      const vacancyFactor = 0.2; // 20% toward min
-      const vacancyAdjustment = vacancyWeight > 0
-        ? (vacancyMin * vacancyFactor + vacancyMax * (1 - vacancyFactor)) * (vacancyWeight / 100)
-        : 0;
+      // 2. Days Vacant - only apply to vacant units with days vacant > threshold
+      let vacancyAdjustment = 0;
+      if (vacancyWeight > 0 && sampleUnit && !sampleUnit.occupiedYN && sampleUnit.daysVacant > 30) {
+        // Only vacant units with >30 days vacant get adjustment
+        const severity = Math.min(sampleUnit.daysVacant / 90, 1); // 0-1 based on days vacant (max at 90 days)
+        vacancyAdjustment = vacancyMin * severity * (vacancyWeight / 100);
+      }
+      // If unit is occupied or vacant <30 days, no adjustment is applied
       
-      // Attributes: Assume average attributes
-      const attributesFactor = 0.6; // 60% toward max (slightly above average)
-      const attributeAdjustment = attributeWeight > 0
-        ? (attributesMin * (1 - attributesFactor) + attributesMax * attributesFactor) * (attributeWeight / 100)
-        : 0;
+      // 3. Room Attributes - only apply if unit has premium attributes
+      let attributeAdjustment = 0;
+      if (attributeWeight > 0 && sampleUnit?.attributes) {
+        let attributeScore = 0;
+        const attrs = sampleUnit.attributes;
+        
+        // Calculate attribute score based on premium features
+        if (attrs.view) attributeScore += 0.3;
+        if (attrs.renovated) attributeScore += 0.4;
+        if (attrs.corner) attributeScore += 0.3;
+        
+        // Only apply adjustment if unit has premium attributes (score > 0)
+        if (attributeScore > 0) {
+          const direction = attributeScore > 0.5 ? 1 : -0.5; // Premium vs basic attributes
+          const range = direction > 0 ? attributesMax : attributesMin;
+          attributeAdjustment = range * attributeScore * (attributeWeight / 100);
+        }
+      }
       
-      // Seasonality: Assume peak season
-      const seasonalityFactor = 0.8; // 80% toward max
-      const seasonalAdjustment = seasonalWeight > 0
-        ? (seasonalityMin * (1 - seasonalityFactor) + seasonalityMax * seasonalityFactor) * (seasonalWeight / 100)
-        : 0;
+      // 4. Competitor Rates - only apply if competitor rate exists and differs significantly
+      let competitorAdjustment = 0;
+      if (competitorWeight > 0 && sampleUnit?.competitorBenchmarkRate) {
+        const competitorRate = sampleUnit.competitorBenchmarkRate;
+        const priceDifference = (streetRate - competitorRate) / competitorRate;
+        
+        // Only adjust if price difference is >5%
+        if (Math.abs(priceDifference) > 0.05) {
+          const severity = Math.min(Math.abs(priceDifference) / 0.20, 1); // Cap at 20% difference
+          const direction = priceDifference > 0 ? -1 : 1; // If we're higher, adjust down; if lower, adjust up
+          const range = direction > 0 ? competitorMax : competitorMin;
+          competitorAdjustment = range * severity * (competitorWeight / 100);
+        }
+      }
       
-      // Competitor: Assume we're slightly above market
-      const competitorFactor = 0.4; // 40% toward min (need to be more competitive)
-      const competitorAdjustment = competitorWeight > 0
-        ? (competitorMin * competitorFactor + competitorMax * (1 - competitorFactor)) * (competitorWeight / 100)
-        : 0;
+      // 5. Seasonality - apply based on current month (demo logic)
+      let seasonalAdjustment = 0;
+      if (seasonalWeight > 0) {
+        const currentMonth = new Date().getMonth(); // 0-11
+        // Peak season: March-May, Sept-Nov (spring/fall move-ins)
+        const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
+        
+        if (isPeakSeason) {
+          seasonalAdjustment = seasonalityMax * 0.8 * (seasonalWeight / 100);
+        } else {
+          seasonalAdjustment = seasonalityMin * 0.5 * (seasonalWeight / 100);
+        }
+      }
       
-      // Market: Assume neutral market conditions
-      const marketFactor = 0.6; // 60% toward max (slight bullish)
-      const marketAdjustment = marketWeight > 0
-        ? (marketMin * (1 - marketFactor) + marketMax * marketFactor) * (marketWeight / 100)
-        : 0;
+      // 6. Market Conditions - apply based on stock market performance (demo logic)
+      let marketAdjustment = 0;
+      if (marketWeight > 0) {
+        // In real implementation, this would check actual market indices
+        // For demo, assume neutral to slightly positive market
+        marketAdjustment = marketMax * 0.3 * (marketWeight / 100);
+      }
       
-      // Calculate total adjustment to get the actual Modulo rate
+      // Calculate total adjustment
       const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
                              seasonalAdjustment + competitorAdjustment + marketAdjustment;
       
@@ -3263,7 +3323,7 @@ Keep recommendations specific and quantitative when possible.`;
       res.json({
         recommendedRate,
         calculation: {
-          baseRate: streetRate, // Keep as baseRate for backwards compatibility with frontend
+          baseRate: streetRate,
           occupancyAdjustment,
           vacancyAdjustment,
           attributeAdjustment,
@@ -3271,7 +3331,16 @@ Keep recommendations specific and quantitative when possible.`;
           competitorAdjustment,
           marketAdjustment,
           totalAdjustment,
-          guardrailsApplied: []
+          guardrailsApplied: [],
+          // Additional debug info
+          actualOccupancyRate,
+          unitData: {
+            unitId: sampleUnit?.unitId,
+            isOccupied: sampleUnit?.occupiedYN,
+            daysVacant: sampleUnit?.daysVacant,
+            attributes: sampleUnit?.attributes,
+            competitorRate: sampleUnit?.competitorBenchmarkRate
+          }
         }
       });
     } catch (error) {
