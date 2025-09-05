@@ -250,6 +250,13 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
   
+  // Debug log to check units data
+  console.log('Units data sample:', units.slice(0, 2).map((u: any) => ({ 
+    id: u.id, 
+    roomNumber: u.roomNumber, 
+    uploadMonth: u.uploadMonth 
+  })));
+  
   // Filter units by selected service line
   const filteredUnits = selectedServiceLine === "All" 
     ? units 
