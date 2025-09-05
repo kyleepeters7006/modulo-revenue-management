@@ -15,7 +15,7 @@ export default function PricingControls() {
             Dynamic Pricing Controls
           </h1>
           <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
-            Adjust pricing weights and guardrails for the Modulo algorithm
+            Configure pricing weights and guardrails for the Modulo algorithm
           </p>
         </div>
 
