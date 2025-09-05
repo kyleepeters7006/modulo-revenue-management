@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Navigation from "@/components/navigation";
 import { CompetitorMap } from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
@@ -9,10 +9,41 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
+// Helper functions for localStorage persistence
+const saveCompetitorFiltersToStorage = (filters: any) => {
+  try {
+    localStorage.setItem('competitorAnalysisFilters', JSON.stringify(filters));
+  } catch (error) {
+    console.warn('Failed to save competitor filters to localStorage:', error);
+  }
+};
+
+const loadCompetitorFiltersFromStorage = () => {
+  try {
+    const stored = localStorage.getItem('competitorAnalysisFilters');
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.warn('Failed to load competitor filters from localStorage:', error);
+    return null;
+  }
+};
+
 export default function CompetitorAnalysis() {
-  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
-  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>(['Sunrise Valley Senior Living']);
+  // Load initial state from localStorage or use defaults
+  const savedFilters = loadCompetitorFiltersFromStorage();
+  const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations || ['Sunrise Valley Senior Living']);
+
+  // Save filters to localStorage whenever they change
+  useEffect(() => {
+    const filters = {
+      regions: selectedRegions,
+      divisions: selectedDivisions,
+      locations: selectedLocations
+    };
+    saveCompetitorFiltersToStorage(filters);
+  }, [selectedRegions, selectedDivisions, selectedLocations]);
 
   // Fetch locations data for filters
   const { data: locationsData } = useQuery({

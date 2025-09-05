@@ -8,11 +8,43 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
+// Helper functions for localStorage persistence
+const saveFiltersToStorage = (filters: any) => {
+  try {
+    localStorage.setItem('rateCardFilters', JSON.stringify(filters));
+  } catch (error) {
+    console.warn('Failed to save filters to localStorage:', error);
+  }
+};
+
+const loadFiltersFromStorage = () => {
+  try {
+    const stored = localStorage.getItem('rateCardFilters');
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.warn('Failed to load filters from localStorage:', error);
+    return null;
+  }
+};
+
 export default function RateCard() {
-  const [selectedServiceLine, setSelectedServiceLine] = useState<string>("All");
-  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
-  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  // Load initial state from localStorage or use defaults
+  const savedFilters = loadFiltersFromStorage();
+  const [selectedServiceLine, setSelectedServiceLine] = useState<string>(savedFilters?.serviceLine || "All");
+  const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations || []);
+
+  // Save filters to localStorage whenever they change
+  useEffect(() => {
+    const filters = {
+      serviceLine: selectedServiceLine,
+      regions: selectedRegions,
+      divisions: selectedDivisions,
+      locations: selectedLocations
+    };
+    saveFiltersToStorage(filters);
+  }, [selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations]);
 
   const serviceLines = ["All", "AL", "AL/MC", "HC", "HC/MC", "IL", "SL"];
 
