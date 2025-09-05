@@ -35,11 +35,6 @@ export default function ModuloCalculationDialog({
 }: ModuloCalculationDialogProps) {
   const [open, setOpen] = useState(false);
 
-  // Debug logging
-  if (open && unitId) {
-    console.log('ModuloCalculationDialog opened with unitId:', unitId);
-  }
-
   const { data: calculation, isLoading } = useQuery<CalculationResult>({
     queryKey: [`/api/calculation/${roomType}?currentRate=${currentRate}${unitId ? `&unitId=${unitId}` : ''}`],
     enabled: open, // Only fetch when dialog is open

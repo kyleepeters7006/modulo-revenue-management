@@ -44,7 +44,7 @@ export default function RateCardTable({
   selectedDivisions,
   selectedLocations
 }: RateCardTableProps) {
-  const [selectedMonth, setSelectedMonth] = useState("2025-09");
+  const [selectedMonth, setSelectedMonth] = useState("2024-11");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
@@ -250,13 +250,6 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
   
-  // Debug log to check units data
-  console.log('Units data sample:', units.slice(0, 2).map((u: any) => ({ 
-    id: u.id, 
-    roomNumber: u.roomNumber, 
-    uploadMonth: u.uploadMonth 
-  })));
-  
   // Filter units by selected service line
   const filteredUnits = selectedServiceLine === "All" 
     ? units 
@@ -421,12 +414,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUnits.slice(0, 20).map((unit: any) => {
-                    // Debug logging
-                    if (unit.roomNumber === 'SUNRISE-IL-005') {
-                      console.log('SUNRISE-IL-005 unit data:', { id: unit.id, roomNumber: unit.roomNumber });
-                    }
-                    return (<TableRow key={unit.id}>
+                  {filteredUnits.slice(0, 20).map((unit: any) => (
+                    <TableRow key={unit.id}>
                       <TableCell className="font-medium">
                         {unit.roomNumber}
                       </TableCell>
@@ -689,7 +678,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         </div>
                       </TableCell>
                     </TableRow>
-                  );})}
+                  ))}
                 </TableBody>
               </Table>
               
