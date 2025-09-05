@@ -157,15 +157,55 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSampleUnitByRoomType(roomType: string): Promise<any> {
-    const units = await this.getRentRollData();
+    // Get the current month (latest upload)
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const units = await this.getRentRollDataByMonth(currentMonth);
+    
+    // If no units for current month, try previous month
+    if (units.length === 0) {
+      const previousMonth = '2024-11'; // Fallback to November 2024
+      const fallbackUnits = await this.getRentRollDataByMonth(previousMonth);
+      const matchingUnits = fallbackUnits.filter(unit => unit.roomType === roomType);
+      
+      if (matchingUnits.length === 0) {
+        return fallbackUnits[0]; // Fallback to first unit if no matching type
+      }
+      
+      // Return the unit with the highest street rate that has a modulo rate
+      const unitsWithModulo = matchingUnits.filter(unit => unit.moduloSuggestedRate !== null);
+      if (unitsWithModulo.length > 0) {
+        return unitsWithModulo.reduce((highest, current) => {
+          const highestRate = highest.streetRate || 0;
+          const currentRate = current.streetRate || 0;
+          return currentRate > highestRate ? current : highest;
+        });
+      }
+      
+      // If no units have modulo rates, return highest street rate unit
+      return matchingUnits.reduce((highest, current) => {
+        const highestRate = highest.streetRate || 0;
+        const currentRate = current.streetRate || 0;
+        return currentRate > highestRate ? current : highest;
+      });
+    }
+    
     const matchingUnits = units.filter(unit => unit.roomType === roomType);
     
     if (matchingUnits.length === 0) {
       return units[0]; // Fallback to first unit if no matching type
     }
     
-    // Return the unit with the highest street rate for consistency
-    // This ensures we get the same unit every time for the same room type
+    // Return the unit with the highest street rate that has a modulo rate
+    const unitsWithModulo = matchingUnits.filter(unit => unit.moduloSuggestedRate !== null);
+    if (unitsWithModulo.length > 0) {
+      return unitsWithModulo.reduce((highest, current) => {
+        const highestRate = highest.streetRate || 0;
+        const currentRate = current.streetRate || 0;
+        return currentRate > highestRate ? current : highest;
+      });
+    }
+    
+    // If no units have modulo rates, return highest street rate unit
     return matchingUnits.reduce((highest, current) => {
       const highestRate = highest.streetRate || 0;
       const currentRate = current.streetRate || 0;
