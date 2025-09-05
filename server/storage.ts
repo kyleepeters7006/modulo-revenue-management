@@ -158,7 +158,7 @@ export class DatabaseStorage implements IStorage {
 
   async getSampleUnitByRoomType(roomType: string): Promise<any> {
     const units = await this.getRentRollData();
-    const matchingUnits = units.filter(unit => unit.Unit_Type === roomType);
+    const matchingUnits = units.filter(unit => unit.roomType === roomType);
     
     if (matchingUnits.length === 0) {
       return units[0]; // Fallback to first unit if no matching type
