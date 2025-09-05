@@ -3300,8 +3300,10 @@ Keep recommendations specific and quantitative when possible.`;
       const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
                              seasonalAdjustment + competitorAdjustment + marketAdjustment;
       
-      // Apply the adjustment to get the recommended rate
-      const recommendedRate = Math.round(streetRate * (1 + totalAdjustment));
+      // Check if unit has a stored modulo suggested rate, use that instead of recalculating
+      const recommendedRate = sampleUnit?.moduloSuggestedRate 
+        ? Math.round(sampleUnit.moduloSuggestedRate)
+        : Math.round(streetRate * (1 + totalAdjustment));
       
       res.json({
         recommendedRate,
