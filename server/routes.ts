@@ -3544,43 +3544,37 @@ Keep recommendations specific and quantitative when possible.`;
       }
       // If unit is occupied or vacant <30 days, no adjustment is applied
       
-      // 3. Room Attributes - apply based on unit features
+      // 3. Room Attributes - only apply if unit has documented attributes
       let attributeAdjustment = 0;
-      if (attributeWeight > 0) {
+      if (attributeWeight > 0 && sampleUnit?.attributes) {
         let attributeScore = 0;
+        const attrs = sampleUnit.attributes;
         
-        // Check for premium features from unit data
-        if (sampleUnit?.view) attributeScore += 0.3;
-        if (sampleUnit?.renovated) attributeScore += 0.4;
-        if (sampleUnit?.roomType === 'Studio') attributeScore -= 0.2; // Studios get negative adjustment
-        if (sampleUnit?.roomType === '2 Bedroom') attributeScore += 0.2; // 2BR gets positive adjustment
+        // Calculate attribute score based on actual premium features
+        if (attrs.view) attributeScore += 0.3;
+        if (attrs.renovated) attributeScore += 0.4;
+        if (attrs.corner) attributeScore += 0.3;
         
-        // Apply adjustment based on score
-        if (attributeScore !== 0) {
-          const range = attributeScore > 0 ? attributesMax : attributesMin;
-          attributeAdjustment = range * Math.abs(attributeScore) * (attributeWeight / 100);
-        } else {
-          // Default small positive adjustment for standard units
-          attributeAdjustment = attributesMax * 0.3 * (attributeWeight / 100);
+        // Only apply adjustment if unit has premium attributes (score > 0)
+        if (attributeScore > 0) {
+          const direction = attributeScore > 0.5 ? 1 : -0.5;
+          const range = direction > 0 ? attributesMax : attributesMin;
+          attributeAdjustment = range * attributeScore * (attributeWeight / 100);
         }
       }
       
-      // 4. Competitor Rates - apply based on market positioning
+      // 4. Competitor Rates - only apply if competitor rate exists and differs significantly
       let competitorAdjustment = 0;
-      if (competitorWeight > 0) {
-        // Use competitor rate from unit data, or estimate from street rate
-        const competitorRate = sampleUnit?.competitorRate || streetRate * 1.05; // Assume competitors are 5% higher if no data
+      if (competitorWeight > 0 && sampleUnit?.competitorBenchmarkRate) {
+        const competitorRate = sampleUnit.competitorBenchmarkRate;
         const priceDifference = (streetRate - competitorRate) / competitorRate;
         
-        // Apply adjustment based on competitive positioning
-        if (Math.abs(priceDifference) > 0.02) { // Apply if difference > 2%
+        // Only adjust if price difference is >5%
+        if (Math.abs(priceDifference) > 0.05) {
           const severity = Math.min(Math.abs(priceDifference) / 0.20, 1); // Cap at 20% difference
           const direction = priceDifference > 0 ? -1 : 1; // If we're higher, adjust down; if lower, adjust up
           const range = direction > 0 ? competitorMax : competitorMin;
           competitorAdjustment = range * severity * (competitorWeight / 100);
-        } else {
-          // Small default competitive positioning adjustment
-          competitorAdjustment = competitorMax * 0.2 * (competitorWeight / 100);
         }
       }
       
