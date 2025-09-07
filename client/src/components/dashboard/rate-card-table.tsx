@@ -471,7 +471,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 setAIDialogUnit({
                                   unitId: unit.id,
                                   roomType: unit.roomType,
-                                  streetRate: unit.streetRate
+                                  streetRate: unit.streetRate || 0
                                 });
                               }}
                               data-testid={`tooltip-ai-${unit.roomNumber}`}

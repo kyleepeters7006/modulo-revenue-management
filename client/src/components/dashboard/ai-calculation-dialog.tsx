@@ -24,7 +24,7 @@ export default function AICalculationDialog({
   onOpenChange,
   unitId,
   roomType,
-  streetRate,
+  streetRate = 0,
 }: AICalculationDialogProps) {
   const [loading, setLoading] = useState(true);
   const [calculation, setCalculation] = useState<any>(null);
@@ -82,26 +82,28 @@ export default function AICalculationDialog({
               <div className="flex justify-between items-center">
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Current Street Rate</p>
-                  <p className="text-2xl font-bold">${streetRate.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">${(calculation.streetRate || streetRate || 0).toLocaleString()}</p>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center gap-2">
-                    {calculation.aiSuggestedRate > streetRate ? (
+                    {calculation.aiSuggestedRate > (calculation.streetRate || streetRate) ? (
                       <TrendingUp className="h-5 w-5 text-green-600" />
-                    ) : calculation.aiSuggestedRate < streetRate ? (
+                    ) : calculation.aiSuggestedRate < (calculation.streetRate || streetRate) ? (
                       <TrendingDown className="h-5 w-5 text-red-600" />
                     ) : (
                       <Minus className="h-5 w-5 text-gray-600" />
                     )}
                     <span className="text-sm font-medium">
-                      {((calculation.aiSuggestedRate - streetRate) / streetRate * 100).toFixed(1)}%
+                      {(calculation.streetRate || streetRate) ? 
+                        ((calculation.aiSuggestedRate - (calculation.streetRate || streetRate)) / (calculation.streetRate || streetRate) * 100).toFixed(1) : 
+                        '0.0'}%
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground mb-1">AI Suggested Rate</p>
                   <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                    ${calculation.aiSuggestedRate.toLocaleString()}
+                    ${(calculation.aiSuggestedRate || 0).toLocaleString()}
                   </p>
                 </div>
               </div>
