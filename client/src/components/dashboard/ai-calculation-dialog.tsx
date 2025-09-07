@@ -86,22 +86,22 @@ export default function AICalculationDialog({
                 </div>
                 <div className="text-center">
                   <div className="flex items-center gap-2">
-                    {calculation.finalRate > streetRate ? (
+                    {calculation.aiSuggestedRate > streetRate ? (
                       <TrendingUp className="h-5 w-5 text-green-600" />
-                    ) : calculation.finalRate < streetRate ? (
+                    ) : calculation.aiSuggestedRate < streetRate ? (
                       <TrendingDown className="h-5 w-5 text-red-600" />
                     ) : (
                       <Minus className="h-5 w-5 text-gray-600" />
                     )}
                     <span className="text-sm font-medium">
-                      {((calculation.finalRate - streetRate) / streetRate * 100).toFixed(1)}%
+                      {((calculation.aiSuggestedRate - streetRate) / streetRate * 100).toFixed(1)}%
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground mb-1">AI Suggested Rate</p>
                   <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                    ${calculation.finalRate.toLocaleString()}
+                    ${calculation.aiSuggestedRate.toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -111,23 +111,77 @@ export default function AICalculationDialog({
             <div className="space-y-4">
               <h3 className="font-semibold text-lg">Adjustment Factors (AI Algorithm)</h3>
               <div className="space-y-3">
-                {calculation.adjustments && calculation.adjustments.map((adj: string, idx: number) => {
-                  const [factor, value] = adj.split(':');
-                  const isPositive = value.includes('+');
-                  const isNegative = value.includes('-') && !isPositive;
-                  
-                  return (
-                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <span className="font-medium">{factor}</span>
+                {calculation.calculation && (
+                  <>
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <span className="font-medium">Occupancy Pressure</span>
                       <Badge 
-                        variant={isPositive ? "default" : isNegative ? "destructive" : "secondary"}
+                        variant={calculation.calculation.occupancyAdjustment > 0 ? "default" : calculation.calculation.occupancyAdjustment < 0 ? "destructive" : "secondary"}
                         className="min-w-[80px] justify-center"
                       >
-                        {value.trim()}
+                        {(calculation.calculation.occupancyAdjustment * 100).toFixed(1)}%
                       </Badge>
                     </div>
-                  );
-                })}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <span className="font-medium">Days Vacant</span>
+                      <Badge 
+                        variant={calculation.calculation.vacancyAdjustment > 0 ? "default" : calculation.calculation.vacancyAdjustment < 0 ? "destructive" : "secondary"}
+                        className="min-w-[80px] justify-center"
+                      >
+                        {(calculation.calculation.vacancyAdjustment * 100).toFixed(1)}%
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <span className="font-medium">Room Attributes</span>
+                      <Badge 
+                        variant={calculation.calculation.attributeAdjustment > 0 ? "default" : calculation.calculation.attributeAdjustment < 0 ? "destructive" : "secondary"}
+                        className="min-w-[80px] justify-center"
+                      >
+                        {(calculation.calculation.attributeAdjustment * 100).toFixed(1)}%
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <span className="font-medium">Seasonality</span>
+                      <Badge 
+                        variant={calculation.calculation.seasonalAdjustment > 0 ? "default" : calculation.calculation.seasonalAdjustment < 0 ? "destructive" : "secondary"}
+                        className="min-w-[80px] justify-center"
+                      >
+                        {(calculation.calculation.seasonalAdjustment * 100).toFixed(1)}%
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <span className="font-medium">Competitor Rates</span>
+                      <Badge 
+                        variant={calculation.calculation.competitorAdjustment > 0 ? "default" : calculation.calculation.competitorAdjustment < 0 ? "destructive" : "secondary"}
+                        className="min-w-[80px] justify-center"
+                      >
+                        {(calculation.calculation.competitorAdjustment * 100).toFixed(1)}%
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <span className="font-medium">Market Conditions</span>
+                      <Badge 
+                        variant={calculation.calculation.marketAdjustment > 0 ? "default" : calculation.calculation.marketAdjustment < 0 ? "destructive" : "secondary"}
+                        className="min-w-[80px] justify-center"
+                      >
+                        {(calculation.calculation.marketAdjustment * 100).toFixed(1)}%
+                      </Badge>
+                    </div>
+                    
+                    {/* Total Adjustment */}
+                    <div className="pt-3 mt-3 border-t">
+                      <div className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                        <span className="font-semibold">Total Adjustment</span>
+                        <Badge 
+                          variant={calculation.calculation.totalAdjustment > 0 ? "default" : calculation.calculation.totalAdjustment < 0 ? "destructive" : "secondary"}
+                          className="min-w-[80px] justify-center font-bold"
+                        >
+                          {(calculation.calculation.totalAdjustment * 100).toFixed(1)}%
+                        </Badge>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
