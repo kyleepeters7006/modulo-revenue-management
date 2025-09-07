@@ -3488,9 +3488,39 @@ Keep recommendations specific and quantitative when possible.`;
       const { unitId, currentRate } = req.query;
       
       // Get the actual pricing weights, ranges, and assumptions
-      const weights = await storage.getPricingWeights();
-      const ranges = await storage.getAdjustmentRanges();
+      let weights = await storage.getPricingWeights();
+      let ranges = await storage.getAdjustmentRanges();
       const assumptions = await storage.getAssumptions();
+      
+      // If no weights exist, create default weights
+      if (!weights) {
+        weights = await storage.createOrUpdateWeights({
+          occupancyPressure: 25,
+          daysVacantDecay: 20,
+          roomAttributes: 20,
+          seasonality: 15,
+          competitorRates: 10,
+          stockMarket: 10
+        });
+      }
+      
+      // If no ranges exist, create default ranges
+      if (!ranges) {
+        ranges = await storage.createOrUpdateAdjustmentRanges({
+          occupancyMin: -0.10,
+          occupancyMax: 0.10,
+          vacancyMin: -0.15,
+          vacancyMax: 0.00,
+          attributesMin: -0.05,
+          attributesMax: 0.10,
+          seasonalityMin: -0.05,
+          seasonalityMax: 0.10,
+          competitorMin: -0.10,
+          competitorMax: 0.10,
+          marketMin: -0.02,
+          marketMax: 0.05
+        });
+      }
       
       // Get actual unit data from database instead of using hardcoded values
       let sampleUnit;
@@ -3595,27 +3625,14 @@ Keep recommendations specific and quantitative when possible.`;
         }
       }
       
-      // 5. Seasonality - apply based on current month (demo logic)
+      // 5. Seasonality - only applies if we have actual seasonal data
       let seasonalAdjustment = 0;
-      if (seasonalWeight > 0) {
-        const currentMonth = new Date().getMonth(); // 0-11
-        // Peak season: March-May, Sept-Nov (spring/fall move-ins)
-        const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
-        
-        if (isPeakSeason) {
-          seasonalAdjustment = seasonalityMax * 0.8 * (seasonalWeight / 100);
-        } else {
-          seasonalAdjustment = seasonalityMin * 0.5 * (seasonalWeight / 100);
-        }
-      }
+      // Removed because no real seasonal data exists
       
-      // 6. Market Conditions - apply based on stock market performance (demo logic)
+      // 6. Market Conditions - only applies if we have actual market data
       let marketAdjustment = 0;
-      if (marketWeight > 0) {
-        // In real implementation, this would check actual market indices
-        // For demo, assume neutral to slightly positive market
-        marketAdjustment = marketMax * 0.3 * (marketWeight / 100);
-      }
+      // Removed because no real market data exists
+      
       
       // Calculate total adjustment
       const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
