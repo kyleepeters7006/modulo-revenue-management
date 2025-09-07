@@ -3201,6 +3201,11 @@ Keep recommendations specific and quantitative when possible.`;
         return res.status(404).json({ error: 'Unit not found' });
       }
       
+      // If the unit has a stored AI suggested rate, use that as the final rate
+      // Otherwise calculate it dynamically
+      const storedAiRate = unit.aiSuggestedRate;
+      const streetRate = unit.streetRate || 3185;
+      
       // Get AI-specific weights and ranges for calculation
       const aiWeights = await storage.getAiPricingWeights() || {
         occupancyPressure: 20,
@@ -3230,32 +3235,46 @@ Keep recommendations specific and quantitative when possible.`;
       const occupiedUnits = allUnits.filter(u => u.occupiedYN);
       const actualOccupancyRate = occupiedUnits.length / allUnits.length;
       
-      const streetRate = unit.streetRate || 3185;
-      
-      // Calculate AI adjustments
+      // Calculate AI adjustments - more aggressive than Modulo
       let aiOccupancyAdjustment = 0;
       if (aiWeights.occupancyPressure > 0) {
-        if (actualOccupancyRate >= 0.95) {
-          aiOccupancyAdjustment = aiRanges.occupancyMax * (aiWeights.occupancyPressure / 100);
-        } else if (actualOccupancyRate >= 0.85) {
-          const scale = (actualOccupancyRate - 0.85) / 0.10;
-          aiOccupancyAdjustment = aiRanges.occupancyMax * scale * (aiWeights.occupancyPressure / 100);
-        } else if (actualOccupancyRate <= 0.7) {
-          aiOccupancyAdjustment = aiRanges.occupancyMin * (aiWeights.occupancyPressure / 100);
+        // AI uses more aggressive occupancy-based pricing
+        if (actualOccupancyRate >= 0.90) {
+          // High occupancy - push rates up
+          const scale = Math.min((actualOccupancyRate - 0.90) / 0.10, 1);
+          aiOccupancyAdjustment = aiRanges.occupancyMax * (0.5 + scale * 0.5) * (aiWeights.occupancyPressure / 100);
+        } else if (actualOccupancyRate <= 0.80) {
+          // Low occupancy - reduce rates
+          const scale = Math.min((0.80 - actualOccupancyRate) / 0.20, 1);
+          aiOccupancyAdjustment = aiRanges.occupancyMin * (0.5 + scale * 0.5) * (aiWeights.occupancyPressure / 100);
         } else {
-          const scale = (0.85 - actualOccupancyRate) / 0.15;
-          aiOccupancyAdjustment = aiRanges.occupancyMin * scale * (aiWeights.occupancyPressure / 100);
+          // Mid-range occupancy - slight positive adjustment
+          const scale = (actualOccupancyRate - 0.80) / 0.10;
+          aiOccupancyAdjustment = aiRanges.occupancyMax * scale * 0.3 * (aiWeights.occupancyPressure / 100);
         }
       }
       
       let aiVacancyAdjustment = 0;
-      if (aiWeights.daysVacantDecay > 0 && !unit.occupiedYN && unit.daysVacant) {
-        const severity = Math.min(unit.daysVacant / 90, 1);
+      if (aiWeights.daysVacantDecay > 0 && !unit.occupiedYN && unit.daysVacant && unit.daysVacant > 0) {
+        // AI is more aggressive with vacancy adjustments
+        const severity = Math.min(unit.daysVacant / 60, 1); // More aggressive curve (60 days instead of 90)
         aiVacancyAdjustment = aiRanges.vacancyMin * severity * (aiWeights.daysVacantDecay / 100);
       }
       
       let aiAttributeAdjustment = 0;
-      // Could add attribute calculations here
+      if (aiWeights.roomAttributes > 0 && unit.attributes) {
+        // Only apply if unit has documented attributes
+        let attributeScore = 0;
+        const attrs = unit.attributes;
+        
+        if (attrs.view) attributeScore += 0.3;
+        if (attrs.renovated) attributeScore += 0.4;
+        if (attrs.corner) attributeScore += 0.3;
+        
+        if (attributeScore > 0) {
+          aiAttributeAdjustment = aiRanges.attributesMax * attributeScore * (aiWeights.roomAttributes / 100);
+        }
+      }
       
       let aiSeasonalAdjustment = 0;
       if (aiWeights.seasonality > 0) {
@@ -3272,23 +3291,21 @@ Keep recommendations specific and quantitative when possible.`;
       if (aiWeights.competitorRates > 0 && unit.competitorBenchmarkRate) {
         const competitorRate = unit.competitorBenchmarkRate;
         const priceDifference = (streetRate - competitorRate) / competitorRate;
-        if (Math.abs(priceDifference) > 0.05) {
-          const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
-          const direction = priceDifference > 0 ? -1 : 1;
-          const range = direction > 0 ? aiRanges.competitorMax : aiRanges.competitorMin;
-          aiCompetitorAdjustment = range * severity * (aiWeights.competitorRates / 100);
-        }
+        const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
+        const direction = priceDifference > 0 ? -1 : 1;
+        const range = direction > 0 ? aiRanges.competitorMax : aiRanges.competitorMin;
+        aiCompetitorAdjustment = range * severity * (aiWeights.competitorRates / 100);
       }
       
       let aiMarketAdjustment = 0;
-      if (aiWeights.stockMarket > 0) {
-        aiMarketAdjustment = aiRanges.marketMax * 0.3 * (aiWeights.stockMarket / 100);
-      }
+      // Market adjustment only applies if we have actual market data
+      // In this case we don't have real market data, so it stays at 0
       
       const aiTotalAdjustment = aiOccupancyAdjustment + aiVacancyAdjustment + aiAttributeAdjustment + 
                                 aiSeasonalAdjustment + aiCompetitorAdjustment + aiMarketAdjustment;
       
-      const aiSuggestedRate = Math.round(streetRate * (1 + aiTotalAdjustment));
+      // Use stored AI rate if available, otherwise calculate
+      const aiSuggestedRate = storedAiRate || Math.round(streetRate * (1 + aiTotalAdjustment));
       
       res.json({
         unitId: unit.id,
