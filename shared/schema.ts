@@ -385,6 +385,10 @@ export const adjustmentRules = pgTable("adjustment_rules", {
   createdBy: text("created_by"),
   lastExecuted: timestamp("last_executed"),
   executionCount: integer("execution_count").default(0),
+  monthlyImpact: real("monthly_impact").default(0), // Estimated monthly revenue impact
+  annualImpact: real("annual_impact").default(0), // Base annual impact (12x monthly)
+  volumeAdjustedAnnualImpact: real("volume_adjusted_annual_impact").default(0), // Annual impact with 5% volume increase
+  actualAnnualImpact: real("actual_annual_impact"), // Tracked actual impact over time
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -399,6 +403,9 @@ export const adjustmentRuleLog = pgTable("adjustment_rule_log", {
   adjustmentAmount: real("adjustment_amount").notNull(), // Percentage or dollar amount
   beforeValue: real("before_value"),
   afterValue: real("after_value"),
+  monthlyImpact: real("monthly_impact"), // Monthly revenue impact from this execution
+  annualImpact: real("annual_impact"), // Projected annual impact (12x monthly)
+  volumeAdjustedAnnualImpact: real("volume_adjusted_annual_impact"), // Annual impact with 5% volume boost
   impactSummary: jsonb("impact_summary"), // Detailed impact data
   status: text("status").notNull(), // success, partial, failed
   errorMessage: text("error_message"),
