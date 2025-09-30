@@ -179,19 +179,25 @@ export function NaturalLanguageAdjustments() {
       const result = await response.json();
       
       if (previewMode) {
-        // Show preview
+        // Show preview with annual impact
+        const monthlyImpact = result.monthlyImpact || result.estimatedImpact;
+        const annualImpact = result.annualImpact || monthlyImpact * 12;
+        const volumeAdjustedAnnualImpact = result.volumeAdjustedAnnualImpact || annualImpact * 1.05;
+        
         toast({
           title: "Rule Preview",
-          description: `This would affect ${result.affectedUnits} units with an estimated impact of $${result.estimatedImpact.toLocaleString()}/month`,
+          description: `${result.affectedUnits} units • Monthly: $${monthlyImpact.toLocaleString()} • Annual (5% vol.↑): $${volumeAdjustedAnnualImpact.toLocaleString()}`,
         });
       } else {
         // Rule created successfully
         setRules([...rules, result.rule]);
         setTranscript('');
         
+        const annualImpact = result.volumeAdjustedAnnualImpact || (result.estimatedImpact * 12 * 1.05);
+        
         toast({
           title: "Rule created successfully",
-          description: `"${result.rule.name}" will affect ${result.affectedUnits} units`,
+          description: `"${result.rule.name}" will affect ${result.affectedUnits} units with annual impact of $${annualImpact.toLocaleString()}`,
         });
         
         // Audio confirmation
@@ -366,6 +372,11 @@ export function NaturalLanguageAdjustments() {
                         {rule.affectedUnits && (
                           <Badge variant="outline" className="text-xs">
                             {rule.affectedUnits} units affected
+                          </Badge>
+                        )}
+                        {rule.volumeAdjustedAnnualImpact && (
+                          <Badge variant="default" className="text-xs">
+                            ${(rule.volumeAdjustedAnnualImpact || 0).toLocaleString()}/yr (5% vol.↑)
                           </Badge>
                         )}
                       </div>
