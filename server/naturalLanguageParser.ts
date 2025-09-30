@@ -197,8 +197,10 @@ function parseTrigger(input: string): ParsedTrigger | null {
 
 function parseAction(input: string): ParsedAction | null {
   // Parse adjustment value
-  const percentMatch = input.match(/(?:by|increase|decrease|reduce|raise|lower)\s*(\d+(?:\.\d+)?)\s*%/);
-  const dollarMatch = input.match(/(?:by|increase|decrease|reduce|raise|lower)\s*\$?\s*(\d+(?:\.\d+)?)\s*(?:dollars?)?/);
+  // Match both % symbol and the word "percent" or "percentage" - more flexible regex that allows words in between
+  const percentMatch = input.match(/(\d+(?:\.\d+)?)\s*(?:%|percent(?:age)?)/);
+  // Only match dollar amounts if explicitly mentioned with $ or "dollar" word, and NOT followed by "percent"
+  const dollarMatch = input.match(/\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*dollars?(?!\s*percent)/);
   
   if (!percentMatch && !dollarMatch) {
     return null;
@@ -218,7 +220,8 @@ function parseAction(input: string): ParsedAction | null {
     if (isDecrease) adjustmentValue = -adjustmentValue;
   } else if (dollarMatch) {
     adjustmentType = 'absolute';
-    adjustmentValue = parseFloat(dollarMatch[1]);
+    // Handle both capture groups (with $ and without $)
+    adjustmentValue = parseFloat(dollarMatch[1] || dollarMatch[2]);
     if (isDecrease) adjustmentValue = -adjustmentValue;
   }
   
