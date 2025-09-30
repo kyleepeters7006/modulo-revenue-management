@@ -3751,11 +3751,20 @@ Keep recommendations specific and quantitative when possible.`;
         }
       }
       
+      // Calculate annual impacts with 5% volume increase
+      const monthlyImpact = totalImpact;
+      const annualImpact = monthlyImpact * 12; // Base annual impact
+      const volumeIncreaseFactor = 1.05; // 5% volume increase
+      const volumeAdjustedAnnualImpact = annualImpact * volumeIncreaseFactor;
+      
       if (preview) {
         // Just return preview info without creating the rule
         return res.json({
           affectedUnits,
           estimatedImpact: Math.round(totalImpact),
+          monthlyImpact: Math.round(monthlyImpact),
+          annualImpact: Math.round(annualImpact),
+          volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
           previewRule: parsedRule,
         });
       }
@@ -3768,12 +3777,18 @@ Keep recommendations specific and quantitative when possible.`;
         action: parsedRule.action,
         isActive: true,
         createdBy: 'user',
+        monthlyImpact: Math.round(monthlyImpact),
+        annualImpact: Math.round(annualImpact),
+        volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
       });
       
       res.json({
         rule,
         affectedUnits,
         estimatedImpact: Math.round(totalImpact),
+        monthlyImpact: Math.round(monthlyImpact),
+        annualImpact: Math.round(annualImpact),
+        volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
       });
     } catch (error) {
       console.error('Error creating adjustment rule:', error);
