@@ -15,6 +15,8 @@ import {
   targetsAndTrends,
   aiPricingWeights,
   aiAdjustmentRanges,
+  adjustmentRules,
+  adjustmentRuleLog,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -46,7 +48,11 @@ import {
   type AiPricingWeights,
   type InsertAiPricingWeights,
   type AiAdjustmentRanges,
-  type InsertAiAdjustmentRanges
+  type InsertAiAdjustmentRanges,
+  type AdjustmentRules,
+  type InsertAdjustmentRules,
+  type AdjustmentRuleLog,
+  type InsertAdjustmentRuleLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -138,6 +144,15 @@ export interface IStorage {
   
   // Get sample unit for calculation details
   getSampleUnitByRoomType(roomType: string): Promise<any>;
+  
+  // Adjustment Rules methods
+  getAdjustmentRules(): Promise<AdjustmentRules[]>;
+  getActiveAdjustmentRules(): Promise<AdjustmentRules[]>;
+  createAdjustmentRule(rule: InsertAdjustmentRules): Promise<AdjustmentRules>;
+  updateAdjustmentRule(id: string, rule: Partial<InsertAdjustmentRules>): Promise<AdjustmentRules>;
+  deleteAdjustmentRule(id: string): Promise<void>;
+  logRuleExecution(log: InsertAdjustmentRuleLog): Promise<AdjustmentRuleLog>;
+  getRuleExecutionHistory(ruleId?: string): Promise<AdjustmentRuleLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -897,6 +912,44 @@ Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate"
     }
 
     return updatedCount;
+  }
+  
+  // Adjustment Rules methods implementation
+  async getAdjustmentRules(): Promise<AdjustmentRules[]> {
+    return await db.select().from(adjustmentRules);
+  }
+
+  async getActiveAdjustmentRules(): Promise<AdjustmentRules[]> {
+    return await db.select().from(adjustmentRules).where(eq(adjustmentRules.isActive, true));
+  }
+
+  async createAdjustmentRule(rule: InsertAdjustmentRules): Promise<AdjustmentRules> {
+    const [newRule] = await db.insert(adjustmentRules).values(rule).returning();
+    return newRule;
+  }
+
+  async updateAdjustmentRule(id: string, rule: Partial<InsertAdjustmentRules>): Promise<AdjustmentRules> {
+    const [updatedRule] = await db.update(adjustmentRules)
+      .set({ ...rule, updatedAt: new Date() })
+      .where(eq(adjustmentRules.id, id))
+      .returning();
+    return updatedRule;
+  }
+
+  async deleteAdjustmentRule(id: string): Promise<void> {
+    await db.delete(adjustmentRules).where(eq(adjustmentRules.id, id));
+  }
+
+  async logRuleExecution(log: InsertAdjustmentRuleLog): Promise<AdjustmentRuleLog> {
+    const [newLog] = await db.insert(adjustmentRuleLog).values(log).returning();
+    return newLog;
+  }
+
+  async getRuleExecutionHistory(ruleId?: string): Promise<AdjustmentRuleLog[]> {
+    if (ruleId) {
+      return await db.select().from(adjustmentRuleLog).where(eq(adjustmentRuleLog.ruleId, ruleId));
+    }
+    return await db.select().from(adjustmentRuleLog);
   }
 }
 

@@ -373,6 +373,40 @@ export const insertTargetsAndTrendsSchema = createInsertSchema(targetsAndTrends)
   updatedAt: true,
 });
 
+// Portfolio adjustment rules table
+export const adjustmentRules = pgTable("adjustment_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(), // Natural language rule description
+  trigger: jsonb("trigger").notNull(), // Parsed trigger conditions
+  action: jsonb("action").notNull(), // Parsed actions to take
+  isActive: boolean("is_active").default(true),
+  priority: integer("priority").default(0), // Higher priority rules execute first
+  createdBy: text("created_by"),
+  lastExecuted: timestamp("last_executed"),
+  executionCount: integer("execution_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Adjustment rule execution log
+export const adjustmentRuleLog = pgTable("adjustment_rule_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleId: varchar("rule_id").references(() => adjustmentRules.id),
+  executedAt: timestamp("executed_at").defaultNow(),
+  affectedUnits: integer("affected_units").notNull(),
+  adjustmentType: text("adjustment_type").notNull(), // street_rate, care_rate, etc
+  adjustmentAmount: real("adjustment_amount").notNull(), // Percentage or dollar amount
+  beforeValue: real("before_value"),
+  afterValue: real("after_value"),
+  impactSummary: jsonb("impact_summary"), // Detailed impact data
+  status: text("status").notNull(), // success, partial, failed
+  errorMessage: text("error_message"),
+});
+
+export const insertAdjustmentRulesSchema = createInsertSchema(adjustmentRules);
+export const insertAdjustmentRuleLogSchema = createInsertSchema(adjustmentRuleLog);
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -404,3 +438,7 @@ export type AiPricingWeights = typeof aiPricingWeights.$inferSelect;
 export type InsertAiPricingWeights = z.infer<typeof insertAiPricingWeightsSchema>;
 export type AiAdjustmentRanges = typeof aiAdjustmentRanges.$inferSelect;
 export type InsertAiAdjustmentRanges = z.infer<typeof insertAiAdjustmentRangesSchema>;
+export type AdjustmentRules = typeof adjustmentRules.$inferSelect;
+export type InsertAdjustmentRules = z.infer<typeof insertAdjustmentRulesSchema>;
+export type AdjustmentRuleLog = typeof adjustmentRuleLog.$inferSelect;
+export type InsertAdjustmentRuleLog = z.infer<typeof insertAdjustmentRuleLogSchema>;
