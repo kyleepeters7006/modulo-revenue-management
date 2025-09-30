@@ -49,6 +49,23 @@ export function NaturalLanguageAdjustments() {
   const [previewMode, setPreviewMode] = useState(false);
   const { toast } = useToast();
   const recognitionRef = useRef<any>(null);
+  
+  // Fetch existing rules on mount
+  useEffect(() => {
+    fetchRules();
+  }, []);
+  
+  const fetchRules = async () => {
+    try {
+      const response = await fetch('/api/adjustment-rules');
+      if (response.ok) {
+        const data = await response.json();
+        setRules(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch rules:', error);
+    }
+  };
 
   // Check for browser support
   const isSpeechSupported = typeof window !== 'undefined' && 
