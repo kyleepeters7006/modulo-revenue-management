@@ -9,6 +9,7 @@ import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import express from "express";
 import path from "path";
+import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageParser";
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
@@ -3667,6 +3668,323 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Calculation error:', error);
       res.status(500).json({ error: "Failed to calculate pricing details" });
+    }
+  });
+
+  // Natural Language Adjustment Rules endpoints
+  app.post("/api/adjustment-rules", async (req, res) => {
+    try {
+      const { description, preview } = req.body;
+      
+      // Parse the natural language rule
+      const parsedRule = parseNaturalLanguageRule(description);
+      
+      if (!parsedRule) {
+        return res.status(400).json({ 
+          error: "Could not understand the rule. Please try rephrasing." 
+        });
+      }
+      
+      // Validate the parsed rule
+      const validation = validateParsedRule(parsedRule);
+      if (!validation.isValid) {
+        return res.status(400).json({ 
+          error: "Invalid rule", 
+          details: validation.errors 
+        });
+      }
+      
+      // Calculate estimated impact
+      const units = await storage.getRentRollData();
+      let affectedUnits = 0;
+      let totalImpact = 0;
+      
+      // Filter units based on rule filters
+      for (const unit of units) {
+        let isAffected = true;
+        
+        if (parsedRule.action.filters) {
+          const filters = parsedRule.action.filters;
+          
+          if (filters.roomType && !filters.roomType.includes(unit.roomType)) {
+            isAffected = false;
+          }
+          if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) {
+            isAffected = false;
+          }
+          if (filters.location && !filters.location.includes(unit.location)) {
+            isAffected = false;
+          }
+          if (filters.occupancyStatus === 'vacant' && unit.occupiedYN) {
+            isAffected = false;
+          }
+          if (filters.occupancyStatus === 'occupied' && !unit.occupiedYN) {
+            isAffected = false;
+          }
+          if (filters.vacancyDuration && unit.daysVacant !== null) {
+            const days = filters.vacancyDuration.days;
+            const meetsCondition = filters.vacancyDuration.operator === '>' 
+              ? unit.daysVacant > days 
+              : unit.daysVacant >= days;
+            if (!meetsCondition) {
+              isAffected = false;
+            }
+          }
+        }
+        
+        if (isAffected) {
+          affectedUnits++;
+          
+          // Calculate impact on this unit
+          const currentRate = parsedRule.action.target === 'care_rate' 
+            ? unit.careRate || 0
+            : unit.streetRate || 0;
+          
+          let adjustment = 0;
+          if (parsedRule.action.adjustmentType === 'percentage') {
+            adjustment = currentRate * (parsedRule.action.adjustmentValue / 100);
+          } else {
+            adjustment = parsedRule.action.adjustmentValue;
+          }
+          
+          totalImpact += adjustment;
+        }
+      }
+      
+      if (preview) {
+        // Just return preview info without creating the rule
+        return res.json({
+          affectedUnits,
+          estimatedImpact: Math.round(totalImpact),
+          previewRule: parsedRule,
+        });
+      }
+      
+      // Create the rule in database
+      const rule = await storage.createAdjustmentRule({
+        name: parsedRule.name,
+        description: parsedRule.description,
+        trigger: parsedRule.trigger,
+        action: parsedRule.action,
+        isActive: true,
+        createdBy: 'user',
+      });
+      
+      res.json({
+        rule,
+        affectedUnits,
+        estimatedImpact: Math.round(totalImpact),
+      });
+    } catch (error) {
+      console.error('Error creating adjustment rule:', error);
+      res.status(500).json({ error: "Failed to create adjustment rule" });
+    }
+  });
+  
+  app.get("/api/adjustment-rules", async (req, res) => {
+    try {
+      const rules = await storage.getAdjustmentRules();
+      res.json(rules);
+    } catch (error) {
+      console.error('Error fetching adjustment rules:', error);
+      res.status(500).json({ error: "Failed to fetch adjustment rules" });
+    }
+  });
+  
+  app.patch("/api/adjustment-rules/:id/toggle", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const rules = await storage.getAdjustmentRules();
+      const rule = rules.find(r => r.id === id);
+      
+      if (!rule) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+      
+      const updated = await storage.updateAdjustmentRule(id, {
+        isActive: !rule.isActive,
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error('Error toggling adjustment rule:', error);
+      res.status(500).json({ error: "Failed to toggle adjustment rule" });
+    }
+  });
+  
+  app.delete("/api/adjustment-rules/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteAdjustmentRule(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting adjustment rule:', error);
+      res.status(500).json({ error: "Failed to delete adjustment rule" });
+    }
+  });
+  
+  app.get("/api/adjustment-rules/:id/history", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const history = await storage.getRuleExecutionHistory(id);
+      res.json(history);
+    } catch (error) {
+      console.error('Error fetching rule history:', error);
+      res.status(500).json({ error: "Failed to fetch rule history" });
+    }
+  });
+  
+  // Execute rules manually (can be triggered by cron job in production)
+  app.post("/api/adjustment-rules/execute", async (req, res) => {
+    try {
+      const activeRules = await storage.getActiveAdjustmentRules();
+      const executionResults = [];
+      
+      for (const rule of activeRules) {
+        try {
+          // Check if rule should execute based on trigger
+          let shouldExecute = false;
+          
+          if (rule.trigger.type === 'immediate') {
+            shouldExecute = true;
+          } else if (rule.trigger.type === 'time') {
+            // Check if enough time has passed since last execution
+            const lastExecuted = rule.lastExecuted ? new Date(rule.lastExecuted) : new Date(0);
+            const now = new Date();
+            const timeDiff = now.getTime() - lastExecuted.getTime();
+            
+            const interval = rule.trigger.timeInterval;
+            if (interval) {
+              const msPerUnit = {
+                'day': 24 * 60 * 60 * 1000,
+                'week': 7 * 24 * 60 * 60 * 1000,
+                'month': 30 * 24 * 60 * 60 * 1000,
+                'quarter': 90 * 24 * 60 * 60 * 1000,
+                'year': 365 * 24 * 60 * 60 * 1000,
+              };
+              
+              const requiredMs = msPerUnit[interval.unit] * interval.value;
+              shouldExecute = timeDiff >= requiredMs;
+            }
+          }
+          // For condition and event triggers, would need external event system
+          
+          if (!shouldExecute) {
+            continue;
+          }
+          
+          // Execute the rule
+          const units = await storage.getRentRollData();
+          let affectedCount = 0;
+          let totalBefore = 0;
+          let totalAfter = 0;
+          
+          for (const unit of units) {
+            let isAffected = true;
+            
+            // Apply filters (same logic as preview)
+            if (rule.action.filters) {
+              const filters = rule.action.filters;
+              
+              if (filters.roomType && !filters.roomType.includes(unit.roomType)) {
+                isAffected = false;
+              }
+              if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) {
+                isAffected = false;
+              }
+              if (filters.location && !filters.location.includes(unit.location)) {
+                isAffected = false;
+              }
+              if (filters.occupancyStatus === 'vacant' && unit.occupiedYN) {
+                isAffected = false;
+              }
+              if (filters.occupancyStatus === 'occupied' && !unit.occupiedYN) {
+                isAffected = false;
+              }
+            }
+            
+            if (isAffected) {
+              affectedCount++;
+              
+              // Apply adjustment
+              const currentRate = rule.action.target === 'care_rate' 
+                ? unit.careRate || 0
+                : unit.streetRate || 0;
+              
+              totalBefore += currentRate;
+              
+              let newRate = currentRate;
+              if (rule.action.adjustmentType === 'percentage') {
+                newRate = currentRate * (1 + rule.action.adjustmentValue / 100);
+              } else {
+                newRate = currentRate + rule.action.adjustmentValue;
+              }
+              
+              totalAfter += newRate;
+              
+              // Update the unit in database
+              // Note: In production, this would update the actual rates
+              // For now, we're just calculating the impact
+            }
+          }
+          
+          // Log execution
+          const log = await storage.logRuleExecution({
+            ruleId: rule.id,
+            affectedUnits: affectedCount,
+            adjustmentType: rule.action.target,
+            adjustmentAmount: rule.action.adjustmentValue,
+            beforeValue: totalBefore / Math.max(affectedCount, 1),
+            afterValue: totalAfter / Math.max(affectedCount, 1),
+            impactSummary: {
+              totalRevenueDelta: totalAfter - totalBefore,
+              unitsAffected: affectedCount,
+            },
+            status: 'success',
+          });
+          
+          // Update rule's last executed time
+          await storage.updateAdjustmentRule(rule.id, {
+            lastExecuted: new Date(),
+            executionCount: (rule.executionCount || 0) + 1,
+          });
+          
+          executionResults.push({
+            ruleId: rule.id,
+            ruleName: rule.name,
+            affectedUnits: affectedCount,
+            impact: totalAfter - totalBefore,
+            status: 'success',
+          });
+          
+        } catch (ruleError) {
+          console.error(`Error executing rule ${rule.id}:`, ruleError);
+          
+          await storage.logRuleExecution({
+            ruleId: rule.id,
+            affectedUnits: 0,
+            adjustmentType: rule.action.target,
+            adjustmentAmount: 0,
+            status: 'failed',
+            errorMessage: String(ruleError),
+          });
+          
+          executionResults.push({
+            ruleId: rule.id,
+            ruleName: rule.name,
+            status: 'failed',
+            error: String(ruleError),
+          });
+        }
+      }
+      
+      res.json({
+        executedRules: executionResults.length,
+        results: executionResults,
+      });
+    } catch (error) {
+      console.error('Error executing adjustment rules:', error);
+      res.status(500).json({ error: "Failed to execute adjustment rules" });
     }
   });
 
