@@ -1,5 +1,6 @@
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
+import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
 import AdjustmentRanges from "@/components/dashboard/adjustment-ranges";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import AttributeManagement from "@/components/attribute-management";
@@ -21,6 +22,7 @@ export default function PricingControls() {
 
         <div className="space-y-6 sm:space-y-8">
           <PricingWeights />
+          <NaturalLanguageAdjustments />
           <AdjustmentRanges />
           <GuardrailsEditor />
           <AttributeManagement />
