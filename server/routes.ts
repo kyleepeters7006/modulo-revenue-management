@@ -1661,6 +1661,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // MatrixCare Export - Export data in MatrixCare format
+  app.get("/api/export/matrixcare", async (req, res) => {
+    try {
+      const { format = 'xlsx' } = req.query;
+      
+      // Get all rent roll data
+      const rentRollData = await storage.getRentRollData();
+      
+      if (!rentRollData || rentRollData.length === 0) {
+        return res.status(404).json({ error: "No rent roll data available for export" });
+      }
+      
+      // Import the MatrixCare export functions
+      const { generateMatrixCareExcel, generateMatrixCareCSV } = await import('./matrixCareExport');
+      
+      if (format === 'csv') {
+        // Generate CSV
+        const csvContent = generateMatrixCareCSV(rentRollData);
+        const filename = `MatrixCare_Upload_${new Date().toISOString().split('T')[0]}.csv`;
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csvContent);
+      } else {
+        // Generate Excel
+        const buffer = generateMatrixCareExcel(rentRollData);
+        const filename = `MatrixCare_Upload_${new Date().toISOString().split('T')[0]}.xlsx`;
+        
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+      }
+    } catch (error) {
+      console.error('MatrixCare export failed:', error);
+      res.status(500).json({ error: "Failed to export MatrixCare template" });
+    }
+  });
+
   // Attribute Pricing Configuration
   app.post("/api/attribute-pricing", async (req, res) => {
     try {
