@@ -152,6 +152,138 @@ export default function DataManagement() {
             </CardContent>
           </Card>
 
+          {/* Export Options */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Export Data</CardTitle>
+              <CardDescription>
+                Export your data in various formats for external systems
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h3 className="font-medium text-sm">MatrixCare Export</h3>
+                  <p className="text-xs text-gray-600">Export data formatted for MatrixCare EHR system</p>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={async () => {
+                        try {
+                          const response = await fetch('/api/export/matrixcare?format=xlsx');
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `MatrixCare_Upload_${new Date().toISOString().split('T')[0]}.xlsx`;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                          
+                          toast({
+                            title: "Export Successful",
+                            description: "MatrixCare Excel template has been downloaded.",
+                          });
+                        } catch (error) {
+                          toast({
+                            title: "Export Failed",
+                            description: "Failed to export MatrixCare template.",
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                      variant="outline"
+                      className="flex-1"
+                      data-testid="button-export-matrixcare-excel"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 mr-2" />
+                      Excel Format
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          const response = await fetch('/api/export/matrixcare?format=csv');
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `MatrixCare_Upload_${new Date().toISOString().split('T')[0]}.csv`;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                          
+                          toast({
+                            title: "Export Successful",
+                            description: "MatrixCare CSV has been downloaded.",
+                          });
+                        } catch (error) {
+                          toast({
+                            title: "Export Failed",
+                            description: "Failed to export MatrixCare CSV.",
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                      variant="outline"
+                      className="flex-1"
+                      data-testid="button-export-matrixcare-csv"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      CSV Format
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <h3 className="font-medium text-sm">Pricing Recommendations</h3>
+                  <p className="text-xs text-gray-600">Export current pricing recommendations</p>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/publish', { method: 'POST' });
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `pricing_recommendations_${new Date().toISOString().split('T')[0]}.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        
+                        toast({
+                          title: "Export Successful",
+                          description: "Pricing recommendations have been exported.",
+                        });
+                      } catch (error) {
+                        toast({
+                          title: "Export Failed",
+                          description: "Failed to export pricing recommendations.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    variant="outline"
+                    className="w-full"
+                    data-testid="button-export-recommendations"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Recommendations CSV
+                  </Button>
+                </div>
+              </div>
+              
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>MatrixCare Export:</strong> Includes facility names, room types with A/B/C ratings, service lines, 
+                  daily rates, and payer types formatted for direct import into MatrixCare.
+                </AlertDescription>
+              </Alert>
+            </CardContent>
+          </Card>
+
           {/* Data Upload Instructions */}
           <Card>
             <CardHeader>
