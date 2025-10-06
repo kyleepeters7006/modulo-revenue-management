@@ -1,6 +1,7 @@
 import { SelectRentRollData } from '@shared/schema';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
+import OpenAI from 'openai';
 
 // MatrixCare field mappings
 interface MatrixCareRow {
@@ -190,9 +191,143 @@ export function transformToMatrixCareFormat(
   return matrixCareRows;
 }
 
-export function generateMatrixCareExcel(rentRollData: SelectRentRollData[]): Buffer {
+// AI Validation for MatrixCare mapping
+async function validateMatrixCareMapping(
+  originalData: SelectRentRollData[],
+  matrixCareData: MatrixCareRow[]
+): Promise<{ isValid: boolean; issues: string[]; suggestions: string[] }> {
+  const issues: string[] = [];
+  const suggestions: string[] = [];
+  
+  // Basic data integrity checks
+  if (matrixCareData.length === 0) {
+    issues.push("No data generated for MatrixCare export");
+  }
+  
+  // Check for missing critical fields
+  matrixCareData.forEach((row, index) => {
+    if (!row.FacilityName) {
+      issues.push(`Row ${index + 1}: Missing FacilityName`);
+    }
+    if (!row.FacilityCustomerID) {
+      issues.push(`Row ${index + 1}: Missing FacilityCustomerID`);
+    }
+    if (!row.LevelofCare) {
+      issues.push(`Row ${index + 1}: Missing LevelofCare`);
+    }
+    if (row.BasePrice === undefined || row.BasePrice < 0) {
+      issues.push(`Row ${index + 1}: Invalid BasePrice (${row.BasePrice})`);
+    }
+    if (row.BasePrice > 1000) {
+      suggestions.push(`Row ${index + 1}: Daily rate ${row.BasePrice} seems high - verify monthly to daily conversion`);
+    }
+  });
+  
+  // Verify service line to level of care mapping
+  const invalidMappings = matrixCareData.filter(row => {
+    const hasSkilled = row.LevelofCare.includes('SKILLED');
+    const hasIntermed = row.LevelofCare.includes('INTERMED');
+    const hasIndependent = row.LevelofCare.includes('INDEPENDENT');
+    return !hasSkilled && !hasIntermed && !hasIndependent;
+  });
+  
+  if (invalidMappings.length > 0) {
+    issues.push(`${invalidMappings.length} rows have invalid LevelofCare values`);
+  }
+  
+  // Check for duplicate entries
+  const seen = new Set<string>();
+  matrixCareData.forEach(row => {
+    const key = `${row.FacilityName}-${row.BedTypeDescription}-${row.LevelofCare}-${row.PayerName}`;
+    if (seen.has(key)) {
+      suggestions.push(`Potential duplicate: ${key}`);
+    }
+    seen.add(key);
+  });
+  
+  // Use AI for advanced validation if available
+  if (process.env.OPENAI_API_KEY && matrixCareData.length > 0) {
+    try {
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      // Sample a few rows for AI validation
+      const sampleRows = matrixCareData.slice(0, 5);
+      
+      const prompt = `As a healthcare data expert familiar with MatrixCare EHR systems, validate this data mapping:
+
+Sample MatrixCare Export Data:
+${JSON.stringify(sampleRows, null, 2)}
+
+Source Data Summary:
+- Total units: ${originalData.length}
+- Service lines: ${[...new Set(originalData.map(d => d.serviceLine))].join(', ')}
+- Room types: ${[...new Set(originalData.map(d => d.roomType))].join(', ')}
+
+Please validate:
+1. Are the Level of Care mappings correct for the service lines?
+2. Are the daily rates reasonable (converted from monthly)?
+3. Are the revenue accounts properly formatted?
+4. Do the payer types match MatrixCare standards?
+5. Are there any critical fields missing or incorrectly formatted?
+
+Respond in JSON format:
+{
+  "isValid": boolean,
+  "criticalIssues": ["list of critical issues"],
+  "suggestions": ["list of suggestions for improvement"],
+  "mappingAccuracy": "high" | "medium" | "low"
+}`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 1000
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      
+      if (result.criticalIssues) {
+        issues.push(...result.criticalIssues);
+      }
+      if (result.suggestions) {
+        suggestions.push(...result.suggestions);
+      }
+      
+      if (result.mappingAccuracy === "low") {
+        issues.push("AI validation indicates low mapping accuracy - please review the export carefully");
+      } else if (result.mappingAccuracy === "medium") {
+        suggestions.push("AI validation suggests reviewing the mapping for potential improvements");
+      }
+      
+    } catch (error) {
+      console.error('AI validation error:', error);
+      suggestions.push("AI validation unavailable - manual review recommended");
+    }
+  }
+  
+  return {
+    isValid: issues.length === 0,
+    issues,
+    suggestions
+  };
+}
+
+export async function generateMatrixCareExcel(rentRollData: SelectRentRollData[]): Promise<{ buffer: Buffer; validation: any }> {
   // Transform data to MatrixCare format
   const matrixCareData = transformToMatrixCareFormat(rentRollData);
+  
+  // Validate the mapping
+  const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
+  
+  // Log validation results
+  if (!validation.isValid) {
+    console.warn('MatrixCare export validation issues:', validation.issues);
+  }
+  if (validation.suggestions.length > 0) {
+    console.info('MatrixCare export suggestions:', validation.suggestions);
+  }
   
   // Create a new workbook
   const wb = XLSX.utils.book_new();
@@ -230,13 +365,41 @@ export function generateMatrixCareExcel(rentRollData: SelectRentRollData[]): Buf
   // Add worksheet to workbook
   XLSX.utils.book_append_sheet(wb, ws, 'MatrixCare Upload');
   
+  // Add validation summary sheet if there are issues or suggestions
+  if (!validation.isValid || validation.suggestions.length > 0) {
+    const validationData = [
+      { Type: 'Status', Detail: validation.isValid ? 'VALID - Export completed with warnings' : 'INVALID - Review issues before uploading' },
+      ...validation.issues.map(issue => ({ Type: 'Issue', Detail: issue })),
+      ...validation.suggestions.map(suggestion => ({ Type: 'Suggestion', Detail: suggestion }))
+    ];
+    
+    const validationSheet = XLSX.utils.json_to_sheet(validationData);
+    XLSX.utils.book_append_sheet(wb, validationSheet, 'Validation Report');
+  }
+  
   // Generate Excel buffer
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  
+  return {
+    buffer,
+    validation
+  };
 }
 
-export function generateMatrixCareCSV(rentRollData: SelectRentRollData[]): string {
+export async function generateMatrixCareCSV(rentRollData: SelectRentRollData[]): Promise<{ csv: string; validation: any }> {
   // Transform data to MatrixCare format
   const matrixCareData = transformToMatrixCareFormat(rentRollData);
+  
+  // Validate the mapping
+  const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
+  
+  // Log validation results
+  if (!validation.isValid) {
+    console.warn('MatrixCare CSV export validation issues:', validation.issues);
+  }
+  if (validation.suggestions.length > 0) {
+    console.info('MatrixCare CSV export suggestions:', validation.suggestions);
+  }
   
   // Create CSV header
   const headers = [
@@ -263,5 +426,26 @@ export function generateMatrixCareCSV(rentRollData: SelectRentRollData[]): strin
     csv += values.join(',') + '\n';
   });
   
-  return csv;
+  // Add validation comments at the end if there are issues
+  if (!validation.isValid || validation.suggestions.length > 0) {
+    csv += '\n# VALIDATION REPORT\n';
+    csv += `# Status: ${validation.isValid ? 'VALID with warnings' : 'INVALID - Review before uploading'}\n`;
+    if (validation.issues.length > 0) {
+      csv += '# Issues:\n';
+      validation.issues.forEach(issue => {
+        csv += `# - ${issue}\n`;
+      });
+    }
+    if (validation.suggestions.length > 0) {
+      csv += '# Suggestions:\n';
+      validation.suggestions.forEach(suggestion => {
+        csv += `# - ${suggestion}\n`;
+      });
+    }
+  }
+  
+  return {
+    csv,
+    validation
+  };
 }

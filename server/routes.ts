@@ -1678,20 +1678,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { generateMatrixCareExcel, generateMatrixCareCSV } = await import('./matrixCareExport');
       
       if (format === 'csv') {
-        // Generate CSV
-        const csvContent = generateMatrixCareCSV(rentRollData);
+        // Generate CSV with validation
+        const { csv, validation } = await generateMatrixCareCSV(rentRollData);
+        
+        // Log validation warnings if any
+        if (!validation.isValid) {
+          console.error('MatrixCare CSV export has validation issues:', validation.issues);
+        }
+        
         const filename = `MatrixCare_Upload_${new Date().toISOString().split('T')[0]}.csv`;
         
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(csvContent);
+        res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
+        if (validation.suggestions.length > 0) {
+          res.setHeader('X-Validation-Suggestions', validation.suggestions.join('; '));
+        }
+        res.send(csv);
       } else {
-        // Generate Excel
-        const buffer = generateMatrixCareExcel(rentRollData);
+        // Generate Excel with validation
+        const { buffer, validation } = await generateMatrixCareExcel(rentRollData);
+        
+        // Log validation warnings if any
+        if (!validation.isValid) {
+          console.error('MatrixCare Excel export has validation issues:', validation.issues);
+        }
+        
         const filename = `MatrixCare_Upload_${new Date().toISOString().split('T')[0]}.xlsx`;
         
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
+        if (validation.suggestions.length > 0) {
+          res.setHeader('X-Validation-Suggestions', validation.suggestions.join('; '));
+        }
         res.send(buffer);
       }
     } catch (error) {

@@ -170,6 +170,11 @@ export default function DataManagement() {
                       onClick={async () => {
                         try {
                           const response = await fetch('/api/export/matrixcare?format=xlsx');
+                          
+                          // Check validation status from headers
+                          const validationStatus = response.headers.get('X-Validation-Status');
+                          const validationSuggestions = response.headers.get('X-Validation-Suggestions');
+                          
                           const blob = await response.blob();
                           const url = window.URL.createObjectURL(blob);
                           const a = document.createElement('a');
@@ -180,10 +185,26 @@ export default function DataManagement() {
                           window.URL.revokeObjectURL(url);
                           document.body.removeChild(a);
                           
-                          toast({
-                            title: "Export Successful",
-                            description: "MatrixCare Excel template has been downloaded.",
-                          });
+                          // Show appropriate message based on validation
+                          if (validationStatus === 'invalid') {
+                            toast({
+                              title: "Export Completed with Issues",
+                              description: "The export has validation issues. Please check the 'Validation Report' sheet in the Excel file before uploading to MatrixCare.",
+                              variant: "destructive",
+                              duration: 8000,
+                            });
+                          } else if (validationSuggestions) {
+                            toast({
+                              title: "Export Successful with Suggestions",
+                              description: "MatrixCare template downloaded. AI validation suggests reviewing the data. Check 'Validation Report' sheet for details.",
+                              duration: 6000,
+                            });
+                          } else {
+                            toast({
+                              title: "Export Successful",
+                              description: "MatrixCare Excel template has been downloaded and validated successfully.",
+                            });
+                          }
                         } catch (error) {
                           toast({
                             title: "Export Failed",
@@ -203,6 +224,11 @@ export default function DataManagement() {
                       onClick={async () => {
                         try {
                           const response = await fetch('/api/export/matrixcare?format=csv');
+                          
+                          // Check validation status from headers
+                          const validationStatus = response.headers.get('X-Validation-Status');
+                          const validationSuggestions = response.headers.get('X-Validation-Suggestions');
+                          
                           const blob = await response.blob();
                           const url = window.URL.createObjectURL(blob);
                           const a = document.createElement('a');
@@ -213,10 +239,26 @@ export default function DataManagement() {
                           window.URL.revokeObjectURL(url);
                           document.body.removeChild(a);
                           
-                          toast({
-                            title: "Export Successful",
-                            description: "MatrixCare CSV has been downloaded.",
-                          });
+                          // Show appropriate message based on validation
+                          if (validationStatus === 'invalid') {
+                            toast({
+                              title: "Export Completed with Issues",
+                              description: "The export has validation issues. Check the validation comments at the end of the CSV file before uploading to MatrixCare.",
+                              variant: "destructive",
+                              duration: 8000,
+                            });
+                          } else if (validationSuggestions) {
+                            toast({
+                              title: "Export Successful with Suggestions",
+                              description: "MatrixCare CSV downloaded. AI validation suggests reviewing the data. Check comments at end of file for details.",
+                              duration: 6000,
+                            });
+                          } else {
+                            toast({
+                              title: "Export Successful",
+                              description: "MatrixCare CSV has been downloaded and validated successfully.",
+                            });
+                          }
                         } catch (error) {
                           toast({
                             title: "Export Failed",
