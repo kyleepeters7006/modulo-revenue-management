@@ -26,6 +26,9 @@ interface AdjustmentRule {
   lastExecuted?: Date;
   executionCount: number;
   affectedUnits?: number;
+  monthlyImpact?: number;
+  annualImpact?: number;
+  volumeAdjustedAnnualImpact?: number;
   impactSummary?: {
     totalRevenueDelta: number;
     unitsAffected: number;
