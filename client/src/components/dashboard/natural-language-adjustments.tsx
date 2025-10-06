@@ -179,14 +179,46 @@ export function NaturalLanguageAdjustments() {
       const result = await response.json();
       
       if (previewMode) {
-        // Show preview with annual impact
+        // Show preview with annual impact and campus breakdown
         const monthlyImpact = result.monthlyImpact || result.estimatedImpact;
         const annualImpact = result.annualImpact || monthlyImpact * 12;
         const volumeAdjustedAnnualImpact = result.volumeAdjustedAnnualImpact || annualImpact * 1.05;
         
+        // Build campus breakdown text
+        let campusText = "";
+        if (result.campusBreakdown) {
+          const campuses = Object.entries(result.campusBreakdown)
+            .filter(([_, data]: [string, any]) => data.units > 0)
+            .slice(0, 3); // Show top 3 campuses
+          
+          if (campuses.length > 0) {
+            campusText = "\n\nPer Campus:\n" + campuses
+              .map(([campus, data]: [string, any]) => 
+                `• ${campus}: ${data.units} units, $${Math.round(data.monthlyImpact).toLocaleString()}/mo`
+              ).join("\n");
+            
+            if (Object.keys(result.campusBreakdown).length > 3) {
+              campusText += `\n• ...and ${Object.keys(result.campusBreakdown).length - 3} more campuses`;
+            }
+          }
+        }
+        
+        // Include ChatGPT's reasonability assessment
+        let reasonabilityText = "";
+        if (result.reasonabilityCheck) {
+          const riskColor = result.reasonabilityCheck.risk === "high" ? "⚠️" : 
+                          result.reasonabilityCheck.risk === "medium" ? "⚡" : "✓";
+          reasonabilityText = `\n\nAI Assessment: ${riskColor} ${result.reasonabilityCheck.explanation}`;
+          
+          if (!result.reasonabilityCheck.isReasonable && result.reasonabilityCheck.suggestedAdjustment !== null) {
+            reasonabilityText += `\n💡 Suggested adjustment: ${result.reasonabilityCheck.suggestedAdjustment}%`;
+          }
+        }
+        
         toast({
           title: "Rule Preview",
-          description: `${result.affectedUnits} units • Monthly: $${monthlyImpact.toLocaleString()} • Annual (5% vol.↑): $${volumeAdjustedAnnualImpact.toLocaleString()}`,
+          description: `${result.affectedUnits} units • Monthly: $${monthlyImpact.toLocaleString()} • Annual (5% vol.↑): $${volumeAdjustedAnnualImpact.toLocaleString()}${campusText}${reasonabilityText}`,
+          duration: 8000, // Longer duration to read all information
         });
       } else {
         // Rule created successfully

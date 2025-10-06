@@ -10,6 +10,7 @@ import Tesseract from "tesseract.js";
 import express from "express";
 import path from "path";
 import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageParser";
+import OpenAI from "openai";
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
@@ -3737,6 +3738,9 @@ Keep recommendations specific and quantitative when possible.`;
       let affectedUnits = 0;
       let totalImpact = 0;
       
+      // Track per-campus breakdown
+      const campusBreakdown: { [campus: string]: { units: number; monthlyImpact: number; annualImpact: number; volumeAdjustedAnnual: number } } = {};
+      
       // Filter units based on rule filters
       for (const unit of units) {
         let isAffected = true;
@@ -3786,14 +3790,95 @@ Keep recommendations specific and quantitative when possible.`;
           }
           
           totalImpact += adjustment;
+          
+          // Track per-campus impact
+          const campus = unit.location || 'Unknown';
+          if (!campusBreakdown[campus]) {
+            campusBreakdown[campus] = { units: 0, monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnual: 0 };
+          }
+          campusBreakdown[campus].units += 1;
+          campusBreakdown[campus].monthlyImpact += adjustment;
         }
       }
       
-      // Calculate annual impacts with 5% volume increase
+      // Calculate annual impacts for each campus
+      const volumeIncreaseFactor = 1.05; // 5% volume increase
+      for (const campus in campusBreakdown) {
+        campusBreakdown[campus].annualImpact = campusBreakdown[campus].monthlyImpact * 12;
+        campusBreakdown[campus].volumeAdjustedAnnual = campusBreakdown[campus].annualImpact * volumeIncreaseFactor;
+      }
+      
+      // Calculate total annual impacts
       const monthlyImpact = totalImpact;
       const annualImpact = monthlyImpact * 12; // Base annual impact
-      const volumeIncreaseFactor = 1.05; // 5% volume increase
       const volumeAdjustedAnnualImpact = annualImpact * volumeIncreaseFactor;
+      
+      // Use ChatGPT to validate if the impact is reasonable
+      let reasonabilityCheck = {
+        isReasonable: true,
+        explanation: "Impact appears reasonable based on standard pricing adjustments.",
+        suggestedAdjustment: null as number | null,
+        risk: "low" as "low" | "medium" | "high"
+      };
+      
+      if (preview && process.env.OPENAI_API_KEY) {
+        try {
+          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          
+          const avgImpactPerUnit = totalImpact / affectedUnits;
+          const percentageChange = parsedRule.action.adjustmentType === 'percentage' 
+            ? parsedRule.action.adjustmentValue 
+            : (avgImpactPerUnit / 3000) * 100; // Assume average rate of $3000
+          
+          const prompt = `As a senior living pricing expert, evaluate this pricing rule:
+          
+Rule Description: "${description}"
+Affected Units: ${affectedUnits}
+Monthly Impact: $${Math.round(monthlyImpact).toLocaleString()}
+Annual Impact (with 5% volume increase): $${Math.round(volumeAdjustedAnnualImpact).toLocaleString()}
+Average Impact per Unit: $${Math.round(avgImpactPerUnit)}
+Estimated Percentage Change: ${percentageChange.toFixed(1)}%
+
+Campus Breakdown:
+${Object.entries(campusBreakdown).map(([campus, data]) => 
+  `- ${campus}: ${data.units} units, $${Math.round(data.monthlyImpact).toLocaleString()}/month`
+).join('\n')}
+
+Please evaluate if this pricing adjustment is reasonable for a senior living portfolio. Consider:
+1. Is the percentage change appropriate for the market?
+2. Could this impact occupancy negatively?
+3. Is the rule too aggressive or too conservative?
+4. What risks might this create?
+
+Respond in JSON format:
+{
+  "isReasonable": boolean,
+  "explanation": "brief explanation",
+  "suggestedAdjustment": null or number (suggested percentage if current is unreasonable),
+  "risk": "low" | "medium" | "high"
+}`;
+
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+            temperature: 0.3,
+            max_tokens: 500
+          });
+
+          const result = JSON.parse(response.choices[0].message.content || '{}');
+          reasonabilityCheck = {
+            isReasonable: result.isReasonable !== false,
+            explanation: result.explanation || reasonabilityCheck.explanation,
+            suggestedAdjustment: result.suggestedAdjustment,
+            risk: result.risk || "low"
+          };
+          
+        } catch (error) {
+          console.error('ChatGPT validation error:', error);
+          // Continue with default reasonability check if AI fails
+        }
+      }
       
       if (preview) {
         // Just return preview info without creating the rule
@@ -3803,6 +3888,8 @@ Keep recommendations specific and quantitative when possible.`;
           monthlyImpact: Math.round(monthlyImpact),
           annualImpact: Math.round(annualImpact),
           volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
+          campusBreakdown,
+          reasonabilityCheck,
           previewRule: parsedRule,
         });
       }
