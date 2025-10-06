@@ -119,6 +119,18 @@ export const rentRollData = pgTable("rent_roll_data", {
   aiSuggestedRate: real("ai_suggested_rate"),
   aiCalculationDetails: text("ai_calculation_details"), // JSON string of AI calculation breakdown
   promotionAllowance: real("promotion_allowance"),
+  // MatrixCare specific fields
+  residentId: text("resident_id"), // Unique resident identifier for MatrixCare
+  residentName: text("resident_name"), // Full name of resident
+  moveInDate: text("move_in_date"), // Date resident moved in
+  moveOutDate: text("move_out_date"), // Date resident moved out (if applicable)
+  payorType: text("payor_type"), // Private Pay, Medicaid, Medicare, Insurance
+  admissionStatus: text("admission_status"), // New, Transfer, Readmission
+  levelOfCare: text("level_of_care"), // IL, AL, MC, SNF
+  medicaidRate: real("medicaid_rate"), // Medicaid reimbursement rate if applicable
+  medicareRate: real("medicare_rate"), // Medicare reimbursement rate if applicable
+  assessmentDate: text("assessment_date"), // Date of last care assessment
+  marketingSource: text("marketing_source"), // How resident found the facility
   createdAt: timestamp("created_at").defaultNow(),
 });
 
