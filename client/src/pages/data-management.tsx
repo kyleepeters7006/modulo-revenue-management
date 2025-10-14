@@ -6,6 +6,7 @@ import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
 
 export default function DataManagement() {
   const [uploadHistory, setUploadHistory] = useState<any[]>([]);
@@ -325,6 +326,9 @@ export default function DataManagement() {
               </Alert>
             </CardContent>
           </Card>
+
+          {/* Pricing Strategy Documentation */}
+          <PricingStrategyDocumentation />
 
           {/* Data Upload Instructions */}
           <Card>
