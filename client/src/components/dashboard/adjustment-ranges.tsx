@@ -264,9 +264,9 @@ export default function AdjustmentRanges() {
         </div>
 
         {/* Info Box */}
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <div className="text-sm text-blue-800 dark:text-blue-200">
-            <strong>How it works:</strong> These ranges define the potential adjustment for each factor. 
+        <div className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-4">
+          <div className="text-sm text-gray-900 dark:text-gray-100 font-medium">
+            <strong className="text-gray-900 dark:text-white">How it works:</strong> These ranges define the potential adjustment for each factor. 
             The actual adjustment applied depends on the weight percentage set in the Pricing Weights tab. 
             For example, if Occupancy has a range of -10% to +5% and a weight of 50%, the actual adjustment 
             will be between -5% and +2.5%.

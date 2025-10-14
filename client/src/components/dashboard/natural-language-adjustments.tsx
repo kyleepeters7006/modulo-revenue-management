@@ -430,11 +430,11 @@ export function NaturalLanguageAdjustments() {
         )}
 
         {/* Info Banner */}
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-          <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5" />
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">
+          <AlertCircle className="h-4 w-4 text-gray-600 dark:text-gray-400 mt-0.5" />
           <div className="text-sm">
-            <p className="font-medium text-blue-900 dark:text-blue-100">How it works:</p>
-            <ul className="mt-1 space-y-1 text-xs text-blue-800 dark:text-blue-200">
+            <p className="font-medium text-gray-900 dark:text-white">How it works:</p>
+            <ul className="mt-1 space-y-1 text-xs text-gray-700 dark:text-gray-200">
               <li>• Speak naturally or type your pricing adjustment rules</li>
               <li>• Rules apply automatically based on your conditions</li>
               <li>• Preview mode shows impact before applying</li>
