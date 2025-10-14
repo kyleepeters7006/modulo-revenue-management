@@ -1662,6 +1662,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Pricing Strategy Documentation endpoints
+  app.get("/api/pricing-strategy-documentation", async (req, res) => {
+    try {
+      const { campus, serviceLine } = req.query;
+      
+      // Fetch all required data
+      const [weights, ranges, guardrails, rentRollData] = await Promise.all([
+        storage.getWeights(),
+        storage.getAdjustmentRanges(),
+        storage.getGuardrails(),
+        storage.getRentRollData()
+      ]);
+      
+      // Get active rules
+      const activeRules = await storage.getAdjustmentRules ? await storage.getAdjustmentRules() : [];
+      
+      // Import the generator function
+      const { generatePricingStrategyDocumentation } = await import('./pricingStrategyGenerator');
+      
+      // Generate documentation
+      const documentation = generatePricingStrategyDocumentation(
+        {
+          weights: weights ? [weights] : [],
+          ranges: ranges ? [ranges] : [],
+          guardrails: guardrails || [],
+          activeRules: activeRules.filter((r: any) => r.isActive),
+          rentRollData: rentRollData || []
+        },
+        campus as string | undefined,
+        serviceLine as string | undefined
+      );
+      
+      res.json(documentation);
+    } catch (error) {
+      console.error('Error generating pricing strategy documentation:', error);
+      res.status(500).json({ error: 'Failed to generate pricing strategy documentation' });
+    }
+  });
+  
+  // Export pricing strategy documentation
+  app.get("/api/pricing-strategy-documentation/export", async (req, res) => {
+    try {
+      const { campus, serviceLine, format = 'text' } = req.query;
+      
+      // Fetch all required data
+      const [weights, ranges, guardrails, rentRollData] = await Promise.all([
+        storage.getWeights(),
+        storage.getAdjustmentRanges(),
+        storage.getGuardrails(),
+        storage.getRentRollData()
+      ]);
+      
+      // Get active rules
+      const activeRules = await storage.getAdjustmentRules ? await storage.getAdjustmentRules() : [];
+      
+      // Import the generator functions
+      const { generatePricingStrategyDocumentation, exportAsText, exportAsJSON } = await import('./pricingStrategyGenerator');
+      
+      // Generate documentation
+      const documentation = generatePricingStrategyDocumentation(
+        {
+          weights: weights ? [weights] : [],
+          ranges: ranges ? [ranges] : [],
+          guardrails: guardrails || [],
+          activeRules: activeRules.filter((r: any) => r.isActive),
+          rentRollData: rentRollData || []
+        },
+        campus as string | undefined,
+        serviceLine as string | undefined
+      );
+      
+      // Export based on format
+      let content: string;
+      let contentType: string;
+      let extension: string;
+      
+      switch (format) {
+        case 'json':
+          content = exportAsJSON(documentation);
+          contentType = 'application/json';
+          extension = 'json';
+          break;
+        case 'text':
+        default:
+          content = exportAsText(documentation);
+          contentType = 'text/plain';
+          extension = 'txt';
+          break;
+      }
+      
+      const filename = `pricing_strategy_${campus || 'all'}_${new Date().toISOString().split('T')[0]}.${extension}`;
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(content);
+    } catch (error) {
+      console.error('Error exporting pricing strategy documentation:', error);
+      res.status(500).json({ error: 'Failed to export pricing strategy documentation' });
+    }
+  });
+  
   // MatrixCare Export - Export data in MatrixCare format
   app.get("/api/export/matrixcare", async (req, res) => {
     try {
