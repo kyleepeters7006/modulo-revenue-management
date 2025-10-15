@@ -164,8 +164,108 @@ export default function DataManagement() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <h3 className="font-medium text-sm">MatrixCare Export</h3>
-                  <p className="text-xs text-gray-600">Export data formatted for MatrixCare EHR system</p>
+                  <h3 className="font-medium text-sm">MatrixCare Street Rates (New Admissions)</h3>
+                  <p className="text-xs text-gray-600">Export Corporate Room Charges for new admissions</p>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/export/street-rates');
+                        
+                        const validationStatus = response.headers.get('X-Validation-Status');
+                        const validationSummary = response.headers.get('X-Validation-Summary');
+                        
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `CORPORATEROOMCHARGESEXPORT_Trilogy_${new Date().toISOString().split('T')[0]}.CSV`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        
+                        if (validationStatus === 'valid') {
+                          toast({
+                            title: "Street Rates Export Successful",
+                            description: "Corporate Room Charges exported for new admissions. Ready for MatrixCare upload.",
+                          });
+                        } else {
+                          toast({
+                            title: "Export Completed with Issues",
+                            description: "Please review the exported file before uploading to MatrixCare.",
+                            variant: "destructive",
+                          });
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Export Failed",
+                          description: "Failed to export Street Rates.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    variant="outline"
+                    className="w-full"
+                    data-testid="button-export-street-rates"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Street Rates
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-medium text-sm">MatrixCare Special Rates (Current Residents)</h3>
+                  <p className="text-xs text-gray-600">Freeze rates for existing residents</p>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/export/special-rates');
+                        
+                        const validationStatus = response.headers.get('X-Validation-Status');
+                        const validationSummary = response.headers.get('X-Validation-Summary');
+                        
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `SPECIALROOMRATESEXPORT_Trilogy_${new Date().toISOString().split('T')[0]}.CSV`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        
+                        if (validationStatus === 'valid') {
+                          toast({
+                            title: "Special Rates Export Successful",
+                            description: "Special rates exported for current residents. Ready for MatrixCare upload.",
+                          });
+                        } else {
+                          toast({
+                            title: "Export Completed with Issues",
+                            description: "Please review the exported file before uploading to MatrixCare.",
+                            variant: "destructive",
+                          });
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Export Failed",
+                          description: "Failed to export Special Rates.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    variant="outline"
+                    className="w-full"
+                    data-testid="button-export-special-rates"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Special Rates
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-medium text-sm">MatrixCare Full Export</h3>
+                  <p className="text-xs text-gray-600">Export complete data for MatrixCare EHR system</p>
                   <div className="flex gap-2">
                     <Button
                       onClick={async () => {
