@@ -1662,6 +1662,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // MatrixCare Street Rates Export (for new admissions)
+  app.get("/api/export/street-rates", async (req, res) => {
+    try {
+      const { campuses } = req.query;
+      const selectedCampuses = campuses ? (campuses as string).split(',') : undefined;
+      
+      // Import the export function
+      const { generateStreetRatesExport, validateStreetRatesExport } = await import('./matrixCareStreetRatesExport');
+      
+      // Generate the export file
+      const filepath = await generateStreetRatesExport(selectedCampuses);
+      
+      // Validate the export
+      const validation = await validateStreetRatesExport(filepath);
+      
+      // Read the file content
+      const fs = await import('fs');
+      const fileContent = await fs.promises.readFile(filepath, 'utf8');
+      
+      // Set headers for download
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=CORPORATEROOMCHARGESEXPORT_Trilogy_${timestamp}.CSV`);
+      res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
+      res.setHeader('X-Validation-Summary', JSON.stringify(validation.summary));
+      
+      // Clean up temp file
+      await fs.promises.unlink(filepath);
+      
+      res.send(fileContent);
+    } catch (error) {
+      console.error('Error generating street rates export:', error);
+      res.status(500).json({ error: 'Failed to generate street rates export' });
+    }
+  });
+  
+  // MatrixCare Special Rates Export (for current residents)
+  app.get("/api/export/special-rates", async (req, res) => {
+    try {
+      const { campuses } = req.query;
+      const selectedCampuses = campuses ? (campuses as string).split(',') : undefined;
+      
+      // Import the export function
+      const { generateSpecialRatesExport, validateSpecialRatesExport } = await import('./matrixCareSpecialRatesExport');
+      
+      // Generate the export file
+      const filepath = await generateSpecialRatesExport(selectedCampuses);
+      
+      // Validate the export
+      const validation = await validateSpecialRatesExport(filepath);
+      
+      // Read the file content
+      const fs = await import('fs');
+      const fileContent = await fs.promises.readFile(filepath, 'utf8');
+      
+      // Set headers for download
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=SPECIALROOMRATESEXPORT_Trilogy_${timestamp}.CSV`);
+      res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
+      res.setHeader('X-Validation-Summary', JSON.stringify(validation.summary));
+      
+      // Clean up temp file
+      await fs.promises.unlink(filepath);
+      
+      res.send(fileContent);
+    } catch (error) {
+      console.error('Error generating special rates export:', error);
+      res.status(500).json({ error: 'Failed to generate special rates export' });
+    }
+  });
+
   // Pricing Strategy Documentation endpoints
   app.get("/api/pricing-strategy-documentation", async (req, res) => {
     try {
