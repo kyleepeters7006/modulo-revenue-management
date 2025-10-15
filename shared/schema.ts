@@ -66,10 +66,17 @@ export const targetsAndTrends = pgTable("targets_and_trends", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Portfolio locations table
+// Portfolio locations table with KeyStats/MatrixCare name mapping
 export const locations = pgTable("locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull().unique(),
+  name: text("name").notNull().unique(), // KeyStats name (display name)
+  matrixCareNameHC: text("matrixcare_name_hc"), // MatrixCare facility name for HC
+  matrixCareNameAL: text("matrixcare_name_al"), // MatrixCare facility name for AL  
+  matrixCareNameIL: text("matrixcare_name_il"), // MatrixCare facility name for IL
+  customerFacilityIdHC: text("customer_facility_id_hc"), // Customer ID for HC
+  customerFacilityIdAL: text("customer_facility_id_al"), // Customer ID for AL
+  customerFacilityIdIL: text("customer_facility_id_il"), // Customer ID for IL
+  locationCode: text("location_code"), // 4-digit location code
   region: text("region"),
   division: text("division"),
   address: text("address"),
@@ -425,6 +432,101 @@ export const adjustmentRuleLog = pgTable("adjustment_rule_log", {
 
 export const insertAdjustmentRulesSchema = createInsertSchema(adjustmentRules);
 export const insertAdjustmentRuleLogSchema = createInsertSchema(adjustmentRuleLog);
+
+// MatrixCare Street Rates (Corporate Room Charges) for new admissions
+export const streetRates = pgTable("street_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  facilityName: text("facility_name").notNull(), // MatrixCare facility name
+  facilityCustomerId: text("facility_customer_id"), 
+  bedTypeDescription: text("bed_type_description"), // Companion, Private, Semi-Private
+  levelOfCare: text("level_of_care"), // BASE RATE - AL, BASE RATE - SKILLED, etc.
+  roomChargeDescription: text("room_charge_description"),
+  basePriceBeginDate: text("base_price_begin_date"),
+  basePrice: real("base_price"),
+  basePriceChargeBy: text("base_price_charge_by"), // Daily, Monthly
+  payerBeginDate: text("payer_begin_date"),
+  payerName: text("payer_name"), // Private AL, Private HCC, Hospice Private, etc.
+  payerChargeBy: text("payer_charge_by"),
+  proration: text("proration"),
+  revenueCode: text("revenue_code"),
+  allowableCharge: real("allowable_charge"),
+  allowablePercent: real("allowable_percent"),
+  hospBedHoldRate: real("hosp_bed_hold_rate"),
+  hospBedHoldPercent: real("hosp_bed_hold_percent"),
+  therBedHoldRate: real("ther_bed_hold_rate"),
+  therBedHoldPercent: real("ther_bed_hold_percent"),
+  revenueAccount: text("revenue_account"),
+  contractualAccount: text("contractual_account"),
+  copayContractualAccount: text("copay_contractual_account"),
+  effectiveDate: timestamp("effective_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// MatrixCare Special Rates for current residents (rate freezing)
+export const specialRates = pgTable("special_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  facilityName: text("facility_name").notNull(),
+  residentId: text("resident_id"),
+  residentName: text("resident_name"),
+  beginDate: text("begin_date"),
+  endDate: text("end_date"),
+  payerName: text("payer_name"),
+  proration: integer("proration"),
+  spclRate: integer("spcl_rate"),
+  amount: real("amount"),
+  pct: real("pct"),
+  monthly: integer("monthly"),
+  hospHold: integer("hosp_hold"),
+  hospHoldAmount: real("hosp_hold_amount"),
+  hospPct: real("hosp_pct"),
+  hospHoldMonthly: integer("hosp_hold_monthly"),
+  therLv: integer("ther_lv"),
+  therLvHoldAmount: real("ther_lv_hold_amount"),
+  therLvPct: real("ther_lv_pct"),
+  therLvHoldMonthly: integer("ther_lv_hold_monthly"),
+  effectiveDate: timestamp("effective_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Competitive Survey Data
+export const competitiveSurveyData = pgTable("competitive_survey_data", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  surveyMonth: text("survey_month").notNull(), // Format: YYYY-MM
+  keyStatsLocation: text("keystats_location").notNull(), // KeyStats campus name
+  competitorName: text("competitor_name").notNull(),
+  competitorAddress: text("competitor_address"),
+  distanceMiles: real("distance_miles"),
+  competitorType: text("competitor_type"), // IL, AL, MC, SNF
+  roomType: text("room_type"), // Studio, 1BR, 2BR
+  squareFootage: integer("square_footage"),
+  monthlyRateLow: real("monthly_rate_low"),
+  monthlyRateHigh: real("monthly_rate_high"),
+  monthlyRateAvg: real("monthly_rate_avg"),
+  careFeesLow: real("care_fees_low"),
+  careFeesHigh: real("care_fees_high"),
+  careFeesAvg: real("care_fees_avg"),
+  totalMonthlyLow: real("total_monthly_low"),
+  totalMonthlyHigh: real("total_monthly_high"),
+  totalMonthlyAvg: real("total_monthly_avg"),
+  communityFee: real("community_fee"),
+  petFee: real("pet_fee"),
+  otherFees: real("other_fees"),
+  incentives: text("incentives"),
+  totalUnits: integer("total_units"),
+  occupancyRate: real("occupancy_rate"),
+  yearBuilt: integer("year_built"),
+  lastRenovation: integer("last_renovation"),
+  amenities: text("amenities"), // JSON array of amenities
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertStreetRatesSchema = createInsertSchema(streetRates);
+export const insertSpecialRatesSchema = createInsertSchema(specialRates);
+export const insertCompetitiveSurveyDataSchema = createInsertSchema(competitiveSurveyData);
 
 // Types
 export type Location = typeof locations.$inferSelect;
