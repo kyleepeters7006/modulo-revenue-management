@@ -1741,7 +1741,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Fetch all required data
       const [weights, ranges, guardrails, rentRollData] = await Promise.all([
-        storage.getWeights(),
+        storage.getPricingWeights(),
         storage.getAdjustmentRanges(),
         storage.getGuardrails(),
         storage.getRentRollData()
@@ -1780,7 +1780,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Fetch all required data
       const [weights, ranges, guardrails, rentRollData] = await Promise.all([
-        storage.getWeights(),
+        storage.getPricingWeights(),
         storage.getAdjustmentRanges(),
         storage.getGuardrails(),
         storage.getRentRollData()
