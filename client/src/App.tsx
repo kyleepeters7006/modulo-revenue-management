@@ -11,6 +11,7 @@ import CompetitorAnalysis from "@/pages/competitor-analysis";
 import AIInsights from "@/pages/ai-insights";
 import PortfolioManager from "@/pages/PortfolioManager";
 import Analysis from "@/pages/Analysis";
+import { Analytics } from "@/pages/analytics";
 import AboutUs from "@/pages/AboutUs";
 import NotFound from "@/pages/not-found";
 
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/overview" component={Overview} />
       <Route path="/portfolio" component={PortfolioManager} />
       <Route path="/analysis" component={Analysis} />
+      <Route path="/analytics" component={Analytics} />
       <Route path="/data-management" component={DataManagement} />
       <Route path="/rate-card" component={RateCard} />
       <Route path="/pricing-controls" component={PricingControls} />

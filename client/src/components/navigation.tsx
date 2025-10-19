@@ -12,11 +12,13 @@ import {
   Info,
   LogOut,
   Menu,
-  X
+  X,
+  ScatterChart
 } from "lucide-react";
 
 const menuItems = [
   { path: "/overview", label: "Overview", icon: BarChart3 },
+  { path: "/analytics", label: "Pricing Analytics", icon: ScatterChart },
   { path: "/rate-card", label: "Rate Card", icon: CreditCard },
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
   { path: "/competitor-analysis", label: "Competitors", icon: Map },
