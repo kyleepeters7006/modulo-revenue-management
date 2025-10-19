@@ -88,7 +88,17 @@ export function Analytics() {
 
   // Fetch campus analytics data
   const { data: analyticsData, isLoading } = useQuery({
-    queryKey: ['/api/analytics/campus-metrics', { region: selectedRegion, serviceLine: selectedServiceLine }],
+    queryKey: ['/api/analytics/campus-metrics', selectedRegion, selectedServiceLine],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedRegion !== 'all') params.append('region', selectedRegion);
+      if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      
+      const response = await fetch(`/api/analytics/campus-metrics${queryString}`);
+      if (!response.ok) throw new Error('Failed to fetch analytics data');
+      return response.json();
+    }
   });
 
   // Process data for scatter plots

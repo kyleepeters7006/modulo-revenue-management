@@ -1921,7 +1921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const campusMetrics = new Map();
       
       rentRollData.forEach((unit: any) => {
-        const campusId = unit.campus || 'Unknown';
+        const campusId = unit.location || 'Unknown';
         if (!campusMetrics.has(campusId)) {
           campusMetrics.set(campusId, {
             campusId,
@@ -1941,16 +1941,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         campus.totalUnits++;
         if (unit.occupiedYN) {
           campus.occupiedUnits++;
-          campus.totalRent += unit.baseRent || 0;
+          // Use in_house_rate for occupied units, fallback to street_rate
+          campus.totalRent += unit.in_house_rate || unit.street_rate || 0;
         } else {
           campus.vacantUnits++;
         }
       });
 
-      // Get competitor averages by campus
+      // Get competitor averages by campus/location
       const competitorByCampus = new Map();
       competitors.forEach((comp: any) => {
-        const campusId = comp.campus || 'Unknown';
+        const campusId = comp.location || 'Unknown';
         if (!competitorByCampus.has(campusId)) {
           competitorByCampus.set(campusId, []);
         }
@@ -1967,7 +1968,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Get competitor average for this campus
         const campusCompetitors = competitorByCampus.get(campusId) || [];
         const competitorAvgRate = campusCompetitors.length > 0
-          ? campusCompetitors.reduce((sum: number, c: any) => sum + (c.averageRate || 0), 0) / campusCompetitors.length
+          ? campusCompetitors.reduce((sum: number, c: any) => sum + (c.street_rate || 0), 0) / campusCompetitors.length
           : avgRate;
         
         // Calculate price position (% above/below market)
