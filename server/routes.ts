@@ -1904,6 +1904,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Analytics - Campus Metrics for Scatter Plots
+  app.get("/api/analytics/campus-metrics", async (req, res) => {
+    try {
+      const { region, serviceLine } = req.query;
+      
+      // Get all required data
+      const [rentRollData, campusData, competitors, pricingWeights] = await Promise.all([
+        storage.getRentRollData(),
+        storage.getAllCampuses(),
+        storage.getCompetitors(),
+        storage.getPricingWeights()
+      ]);
+
+      // Group rent roll data by campus
+      const campusMetrics = new Map();
+      
+      rentRollData.forEach((unit: any) => {
+        const campusId = unit.campus || 'Unknown';
+        if (!campusMetrics.has(campusId)) {
+          campusMetrics.set(campusId, {
+            campusId,
+            campusName: campusId,
+            units: [],
+            totalUnits: 0,
+            occupiedUnits: 0,
+            totalRent: 0,
+            vacantUnits: 0,
+            avgLOS: 0,
+            region: 'Unknown'
+          });
+        }
+        
+        const campus = campusMetrics.get(campusId);
+        campus.units.push(unit);
+        campus.totalUnits++;
+        if (unit.occupiedYN) {
+          campus.occupiedUnits++;
+          campus.totalRent += unit.baseRent || 0;
+        } else {
+          campus.vacantUnits++;
+        }
+      });
+
+      // Get competitor averages by campus
+      const competitorByCampus = new Map();
+      competitors.forEach((comp: any) => {
+        const campusId = comp.campus || 'Unknown';
+        if (!competitorByCampus.has(campusId)) {
+          competitorByCampus.set(campusId, []);
+        }
+        competitorByCampus.get(campusId).push(comp);
+      });
+
+      // Calculate metrics for each campus
+      const campusesData: any[] = [];
+      
+      campusMetrics.forEach((metrics, campusId) => {
+        const occupancy = metrics.occupiedUnits / metrics.totalUnits;
+        const avgRate = metrics.occupiedUnits > 0 ? metrics.totalRent / metrics.occupiedUnits : 0;
+        
+        // Get competitor average for this campus
+        const campusCompetitors = competitorByCampus.get(campusId) || [];
+        const competitorAvgRate = campusCompetitors.length > 0
+          ? campusCompetitors.reduce((sum: number, c: any) => sum + (c.averageRate || 0), 0) / campusCompetitors.length
+          : avgRate;
+        
+        // Calculate price position (% above/below market)
+        const pricePosition = competitorAvgRate > 0 
+          ? ((avgRate - competitorAvgRate) / competitorAvgRate) * 100
+          : 0;
+          
+        // Calculate revenue impact (simplified)
+        const currentMonthlyRevenue = avgRate * metrics.occupiedUnits * 30;
+        const potentialRevenue = avgRate * metrics.totalUnits * 30 * 0.95; // Assume 95% max occupancy
+        const revenueImpact = potentialRevenue - currentMonthlyRevenue;
+
+        // Find campus info for region (name field is the KeyStats name)
+        const campusInfo = campusData.find((c: any) => c.name === campusId);
+        const campusRegion = campusInfo?.region || 'Unknown';
+        
+        // Apply filters
+        if (region && region !== 'all' && campusRegion !== region) {
+          return;
+        }
+        
+        if (serviceLine && serviceLine !== 'all') {
+          // Filter by service line if needed
+          const hasServiceLine = metrics.units.some((u: any) => 
+            u.roomType?.includes(serviceLine)
+          );
+          if (!hasServiceLine) return;
+        }
+
+        campusesData.push({
+          campusId,
+          campusName: campusInfo?.name || campusId,
+          region: campusRegion,
+          avgRate: Math.round(avgRate),
+          occupancy,
+          competitorAvgRate: Math.round(competitorAvgRate),
+          pricePosition,
+          revenueImpact,
+          potentialRevenue,
+          unitsCount: metrics.totalUnits,
+          vacantUnits: metrics.vacantUnits,
+          avgLOS: 0, // Would calculate from actual data
+          marketShareScore: occupancy * 100
+        });
+      });
+
+      // Calculate portfolio summary
+      const summary = {
+        avgPortfolioRate: campusesData.length > 0
+          ? campusesData.reduce((sum, c) => sum + c.avgRate, 0) / campusesData.length
+          : 0,
+        avgOccupancy: campusesData.length > 0
+          ? campusesData.reduce((sum, c) => sum + c.occupancy, 0) / campusesData.length
+          : 0,
+        avgPricePosition: campusesData.length > 0
+          ? campusesData.reduce((sum, c) => sum + c.pricePosition, 0) / campusesData.length
+          : 0,
+        totalRevenueOpportunity: campusesData.reduce((sum, c) => sum + c.revenueImpact, 0)
+      };
+
+      res.json({
+        campuses: campusesData,
+        summary
+      });
+    } catch (error) {
+      console.error("Error fetching analytics data:", error);
+      res.status(500).json({ error: "Failed to fetch analytics data" });
+    }
+  });
+
   // AI Insights
   app.post("/api/ai/suggest", async (req, res) => {
     try {

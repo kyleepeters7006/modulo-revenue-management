@@ -69,6 +69,7 @@ export interface IStorage {
   
   // Location operations
   getLocations(): Promise<Location[]>;
+  getAllCampuses(): Promise<Location[]>;
   getLocationByName(name: string): Promise<Location | undefined>;
   createLocation(data: InsertLocation): Promise<Location>;
   createOrUpdateLocation(data: InsertLocation): Promise<Location>;
@@ -256,6 +257,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLocations(): Promise<Location[]> {
+    return await db.select().from(locations);
+  }
+
+  async getAllCampuses(): Promise<Location[]> {
     return await db.select().from(locations);
   }
 
