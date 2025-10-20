@@ -1941,8 +1941,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         campus.totalUnits++;
         if (unit.occupiedYN) {
           campus.occupiedUnits++;
-          // Use in_house_rate for occupied units, fallback to street_rate
-          campus.totalRent += unit.in_house_rate || unit.street_rate || 0;
+          // Use camelCase field names (Drizzle converts from snake_case)
+          campus.totalRent += unit.inHouseRate || unit.streetRate || 0;
         } else {
           campus.vacantUnits++;
         }
@@ -1968,7 +1968,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Get competitor average for this campus
         const campusCompetitors = competitorByCampus.get(campusId) || [];
         const competitorAvgRate = campusCompetitors.length > 0
-          ? campusCompetitors.reduce((sum: number, c: any) => sum + (c.street_rate || 0), 0) / campusCompetitors.length
+          ? campusCompetitors.reduce((sum: number, c: any) => sum + (c.streetRate || 0), 0) / campusCompetitors.length
           : avgRate;
         
         // Calculate price position (% above/below market)
