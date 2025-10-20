@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import {
   ScatterChart,
   Scatter,
@@ -17,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Download, TrendingUp, TrendingDown, Minus, Target, Building2, DollarSign, Users } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, Minus, Target, Building2, DollarSign, Users, ArrowLeft } from 'lucide-react';
 import type { SelectCampusData, SelectCompetitors } from '@shared/schema';
 
 interface CampusMetrics {
@@ -159,6 +160,14 @@ export function Analytics() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      {/* Back Button */}
+      <Link href="/">
+        <Button variant="ghost" className="gap-2 mb-4" data-testid="button-back">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Dashboard
+        </Button>
+      </Link>
+      
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
