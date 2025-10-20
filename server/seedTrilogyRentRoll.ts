@@ -280,15 +280,4 @@ async function seedTrilogyRentRoll() {
   }
 }
 
-// Run the seed function when imported
-seedTrilogyRentRoll()
-  .then(() => {
-    console.log('Seed completed successfully');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('Seed failed:', error);
-    process.exit(1);
-  });
-
 export { seedTrilogyRentRoll };

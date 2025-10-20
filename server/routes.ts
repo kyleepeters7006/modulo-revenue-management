@@ -159,15 +159,15 @@ async function checkAndInitializeDatabase() {
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
-    // If database has less than 19000 units, it needs initialization with full data
-    if (unitCount < 19000) {
-      console.log('Database needs full initialization. Populating with complete demo data...');
+    // Only initialize if database is completely empty
+    if (unitCount === 0) {
+      console.log('Database is empty. Seeding with Trilogy portfolio data...');
       
-      // Use the comprehensive initialization
-      const { initializeProductionDatabase } = await import('./initializeProductionData');
-      await initializeProductionDatabase(storage);
+      // Use the Trilogy seed script
+      const { seedTrilogyRentRoll } = await import('./seedTrilogyRentRoll');
+      await seedTrilogyRentRoll();
       
-      console.log('Database initialization complete with full dataset');
+      console.log('Database initialization complete with Trilogy portfolio data');
     }
   } catch (error) {
     console.error('Error checking/initializing database:', error);
