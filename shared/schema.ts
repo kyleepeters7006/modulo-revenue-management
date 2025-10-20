@@ -123,6 +123,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   competitorAvgCareRate: real("competitor_avg_care_rate"),
   competitorFinalRate: real("competitor_final_rate"),
   moduloSuggestedRate: real("modulo_suggested_rate"),
+  moduloCalculationDetails: text("modulo_calculation_details"), // JSON string of Modulo calculation breakdown
   aiSuggestedRate: real("ai_suggested_rate"),
   aiCalculationDetails: text("ai_calculation_details"), // JSON string of AI calculation breakdown
   promotionAllowance: real("promotion_allowance"),

@@ -1,44 +1,52 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
+import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-
-interface CalculationResult {
-  recommendedRate: number;
-  calculation: {
-    baseRate: number;
-    occupancyAdjustment: number;
-    vacancyAdjustment: number;
-    attributeAdjustment: number;
-    seasonalAdjustment: number;
-    competitorAdjustment: number;
-    marketAdjustment: number;
-    totalAdjustment: number;
-    guardrailsApplied: string[];
-  };
-}
 
 interface ModuloCalculationDialogProps {
   roomType: string;
   currentRate: number;
-  unitId?: string;
+  unitId: string;
   children: React.ReactNode;
+  calculationDetails?: string; // JSON string with calculation details
 }
 
 export default function ModuloCalculationDialog({ 
   roomType, 
   currentRate, 
   unitId,
-  children 
+  children,
+  calculationDetails
 }: ModuloCalculationDialogProps) {
   const [open, setOpen] = useState(false);
+  const [details, setDetails] = useState<any>(null);
 
-  const { data: calculation, isLoading } = useQuery<CalculationResult>({
-    queryKey: [`/api/calculation/${roomType}?currentRate=${currentRate}${unitId ? `&unitId=${unitId}` : ''}`],
-    enabled: open, // Only fetch when dialog is open
+  // Parse calculation details when dialog opens
+  useEffect(() => {
+    if (open && calculationDetails) {
+      try {
+        const parsed = typeof calculationDetails === 'string' 
+          ? JSON.parse(calculationDetails) 
+          : calculationDetails;
+        setDetails(parsed);
+      } catch (e) {
+        console.error('Failed to parse calculation details:', e);
+      }
+    }
+  }, [open, calculationDetails]);
+
+  // Fallback to API if no details provided
+  const { data: apiDetails } = useQuery({
+    queryKey: [`/api/units/${unitId}/modulo-calculation`],
+    enabled: open && !calculationDetails && !!unitId,
   });
+
+  // Use provided details or API details
+  const calcDetails = details || apiDetails;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -50,7 +58,7 @@ export default function ModuloCalculationDialog({
   };
 
   const formatPercent = (value: number) => {
-    return `${(value * 100).toFixed(1)}%`;
+    return `${value.toFixed(2)}%`;
   };
 
   const getAdjustmentColor = (value: number) => {
@@ -59,215 +67,241 @@ export default function ModuloCalculationDialog({
     return "text-gray-600";
   };
 
-  const getAdjustmentIcon = (value: number) => {
-    if (value > 0) return <TrendingUp className="w-4 h-4" />;
-    if (value < 0) return <TrendingDown className="w-4 h-4" />;
-    return null;
-  };
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <div className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded p-1 transition-colors" data-testid={`trigger-modulo-calculation-${roomType}`}>
-          {children}
-        </div>
+        {children}
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center space-x-2">
-            <Calculator className="w-5 h-5 text-[var(--trilogy-teal)]" />
-            <span>Modulo Rate Calculation</span>
-            <Badge variant="secondary" className="ml-2">{roomType}</Badge>
+          <DialogTitle className="flex items-center gap-2">
+            <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
+            Modulo Pricing Calculation
+            <Badge variant="secondary">{roomType}</Badge>
           </DialogTitle>
         </DialogHeader>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center p-8">
-            <div className="text-sm text-gray-500">Loading calculation details...</div>
-          </div>
-        ) : calculation ? (
-          <div className="space-y-6" data-testid="calculation-details">
-            {/* Final Result */}
-            <div className="bg-[var(--trilogy-navy)]/5 rounded-lg p-4 border border-[var(--trilogy-navy)]/20">
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-medium text-gray-700 dark:text-gray-300">Recommended Rate:</span>
-                <span className="text-2xl font-bold text-[var(--trilogy-teal)]" data-testid="final-recommended-rate">
-                  {formatCurrency(calculation.recommendedRate)}
-                </span>
-              </div>
-              <div className="text-sm text-gray-500 mt-1">
-                Street Rate: {formatCurrency(calculation.calculation.baseRate)}
+        <div className="space-y-4 mt-4">
+          {calcDetails ? (
+            <>
+              {/* Summary Card */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Rate Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Base Rate</p>
+                      <p className="text-lg font-bold">{formatCurrency(calcDetails.baseRate || currentRate)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total Adjustment</p>
+                      <p className="text-lg font-bold flex items-center gap-1">
+                        {calcDetails.totalAdjustment > 0 ? (
+                          <>
+                            <TrendingUp className="h-4 w-4 text-green-600" />
+                            <span className="text-green-600">+{formatPercent(calcDetails.totalAdjustment)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <TrendingDown className="h-4 w-4 text-red-600" />
+                            <span className="text-red-600">{formatPercent(calcDetails.totalAdjustment)}</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Final Rate</p>
+                      <p className="text-lg font-bold text-primary">{formatCurrency(calcDetails.finalRate || currentRate)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Algorithm Weights */}
+              {calcDetails.weights && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">Algorithm Weights Configuration</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Occupancy</span>
+                          <span className="font-medium">{calcDetails.weights.occupancyPressure}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.occupancyPressure} className="h-2" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Vacancy Decay</span>
+                          <span className="font-medium">{calcDetails.weights.daysVacantDecay}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.daysVacantDecay} className="h-2" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Attributes</span>
+                          <span className="font-medium">{calcDetails.weights.roomAttributes}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.roomAttributes} className="h-2" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Seasonality</span>
+                          <span className="font-medium">{calcDetails.weights.seasonality}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.seasonality} className="h-2" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Competitors</span>
+                          <span className="font-medium">{calcDetails.weights.competitorRates}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.competitorRates} className="h-2" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Stock Market</span>
+                          <span className="font-medium">{calcDetails.weights.stockMarket}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.stockMarket} className="h-2" />
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs text-muted-foreground text-center">
+                      Total Weight: 100%
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Detailed Calculation Breakdown */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Detailed Calculation Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
+                      calcDetails.adjustments.map((adj: any, index: number) => (
+                        <div key={index}>
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-medium">{adj.factor}</h4>
+                                <Badge variant="outline" className="text-xs">
+                                  Weight: {adj.weight}%
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground">{adj.description}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatCurrency(Math.abs(adj.impact))} impact
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-muted/50 rounded-md px-3 py-2 mb-2">
+                            <p className="text-xs font-mono">{adj.calculation}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 text-xs">
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Raw adjustment:</span>
+                              <span className="font-medium">
+                                {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
+                              </span>
+                            </div>
+                            <span className="text-muted-foreground">×</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Weight:</span>
+                              <span className="font-medium">{adj.weight}%</span>
+                            </div>
+                            <span className="text-muted-foreground">=</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Weighted:</span>
+                              <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {index < calcDetails.adjustments.length - 1 && <Separator className="mt-3" />}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Info className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm">No detailed calculation available</p>
+                        <p className="text-xs mt-1">Generate Modulo suggestions to see detailed calculations</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Final Calculation Summary */}
+              {calcDetails.adjustments && calcDetails.adjustments.length > 0 && (
+                <Card className="border-primary/20 bg-primary/5">
+                  <CardContent className="pt-6">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Base Rate</span>
+                        <span className="font-medium">{formatCurrency(calcDetails.baseRate)}</span>
+                      </div>
+                      {calcDetails.adjustments.map((adj: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">{adj.factor}</span>
+                          <span className={getAdjustmentColor(adj.weightedAdjustment)}>
+                            {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                          </span>
+                        </div>
+                      ))}
+                      <Separator />
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Total Adjustment</span>
+                        <span className={`font-medium ${getAdjustmentColor(calcDetails.totalAdjustment)}`}>
+                          {calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between font-bold">
+                        <span>Recommended Rate</span>
+                        <span className="text-lg text-primary">{formatCurrency(calcDetails.finalRate)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Formula Display */}
+              <Card className="bg-gray-50 dark:bg-gray-800">
+                <CardContent className="pt-4">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-2">Formula:</h3>
+                  <div className="text-xs font-mono space-y-1">
+                    <div>Base Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
+                    <div className="text-primary">
+                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(calcDetails.totalAdjustment || 0)}) = {formatCurrency(calcDetails.finalRate || currentRate)}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <div className="flex items-center justify-center p-8">
+              <div className="text-center text-muted-foreground">
+                <Info className="h-8 w-8 mx-auto mb-2" />
+                <p className="text-sm">No calculation details available</p>
+                <p className="text-xs mt-1">Generate Modulo suggestions to see detailed calculations</p>
               </div>
             </div>
-
-            {/* Calculation Breakdown */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Calculation Breakdown</h3>
-              
-              <div className="grid gap-3">
-                {/* Occupancy Adjustment */}
-                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="adjustment-occupancy">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.occupancyAdjustment)}`}>
-                      {getAdjustmentIcon(calculation.calculation.occupancyAdjustment)}
-                    </div>
-                    <div>
-                      <div className="font-medium">Occupancy Pressure</div>
-                      <div className="text-xs text-gray-500">Target 95% occupancy</div>
-                    </div>
-                  </div>
-                  <div className={`text-right ${getAdjustmentColor(calculation.calculation.occupancyAdjustment)}`}>
-                    <div className="font-semibold">{formatPercent(calculation.calculation.occupancyAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.occupancyAdjustment)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Vacancy Adjustment */}
-                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="adjustment-vacancy">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.vacancyAdjustment)}`}>
-                      {getAdjustmentIcon(calculation.calculation.vacancyAdjustment)}
-                    </div>
-                    <div>
-                      <div className="font-medium">Days Vacant Decay</div>
-                      <div className="text-xs text-gray-500">Longer vacancy = lower rate</div>
-                    </div>
-                  </div>
-                  <div className={`text-right ${getAdjustmentColor(calculation.calculation.vacancyAdjustment)}`}>
-                    <div className="font-semibold">{formatPercent(calculation.calculation.vacancyAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.vacancyAdjustment)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Attribute Adjustment */}
-                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="adjustment-attributes">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.attributeAdjustment)}`}>
-                      {getAdjustmentIcon(calculation.calculation.attributeAdjustment)}
-                    </div>
-                    <div>
-                      <div className="font-medium">Room Attributes</div>
-                      <div className="text-xs text-gray-500">Location, size, view, renovation</div>
-                    </div>
-                  </div>
-                  <div className={`text-right ${getAdjustmentColor(calculation.calculation.attributeAdjustment)}`}>
-                    <div className="font-semibold">{formatPercent(calculation.calculation.attributeAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.attributeAdjustment)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seasonal Adjustment */}
-                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="adjustment-seasonal">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.seasonalAdjustment)}`}>
-                      {getAdjustmentIcon(calculation.calculation.seasonalAdjustment)}
-                    </div>
-                    <div>
-                      <div className="font-medium">Seasonality</div>
-                      <div className="text-xs text-gray-500">Peak season adjustments</div>
-                    </div>
-                  </div>
-                  <div className={`text-right ${getAdjustmentColor(calculation.calculation.seasonalAdjustment)}`}>
-                    <div className="font-semibold">{formatPercent(calculation.calculation.seasonalAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.seasonalAdjustment)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Competitor Adjustment */}
-                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="adjustment-competitor">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.competitorAdjustment)}`}>
-                      {getAdjustmentIcon(calculation.calculation.competitorAdjustment)}
-                    </div>
-                    <div>
-                      <div className="font-medium">Competitor Rates</div>
-                      <div className="text-xs text-gray-500">Market competitive positioning</div>
-                    </div>
-                  </div>
-                  <div className={`text-right ${getAdjustmentColor(calculation.calculation.competitorAdjustment)}`}>
-                    <div className="font-semibold">{formatPercent(calculation.calculation.competitorAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.competitorAdjustment)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Market Adjustment */}
-                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="adjustment-market">
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.marketAdjustment)}`}>
-                      {getAdjustmentIcon(calculation.calculation.marketAdjustment)}
-                    </div>
-                    <div>
-                      <div className="font-medium">Stock Market</div>
-                      <div className="text-xs text-gray-500">Economic market conditions</div>
-                    </div>
-                  </div>
-                  <div className={`text-right ${getAdjustmentColor(calculation.calculation.marketAdjustment)}`}>
-                    <div className="font-semibold">{formatPercent(calculation.calculation.marketAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.marketAdjustment)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Total Adjustment */}
-              <div className="border-t pt-3">
-                <div className="flex items-center justify-between p-3 bg-[var(--trilogy-teal)]/10 rounded-lg border border-[var(--trilogy-teal)]/20" data-testid="total-adjustment">
-                  <div className="font-semibold text-gray-800 dark:text-gray-200">Total Adjustment</div>
-                  <div className={`text-right font-bold ${getAdjustmentColor(calculation.calculation.totalAdjustment)}`}>
-                    <div>{formatPercent(calculation.calculation.totalAdjustment)}</div>
-                    <div className="text-xs">
-                      {formatCurrency(calculation.calculation.baseRate * calculation.calculation.totalAdjustment)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Guardrails Applied */}
-            {calculation.calculation.guardrailsApplied.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center space-x-2">
-                  <Shield className="w-5 h-5 text-amber-500" />
-                  <span>Guardrails Applied</span>
-                </h3>
-                <div className="space-y-2" data-testid="guardrails-list">
-                  {calculation.calculation.guardrailsApplied.map((rule, index) => (
-                    <div key={index} className="flex items-center space-x-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
-                      <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <span className="text-sm text-amber-800 dark:text-amber-200">{rule}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Calculation Formula */}
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Formula:</h3>
-              <div className="text-xs font-mono text-gray-600 dark:text-gray-400 space-y-1">
-                <div>Street Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
-                <div>
-                  {formatCurrency(calculation.calculation.baseRate)} × (1 + {formatPercent(calculation.calculation.totalAdjustment)}) = {formatCurrency(calculation.recommendedRate)}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center p-8">
-            <div className="text-sm text-red-500">Failed to load calculation details</div>
-          </div>
-        )}
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

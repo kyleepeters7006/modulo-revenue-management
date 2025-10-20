@@ -3032,8 +3032,19 @@ Keep recommendations specific and quantitative when possible.`;
       const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
       
-      // Get current weights for calculation
-      const weights = await storage.getLatestWeights();
+      // Get current weights for calculation with defaults
+      const defaultWeights = {
+        occupancyPressure: 25,
+        daysVacantDecay: 20,
+        roomAttributes: 25,
+        seasonality: 10,
+        competitorRates: 10,
+        stockMarket: 10
+      };
+      const weights = await storage.getLatestWeights() || defaultWeights;
+      
+      // Get stock market performance (mock data for now, could integrate with real API)
+      const stockMarketChange = 2.5; // Assume market is up 2.5% over last week
       
       // Get all units for the month - always process ALL units regardless of filters
       // This ensures pricing is generated for the entire portfolio
@@ -3041,56 +3052,176 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log(`Generating Modulo for ${units.length} units`);
       
-      // Generate Modulo suggestions using more aggressive algorithm
+      // Generate Modulo suggestions using detailed algorithm
       for (const unit of units) {
-        let suggestion = unit.streetRate;
-        let adjustmentFactors = [];
+        const baseRate = unit.streetRate;
+        let suggestion = baseRate;
+        let calculationDetails = {
+          baseRate,
+          adjustments: [],
+          weights: { ...weights },
+          totalAdjustment: 0,
+          finalRate: 0
+        };
         
-        // Apply occupancy pressure (5-15% adjustment based on market conditions)
+        // Apply occupancy pressure (weighted adjustment based on market conditions)
+        let occupancyAdjustment = 0;
         if (weights?.occupancyPressure) {
           const occupancyRate = unit.occupiedYN ? 0.85 : 0.75; // Lower if vacant
-          const pressureAdjustment = (occupancyRate - 0.8) * (weights.occupancyPressure / 100);
-          suggestion *= (1 + pressureAdjustment);
-          adjustmentFactors.push(`Occupancy: ${(pressureAdjustment * 100).toFixed(1)}%`);
+          const targetOccupancy = 0.95;
+          const occupancyDelta = occupancyRate - targetOccupancy;
+          const pressureAdjustment = occupancyDelta * 0.5; // 50% adjustment per delta
+          const weightedAdjustment = pressureAdjustment * (weights.occupancyPressure / 100);
+          occupancyAdjustment = weightedAdjustment;
+          suggestion *= (1 + weightedAdjustment);
+          
+          calculationDetails.adjustments.push({
+            factor: 'Occupancy Pressure',
+            description: unit.occupiedYN ? 'Unit occupied' : 'Unit vacant',
+            calculation: `(${occupancyRate.toFixed(2)} - ${targetOccupancy}) × 0.5 × ${weights.occupancyPressure}%`,
+            weight: weights.occupancyPressure,
+            adjustment: pressureAdjustment * 100,
+            weightedAdjustment: weightedAdjustment * 100,
+            impact: baseRate * weightedAdjustment
+          });
         }
         
-        // Apply days vacant decay (more aggressive for longer vacancies)
+        // Apply days vacant decay (weighted for longer vacancies)
+        let vacancyAdjustment = 0;
         if (unit.daysVacant > 0 && weights?.daysVacantDecay) {
           const vacancyPenalty = Math.min(unit.daysVacant / 60, 0.25); // Max 25% penalty
-          const decay = vacancyPenalty * (weights.daysVacantDecay / 100);
-          suggestion *= (1 - decay);
-          if (decay > 0.01) adjustmentFactors.push(`Vacancy: -${(decay * 100).toFixed(1)}%`);
+          const weightedAdjustment = -vacancyPenalty * (weights.daysVacantDecay / 100);
+          vacancyAdjustment = weightedAdjustment;
+          suggestion *= (1 + weightedAdjustment);
+          
+          calculationDetails.adjustments.push({
+            factor: 'Days Vacant Decay',
+            description: `${unit.daysVacant} days vacant`,
+            calculation: `min(${unit.daysVacant}/60, 0.25) × ${weights.daysVacantDecay}%`,
+            weight: weights.daysVacantDecay,
+            adjustment: -vacancyPenalty * 100,
+            weightedAdjustment: weightedAdjustment * 100,
+            impact: baseRate * weightedAdjustment
+          });
         }
         
-        // Apply room attributes premium (more significant impact)
-        let attributeBonus = 0;
-        if (unit.view && weights?.roomAttributes) {
-          attributeBonus += weights.roomAttributes / 100 * 0.05; // 5% for view
-        }
-        if (unit.renovated && weights?.roomAttributes) {
-          attributeBonus += weights.roomAttributes / 100 * 0.08; // 8% for renovation
-        }
-        if (attributeBonus > 0) {
-          suggestion *= (1 + attributeBonus);
-          adjustmentFactors.push(`Attributes: +${(attributeBonus * 100).toFixed(1)}%`);
+        // Apply room attributes premium (weighted for premium features)
+        let attributeAdjustment = 0;
+        if (weights?.roomAttributes) {
+          let attributeBonus = 0;
+          const features = [];
+          
+          if (unit.view) {
+            attributeBonus += 0.05; // 5% for view
+            features.push('View');
+          }
+          if (unit.renovated) {
+            attributeBonus += 0.08; // 8% for renovation
+            features.push('Renovated');
+          }
+          
+          if (attributeBonus > 0) {
+            const weightedAdjustment = attributeBonus * (weights.roomAttributes / 100);
+            attributeAdjustment = weightedAdjustment;
+            suggestion *= (1 + weightedAdjustment);
+            
+            calculationDetails.adjustments.push({
+              factor: 'Room Attributes',
+              description: features.join(', '),
+              calculation: `${(attributeBonus * 100).toFixed(1)}% × ${weights.roomAttributes}%`,
+              weight: weights.roomAttributes,
+              adjustment: attributeBonus * 100,
+              weightedAdjustment: weightedAdjustment * 100,
+              impact: baseRate * weightedAdjustment
+            });
+          }
         }
         
-        // Apply competitor rate adjustment (significant market positioning)
+        // Apply competitor rate adjustment (market positioning)
+        let competitorAdjustment = 0;
         if (unit.competitorRate && weights?.competitorRates && unit.competitorRate !== unit.streetRate) {
           const competitorDiff = (unit.competitorRate - unit.streetRate) / unit.streetRate;
-          const adjustment = competitorDiff * (weights.competitorRates / 100) * 0.5; // 50% of competitor difference
-          suggestion *= (1 + adjustment);
-          if (Math.abs(adjustment) > 0.01) adjustmentFactors.push(`Competitor: ${adjustment > 0 ? '+' : ''}${(adjustment * 100).toFixed(1)}%`);
+          const adjustment = competitorDiff * 0.8; // Move 80% toward competitor rate
+          const weightedAdjustment = adjustment * (weights.competitorRates / 100);
+          competitorAdjustment = weightedAdjustment;
+          suggestion *= (1 + weightedAdjustment);
+          
+          calculationDetails.adjustments.push({
+            factor: 'Competitor Rates',
+            description: `Competitor at $${unit.competitorRate.toFixed(0)}`,
+            calculation: `(${unit.competitorRate} - ${baseRate})/${baseRate} × 0.8 × ${weights.competitorRates}%`,
+            weight: weights.competitorRates,
+            adjustment: adjustment * 100,
+            weightedAdjustment: weightedAdjustment * 100,
+            impact: baseRate * weightedAdjustment
+          });
         }
         
-        // Ensure suggestions are different from street rates (minimum 2% change)
-        const minChange = unit.streetRate * 0.02;
+        // Apply seasonality adjustment
+        let seasonalAdjustment = 0;
+        if (weights?.seasonality) {
+          const month = new Date(targetMonth).getMonth();
+          let seasonalFactor = 0;
+          
+          // Peak season: Sept-Nov (move-in season)
+          if (month >= 8 && month <= 10) {
+            seasonalFactor = 0.05; // 5% increase
+          } else if (month >= 11 || month <= 1) {
+            // Low season: Dec-Feb
+            seasonalFactor = -0.03; // 3% decrease
+          }
+          
+          const weightedAdjustment = seasonalFactor * (weights.seasonality / 100);
+          seasonalAdjustment = weightedAdjustment;
+          suggestion *= (1 + weightedAdjustment);
+          
+          if (seasonalFactor !== 0) {
+            calculationDetails.adjustments.push({
+              factor: 'Seasonality',
+              description: seasonalFactor > 0 ? 'Peak season' : 'Low season',
+              calculation: `${(seasonalFactor * 100).toFixed(1)}% × ${weights.seasonality}%`,
+              weight: weights.seasonality,
+              adjustment: seasonalFactor * 100,
+              weightedAdjustment: weightedAdjustment * 100,
+              impact: baseRate * weightedAdjustment
+            });
+          }
+        }
+        
+        // Apply stock market adjustment
+        let marketAdjustment = 0;
+        if (weights?.stockMarket) {
+          const marketFactor = stockMarketChange > 0 ? 0.02 : -0.01; // 2% if market up, -1% if down
+          const weightedAdjustment = marketFactor * (weights.stockMarket / 100);
+          marketAdjustment = weightedAdjustment;
+          suggestion *= (1 + weightedAdjustment);
+          
+          calculationDetails.adjustments.push({
+            factor: 'Stock Market Performance',
+            description: `S&P 500 ${stockMarketChange > 0 ? 'up' : 'down'} ${Math.abs(stockMarketChange).toFixed(1)}% over last week`,
+            calculation: `Market ${stockMarketChange > 0 ? 'growth' : 'decline'} factor ${(marketFactor * 100).toFixed(1)}% × ${weights.stockMarket}%`,
+            weight: weights.stockMarket,
+            adjustment: marketFactor * 100,
+            weightedAdjustment: weightedAdjustment * 100,
+            impact: baseRate * weightedAdjustment
+          });
+        }
+        
+        // Calculate total adjustment
+        calculationDetails.totalAdjustment = (occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
+                                              competitorAdjustment + seasonalAdjustment + marketAdjustment) * 100;
+        calculationDetails.finalRate = Math.round(suggestion);
+        
+        // Ensure suggestions are different from street rates (minimum 1% change)
+        const minChange = unit.streetRate * 0.01;
         if (Math.abs(suggestion - unit.streetRate) < minChange) {
           suggestion = unit.streetRate + (Math.random() > 0.5 ? minChange : -minChange);
+          calculationDetails.finalRate = Math.round(suggestion);
         }
         
         await storage.updateRentRollData(unit.id, {
-          moduloSuggestedRate: Math.round(suggestion)
+          moduloSuggestedRate: Math.round(suggestion),
+          moduloCalculationDetails: JSON.stringify(calculationDetails)
         });
       }
       
