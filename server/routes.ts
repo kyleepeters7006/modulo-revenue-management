@@ -2767,9 +2767,20 @@ Keep recommendations specific and quantitative when possible.`;
   app.get("/api/rate-card", async (req, res) => {
     try {
       const { month, regions, divisions, locations } = req.query;
-      const targetMonth = month as string || new Date().toISOString().substring(0, 7);
+      let targetMonth = month as string || new Date().toISOString().substring(0, 7);
       
+      // Check if data exists for the requested month
       let unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // If no data for requested month, get the latest available data
+      if (unitLevelData.length === 0) {
+        const allData = await storage.getRentRollData();
+        if (allData.length > 0) {
+          // Get the upload month from the first record
+          targetMonth = allData[0].uploadMonth || targetMonth;
+          unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
+        }
+      }
       
       // Convert single values to arrays if needed
       const selectedRegions = Array.isArray(regions) ? regions : (regions ? [regions] : []);
