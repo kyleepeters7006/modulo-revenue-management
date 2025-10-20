@@ -190,6 +190,10 @@ async function seedTrilogyRentRoll() {
           const aiSuggestedRate = Math.round(displayStreetRate * (0.95 + Math.random() * 0.15));
           const moduloSuggestedRate = Math.round(displayStreetRate * (0.98 + Math.random() * 0.1));
           
+          // Determine unit attributes first
+          const viewType = Math.random() < 0.3 ? 'Garden' : Math.random() < 0.2 ? 'Courtyard' : 'Standard';
+          const isRenovated = Math.random() < 0.3;
+          
           const unit = {
             id: `${campus.id}-${serviceLine}-${roomPrefix}${startRoom + i}`,
             uploadMonth,
@@ -202,8 +206,8 @@ async function seedTrilogyRentRoll() {
             daysVacant: isOccupied ? 0 : Math.floor(Math.random() * 60),
             preferredLocation: Math.random() < 0.3 ? 'Front Building' : Math.random() < 0.5 ? 'Garden View' : null,
             size: roomType.type === 'Studio' ? 'Small' : roomType.type === 'Two Bedroom' ? 'Large' : 'Medium',
-            view: Math.random() < 0.3 ? 'Garden' : Math.random() < 0.2 ? 'Courtyard' : 'Standard',
-            renovated: Math.random() < 0.3,
+            view: viewType,
+            renovated: isRenovated,
             otherPremiumFeature: Math.random() < 0.2 ? 'Corner Unit' : null,
             streetRate: displayStreetRate,
             inHouseRate: displayInHouseRate,
@@ -219,8 +223,8 @@ async function seedTrilogyRentRoll() {
             promotionAllowance: Math.random() < 0.2 ? Math.round(displayStreetRate * 0.05) : 0,
             locationRating: Math.random() < 0.4 ? 'A' : Math.random() < 0.7 ? 'B' : 'C',
             sizeRating: roomType.type === 'Two Bedroom' ? 'A' : roomType.type === 'Studio' ? 'C' : 'B',
-            viewRating: unit.view === 'Garden' ? 'A' : unit.view === 'Courtyard' ? 'B' : 'C',
-            renovationRating: unit.renovated ? 'A' : 'C',
+            viewRating: viewType === 'Garden' ? 'A' : viewType === 'Courtyard' ? 'B' : 'C',
+            renovationRating: isRenovated ? 'A' : 'C',
             amenityRating: Math.random() < 0.3 ? 'A' : Math.random() < 0.6 ? 'B' : 'C',
             serviceLine,
             residentId: isOccupied ? `RES${Math.floor(Math.random() * 100000)}` : null,
@@ -276,17 +280,15 @@ async function seedTrilogyRentRoll() {
   }
 }
 
-// Run the seed function if this file is executed directly
-if (require.main === module) {
-  seedTrilogyRentRoll()
-    .then(() => {
-      console.log('Seed completed successfully');
-      process.exit(0);
-    })
-    .catch((error) => {
-      console.error('Seed failed:', error);
-      process.exit(1);
-    });
-}
+// Run the seed function when imported
+seedTrilogyRentRoll()
+  .then(() => {
+    console.log('Seed completed successfully');
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('Seed failed:', error);
+    process.exit(1);
+  });
 
 export { seedTrilogyRentRoll };
