@@ -13,9 +13,11 @@ export default function FloorPlansPage() {
   const [showUploadDialog, setShowUploadDialog] = useState(false);
 
   // Fetch locations for campus selector
-  const { data: locations = [] } = useQuery({
+  const { data: locationsData } = useQuery({
     queryKey: ['/api/locations'],
   });
+  
+  const locations = locationsData?.locations || [];
 
   return (
     <div className="min-h-screen bg-slate-50">
