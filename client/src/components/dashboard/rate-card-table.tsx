@@ -297,33 +297,89 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="flex space-x-4">
-              <Button
-                onClick={() => generateModuloMutation.mutate()}
-                disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
-                data-testid="button-generate-modulo"
-              >
-                {generateModuloMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Calculator className="h-4 w-4 mr-2" />
-                )}
-                {generateModuloMutation.isPending ? "Generating..." : "Generate Modulo Suggestions"}
-              </Button>
-              
-              <Button
-                onClick={() => generateAIMutation.mutate()}
-                disabled={generateAIMutation.isPending || filteredUnits.length === 0}
-                variant="outline"
-                data-testid="button-generate-ai"
-              >
-                {generateAIMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Brain className="h-4 w-4 mr-2" />
-                )}
-                {generateAIMutation.isPending ? "Generating..." : "Generate AI Suggestions"}
-              </Button>
+            <div className="space-y-3">
+              <div className="flex space-x-4">
+                <Button
+                  onClick={() => generateModuloMutation.mutate()}
+                  disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
+                  data-testid="button-generate-modulo"
+                >
+                  {generateModuloMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Calculator className="h-4 w-4 mr-2" />
+                  )}
+                  {generateModuloMutation.isPending ? "Generating..." : "Generate Modulo Suggestions"}
+                </Button>
+                
+                <Button
+                  onClick={() => generateAIMutation.mutate()}
+                  disabled={generateAIMutation.isPending || filteredUnits.length === 0}
+                  variant="outline"
+                  data-testid="button-generate-ai"
+                >
+                  {generateAIMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Brain className="h-4 w-4 mr-2" />
+                  )}
+                  {generateAIMutation.isPending ? "Generating..." : "Generate AI Suggestions"}
+                </Button>
+              </div>
+
+              {/* Bulk Accept Actions */}
+              <div className="flex items-center gap-4 pt-2 border-t">
+                <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
+                <Button
+                  onClick={() => {
+                    const unitsWithModulo = filteredUnits.filter((u: any) => u.moduloSuggestedRate);
+                    if (unitsWithModulo.length === 0) {
+                      toast({ 
+                        title: "No Modulo suggestions", 
+                        description: "Generate Modulo suggestions first",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+                    acceptSuggestionsMutation.mutate({
+                      unitIds: unitsWithModulo.map((u: any) => u.id),
+                      type: 'modulo'
+                    });
+                  }}
+                  disabled={acceptSuggestionsMutation.isPending}
+                  variant="secondary"
+                  size="sm"
+                  data-testid="button-accept-all-modulo"
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Accept All Modulo ({filteredUnits.filter((u: any) => u.moduloSuggestedRate).length})
+                </Button>
+                
+                <Button
+                  onClick={() => {
+                    const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate);
+                    if (unitsWithAI.length === 0) {
+                      toast({ 
+                        title: "No AI suggestions", 
+                        description: "Generate AI suggestions first",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+                    acceptSuggestionsMutation.mutate({
+                      unitIds: unitsWithAI.map((u: any) => u.id),
+                      type: 'ai'
+                    });
+                  }}
+                  disabled={acceptSuggestionsMutation.isPending}
+                  variant="secondary"
+                  size="sm"
+                  data-testid="button-accept-all-ai"
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
+                </Button>
+              </div>
             </div>
             
             {/* Progress bars for loading states */}
