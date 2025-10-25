@@ -17,6 +17,9 @@ import {
   aiAdjustmentRanges,
   adjustmentRules,
   adjustmentRuleLog,
+  campusMaps,
+  floorPlans,
+  unitPolygons,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -52,7 +55,13 @@ import {
   type AdjustmentRules,
   type InsertAdjustmentRules,
   type AdjustmentRuleLog,
-  type InsertAdjustmentRuleLog
+  type InsertAdjustmentRuleLog,
+  type CampusMap,
+  type InsertCampusMap,
+  type FloorPlan,
+  type InsertFloorPlan,
+  type UnitPolygon,
+  type InsertUnitPolygon
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -154,6 +163,25 @@ export interface IStorage {
   deleteAdjustmentRule(id: string): Promise<void>;
   logRuleExecution(log: InsertAdjustmentRuleLog): Promise<AdjustmentRuleLog>;
   getRuleExecutionHistory(ruleId?: string): Promise<AdjustmentRuleLog[]>;
+  
+  // Floor Plans methods
+  getCampusMaps(): Promise<any[]>;
+  getCampusMapByLocation(locationId: string): Promise<any | undefined>;
+  createCampusMap(data: any): Promise<any>;
+  updateCampusMap(id: string, data: any): Promise<any>;
+  deleteCampusMap(id: string): Promise<void>;
+  
+  getFloorPlans(locationId?: string): Promise<any[]>;
+  getFloorPlanById(id: string): Promise<any | undefined>;
+  createFloorPlan(data: any): Promise<any>;
+  updateFloorPlan(id: string, data: any): Promise<any>;
+  deleteFloorPlan(id: string): Promise<void>;
+  
+  getUnitPolygons(campusMapId?: string): Promise<any[]>;
+  getUnitPolygonById(id: string): Promise<any | undefined>;
+  createUnitPolygon(data: any): Promise<any>;
+  updateUnitPolygon(id: string, data: any): Promise<any>;
+  deleteUnitPolygon(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -955,6 +983,93 @@ Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate"
       return await db.select().from(adjustmentRuleLog).where(eq(adjustmentRuleLog.ruleId, ruleId));
     }
     return await db.select().from(adjustmentRuleLog);
+  }
+  
+  // Floor Plans methods implementation
+  async getCampusMaps(): Promise<CampusMap[]> {
+    return await db.select().from(campusMaps);
+  }
+
+  async getCampusMapByLocation(locationId: string): Promise<CampusMap | undefined> {
+    const [map] = await db.select().from(campusMaps).where(eq(campusMaps.locationId, locationId));
+    return map;
+  }
+
+  async createCampusMap(data: InsertCampusMap): Promise<CampusMap> {
+    const [newMap] = await db.insert(campusMaps).values(data).returning();
+    return newMap;
+  }
+
+  async updateCampusMap(id: string, data: Partial<InsertCampusMap>): Promise<CampusMap> {
+    const [updatedMap] = await db.update(campusMaps)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(campusMaps.id, id))
+      .returning();
+    return updatedMap;
+  }
+
+  async deleteCampusMap(id: string): Promise<void> {
+    // Also delete associated polygons
+    await db.delete(unitPolygons).where(eq(unitPolygons.campusMapId, id));
+    await db.delete(campusMaps).where(eq(campusMaps.id, id));
+  }
+
+  async getFloorPlans(locationId?: string): Promise<FloorPlan[]> {
+    if (locationId) {
+      return await db.select().from(floorPlans).where(eq(floorPlans.locationId, locationId));
+    }
+    return await db.select().from(floorPlans);
+  }
+
+  async getFloorPlanById(id: string): Promise<FloorPlan | undefined> {
+    const [plan] = await db.select().from(floorPlans).where(eq(floorPlans.id, id));
+    return plan;
+  }
+
+  async createFloorPlan(data: InsertFloorPlan): Promise<FloorPlan> {
+    const [newPlan] = await db.insert(floorPlans).values(data).returning();
+    return newPlan;
+  }
+
+  async updateFloorPlan(id: string, data: Partial<InsertFloorPlan>): Promise<FloorPlan> {
+    const [updatedPlan] = await db.update(floorPlans)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(floorPlans.id, id))
+      .returning();
+    return updatedPlan;
+  }
+
+  async deleteFloorPlan(id: string): Promise<void> {
+    await db.delete(floorPlans).where(eq(floorPlans.id, id));
+  }
+
+  async getUnitPolygons(campusMapId?: string): Promise<UnitPolygon[]> {
+    if (campusMapId) {
+      return await db.select().from(unitPolygons).where(eq(unitPolygons.campusMapId, campusMapId));
+    }
+    return await db.select().from(unitPolygons);
+  }
+
+  async getUnitPolygonById(id: string): Promise<UnitPolygon | undefined> {
+    const [polygon] = await db.select().from(unitPolygons).where(eq(unitPolygons.id, id));
+    return polygon;
+  }
+
+  async createUnitPolygon(data: InsertUnitPolygon): Promise<UnitPolygon> {
+    const [newPolygon] = await db.insert(unitPolygons).values(data).returning();
+    return newPolygon;
+  }
+
+  async updateUnitPolygon(id: string, data: Partial<InsertUnitPolygon>): Promise<UnitPolygon> {
+    const [updatedPolygon] = await db.update(unitPolygons)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(unitPolygons.id, id))
+      .returning();
+    return updatedPolygon;
+  }
+
+  async deleteUnitPolygon(id: string): Promise<void> {
+    await db.delete(unitPolygons).where(eq(unitPolygons.id, id));
   }
 }
 

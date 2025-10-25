@@ -529,6 +529,68 @@ export const insertStreetRatesSchema = createInsertSchema(streetRates);
 export const insertSpecialRatesSchema = createInsertSchema(specialRates);
 export const insertCompetitiveSurveyDataSchema = createInsertSchema(competitiveSurveyData);
 
+// Floor Plan Tables for Interactive Campus Maps
+export const campusMaps = pgTable("campus_maps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id).notNull(),
+  name: text("name").notNull(),
+  svgUrl: text("svg_url"), // Path to SVG file in object storage
+  svgContent: text("svg_content"), // Actual SVG markup (for inline embedding)
+  width: integer("width"), // SVG viewBox width
+  height: integer("height"), // SVG viewBox height
+  isPublished: boolean("is_published").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const floorPlans = pgTable("floor_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id).notNull(),
+  code: text("code").notNull(), // e.g., "IL-1BR-A"
+  name: text("name").notNull(), // e.g., "Sycamore"
+  bedrooms: integer("bedrooms").notNull(),
+  bathrooms: real("bathrooms").notNull(), // Allow 1.5, 2.5, etc.
+  sqft: integer("sqft"),
+  description: text("description"),
+  imageUrl: text("image_url"), // Floor plan photo/rendering
+  amenities: text("amenities").array(), // Array of amenities
+  serviceLine: text("service_line"), // AL, IL, MC, etc.
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const unitPolygons = pgTable("unit_polygons", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campusMapId: varchar("campus_map_id").references(() => campusMaps.id).notNull(),
+  rentRollDataId: varchar("rent_roll_data_id").references(() => rentRollData.id),
+  floorPlanId: varchar("floor_plan_id").references(() => floorPlans.id),
+  polygonCoordinates: text("polygon_coordinates").notNull(), // JSON string: [[x,y], [x,y], ...]
+  label: text("label"), // Unit number or label to display on map
+  fillColor: text("fill_color").default("#4CAF50"), // Hex color for polygon fill
+  strokeColor: text("stroke_color").default("#2E7D32"), // Hex color for polygon stroke
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Insert schemas for floor plan tables
+export const insertCampusMapSchema = createInsertSchema(campusMaps).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertFloorPlanSchema = createInsertSchema(floorPlans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertUnitPolygonSchema = createInsertSchema(unitPolygons).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -564,3 +626,9 @@ export type AdjustmentRules = typeof adjustmentRules.$inferSelect;
 export type InsertAdjustmentRules = z.infer<typeof insertAdjustmentRulesSchema>;
 export type AdjustmentRuleLog = typeof adjustmentRuleLog.$inferSelect;
 export type InsertAdjustmentRuleLog = z.infer<typeof insertAdjustmentRuleLogSchema>;
+export type CampusMap = typeof campusMaps.$inferSelect;
+export type InsertCampusMap = z.infer<typeof insertCampusMapSchema>;
+export type FloorPlan = typeof floorPlans.$inferSelect;
+export type InsertFloorPlan = z.infer<typeof insertFloorPlanSchema>;
+export type UnitPolygon = typeof unitPolygons.$inferSelect;
+export type InsertUnitPolygon = z.infer<typeof insertUnitPolygonSchema>;
