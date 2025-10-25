@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Map, LayoutTemplate, PenTool, Building2 } from "lucide-react";
+import { Upload, Map, LayoutTemplate, PenTool, Building2, ArrowLeft } from "lucide-react";
 import SVGUploadDialog from "@/components/floor-plans/SVGUploadDialog";
 import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
 
@@ -12,6 +13,7 @@ export default function FloorPlansPage() {
   const [selectedCampus, setSelectedCampus] = useState<string>("");
   const [activeTab, setActiveTab] = useState("maps");
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [, setLocation] = useLocation();
 
   // Fetch locations for campus selector
   const { data: locationsData } = useQuery({
@@ -26,13 +28,25 @@ export default function FloorPlansPage() {
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-screen-2xl mx-auto px-8 py-6">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Floor Plan Manager
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Manage campus maps, floor plan templates, and interactive unit polygons
-              </p>
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setLocation('/')}
+                className="hover:bg-slate-100"
+                data-testid="button-back"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Dashboard
+              </Button>
+              <div className="border-l pl-4">
+                <h1 className="text-2xl font-semibold text-gray-900">
+                  Floor Plan Manager
+                </h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Manage campus maps, floor plan templates, and interactive unit polygons
+                </p>
+              </div>
             </div>
             <Button 
               className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90" 
