@@ -3305,8 +3305,15 @@ Keep recommendations specific and quantitative when possible.`;
       
       // Generate AI suggestions using the same weights/ranges as Modulo but with AI-specific curves
       for (const unit of units) {
-        let aiSuggestion = unit.streetRate;
-        let adjustmentFactors = [];
+        const baseRate = unit.streetRate;
+        let aiSuggestion = baseRate;
+        
+        let occupancyAdjustment = 0;
+        let vacancyAdjustment = 0;
+        let attributeAdjustment = 0;
+        let seasonalAdjustment = 0;
+        let competitorAdjustment = 0;
+        let marketAdjustment = 0;
         
         // Apply occupancy pressure (respecting both weight AND range limits)
         if (weights?.occupancyPressure) {
@@ -3315,9 +3322,8 @@ Keep recommendations specific and quantitative when possible.`;
           // Apply range limits from adjustment ranges
           const minAdj = ranges?.occupancyMin || -0.1;
           const maxAdj = ranges?.occupancyMax || 0.1;
-          const pressureAdjustment = Math.max(minAdj, Math.min(maxAdj, rawPressureAdjustment));
-          aiSuggestion *= (1 + pressureAdjustment);
-          adjustmentFactors.push(`Occupancy: ${(pressureAdjustment * 100).toFixed(1)}%`);
+          occupancyAdjustment = Math.max(minAdj, Math.min(maxAdj, rawPressureAdjustment));
+          aiSuggestion *= (1 + occupancyAdjustment);
         }
         
         // Apply days vacant decay (respecting both weight AND range limits)
@@ -3327,9 +3333,8 @@ Keep recommendations specific and quantitative when possible.`;
           // Apply range limits
           const minAdj = ranges?.vacancyMin || -0.25;
           const maxAdj = ranges?.vacancyMax || 0;
-          const decay = Math.abs(Math.max(minAdj, Math.min(maxAdj, -rawDecay)));
-          aiSuggestion *= (1 - decay);
-          if (decay > 0.01) adjustmentFactors.push(`Vacancy: -${(decay * 100).toFixed(1)}%`);
+          vacancyAdjustment = Math.max(minAdj, Math.min(maxAdj, -rawDecay));
+          aiSuggestion *= (1 + vacancyAdjustment);
         }
         
         // Apply room attributes premium (respecting both weight AND range limits)
@@ -3343,10 +3348,9 @@ Keep recommendations specific and quantitative when possible.`;
         // Apply range limits
         const minAttr = ranges?.attributesMin || 0;
         const maxAttr = ranges?.attributesMax || 0.15;
-        const attributeBonus = Math.max(minAttr, Math.min(maxAttr, rawAttributeBonus));
-        if (attributeBonus > 0) {
-          aiSuggestion *= (1 + attributeBonus);
-          adjustmentFactors.push(`Attributes: +${(attributeBonus * 100).toFixed(1)}%`);
+        attributeAdjustment = Math.max(minAttr, Math.min(maxAttr, rawAttributeBonus));
+        if (attributeAdjustment > 0) {
+          aiSuggestion *= (1 + attributeAdjustment);
         }
         
         // Apply competitor rate adjustment (respecting both weight AND range limits)
@@ -3356,9 +3360,8 @@ Keep recommendations specific and quantitative when possible.`;
           // Apply range limits
           const minComp = ranges?.competitorMin || -0.1;
           const maxComp = ranges?.competitorMax || 0.1;
-          const adjustment = Math.max(minComp, Math.min(maxComp, rawAdjustment));
-          aiSuggestion *= (1 + adjustment);
-          if (Math.abs(adjustment) > 0.01) adjustmentFactors.push(`Competitor: ${adjustment > 0 ? '+' : ''}${(adjustment * 100).toFixed(1)}%`);
+          competitorAdjustment = Math.max(minComp, Math.min(maxComp, rawAdjustment));
+          aiSuggestion *= (1 + competitorAdjustment);
         }
         
         // Apply seasonality (respecting both weight AND range limits)
@@ -3373,9 +3376,8 @@ Keep recommendations specific and quantitative when possible.`;
             // Apply range limits
             const minSeason = ranges?.seasonalMin || -0.05;
             const maxSeason = ranges?.seasonalMax || 0.05;
-            const seasonalAdjustment = Math.max(minSeason, Math.min(maxSeason, weightedAdjustment));
+            seasonalAdjustment = Math.max(minSeason, Math.min(maxSeason, weightedAdjustment));
             aiSuggestion *= (1 + seasonalAdjustment);
-            adjustmentFactors.push(`Seasonal: ${seasonalAdjustment > 0 ? '+' : ''}${(seasonalAdjustment * 100).toFixed(1)}%`);
           }
         }
         
@@ -3385,18 +3387,24 @@ Keep recommendations specific and quantitative when possible.`;
           // Apply range limits
           const minMarket = ranges?.marketMin || 0;
           const maxMarket = ranges?.marketMax || 0.03;
-          const marketAdjustment = Math.max(minMarket, Math.min(maxMarket, rawMarketAdjustment));
+          marketAdjustment = Math.max(minMarket, Math.min(maxMarket, rawMarketAdjustment));
           aiSuggestion *= (1 + marketAdjustment);
-          adjustmentFactors.push(`Market: +${(marketAdjustment * 100).toFixed(1)}%`);
         }
+        
+        const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
+                                seasonalAdjustment + competitorAdjustment + marketAdjustment;
         
         // Store calculation details for the popup (like Modulo)
         const aiCalculationDetails = {
-          baseRate: unit.streetRate,
-          adjustments: adjustmentFactors,
-          finalRate: Math.round(aiSuggestion),
-          weights: weights || {},
-          ranges: ranges || {}
+          baseRate: baseRate,
+          occupancyAdjustment,
+          vacancyAdjustment,
+          attributeAdjustment,
+          seasonalAdjustment,
+          competitorAdjustment,
+          marketAdjustment,
+          totalAdjustment,
+          finalRate: Math.round(aiSuggestion)
         };
         
         await storage.updateRentRollData(unit.id, {
@@ -3734,8 +3742,23 @@ Keep recommendations specific and quantitative when possible.`;
         return res.status(404).json({ error: 'Unit not found' });
       }
       
-      // If the unit has a stored AI suggested rate, use that as the final rate
-      // Otherwise calculate it dynamically
+      // Use stored calculation details if available (like Modulo does)
+      if (unit.aiCalculationDetails) {
+        try {
+          const storedDetails = JSON.parse(unit.aiCalculationDetails);
+          return res.json({
+            unitId: unit.id,
+            roomType: unit.roomType,
+            streetRate: unit.streetRate,
+            aiSuggestedRate: unit.aiSuggestedRate,
+            calculation: storedDetails
+          });
+        } catch (e) {
+          console.error('Error parsing stored AI calculation details:', e);
+        }
+      }
+      
+      // Fallback to dynamic calculation if no stored details
       const storedAiRate = unit.aiSuggestedRate;
       const streetRate = unit.streetRate || 3185;
       

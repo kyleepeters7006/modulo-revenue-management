@@ -270,6 +270,24 @@ export default function AICalculationDialog({
               </div>
             )}
 
+            {/* Calculation Formula */}
+            {calculation.calculation && (
+              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">Calculation Formula:</h3>
+                <div className="space-y-2 text-sm font-mono">
+                  <div className="text-gray-700 dark:text-gray-300">
+                    Base Rate × (1 + Total Adjustments) = Final Rate
+                  </div>
+                  <div className="text-purple-700 dark:text-purple-300 font-medium">
+                    {formatCurrency(baseRate)} × (1 + {formatPercent(calculation.calculation.totalAdjustment)}) = {formatCurrency(calculation.aiSuggestedRate || 0)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">
+                    = {formatCurrency(baseRate)} × {(1 + calculation.calculation.totalAdjustment).toFixed(4)} = {formatCurrency(calculation.aiSuggestedRate || 0)}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* AI Algorithm Note */}
             <div className="p-4 bg-purple-50 dark:bg-purple-950/20 rounded-lg border border-purple-200 dark:border-purple-800">
               <p className="text-sm text-purple-700 dark:text-purple-300">
