@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Map, LayoutTemplate, PenTool, Building2 } from "lucide-react";
 import SVGUploadDialog from "@/components/floor-plans/SVGUploadDialog";
+import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
 
 export default function FloorPlansPage() {
   const [selectedCampus, setSelectedCampus] = useState<string>("");
@@ -184,6 +185,11 @@ function CampusMapsTab({ campusId }: { campusId: string }) {
     );
   }
 
+  // If there's only one map, use it directly. Otherwise show selector
+  if (campusMaps.length === 1) {
+    return <InteractiveFloorPlanViewer campusMap={campusMaps[0]} />;
+  }
+
   return (
     <div className="grid grid-cols-4 gap-6">
       {/* Sidebar with map list */}
@@ -222,39 +228,18 @@ function CampusMapsTab({ campusId }: { campusId: string }) {
 
       {/* Main viewer */}
       <div className="col-span-3">
-        <Card>
-          <CardHeader className="border-b">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg">{selectedMap?.name || 'Floor Plan'}</CardTitle>
-                <CardDescription>Interactive campus floor plan</CardDescription>
+        {selectedMap ? (
+          <InteractiveFloorPlanViewer campusMap={selectedMap} />
+        ) : (
+          <Card>
+            <CardContent className="flex items-center justify-center py-20 text-muted-foreground">
+              <div className="text-center">
+                <Map className="h-12 w-12 mx-auto mb-2" />
+                <p>Select a map from the list to view</p>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" data-testid="button-edit-selected-map">
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" data-testid="button-delete-selected-map">
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-6">
-            {selectedMap?.svgContent ? (
-              <div 
-                className="w-full bg-white border rounded-lg p-4 overflow-auto"
-                style={{ maxHeight: '700px' }}
-                data-testid="svg-floor-plan-viewer"
-                dangerouslySetInnerHTML={{ __html: selectedMap.svgContent }}
-              />
-            ) : (
-              <div className="flex items-center justify-center py-20 text-muted-foreground">
-                <Map className="h-12 w-12 mb-2" />
-                <p>No floor plan selected</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -4767,6 +4767,35 @@ Respond in JSON format:
     }
   });
 
+  // Get unit polygons by map ID (alternative endpoint structure)
+  app.get("/api/unit-polygons/map/:mapId", async (req, res) => {
+    try {
+      const { mapId } = req.params;
+      const polygons = await storage.getUnitPolygons(mapId);
+      res.json(polygons);
+    } catch (error) {
+      console.error('Error fetching unit polygons for map:', error);
+      res.status(500).json({ error: "Failed to fetch unit polygons" });
+    }
+  });
+
+  // Get individual rent roll unit data by ID
+  app.get("/api/rent-roll-data/:unitId", async (req, res) => {
+    try {
+      const { unitId } = req.params;
+      const unit = await storage.getRentRollDataById(unitId);
+      
+      if (!unit) {
+        return res.status(404).json({ error: "Unit not found" });
+      }
+      
+      res.json(unit);
+    } catch (error) {
+      console.error('Error fetching rent roll data:', error);
+      res.status(500).json({ error: "Failed to fetch unit data" });
+    }
+  });
+
   app.post("/api/unit-polygons", async (req, res) => {
     try {
       const polygon = await storage.createUnitPolygon(req.body);
