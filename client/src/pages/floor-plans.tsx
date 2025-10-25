@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Map, LayoutTemplate, PenTool, Building2, ArrowLeft } from "lucide-react";
+import { Upload, Map, LayoutTemplate, PenTool, Building2, ArrowLeft, Settings } from "lucide-react";
 import SVGUploadDialog from "@/components/floor-plans/SVGUploadDialog";
 import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
 
@@ -74,7 +74,7 @@ export default function FloorPlansPage() {
                 Floor Plans
               </h1>
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-3">
               <Select value={selectedCampus} onValueChange={setSelectedCampus}>
                 <SelectTrigger className="w-64" data-testid="select-campus">
                   <SelectValue placeholder="Select a campus..." />
@@ -87,6 +87,16 @@ export default function FloorPlansPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setLocation('/floor-plans-admin')}
+                className="hover:bg-slate-100"
+                data-testid="button-admin"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Admin
+              </Button>
             </div>
           </div>
         </div>

@@ -4689,6 +4689,44 @@ Respond in JSON format:
     }
   });
 
+  app.post("/api/campus-maps/upload-image", upload.single('image'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      const { name, locationId, width, height } = req.body;
+      
+      if (!name || !locationId) {
+        return res.status(400).json({ error: "Missing required fields: name, locationId" });
+      }
+
+      const timestamp = Date.now();
+      const filename = `floor-plan-${timestamp}${path.extname(req.file.originalname)}`;
+      const filepath = path.join('attached_assets', 'floor_plans', filename);
+      
+      const fs = await import('fs/promises');
+      await fs.mkdir(path.join('attached_assets', 'floor_plans'), { recursive: true });
+      await fs.writeFile(filepath, req.file.buffer);
+
+      const mapData = {
+        locationId,
+        name,
+        baseImageUrl: `/${filepath}`,
+        width: parseInt(width) || 1024,
+        height: parseInt(height) || 683,
+        isPublished: false,
+      };
+
+      const map = await storage.createCampusMap(mapData);
+      
+      res.json(map);
+    } catch (error) {
+      console.error('Error uploading floor plan image:', error);
+      res.status(500).json({ error: "Failed to upload floor plan image" });
+    }
+  });
+
   app.put("/api/campus-maps/:id", async (req, res) => {
     try {
       const { id } = req.params;
@@ -4776,6 +4814,41 @@ Respond in JSON format:
     } catch (error) {
       console.error('Error fetching unit polygons for map:', error);
       res.status(500).json({ error: "Failed to fetch unit polygons" });
+    }
+  });
+
+  app.post("/api/unit-polygons", async (req, res) => {
+    try {
+      const { campusMapId, rentRollDataId, label, polygonCoordinates, fillColor, strokeColor } = req.body;
+      
+      if (!campusMapId || !polygonCoordinates) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const polygon = await storage.createUnitPolygon({
+        campusMapId,
+        rentRollDataId,
+        label,
+        polygonCoordinates,
+        fillColor: fillColor || "#4CAF50",
+        strokeColor: strokeColor || "#2E7D32",
+      });
+
+      res.json(polygon);
+    } catch (error) {
+      console.error('Error creating unit polygon:', error);
+      res.status(500).json({ error: "Failed to create unit polygon" });
+    }
+  });
+
+  app.delete("/api/unit-polygons/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteUnitPolygon(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting unit polygon:', error);
+      res.status(500).json({ error: "Failed to delete unit polygon" });
     }
   });
 

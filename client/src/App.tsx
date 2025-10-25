@@ -14,6 +14,7 @@ import Analysis from "@/pages/Analysis";
 import { Analytics } from "@/pages/analytics";
 import AboutUs from "@/pages/AboutUs";
 import FloorPlans from "@/pages/floor-plans";
+import FloorPlansAdmin from "@/pages/floor-plans-admin";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/competitor-analysis" component={CompetitorAnalysis} />
       <Route path="/ai-insights" component={AIInsights} />
       <Route path="/floor-plans" component={FloorPlans} />
+      <Route path="/floor-plans-admin" component={FloorPlansAdmin} />
       <Route path="/about" component={AboutUs} />
       <Route component={NotFound} />
     </Switch>

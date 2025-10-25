@@ -44,7 +44,7 @@ export default function RateCardTable({
   selectedDivisions,
   selectedLocations
 }: RateCardTableProps) {
-  const [selectedMonth, setSelectedMonth] = useState("2025-09");
+  const [selectedMonth, setSelectedMonth] = useState("2025-10");
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
