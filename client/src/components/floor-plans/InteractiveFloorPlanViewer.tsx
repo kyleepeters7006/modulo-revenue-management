@@ -160,7 +160,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
       <div className="flex-1 relative">
         <div 
           ref={svgContainerRef}
-          className="absolute inset-0 overflow-auto"
+          className="absolute inset-0 overflow-auto p-4"
           style={{ 
             touchAction: 'pan-x pan-y pinch-zoom'
           }}
@@ -168,17 +168,18 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           <div
             style={{
               transform: `scale(${zoom})`,
-              transformOrigin: 'center',
+              transformOrigin: 'top center',
               transition: 'transform 0.2s ease-out',
             }}
-            className="inline-block w-full"
+            className="w-full"
           >
             <svg
               viewBox={`0 0 ${campusMap?.width || 1200} ${campusMap?.height || 800}`}
-              className="w-full h-auto"
+              className="w-full"
+              preserveAspectRatio="xMidYMid meet"
               style={{
-                maxWidth: '100%',
-                height: 'auto',
+                display: 'block',
+                minHeight: '400px',
               }}
             >
               {/* Base SVG content */}
