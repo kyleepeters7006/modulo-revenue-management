@@ -157,39 +157,33 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   return (
     <div className="h-full w-full flex flex-col bg-slate-50">
       {/* Floor Plan */}
-      <div className="flex-1 relative">
+      <div className="flex-1 bg-white p-4 overflow-auto relative">
         <div 
           ref={svgContainerRef}
-          className="absolute inset-0 overflow-auto p-4"
           style={{ 
-            touchAction: 'pan-x pan-y pinch-zoom'
+            touchAction: 'pan-x pan-y pinch-zoom',
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top center',
+            transition: 'transform 0.2s ease-out',
           }}
         >
-          <div
-            style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top center',
-              transition: 'transform 0.2s ease-out',
-            }}
-            className="w-full"
-          >
-            {campusMap?.svgContent ? (
-              <div 
-                dangerouslySetInnerHTML={{ 
-                  __html: campusMap.svgContent
-                    .replace(/<svg/, '<svg width="100%" height="auto" style="display: block; min-height: 500px;"')
-                }} 
-                className="w-full"
-              />
-            ) : (
-              <div className="flex items-center justify-center h-96 bg-slate-100 rounded-lg">
-                <p className="text-slate-500">No floor plan available</p>
-              </div>
-            )}
-          </div>
+          {campusMap?.svgContent ? (
+            <div 
+              dangerouslySetInnerHTML={{ 
+                __html: campusMap.svgContent
+                  .replace(/<svg/, '<svg width="100%" height="600"')
+              }} 
+            />
+          ) : (
+            <div className="flex items-center justify-center h-96 bg-slate-100 rounded-lg">
+              <p className="text-slate-500">No floor plan available</p>
+              <p className="text-xs text-slate-400 mt-2">Map ID: {campusMap?.id}</p>
+            </div>
+          )}
+        </div>
 
-          {/* Zoom Controls - Hidden but functional */}
-          <div className="absolute top-4 right-4 flex flex-col gap-2 bg-white/90 rounded-lg p-1 shadow-md">
+        {/* Zoom Controls */}
+        <div className="absolute top-4 right-4 flex flex-col gap-2 bg-white/90 rounded-lg p-1 shadow-md">
             <Button 
               variant="ghost" 
               size="sm" 
@@ -269,7 +263,6 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
               </div>
             </div>
           )}
-        </div>
       </div>
 
       {/* Legend - Bottom */}
