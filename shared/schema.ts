@@ -534,6 +534,7 @@ export const campusMaps = pgTable("campus_maps", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   locationId: varchar("location_id").references(() => locations.id).notNull(),
   name: text("name").notNull(),
+  baseImageUrl: text("base_image_url"), // Path to photorealistic aerial/satellite base image
   svgUrl: text("svg_url"), // Path to SVG file in object storage
   svgContent: text("svg_content"), // Actual SVG markup (for inline embedding)
   width: integer("width"), // SVG viewBox width

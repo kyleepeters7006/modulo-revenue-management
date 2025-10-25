@@ -18,6 +18,14 @@ interface UnitDetails {
   size: string;
 }
 
+interface UnitPolygon {
+  id: string;
+  label: string;
+  polygonCoordinates: string;
+  fillColor: string;
+  rentRollDataId: string;
+}
+
 export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFloorPlanViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
@@ -26,7 +34,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const lastTouchDistance = useRef<number | null>(null);
 
   // Fetch unit polygons for this map
-  const { data: polygons = [] } = useQuery({
+  const { data: polygons = [] } = useQuery<UnitPolygon[]>({
     queryKey: [`/api/unit-polygons/map/${campusMap.id}`],
     enabled: !!campusMap.id,
   });
@@ -167,58 +175,67 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
             transition: 'transform 0.2s ease-out',
           }}
         >
-          {campusMap?.svgContent ? (
-            <svg
-              viewBox={`0 0 ${campusMap.width || 1200} ${campusMap.height || 800}`}
-              className="w-full"
-              style={{
-                display: 'block',
-                minHeight: '600px',
-                maxHeight: '800px',
-              }}
-            >
-              {/* Base SVG content */}
-              <g dangerouslySetInnerHTML={{ 
-                __html: campusMap.svgContent
-                  .replace(/<svg[^>]*>/, '')
-                  .replace(/<\/svg>/, '')
-              }} />
-
-              {/* Interactive polygon overlays */}
-              {polygons.map((polygon: any) => {
-                const coordinates = JSON.parse(polygon.polygonCoordinates);
-                const points = coordinates.map((coord: number[]) => coord.join(',')).join(' ');
-                
-                return (
-                  <polygon
-                    key={polygon.id}
-                    points={points}
-                    fill={polygon.fillColor}
-                    fillOpacity={hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.5}
-                    stroke="#334155"
-                    strokeWidth="2"
-                    className="cursor-pointer transition-all hover:fill-opacity-80"
-                    onMouseEnter={(e) => handlePolygonHover(polygon.rentRollDataId, e)}
-                    onMouseMove={(e) => {
-                      const rect = svgContainerRef.current?.getBoundingClientRect();
-                      if (rect) {
-                        setTooltipPosition({
-                          x: e.clientX - rect.left,
-                          y: e.clientY - rect.top,
-                        });
-                      }
-                    }}
-                    onMouseLeave={handlePolygonLeave}
-                    onClick={() => console.log('Clicked unit:', polygon.label)}
-                    data-testid={`polygon-unit-${polygon.label}`}
-                  />
-                );
-              })}
-            </svg>
+          {campusMap ? (
+            <div className="relative w-full" style={{ minHeight: '600px' }}>
+              {/* Base aerial image layer */}
+              {campusMap.baseImageUrl && (
+                <img
+                  src={campusMap.baseImageUrl}
+                  alt={campusMap.name}
+                  className="absolute top-0 left-0 w-full h-auto"
+                  style={{
+                    display: 'block',
+                    maxHeight: '800px',
+                    objectFit: 'contain',
+                  }}
+                />
+              )}
+              
+              {/* SVG overlay layer for interactive polygons */}
+              <svg
+                viewBox={`0 0 ${campusMap.width || 1920} ${campusMap.height || 1080}`}
+                className="absolute top-0 left-0 w-full h-auto"
+                style={{
+                  maxHeight: '800px',
+                  pointerEvents: 'none',
+                }}
+              >
+                {/* Interactive polygon overlays */}
+                {polygons.map((polygon: any) => {
+                  const coordinates = JSON.parse(polygon.polygonCoordinates);
+                  const points = coordinates.map((coord: number[]) => coord.join(',')).join(' ');
+                  
+                  return (
+                    <polygon
+                      key={polygon.id}
+                      points={points}
+                      fill={polygon.fillColor}
+                      fillOpacity={hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.5}
+                      stroke="#334155"
+                      strokeWidth="2"
+                      className="cursor-pointer transition-all hover:fill-opacity-80"
+                      style={{ pointerEvents: 'auto' }}
+                      onMouseEnter={(e) => handlePolygonHover(polygon.rentRollDataId, e)}
+                      onMouseMove={(e) => {
+                        const rect = svgContainerRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setTooltipPosition({
+                            x: e.clientX - rect.left,
+                            y: e.clientY - rect.top,
+                          });
+                        }
+                      }}
+                      onMouseLeave={handlePolygonLeave}
+                      onClick={() => console.log('Clicked unit:', polygon.label)}
+                      data-testid={`polygon-unit-${polygon.label}`}
+                    />
+                  );
+                })}
+              </svg>
+            </div>
           ) : (
             <div className="flex items-center justify-center h-96 bg-slate-100 rounded-lg">
               <p className="text-slate-500">No floor plan available</p>
-              <p className="text-xs text-slate-400 mt-2">Map ID: {campusMap?.id}</p>
             </div>
           )}
         </div>
