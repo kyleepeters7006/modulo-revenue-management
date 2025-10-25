@@ -177,11 +177,9 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
               <div 
                 dangerouslySetInnerHTML={{ 
                   __html: campusMap.svgContent
+                    .replace(/<svg/, '<svg width="100%" height="auto" style="display: block; min-height: 500px;"')
                 }} 
-                style={{
-                  width: '100%',
-                  display: 'block'
-                }}
+                className="w-full"
               />
             ) : (
               <div className="flex items-center justify-center h-96 bg-slate-100 rounded-lg">
