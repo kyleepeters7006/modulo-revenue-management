@@ -47,12 +47,15 @@ Preferred communication style: Simple, everyday language.
 - **ML Training Pipeline**: Placeholder machine learning model training system for predictive pricing
 - **Data Import System**: CSV upload and parsing for rent roll data with validation
 - **Guardrails System**: Configurable pricing constraints and safety limits
-- **Floor Plan Management**: Interactive SVG floor plan viewer with unit polygon mapping system
-  - Campus Maps: SVG upload and storage for building/campus floor plans
+- **Floor Plan Management**: Interactive floor plan viewer with Engrain SiteMap-style photorealistic maps
+  - Campus Maps: Photorealistic aerial/satellite base images with SVG polygon overlays for interactivity
+  - Base Image System: `base_image_url` field stores path to high-resolution floor plan images (1024x683)
   - Floor Plan Templates: Reusable templates for room types (Studio, 1BR, 2BR, Semi-Private, etc.)
-  - Unit Polygons: Clickable polygon regions linking SVG coordinates to actual rent_roll_data units
-  - Integration: Full integration with existing pricing and availability data
-  - Demo Data: Kokomo-106 (131 units) and Springfield-401 campuses with working examples
+  - Unit Polygons: Clickable SVG polygon regions positioned over base image, linked to rent_roll_data units
+  - Color-Coded Rooms: Red (#ff6b6b), Yellow (#ffd93d), and Green (#6bcf7f) polygons for different room types
+  - Integration: Full integration with existing pricing and availability data via hover tooltips
+  - Demo Data: Kokomo-106 (28 interactive units) and Springfield-401 (28 interactive units) campuses
+  - Hybrid Architecture: Photorealistic image base layer + SVG interactive overlay layer for professional aesthetic
 
 ## Component Architecture
 - **Dashboard Layout**: Responsive design with collapsible sidebar navigation
