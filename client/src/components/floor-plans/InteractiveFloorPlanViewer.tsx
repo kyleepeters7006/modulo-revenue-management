@@ -125,74 +125,74 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     }).format(amount);
   };
 
+  // Get unique room types for legend
+  const roomTypeLegend = Array.from(
+    new Set(polygons.map((p: any) => {
+      const unitId = p.rentRollDataId;
+      const parts = unitId.split('-');
+      return parts[parts.length - 2]; // Get room type from unit ID
+    }))
+  );
+
+  const getLegendColor = (type: string) => {
+    const colors: Record<string, string> = {
+      'Studio': '#93c5fd',
+      '1BR': '#fde047',
+      '2BR': '#fca5a5',
+      'SP': '#86efac',
+    };
+    return colors[type] || '#d1d5db';
+  };
+
+  const getLegendLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      'Studio': 'Studio',
+      '1BR': 'One Bedroom',
+      '2BR': 'Two Bedroom',
+      'SP': 'Semi-Private',
+    };
+    return labels[type] || type;
+  };
+
   return (
-    <Card>
-      <CardHeader className="border-b">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-lg">{campusMap?.name || 'Floor Plan'}</CardTitle>
-            <CardDescription>
-              Interactive campus floor plan - hover over units for details
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleZoomOut}
-              disabled={zoom <= 0.5}
-              data-testid="button-zoom-out"
-            >
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleResetZoom}
-              data-testid="button-reset-zoom"
-            >
-              <Maximize2 className="h-4 w-4" />
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleZoomIn}
-              disabled={zoom >= 3}
-              data-testid="button-zoom-in"
-            >
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
+    <div className="bg-white rounded-lg shadow-sm border">
+      {/* Header */}
+      <div className="p-6 border-b">
+        <h3 className="text-xl font-normal text-slate-800 mb-2">
+          {campusMap?.name || 'Floor Plan'}
+        </h3>
+        <p className="text-sm text-slate-600">
+          Interactive campus floor plan - hover over units for details
+        </p>
+      </div>
+
+      {/* Floor Plan */}
+      <div className="p-6">
         <div 
           ref={svgContainerRef}
-          className="relative w-full bg-slate-50 overflow-auto"
+          className="relative w-full bg-slate-50 rounded-lg overflow-auto border"
           style={{ 
-            height: '700px',
+            maxHeight: '600px',
             touchAction: 'pan-x pan-y pinch-zoom'
           }}
         >
-          {/* SVG Container with zoom */}
           <div
             style={{
               transform: `scale(${zoom})`,
-              transformOrigin: 'top left',
+              transformOrigin: 'center',
               transition: 'transform 0.2s ease-out',
             }}
-            className="inline-block"
+            className="inline-block w-full"
           >
-            {/* Combined SVG with base content and interactive overlays */}
             <svg
               viewBox={`0 0 ${campusMap?.width || 1200} ${campusMap?.height || 800}`}
+              className="w-full h-auto"
               style={{
-                display: 'block',
-                width: `${campusMap?.width || 1200}px`,
-                height: `${campusMap?.height || 800}px`,
+                maxWidth: '100%',
+                height: 'auto',
               }}
             >
-              {/* Base SVG content (rendered inline) */}
+              {/* Base SVG content */}
               {campusMap?.svgContent && (
                 <g dangerouslySetInnerHTML={{ 
                   __html: campusMap.svgContent
@@ -211,10 +211,10 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                     key={polygon.id}
                     points={points}
                     fill={polygon.fillColor}
-                    fillOpacity={hoveredUnitId === polygon.rentRollDataId ? 0.7 : 0.3}
-                    stroke={polygon.strokeColor}
+                    fillOpacity={hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.6}
+                    stroke="#334155"
                     strokeWidth="2"
-                    className="cursor-pointer transition-all hover:fill-opacity-70"
+                    className="cursor-pointer transition-all hover:fill-opacity-80"
                     onMouseEnter={(e) => handlePolygonHover(polygon.rentRollDataId, e)}
                     onMouseMove={(e) => {
                       const rect = svgContainerRef.current?.getBoundingClientRect();
@@ -233,20 +233,53 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
             </svg>
           </div>
 
+          {/* Zoom Controls - Hidden but functional */}
+          <div className="absolute top-4 right-4 flex flex-col gap-2 bg-white/90 rounded-lg p-1 shadow-md">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleZoomIn}
+              disabled={zoom >= 3}
+              data-testid="button-zoom-in"
+              className="h-8 w-8 p-0"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleResetZoom}
+              data-testid="button-reset-zoom"
+              className="h-8 w-8 p-0"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleZoomOut}
+              disabled={zoom <= 0.5}
+              data-testid="button-zoom-out"
+              className="h-8 w-8 p-0"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+          </div>
+
           {/* Tooltip */}
           {hoveredUnit && hoveredUnitId && (
             <div
-              className="absolute bg-white shadow-lg rounded-lg border-2 border-[var(--trilogy-teal)] p-4 z-50 pointer-events-none"
+              className="absolute bg-white shadow-xl rounded-lg border p-4 z-50 pointer-events-none"
               style={{
                 left: `${tooltipPosition.x + 15}px`,
                 top: `${tooltipPosition.y + 15}px`,
-                minWidth: '280px',
+                minWidth: '260px',
               }}
               data-testid="unit-tooltip"
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between border-b pb-2">
-                  <h4 className="font-bold text-lg">Unit {hoveredUnit.roomNumber}</h4>
+                  <h4 className="font-semibold text-base">Unit {hoveredUnit.roomNumber}</h4>
                   <span className={`px-2 py-1 rounded text-xs font-medium ${
                     hoveredUnit.occupiedYN 
                       ? 'bg-red-100 text-red-700' 
@@ -258,30 +291,18 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
 
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Type:</span>
-                    <span className="font-medium">{hoveredUnit.roomType}</span>
+                    <span className="text-slate-600">Type:</span>
+                    <span className="font-medium text-slate-900">{hoveredUnit.roomType}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Size:</span>
-                    <span className="font-medium">{hoveredUnit.size}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Current Rate:</span>
-                    <span className="font-bold text-[var(--trilogy-teal)]">
+                    <span className="text-slate-600">Current Rate:</span>
+                    <span className="font-semibold text-[var(--trilogy-teal)]">
                       {formatCurrency(hoveredUnit.streetRate)}
                     </span>
                   </div>
-                  {hoveredUnit.moduloSuggestedRate && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Modulo Rate:</span>
-                      <span className="font-medium text-purple-600">
-                        {formatCurrency(hoveredUnit.moduloSuggestedRate)}
-                      </span>
-                    </div>
-                  )}
                   {!hoveredUnit.occupiedYN && hoveredUnit.daysVacant > 0 && (
                     <div className="flex justify-between pt-1 border-t">
-                      <span className="text-muted-foreground">Days Vacant:</span>
+                      <span className="text-slate-600">Days Vacant:</span>
                       <span className={`font-medium ${
                         hoveredUnit.daysVacant > 30 ? 'text-red-600' : 'text-amber-600'
                       }`}>
@@ -293,13 +314,23 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
               </div>
             </div>
           )}
-
-          {/* Zoom indicator */}
-          <div className="absolute bottom-4 right-4 bg-white/90 px-3 py-1 rounded-full text-xs font-medium shadow-md">
-            {Math.round(zoom * 100)}%
-          </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Legend */}
+        {roomTypeLegend.length > 0 && (
+          <div className="mt-6 flex flex-wrap items-center gap-4">
+            {roomTypeLegend.map((type: string) => (
+              <div key={type} className="flex items-center gap-2">
+                <div 
+                  className="w-5 h-5 rounded border border-slate-300"
+                  style={{ backgroundColor: getLegendColor(type) }}
+                />
+                <span className="text-sm text-slate-700">{getLegendLabel(type)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
