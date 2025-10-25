@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Save, Trash2, Undo, Plus, X } from "lucide-react";
+import AutoDetectPolygons from "./AutoDetectPolygons";
 
 interface PolygonEditorProps {
   campusMap: any;
@@ -24,6 +26,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [fillColor, setFillColor] = useState("#ff6b6b");
   const [isDrawing, setIsDrawing] = useState(false);
+  const [detectedPolygons, setDetectedPolygons] = useState<any[]>([]);
   const imageRef = useRef<HTMLImageElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -143,13 +146,86 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
     );
   }
 
+  const handlePolygonsDetected = (polygons: any[]) => {
+    setDetectedPolygons(polygons);
+    toast({
+      title: "Polygons detected",
+      description: `Found ${polygons.length} room shapes. Review and save them below.`,
+    });
+  };
+
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Draw Room Polygons</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <Tabs defaultValue="manual" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="auto">Auto-Detect</TabsTrigger>
+          <TabsTrigger value="manual">Manual Draw</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="auto" className="space-y-4">
+          <AutoDetectPolygons 
+            campusMap={campusMap} 
+            onPolygonsDetected={handlePolygonsDetected}
+          />
+          
+          {detectedPolygons.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Detected Rooms ({detectedPolygons.length})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Review the detected rooms below. You can save all or delete individual ones.
+                </p>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {detectedPolygons.map((polygon, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 border rounded">
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="w-6 h-6 rounded border"
+                          style={{ backgroundColor: polygon.color }}
+                        />
+                        <div>
+                          <div className="font-medium">{polygon.label}</div>
+                          <div className="text-xs text-slate-500">
+                            {polygon.points.length} points
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => {
+                          setDetectedPolygons(detectedPolygons.filter((_, i) => i !== index));
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  className="w-full mt-4"
+                  onClick={() => {
+                    toast({
+                      title: "Feature coming soon",
+                      description: "Bulk save detected polygons will be available soon. Please use manual drawing for now.",
+                    });
+                  }}
+                >
+                  Save All Detected Rooms
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="manual" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Draw Room Polygons</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Label htmlFor="room-select">Select Room</Label>
@@ -291,44 +367,46 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
         </CardContent>
       </Card>
 
-      {existingPolygons.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Existing Polygons ({existingPolygons.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {existingPolygons.map((polygon: any) => (
-                <div
-                  key={polygon.id}
-                  className="flex items-center justify-between p-3 border rounded hover:bg-slate-50"
-                >
-                  <div className="flex items-center gap-3">
+          {existingPolygons.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Existing Polygons ({existingPolygons.length})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {existingPolygons.map((polygon: any) => (
                     <div
-                      className="w-6 h-6 rounded border"
-                      style={{ backgroundColor: polygon.fillColor }}
-                    />
-                    <div>
-                      <div className="font-medium">Room {polygon.label}</div>
-                      <div className="text-sm text-slate-500">
-                        {JSON.parse(polygon.polygonCoordinates).length} points
+                      key={polygon.id}
+                      className="flex items-center justify-between p-3 border rounded hover:bg-slate-50"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-6 h-6 rounded border"
+                          style={{ backgroundColor: polygon.fillColor }}
+                        />
+                        <div>
+                          <div className="font-medium">Room {polygon.label}</div>
+                          <div className="text-sm text-slate-500">
+                            {JSON.parse(polygon.polygonCoordinates).length} points
+                          </div>
+                        </div>
                       </div>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => deletePolygonMutation.mutate(polygon.id)}
+                        data-testid={`button-delete-${polygon.label}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => deletePolygonMutation.mutate(polygon.id)}
-                    data-testid={`button-delete-${polygon.label}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
