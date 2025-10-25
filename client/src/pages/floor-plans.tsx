@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -130,13 +130,34 @@ export default function FloorPlansPage() {
 
 // Campus Maps Tab Component
 function CampusMapsTab({ campusId }: { campusId: string }) {
+  const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
+  
   const { data: campusMaps = [], isLoading } = useQuery({
     queryKey: [`/api/campus-maps/${campusId}`],
     enabled: !!campusId,
   });
 
-  return (
-    <div>
+  const selectedMap = campusMaps.find((map: any) => map.id === selectedMapId);
+
+  // Auto-select first map if available
+  useEffect(() => {
+    if (campusMaps.length > 0 && !selectedMapId) {
+      setSelectedMapId(campusMaps[0].id);
+    }
+  }, [campusMaps, selectedMapId]);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <div className="text-sm text-muted-foreground">Loading maps...</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (campusMaps.length === 0) {
+    return (
       <Card>
         <CardHeader>
           <CardTitle>Campus Maps</CardTitle>
@@ -145,51 +166,96 @@ function CampusMapsTab({ campusId }: { campusId: string }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-sm text-muted-foreground">Loading maps...</div>
-            </div>
-          ) : campusMaps.length === 0 ? (
-            <div className="border-2 border-dashed border-slate-300 rounded-lg p-12 text-center">
-              <Upload className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-base font-medium text-slate-700 mb-2">
-                No maps uploaded yet
-              </h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Upload an SVG floor plan to get started with unit mapping
-              </p>
-              <Button variant="outline" data-testid="button-upload-first-map">
-                <Upload className="h-4 w-4 mr-2" />
-                Upload SVG Map
-              </Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-6">
-              {campusMaps.map((map: any) => (
-                <Card key={map.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="aspect-video bg-slate-100 rounded mb-3 flex items-center justify-center">
-                      <Map className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <h4 className="font-medium text-sm mb-1">{map.name}</h4>
-                    <p className="text-xs text-muted-foreground">
-                      {map.width} × {map.height} • {map.isPublished ? 'Published' : 'Draft'}
-                    </p>
-                    <div className="flex gap-2 mt-3">
-                      <Button variant="outline" size="sm" className="flex-1" data-testid={`button-edit-map-${map.id}`}>
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1" data-testid={`button-delete-map-${map.id}`}>
-                        Delete
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          <div className="border-2 border-dashed border-slate-300 rounded-lg p-12 text-center">
+            <Upload className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-base font-medium text-slate-700 mb-2">
+              No maps uploaded yet
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Upload an SVG floor plan to get started with unit mapping
+            </p>
+            <Button variant="outline" data-testid="button-upload-first-map">
+              <Upload className="h-4 w-4 mr-2" />
+              Upload SVG Map
+            </Button>
+          </div>
         </CardContent>
       </Card>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-4 gap-6">
+      {/* Sidebar with map list */}
+      <div className="col-span-1 space-y-3">
+        <h3 className="text-sm font-medium text-slate-700 mb-3">Available Maps</h3>
+        {campusMaps.map((map: any) => (
+          <Card 
+            key={map.id} 
+            className={`cursor-pointer transition-all ${
+              selectedMapId === map.id 
+                ? 'border-[var(--trilogy-teal)] bg-teal-50 shadow-md' 
+                : 'hover:border-slate-400'
+            }`}
+            onClick={() => setSelectedMapId(map.id)}
+            data-testid={`map-selector-${map.id}`}
+          >
+            <CardContent className="p-3">
+              <div className="flex items-start gap-2">
+                <Map className="h-5 w-5 text-[var(--trilogy-teal)] mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-medium text-sm truncate">{map.name}</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {map.width} × {map.height}
+                  </p>
+                  {map.isPublished && (
+                    <span className="inline-block mt-1 px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">
+                      Published
+                    </span>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Main viewer */}
+      <div className="col-span-3">
+        <Card>
+          <CardHeader className="border-b">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">{selectedMap?.name || 'Floor Plan'}</CardTitle>
+                <CardDescription>Interactive campus floor plan</CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" data-testid="button-edit-selected-map">
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" data-testid="button-delete-selected-map">
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            {selectedMap?.svgContent ? (
+              <div 
+                className="w-full bg-white border rounded-lg p-4 overflow-auto"
+                style={{ maxHeight: '700px' }}
+                data-testid="svg-floor-plan-viewer"
+                dangerouslySetInnerHTML={{ __html: selectedMap.svgContent }}
+              />
+            ) : (
+              <div className="flex items-center justify-center py-20 text-muted-foreground">
+                <Map className="h-12 w-12 mb-2" />
+                <p>No floor plan selected</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
