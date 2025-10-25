@@ -23,6 +23,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const svgContainerRef = useRef<HTMLDivElement>(null);
+  const lastTouchDistance = useRef<number | null>(null);
 
   // Fetch unit polygons for this map
   const { data: polygons = [] } = useQuery({
@@ -35,6 +36,58 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     queryKey: [`/api/rent-roll-data/${hoveredUnitId}`],
     enabled: !!hoveredUnitId,
   });
+
+  // Handle pinch zoom
+  useEffect(() => {
+    const container = svgContainerRef.current;
+    if (!container) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        const distance = Math.hypot(
+          touch2.clientX - touch1.clientX,
+          touch2.clientY - touch1.clientY
+        );
+        lastTouchDistance.current = distance;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && lastTouchDistance.current) {
+        e.preventDefault();
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        const distance = Math.hypot(
+          touch2.clientX - touch1.clientX,
+          touch2.clientY - touch1.clientY
+        );
+        
+        const scale = distance / lastTouchDistance.current;
+        setZoom(prevZoom => {
+          const newZoom = prevZoom * scale;
+          return Math.min(Math.max(newZoom, 0.5), 3);
+        });
+        
+        lastTouchDistance.current = distance;
+      }
+    };
+
+    const handleTouchEnd = () => {
+      lastTouchDistance.current = null;
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
 
   const handleZoomIn = () => {
     setZoom(prev => Math.min(prev + 0.25, 3));
