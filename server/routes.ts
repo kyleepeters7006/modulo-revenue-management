@@ -4783,7 +4783,15 @@ Respond in JSON format:
   app.get("/api/rent-roll-data/location/:locationId", async (req, res) => {
     try {
       const { locationId } = req.params;
-      const units = await storage.getRentRollDataByLocation(locationId);
+      
+      // Get the location name from the ID
+      const location = await storage.getLocationById(locationId);
+      if (!location) {
+        return res.status(404).json({ error: "Location not found" });
+      }
+      
+      // Get units by location name
+      const units = await storage.getRentRollDataByLocation(location.name);
       res.json(units);
     } catch (error) {
       console.error('Error fetching rent roll data for location:', error);
