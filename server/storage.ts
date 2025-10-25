@@ -93,6 +93,8 @@ export interface IStorage {
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[]): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
+  bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void>;
+  bulkUpdateAIRates(updates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }>): Promise<void>;
   clearRentRollData(): Promise<void>;
   clearRentRollDataByLocation(location: string): Promise<void>;
   
@@ -449,6 +451,67 @@ export class DatabaseStorage implements IStorage {
 
   async updateRentRollData(id: string, data: Partial<RentRollData>): Promise<void> {
     await db.update(rentRollData).set(data).where(eq(rentRollData.id, id));
+  }
+
+  async bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void> {
+    const { inArray, sql } = await import('drizzle-orm');
+    
+    // Process in batches of 200 to avoid memory issues
+    const batchSize = 200;
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, i + batchSize);
+      
+      // Use a SQL CASE statement for efficient bulk update
+      const cases = batch.map(u => 
+        `WHEN id = '${u.id}' THEN ${u.moduloSuggestedRate}`
+      ).join(' ');
+      
+      const detailsCases = batch.map(u => 
+        `WHEN id = '${u.id}' THEN '${u.moduloCalculationDetails.replace(/'/g, "''")}'`
+      ).join(' ');
+      
+      const ids = batch.map(u => u.id);
+      
+      await db.execute(sql`
+        UPDATE rent_roll_data 
+        SET 
+          modulo_suggested_rate = CASE ${sql.raw(cases)} END,
+          modulo_calculation_details = CASE ${sql.raw(detailsCases)} END
+        WHERE id = ANY(${ids})
+      `);
+      
+      console.log(`Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
+    }
+  }
+
+  async bulkUpdateAIRates(updates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }>): Promise<void> {
+    const { inArray, sql } = await import('drizzle-orm');
+    
+    // Process in batches of 200
+    const batchSize = 200;
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, i + batchSize);
+      
+      const cases = batch.map(u => 
+        `WHEN id = '${u.id}' THEN ${u.aiSuggestedRate}`
+      ).join(' ');
+      
+      const detailsCases = batch.map(u => 
+        `WHEN id = '${u.id}' THEN '${u.aiCalculationDetails.replace(/'/g, "''")}'`
+      ).join(' ');
+      
+      const ids = batch.map(u => u.id);
+      
+      await db.execute(sql`
+        UPDATE rent_roll_data 
+        SET 
+          ai_suggested_rate = CASE ${sql.raw(cases)} END,
+          ai_calculation_details = CASE ${sql.raw(detailsCases)} END
+        WHERE id = ANY(${ids})
+      `);
+      
+      console.log(`Updated AI batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
+    }
   }
 
   // Attribute ratings operations

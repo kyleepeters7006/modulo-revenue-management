@@ -3052,6 +3052,9 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log(`Generating Modulo for ${units.length} units`);
       
+      // Collect all updates in memory first for bulk processing
+      const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
+      
       // Generate Modulo suggestions using detailed algorithm
       for (const unit of units) {
         const baseRate = unit.streetRate;
@@ -3219,14 +3222,25 @@ Keep recommendations specific and quantitative when possible.`;
           calculationDetails.finalRate = Math.round(suggestion);
         }
         
-        await storage.updateRentRollData(unit.id, {
+        // Add to bulk update array
+        updates.push({
+          id: unit.id,
           moduloSuggestedRate: Math.round(suggestion),
           moduloCalculationDetails: JSON.stringify(calculationDetails)
         });
       }
       
+      console.log(`Calculated ${updates.length} Modulo suggestions, starting bulk update...`);
+      
+      // Perform bulk update in batches
+      await storage.bulkUpdateModuloRates(updates);
+      
+      console.log(`Modulo bulk update complete, regenerating rate card...`);
+      
       // Regenerate rate card with new suggestions
       await storage.generateRateCard(targetMonth);
+      
+      console.log(`Modulo generation complete for ${updates.length} units`);
       
       res.json({ success: true });
     } catch (error) {
@@ -3278,6 +3292,9 @@ Keep recommendations specific and quantitative when possible.`;
       }
       
       console.log(`Generating AI suggestions for ${units.length} filtered units`);
+      
+      // Collect all updates in memory first for bulk processing
+      const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
       
       // Get AI-specific weights and ranges for calculation
       const weights = await storage.getAiPricingWeights() || {
@@ -3407,14 +3424,25 @@ Keep recommendations specific and quantitative when possible.`;
           finalRate: Math.round(aiSuggestion)
         };
         
-        await storage.updateRentRollData(unit.id, {
+        // Add to bulk update array
+        aiUpdates.push({
+          id: unit.id,
           aiSuggestedRate: Math.round(aiSuggestion),
-          aiCalculationDetails: JSON.stringify(aiCalculationDetails) // Store for popup display
+          aiCalculationDetails: JSON.stringify(aiCalculationDetails)
         });
       }
       
+      console.log(`Calculated ${aiUpdates.length} AI suggestions, starting bulk update...`);
+      
+      // Perform bulk update in batches
+      await storage.bulkUpdateAIRates(aiUpdates);
+      
+      console.log(`AI bulk update complete, regenerating rate card...`);
+      
       // Regenerate rate card with AI suggestions
       await storage.generateRateCard(targetMonth);
+      
+      console.log(`AI generation complete for ${aiUpdates.length} units`);
       
       res.json({ success: true });
     } catch (error) {
