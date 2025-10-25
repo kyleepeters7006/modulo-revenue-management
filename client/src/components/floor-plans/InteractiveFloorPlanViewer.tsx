@@ -173,54 +173,21 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
             }}
             className="w-full"
           >
-            <svg
-              viewBox={`0 0 ${campusMap?.width || 1200} ${campusMap?.height || 800}`}
-              className="w-full"
-              preserveAspectRatio="xMidYMid meet"
-              style={{
-                display: 'block',
-                minHeight: '400px',
-              }}
-            >
-              {/* Base SVG content */}
-              {campusMap?.svgContent && (
-                <g dangerouslySetInnerHTML={{ 
+            {campusMap?.svgContent ? (
+              <div 
+                dangerouslySetInnerHTML={{ 
                   __html: campusMap.svgContent
-                    .replace(/<svg[^>]*>/, '')
-                    .replace(/<\/svg>/, '')
-                }} />
-              )}
-
-              {/* Interactive polygon overlays */}
-              {polygons.map((polygon: any) => {
-                const coordinates = JSON.parse(polygon.polygonCoordinates);
-                const points = coordinates.map((coord: number[]) => coord.join(',')).join(' ');
-                
-                return (
-                  <polygon
-                    key={polygon.id}
-                    points={points}
-                    fill={polygon.fillColor}
-                    fillOpacity={hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.6}
-                    stroke="#334155"
-                    strokeWidth="2"
-                    className="cursor-pointer transition-all hover:fill-opacity-80"
-                    onMouseEnter={(e) => handlePolygonHover(polygon.rentRollDataId, e)}
-                    onMouseMove={(e) => {
-                      const rect = svgContainerRef.current?.getBoundingClientRect();
-                      if (rect) {
-                        setTooltipPosition({
-                          x: e.clientX - rect.left,
-                          y: e.clientY - rect.top,
-                        });
-                      }
-                    }}
-                    onMouseLeave={handlePolygonLeave}
-                    data-testid={`polygon-unit-${polygon.label}`}
-                  />
-                );
-              })}
-            </svg>
+                }} 
+                style={{
+                  width: '100%',
+                  display: 'block'
+                }}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-96 bg-slate-100 rounded-lg">
+                <p className="text-slate-500">No floor plan available</p>
+              </div>
+            )}
           </div>
 
           {/* Zoom Controls - Hidden but functional */}
