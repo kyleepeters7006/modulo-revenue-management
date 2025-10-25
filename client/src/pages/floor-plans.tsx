@@ -182,29 +182,29 @@ export default function FloorPlansPage() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex overflow-hidden">
-          {/* Map View - Left Side */}
-          <div className="flex-1 relative">
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+          {/* Map View - Takes full width on mobile, 60% on desktop */}
+          <div className="flex-1 relative min-h-[500px] md:min-h-0">
             <CampusMapView campusId={selectedCampus} />
           </div>
 
-          {/* Results Panel - Right Side */}
-          <div className="w-96 bg-white border-l overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-2xl font-light mb-1">
-                {filteredUnits.length} <span className="uppercase text-base tracking-wide">MATCHES</span>
+          {/* Results Panel - Below map on mobile, right side on desktop */}
+          <div className="w-full md:w-96 bg-white md:border-l overflow-y-auto max-h-[50vh] md:max-h-none">
+            <div className="p-4 md:p-6">
+              <h2 className="text-xl md:text-2xl font-light mb-1">
+                {filteredUnits.length} <span className="uppercase text-sm md:text-base tracking-wide">MATCHES</span>
               </h2>
-              <div className="mt-6 space-y-4">
+              <div className="mt-4 md:mt-6 space-y-3 md:space-y-4">
                 {filteredUnits.slice(0, 20).map((unit: any) => (
                   <Card key={unit.id} className="hover:shadow-md transition-shadow cursor-pointer" data-testid={`unit-card-${unit.roomNumber}`}>
-                    <CardContent className="p-4">
-                      <h3 className="font-semibold text-base mb-1">
+                    <CardContent className="p-3 md:p-4">
+                      <h3 className="font-semibold text-sm md:text-base mb-1">
                         UNIT {unit.roomNumber}
                       </h3>
                       <p className="text-xs text-slate-600 uppercase mb-2">
                         {unit.serviceLine} - {unit.careLevel}
                       </p>
-                      <p className="text-sm text-slate-700 mb-1">
+                      <p className="text-xs md:text-sm text-slate-700 mb-1">
                         {unit.size}
                       </p>
                       <p className="text-sm font-medium text-[var(--trilogy-teal)]">
