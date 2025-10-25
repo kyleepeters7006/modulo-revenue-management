@@ -3428,6 +3428,9 @@ Keep recommendations specific and quantitative when possible.`;
     try {
       const { unitIds, suggestionType } = req.body;
       
+      // Track which months need rate card regeneration
+      const affectedMonths = new Set<string>();
+      
       for (const unitId of unitIds) {
         const unit = await storage.getRentRollDataById(unitId);
         if (!unit) continue;
@@ -3439,7 +3442,17 @@ Keep recommendations specific and quantitative when possible.`;
           await storage.updateRentRollData(unitId, {
             streetRate: newRate
           });
+          
+          // Track the upload month for rate card regeneration
+          if (unit.uploadMonth) {
+            affectedMonths.add(unit.uploadMonth);
+          }
         }
+      }
+      
+      // Regenerate rate cards for affected months
+      for (const month of affectedMonths) {
+        await storage.generateRateCard(month);
       }
       
       res.json({ success: true });
