@@ -57,8 +57,9 @@ export default function FloorPlansPage() {
     <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
       <div className="bg-white border-b">
-        <div className="max-w-screen-2xl mx-auto px-8 py-4">
-          <div className="flex items-center gap-4">
+        <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-4">
+          {/* Desktop Header */}
+          <div className="hidden md:flex items-center gap-4">
             <Button 
               variant="ghost" 
               size="sm"
@@ -98,6 +99,46 @@ export default function FloorPlansPage() {
                 Admin
               </Button>
             </div>
+          </div>
+
+          {/* Mobile Header */}
+          <div className="md:hidden space-y-3">
+            <div className="flex items-center justify-between">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setLocation('/')}
+                className="hover:bg-slate-100 -ml-2"
+                data-testid="button-back-mobile"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+              <h1 className="text-lg font-normal text-gray-900">
+                Floor Plans
+              </h1>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setLocation('/floor-plans-admin')}
+                className="hover:bg-slate-100"
+                data-testid="button-admin-mobile"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
+            <Select value={selectedCampus} onValueChange={setSelectedCampus}>
+              <SelectTrigger className="w-full" data-testid="select-campus-mobile">
+                <SelectValue placeholder="Select a campus..." />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map((location: any) => (
+                  <SelectItem key={location.id} value={location.id}>
+                    {location.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
