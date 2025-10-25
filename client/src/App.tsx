@@ -13,6 +13,7 @@ import PortfolioManager from "@/pages/PortfolioManager";
 import Analysis from "@/pages/Analysis";
 import { Analytics } from "@/pages/analytics";
 import AboutUs from "@/pages/AboutUs";
+import FloorPlans from "@/pages/floor-plans";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/pricing-controls" component={PricingControls} />
       <Route path="/competitor-analysis" component={CompetitorAnalysis} />
       <Route path="/ai-insights" component={AIInsights} />
+      <Route path="/floor-plans" component={FloorPlans} />
       <Route path="/about" component={AboutUs} />
       <Route component={NotFound} />
     </Switch>

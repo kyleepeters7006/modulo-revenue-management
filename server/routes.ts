@@ -4598,6 +4598,143 @@ Respond in JSON format:
     }
   });
 
+  // ============================================
+  // FLOOR PLANS API ENDPOINTS
+  // ============================================
+
+  // Campus Maps endpoints
+  app.get("/api/campus-maps/:locationId", async (req, res) => {
+    try {
+      const { locationId } = req.params;
+      const maps = await storage.getCampusMaps();
+      const filtered = locationId ? maps.filter(m => m.locationId === locationId) : maps;
+      res.json(filtered);
+    } catch (error) {
+      console.error('Error fetching campus maps:', error);
+      res.status(500).json({ error: "Failed to fetch campus maps" });
+    }
+  });
+
+  app.post("/api/campus-maps", async (req, res) => {
+    try {
+      const map = await storage.createCampusMap(req.body);
+      res.json(map);
+    } catch (error) {
+      console.error('Error creating campus map:', error);
+      res.status(500).json({ error: "Failed to create campus map" });
+    }
+  });
+
+  app.put("/api/campus-maps/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const map = await storage.updateCampusMap(id, req.body);
+      res.json(map);
+    } catch (error) {
+      console.error('Error updating campus map:', error);
+      res.status(500).json({ error: "Failed to update campus map" });
+    }
+  });
+
+  app.delete("/api/campus-maps/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteCampusMap(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting campus map:', error);
+      res.status(500).json({ error: "Failed to delete campus map" });
+    }
+  });
+
+  // Floor Plans endpoints
+  app.get("/api/floor-plans/:locationId", async (req, res) => {
+    try {
+      const { locationId } = req.params;
+      const plans = await storage.getFloorPlans(locationId);
+      res.json(plans);
+    } catch (error) {
+      console.error('Error fetching floor plans:', error);
+      res.status(500).json({ error: "Failed to fetch floor plans" });
+    }
+  });
+
+  app.post("/api/floor-plans", async (req, res) => {
+    try {
+      const plan = await storage.createFloorPlan(req.body);
+      res.json(plan);
+    } catch (error) {
+      console.error('Error creating floor plan:', error);
+      res.status(500).json({ error: "Failed to create floor plan" });
+    }
+  });
+
+  app.put("/api/floor-plans/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const plan = await storage.updateFloorPlan(id, req.body);
+      res.json(plan);
+    } catch (error) {
+      console.error('Error updating floor plan:', error);
+      res.status(500).json({ error: "Failed to update floor plan" });
+    }
+  });
+
+  app.delete("/api/floor-plans/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteFloorPlan(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting floor plan:', error);
+      res.status(500).json({ error: "Failed to delete floor plan" });
+    }
+  });
+
+  // Unit Polygons endpoints
+  app.get("/api/unit-polygons/:campusMapId", async (req, res) => {
+    try {
+      const { campusMapId } = req.params;
+      const polygons = await storage.getUnitPolygons(campusMapId);
+      res.json(polygons);
+    } catch (error) {
+      console.error('Error fetching unit polygons:', error);
+      res.status(500).json({ error: "Failed to fetch unit polygons" });
+    }
+  });
+
+  app.post("/api/unit-polygons", async (req, res) => {
+    try {
+      const polygon = await storage.createUnitPolygon(req.body);
+      res.json(polygon);
+    } catch (error) {
+      console.error('Error creating unit polygon:', error);
+      res.status(500).json({ error: "Failed to create unit polygon" });
+    }
+  });
+
+  app.put("/api/unit-polygons/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const polygon = await storage.updateUnitPolygon(id, req.body);
+      res.json(polygon);
+    } catch (error) {
+      console.error('Error updating unit polygon:', error);
+      res.status(500).json({ error: "Failed to update unit polygon" });
+    }
+  });
+
+  app.delete("/api/unit-polygons/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteUnitPolygon(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting unit polygon:', error);
+      res.status(500).json({ error: "Failed to delete unit polygon" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
