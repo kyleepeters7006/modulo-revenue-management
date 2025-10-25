@@ -25,7 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2 } from "lucide-react";
+import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -500,7 +500,26 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 data-testid={`tooltip-modulo-${unit.roomNumber}`}
                               >
                                 <span>${Math.round(unit.moduloSuggestedRate).toLocaleString()}</span>
-                                <Info className="h-3 w-3" />
+                                {(() => {
+                                  try {
+                                    const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
+                                    return details?.guardrailsApplied?.length > 0 ? (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Shield className="h-3 w-3 text-amber-600" />
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs">
+                                          <p className="font-semibold text-xs mb-1">Smart Adjustments Applied</p>
+                                          {details.guardrailsApplied.map((rule: string, i: number) => (
+                                            <p key={i} className="text-xs">{rule}</p>
+                                          ))}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ) : <Info className="h-3 w-3" />;
+                                  } catch {
+                                    return <Info className="h-3 w-3" />;
+                                  }
+                                })()}
                               </button>
                             </ModuloCalculationDialog>
                             <Button

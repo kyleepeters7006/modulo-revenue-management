@@ -246,6 +246,42 @@ export default function ModuloCalculationDialog({
                 </CardContent>
               </Card>
 
+              {/* Smart Adjustments (Guardrails) */}
+              {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
+                <Card className="border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-amber-600" />
+                      Smart Adjustments Applied
+                      <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
+                        Overrides Modulo
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        The following safety rules were applied to keep pricing within acceptable limits:
+                      </p>
+                      {calcDetails.guardrailsApplied.map((rule: string, index: number) => (
+                        <div key={index} className="flex items-start gap-2 p-2 bg-white dark:bg-gray-900 rounded border border-amber-200 dark:border-amber-800">
+                          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{rule}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {rule.includes('Minimum') && 'Prevents rates from dropping too rapidly'}
+                              {rule.includes('Maximum') && 'Prevents rates from increasing too rapidly'}
+                              {rule.includes('Competitor variance floor') && 'Ensures rates stay competitive within market range'}
+                              {rule.includes('Competitor variance ceiling') && 'Ensures rates stay competitive within market range'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Final Calculation Summary */}
               {calcDetails.adjustments && calcDetails.adjustments.length > 0 && (
                 <Card className="border-primary/20 bg-primary/5">
@@ -270,6 +306,15 @@ export default function ModuloCalculationDialog({
                           {calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}
                         </span>
                       </div>
+                      {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-1 text-amber-700 dark:text-amber-500">
+                            <Shield className="h-3 w-3" />
+                            Smart Adjustments
+                          </span>
+                          <span className="text-amber-700 dark:text-amber-500 font-medium">Applied</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between font-bold">
                         <span>Recommended Rate</span>
                         <span className="text-lg text-primary">{formatCurrency(calcDetails.finalRate)}</span>
