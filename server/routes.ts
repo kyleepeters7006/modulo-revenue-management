@@ -3235,6 +3235,29 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
+  // Get modulo calculation details for a specific unit
+  app.get("/api/units/:id/modulo-calculation", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const unit = await storage.getRentRollDataById(id);
+      
+      if (!unit) {
+        return res.status(404).json({ error: "Unit not found" });
+      }
+      
+      if (!unit.moduloCalculationDetails) {
+        return res.json(null);
+      }
+      
+      // Parse and return calculation details
+      const details = JSON.parse(unit.moduloCalculationDetails);
+      res.json(details);
+    } catch (error) {
+      console.error('Error fetching modulo calculation:', error);
+      res.status(500).json({ error: "Failed to fetch calculation details" });
+    }
+  });
+
   // Generate AI pricing suggestions  
   app.post("/api/pricing/generate-ai", async (req, res) => {
     try {
