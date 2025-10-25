@@ -32,7 +32,7 @@ export default function AICalculationDialog({
       fetch(`/api/ai-calculation/${unitId}`)
         .then(res => res.json())
         .then(data => {
-          setCalculation(data.calculation);
+          setCalculation(data);
           setLoading(false);
         })
         .catch(() => {
