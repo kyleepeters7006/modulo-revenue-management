@@ -28,7 +28,11 @@ Preferred communication style: Simple, everyday language.
 - **Primary Database**: PostgreSQL with connection pooling via Neon serverless driver
 - **Schema Management**: Drizzle Kit for migrations and schema management
 - **Key Tables**: 
-  - `rent_roll_data` for property unit information
+  - `rent_roll_data` for property unit information (2,941 units across 31 campuses)
+  - `locations` for Trilogy campus/facility master data
+  - `campus_maps` for SVG floor plan images linked to locations
+  - `floor_plans` for reusable floor plan templates (e.g., "Sycamore Studio", "Maple 1BR")
+  - `unit_polygons` for clickable SVG polygon mappings to rent_roll_data units
   - `assumptions` for financial modeling parameters  
   - `pricing_weights` for algorithm configuration
   - `competitors` for market comparison data
@@ -43,6 +47,12 @@ Preferred communication style: Simple, everyday language.
 - **ML Training Pipeline**: Placeholder machine learning model training system for predictive pricing
 - **Data Import System**: CSV upload and parsing for rent roll data with validation
 - **Guardrails System**: Configurable pricing constraints and safety limits
+- **Floor Plan Management**: Interactive SVG floor plan viewer with unit polygon mapping system
+  - Campus Maps: SVG upload and storage for building/campus floor plans
+  - Floor Plan Templates: Reusable templates for room types (Studio, 1BR, 2BR, Semi-Private, etc.)
+  - Unit Polygons: Clickable polygon regions linking SVG coordinates to actual rent_roll_data units
+  - Integration: Full integration with existing pricing and availability data
+  - Demo Data: Kokomo-106 (131 units) and Springfield-401 campuses with working examples
 
 ## Component Architecture
 - **Dashboard Layout**: Responsive design with collapsible sidebar navigation
