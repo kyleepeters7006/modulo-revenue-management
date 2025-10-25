@@ -11,8 +11,8 @@ import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloo
 
 export default function FloorPlansPage() {
   const [selectedCampus, setSelectedCampus] = useState<string>("");
-  const [activeTab, setActiveTab] = useState("maps");
-  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [bedroomsFilter, setBedroomsFilter] = useState<string>("any");
+  const [floorPlanFilter, setFloorPlanFilter] = useState<string>("any");
   const [, setLocation] = useLocation();
 
   // Fetch locations for campus selector
@@ -20,125 +20,236 @@ export default function FloorPlansPage() {
     queryKey: ['/api/locations'],
   });
   
+  // Fetch floor plans for filters
+  const { data: floorPlans = [] } = useQuery({
+    queryKey: [`/api/floor-plans/${selectedCampus}`],
+    enabled: !!selectedCampus,
+  });
+
+  // Fetch rent roll data for the selected campus
+  const { data: rentRollData = [] } = useQuery({
+    queryKey: [`/api/rent-roll-data/${selectedCampus}`],
+    enabled: !!selectedCampus,
+  });
+  
   const locations = locationsData?.locations || [];
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-screen-2xl mx-auto px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setLocation('/')}
-                className="hover:bg-slate-100"
-                data-testid="button-back"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
-              </Button>
-              <div className="border-l pl-4">
-                <h1 className="text-2xl font-semibold text-gray-900">
-                  Floor Plan Manager
-                </h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Manage campus maps, floor plan templates, and interactive unit polygons
-                </p>
-              </div>
-            </div>
-            <Button 
-              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90" 
-              data-testid="button-upload-map"
-              onClick={() => setShowUploadDialog(true)}
-              disabled={!selectedCampus}
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Upload New Map
-            </Button>
-          </div>
+  // Filter units based on selected filters
+  const filteredUnits = rentRollData.filter((unit: any) => {
+    if (bedroomsFilter !== "any") {
+      const unitBedrooms = unit.size.includes('Studio') ? '0' : 
+                          unit.size.includes('1BR') ? '1' :
+                          unit.size.includes('2BR') ? '2' : '0';
+      if (unitBedrooms !== bedroomsFilter) return false;
+    }
+    if (floorPlanFilter !== "any") {
+      if (unit.size !== floorPlanFilter) return false;
+    }
+    return true;
+  });
 
-          {/* Campus Selector */}
-          <div className="mt-6">
-            <label className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-2 block">
-              Select Campus
-            </label>
-            <Select value={selectedCampus} onValueChange={setSelectedCampus}>
-              <SelectTrigger className="w-80" data-testid="select-campus">
-                <SelectValue placeholder="Choose a campus to manage..." />
-              </SelectTrigger>
-              <SelectContent>
-                {locations.map((location: any) => (
-                  <SelectItem key={location.id} value={location.id}>
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                      <span>{location.name}</span>
-                      {location.state && (
-                        <span className="text-xs text-muted-foreground">({location.state})</span>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+  const handleResetFilters = () => {
+    setBedroomsFilter("any");
+    setFloorPlanFilter("any");
+  };
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      {/* Header */}
+      <div className="bg-white border-b">
+        <div className="max-w-screen-2xl mx-auto px-8 py-4">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setLocation('/')}
+              className="hover:bg-slate-100"
+              data-testid="button-back"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div className="border-l pl-4">
+              <h1 className="text-xl font-normal text-gray-900">
+                Floor Plans
+              </h1>
+            </div>
+            <div className="ml-auto">
+              <Select value={selectedCampus} onValueChange={setSelectedCampus}>
+                <SelectTrigger className="w-64" data-testid="select-campus">
+                  <SelectValue placeholder="Select a campus..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((location: any) => (
+                    <SelectItem key={location.id} value={location.id}>
+                      {location.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-screen-2xl mx-auto px-8 py-6">
-        {!selectedCampus ? (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <Map className="h-16 w-16 text-slate-300 mb-4" />
-              <h3 className="text-lg font-medium text-slate-700 mb-2">
-                No Campus Selected
-              </h3>
-              <p className="text-sm text-muted-foreground max-w-md text-center">
-                Select a campus from the dropdown above to view and manage its floor plans,
-                upload SVG maps, and create interactive unit polygons.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="bg-white border border-slate-200 p-1">
-              <TabsTrigger value="maps" className="gap-2" data-testid="tab-maps">
-                <Map className="h-4 w-4" />
-                Campus Maps
-              </TabsTrigger>
-              <TabsTrigger value="templates" className="gap-2" data-testid="tab-templates">
-                <LayoutTemplate className="h-4 w-4" />
-                Floor Plan Templates
-              </TabsTrigger>
-              <TabsTrigger value="mapping" className="gap-2" data-testid="tab-mapping">
-                <PenTool className="h-4 w-4" />
-                Unit Mapping
-              </TabsTrigger>
-            </TabsList>
+      {/* Filter Bar */}
+      {selectedCampus && (
+        <div className="bg-[#1e3a5f] text-white">
+          <div className="max-w-screen-2xl mx-auto px-8 py-4">
+            <div className="grid grid-cols-5 gap-4 items-end">
+              <div>
+                <label className="block text-xs uppercase mb-2 font-medium">Bedrooms</label>
+                <Select value={bedroomsFilter} onValueChange={setBedroomsFilter}>
+                  <SelectTrigger className="bg-white text-slate-900" data-testid="filter-bedrooms">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any</SelectItem>
+                    <SelectItem value="0">Studio</SelectItem>
+                    <SelectItem value="1">1 Bedroom</SelectItem>
+                    <SelectItem value="2">2 Bedroom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <TabsContent value="maps" className="space-y-6">
-              <CampusMapsTab campusId={selectedCampus} />
-            </TabsContent>
+              <div>
+                <label className="block text-xs uppercase mb-2 font-medium">Floor Plan</label>
+                <Select value={floorPlanFilter} onValueChange={setFloorPlanFilter}>
+                  <SelectTrigger className="bg-white text-slate-900" data-testid="filter-floor-plan">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any</SelectItem>
+                    {Array.from(new Set(rentRollData.map((u: any) => u.size))).map((size: any) => (
+                      <SelectItem key={size} value={size}>{size}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <TabsContent value="templates" className="space-y-6">
-              <FloorPlanTemplatesTab campusId={selectedCampus} />
-            </TabsContent>
+              <div>
+                <label className="block text-xs uppercase mb-2 font-medium">Square Footage</label>
+                <Select value="any">
+                  <SelectTrigger className="bg-white text-slate-900" data-testid="filter-sqft">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <TabsContent value="mapping" className="space-y-6">
-              <UnitMappingTab campusId={selectedCampus} />
-            </TabsContent>
-          </Tabs>
-        )}
+              <div>
+                <label className="block text-xs uppercase mb-2 font-medium">Care Level</label>
+                <Select value="any">
+                  <SelectTrigger className="bg-white text-slate-900" data-testid="filter-care-level">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any</SelectItem>
+                    <SelectItem value="al">Assisted Living</SelectItem>
+                    <SelectItem value="mc">Memory Care</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Button 
+                  variant="secondary"
+                  onClick={handleResetFilters}
+                  className="w-full"
+                  data-testid="button-reset-filters"
+                >
+                  RESET
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content - Split View */}
+      {!selectedCampus ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Map className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-slate-700 mb-2">
+              No Campus Selected
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Select a campus from the dropdown above to view floor plans
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex overflow-hidden">
+          {/* Map View - Left Side */}
+          <div className="flex-1 relative">
+            <CampusMapView campusId={selectedCampus} />
+          </div>
+
+          {/* Results Panel - Right Side */}
+          <div className="w-96 bg-white border-l overflow-y-auto">
+            <div className="p-6">
+              <h2 className="text-2xl font-light mb-1">
+                {filteredUnits.length} <span className="uppercase text-base tracking-wide">MATCHES</span>
+              </h2>
+              <div className="mt-6 space-y-4">
+                {filteredUnits.slice(0, 20).map((unit: any) => (
+                  <Card key={unit.id} className="hover:shadow-md transition-shadow cursor-pointer" data-testid={`unit-card-${unit.roomNumber}`}>
+                    <CardContent className="p-4">
+                      <h3 className="font-semibold text-base mb-1">
+                        UNIT {unit.roomNumber}
+                      </h3>
+                      <p className="text-xs text-slate-600 uppercase mb-2">
+                        {unit.serviceLine} - {unit.careLevel}
+                      </p>
+                      <p className="text-sm text-slate-700 mb-1">
+                        {unit.size}
+                      </p>
+                      <p className="text-sm font-medium text-[var(--trilogy-teal)]">
+                        ${unit.streetRate.toLocaleString()}/month
+                      </p>
+                      {!unit.occupiedYN && (
+                        <p className="text-xs text-green-600 mt-2">Available</p>
+                      )}
+                      {unit.occupiedYN && (
+                        <p className="text-xs text-slate-500 mt-2">Reserved</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Campus Map View Component
+function CampusMapView({ campusId }: { campusId: string }) {
+  const { data: campusMaps = [] } = useQuery({
+    queryKey: [`/api/campus-maps/${campusId}`],
+  });
+
+  const campusMap = campusMaps[0];
+
+  if (!campusMap) {
+    return (
+      <div className="h-full flex items-center justify-center bg-slate-100">
+        <div className="text-center">
+          <Map className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+          <p className="text-sm text-muted-foreground">No campus map available</p>
+        </div>
       </div>
+    );
+  }
 
-      {/* Upload Dialog */}
-      <SVGUploadDialog
-        open={showUploadDialog}
-        onOpenChange={setShowUploadDialog}
-        campusId={selectedCampus}
-      />
+  return (
+    <div className="h-full">
+      <InteractiveFloorPlanViewer campusMap={campusMap} />
     </div>
   );
 }

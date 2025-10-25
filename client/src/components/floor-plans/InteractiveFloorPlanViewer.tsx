@@ -155,24 +155,13 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border">
-      {/* Header */}
-      <div className="p-6 border-b">
-        <h3 className="text-xl font-normal text-slate-800 mb-2">
-          {campusMap?.name || 'Floor Plan'}
-        </h3>
-        <p className="text-sm text-slate-600">
-          Interactive campus floor plan - hover over units for details
-        </p>
-      </div>
-
+    <div className="h-full w-full flex flex-col bg-slate-50">
       {/* Floor Plan */}
-      <div className="p-6">
+      <div className="flex-1 relative">
         <div 
           ref={svgContainerRef}
-          className="relative w-full bg-slate-50 rounded-lg overflow-auto border"
+          className="absolute inset-0 overflow-auto"
           style={{ 
-            maxHeight: '600px',
             touchAction: 'pan-x pan-y pinch-zoom'
           }}
         >
@@ -315,10 +304,12 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
             </div>
           )}
         </div>
+      </div>
 
-        {/* Legend */}
-        {roomTypeLegend.length > 0 && (
-          <div className="mt-6 flex flex-wrap items-center gap-4">
+      {/* Legend - Bottom */}
+      {roomTypeLegend.length > 0 && (
+        <div className="bg-white border-t px-6 py-3">
+          <div className="flex flex-wrap items-center gap-4">
             {roomTypeLegend.map((type: string) => (
               <div key={type} className="flex items-center gap-2">
                 <div 
@@ -329,8 +320,8 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
