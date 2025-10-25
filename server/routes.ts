@@ -4779,6 +4779,18 @@ Respond in JSON format:
     }
   });
 
+  // Get all rent roll data for a location
+  app.get("/api/rent-roll-data/location/:locationId", async (req, res) => {
+    try {
+      const { locationId } = req.params;
+      const units = await storage.getRentRollDataByLocation(locationId);
+      res.json(units);
+    } catch (error) {
+      console.error('Error fetching rent roll data for location:', error);
+      res.status(500).json({ error: "Failed to fetch rent roll data" });
+    }
+  });
+
   // Get individual rent roll unit data by ID
   app.get("/api/rent-roll-data/:unitId", async (req, res) => {
     try {

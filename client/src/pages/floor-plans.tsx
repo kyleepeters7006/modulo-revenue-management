@@ -28,7 +28,7 @@ export default function FloorPlansPage() {
 
   // Fetch rent roll data for the selected campus
   const { data: rentRollData = [] } = useQuery({
-    queryKey: [`/api/rent-roll-data/${selectedCampus}`],
+    queryKey: [`/api/rent-roll-data/location/${selectedCampus}`],
     enabled: !!selectedCampus,
   });
   
