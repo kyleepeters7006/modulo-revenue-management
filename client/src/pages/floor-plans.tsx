@@ -245,79 +245,196 @@ function CampusMapsTab({ campusId }: { campusId: string }) {
   );
 }
 
-// Floor Plan Templates Tab Component
+// Floor Plan Templates Tab Component - Four Seasons Style
 function FloorPlanTemplatesTab({ campusId }: { campusId: string }) {
+  const [selectedBedrooms, setSelectedBedrooms] = useState<string>("all");
+  
   const { data: floorPlans = [], isLoading } = useQuery({
     queryKey: [`/api/floor-plans/${campusId}`],
     enabled: !!campusId,
   });
 
+  const filteredPlans = selectedBedrooms === "all" 
+    ? floorPlans 
+    : floorPlans.filter((plan: any) => plan.bedrooms.toString() === selectedBedrooms);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-sm text-muted-foreground">Loading floor plans...</div>
+      </div>
+    );
+  }
+
+  if (floorPlans.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-20">
+        <LayoutTemplate className="h-16 w-16 text-slate-300 mx-auto mb-6" />
+        <h3 className="text-2xl font-light text-slate-800 mb-3">
+          No Floor Plans Available
+        </h3>
+        <p className="text-slate-600 mb-6">
+          Floor plan templates will be displayed here once created
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Floor Plan Templates</CardTitle>
-              <CardDescription>
-                Create and manage reusable floor plan templates (e.g., "1BR Sycamore", "2BR Maple") with photos and specifications
-              </CardDescription>
-            </div>
-            <Button variant="outline" data-testid="button-create-template">
-              <LayoutTemplate className="h-4 w-4 mr-2" />
-              Create Template
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-sm text-muted-foreground">Loading templates...</div>
-            </div>
-          ) : floorPlans.length === 0 ? (
-            <div className="border-2 border-dashed border-slate-300 rounded-lg p-12 text-center">
-              <LayoutTemplate className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-base font-medium text-slate-700 mb-2">
-                No floor plan templates
-              </h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Create templates to define room types with photos, dimensions, and amenities
-              </p>
-              <Button variant="outline" data-testid="button-create-first-template">
-                <LayoutTemplate className="h-4 w-4 mr-2" />
-                Create First Template
+    <div className="bg-white">
+      {/* Hero Section */}
+      <div className="text-center py-12 border-b">
+        <h2 className="text-4xl font-light text-slate-800 mb-3">
+          Floor Plans
+        </h2>
+        <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+          Discover our thoughtfully designed living spaces, each crafted to provide comfort, elegance, and the highest quality of life.
+        </p>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="border-b bg-slate-50">
+        <div className="max-w-7xl mx-auto px-8 py-6">
+          <div className="flex items-center gap-6">
+            <span className="text-sm font-medium text-slate-700">Filter by:</span>
+            <div className="flex gap-2">
+              <Button
+                variant={selectedBedrooms === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedBedrooms("all")}
+                className={selectedBedrooms === "all" ? "bg-[var(--trilogy-teal)]" : ""}
+                data-testid="filter-all"
+              >
+                All Floor Plans
+              </Button>
+              <Button
+                variant={selectedBedrooms === "0" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedBedrooms("0")}
+                className={selectedBedrooms === "0" ? "bg-[var(--trilogy-teal)]" : ""}
+                data-testid="filter-studio"
+              >
+                Studio
+              </Button>
+              <Button
+                variant={selectedBedrooms === "1" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedBedrooms("1")}
+                className={selectedBedrooms === "1" ? "bg-[var(--trilogy-teal)]" : ""}
+                data-testid="filter-1br"
+              >
+                1 Bedroom
+              </Button>
+              <Button
+                variant={selectedBedrooms === "2" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedBedrooms("2")}
+                className={selectedBedrooms === "2" ? "bg-[var(--trilogy-teal)]" : ""}
+                data-testid="filter-2br"
+              >
+                2 Bedroom
               </Button>
             </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-6">
-              {floorPlans.map((plan: any) => (
-                <Card key={plan.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="aspect-video bg-slate-100 rounded mb-3 flex items-center justify-center">
-                      <LayoutTemplate className="h-8 w-8 text-slate-400" />
+          </div>
+        </div>
+      </div>
+
+      {/* Floor Plans Grid */}
+      <div className="max-w-7xl mx-auto px-8 py-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {filteredPlans.map((plan: any) => (
+            <Card 
+              key={plan.id} 
+              className="group overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-300 cursor-pointer"
+              data-testid={`floor-plan-card-${plan.code}`}
+            >
+              {/* Floor Plan Image */}
+              <div className="aspect-[4/3] bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden relative">
+                {plan.imageUrl ? (
+                  <img 
+                    src={plan.imageUrl} 
+                    alt={plan.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <LayoutTemplate className="h-20 w-20 text-slate-300" />
+                  </div>
+                )}
+                {/* Service Line Badge */}
+                <div className="absolute top-4 right-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-medium text-slate-700">
+                  {plan.serviceLine || 'AL'}
+                </div>
+              </div>
+
+              {/* Floor Plan Details */}
+              <CardContent className="p-6">
+                <h3 className="text-2xl font-light text-slate-800 mb-2">
+                  {plan.name}
+                </h3>
+                
+                {/* Specs */}
+                <div className="flex items-center gap-4 mb-4 text-sm text-slate-600">
+                  <span className="flex items-center gap-1">
+                    <span className="font-medium">{plan.bedrooms === 0 ? 'Studio' : `${plan.bedrooms} Bedroom${plan.bedrooms > 1 ? 's' : ''}`}</span>
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <span>{plan.bathrooms} Bath{plan.bathrooms > 1 ? 's' : ''}</span>
+                  {plan.sqft && (
+                    <>
+                      <span className="text-slate-300">•</span>
+                      <span>{plan.sqft.toLocaleString()} sq ft</span>
+                    </>
+                  )}
+                </div>
+
+                {/* Description */}
+                <p className="text-sm text-slate-600 line-clamp-3 mb-4">
+                  {plan.description}
+                </p>
+
+                {/* Amenities */}
+                {plan.amenities && plan.amenities.length > 0 && (
+                  <div className="border-t pt-4 mt-4">
+                    <h4 className="text-xs font-medium text-slate-700 mb-2 uppercase tracking-wide">
+                      Features
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {plan.amenities.slice(0, 3).map((amenity: string, idx: number) => (
+                        <span 
+                          key={idx}
+                          className="inline-block px-2 py-1 bg-slate-100 text-xs text-slate-700 rounded"
+                        >
+                          {amenity}
+                        </span>
+                      ))}
+                      {plan.amenities.length > 3 && (
+                        <span className="inline-block px-2 py-1 text-xs text-slate-500">
+                          +{plan.amenities.length - 3} more
+                        </span>
+                      )}
                     </div>
-                    <h4 className="font-medium text-sm mb-1">{plan.name}</h4>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      {plan.bedrooms}BR / {plan.bathrooms}BA • {plan.sqft} sq ft
-                    </p>
-                    <p className="text-xs text-slate-600 line-clamp-2">
-                      {plan.description || 'No description'}
-                    </p>
-                    <div className="flex gap-2 mt-3">
-                      <Button variant="outline" size="sm" className="flex-1" data-testid={`button-edit-template-${plan.id}`}>
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1" data-testid={`button-delete-template-${plan.id}`}>
-                        Delete
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  </div>
+                )}
+
+                {/* CTA */}
+                <Button 
+                  className="w-full mt-4 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
+                  data-testid={`button-view-details-${plan.code}`}
+                >
+                  View Details
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {filteredPlans.length === 0 && (
+          <div className="text-center py-20">
+            <p className="text-slate-500">No floor plans match your criteria</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
