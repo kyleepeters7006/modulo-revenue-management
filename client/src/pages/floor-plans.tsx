@@ -5,10 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Map, LayoutTemplate, PenTool, Building2 } from "lucide-react";
+import SVGUploadDialog from "@/components/floor-plans/SVGUploadDialog";
 
 export default function FloorPlansPage() {
   const [selectedCampus, setSelectedCampus] = useState<string>("");
   const [activeTab, setActiveTab] = useState("maps");
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
 
   // Fetch locations for campus selector
   const { data: locations = [] } = useQuery({
@@ -29,7 +31,12 @@ export default function FloorPlansPage() {
                 Manage campus maps, floor plan templates, and interactive unit polygons
               </p>
             </div>
-            <Button className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90" data-testid="button-upload-map">
+            <Button 
+              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90" 
+              data-testid="button-upload-map"
+              onClick={() => setShowUploadDialog(true)}
+              disabled={!selectedCampus}
+            >
               <Upload className="h-4 w-4 mr-2" />
               Upload New Map
             </Button>
@@ -108,6 +115,13 @@ export default function FloorPlansPage() {
           </Tabs>
         )}
       </div>
+
+      {/* Upload Dialog */}
+      <SVGUploadDialog
+        open={showUploadDialog}
+        onOpenChange={setShowUploadDialog}
+        campusId={selectedCampus}
+      />
     </div>
   );
 }

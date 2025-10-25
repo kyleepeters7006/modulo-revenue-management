@@ -4617,7 +4617,48 @@ Respond in JSON format:
 
   app.post("/api/campus-maps", async (req, res) => {
     try {
-      const map = await storage.createCampusMap(req.body);
+      const { name, svgContent, campusId } = req.body;
+      
+      // Validate required fields
+      if (!name || !svgContent || !campusId) {
+        return res.status(400).json({ error: "Missing required fields: name, svgContent, campusId" });
+      }
+
+      // Validate SVG content (basic check)
+      if (!svgContent.trim().toLowerCase().startsWith('<svg')) {
+        return res.status(400).json({ error: "Invalid SVG content" });
+      }
+
+      // Limit SVG size to prevent DoS (1MB max)
+      if (svgContent.length > 1024 * 1024) {
+        return res.status(400).json({ error: "SVG file too large (max 1MB)" });
+      }
+      
+      // Extract dimensions from SVG viewBox
+      const viewBoxMatch = svgContent.match(/viewBox=["']([^"']+)["']/);
+      let width = 1000;
+      let height = 1000;
+      
+      if (viewBoxMatch) {
+        const parts = viewBoxMatch[1].split(/\s+/);
+        if (parts.length >= 4) {
+          width = parseInt(parts[2]) || 1000;
+          height = parseInt(parts[3]) || 1000;
+        }
+      }
+
+      // Validate and create using schema
+      const mapData = {
+        locationId: campusId,
+        name,
+        svgContent,
+        width,
+        height,
+        isPublished: false,
+      };
+
+      const map = await storage.createCampusMap(mapData);
+      
       res.json(map);
     } catch (error) {
       console.error('Error creating campus map:', error);
