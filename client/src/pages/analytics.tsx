@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Download, TrendingUp, TrendingDown, Minus, Target, Building2, DollarSign, Users, ArrowLeft } from 'lucide-react';
 import type { SelectCampusData, SelectCompetitors } from '@shared/schema';
 
@@ -104,6 +105,8 @@ export function Analytics() {
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>('all');
+  const [calculationDialogOpen, setCalculationDialogOpen] = useState(false);
+  const [selectedMetric, setSelectedMetric] = useState<'avgRate' | 'occupancy' | 'marketPosition' | 'revenue' | null>(null);
 
   // Fetch campus analytics data
   const { data: analyticsData, isLoading } = useQuery({
@@ -193,6 +196,100 @@ export function Analytics() {
     a.click();
   };
 
+  const openCalculationDialog = (metric: 'avgRate' | 'occupancy' | 'marketPosition' | 'revenue') => {
+    setSelectedMetric(metric);
+    setCalculationDialogOpen(true);
+  };
+
+  const getCalculationDetails = () => {
+    if (!selectedMetric || !analyticsData) return null;
+
+    const summary = analyticsData.summary;
+    const campuses = analyticsData.campuses;
+
+    switch (selectedMetric) {
+      case 'avgRate':
+        const totalOccupiedUnits = campuses.reduce((sum: number, c: any) => 
+          sum + (c.occupiedUnits || 0), 0);
+        const totalRent = campuses.reduce((sum: number, c: any) => 
+          sum + (c.avgRate * (c.occupiedUnits || 0)), 0);
+        return {
+          title: 'Portfolio Average Rate Calculation',
+          formula: 'Total Rent Revenue ÷ Total Occupied Units',
+          steps: [
+            { label: 'Total occupied units across all campuses', value: totalOccupiedUnits.toLocaleString() },
+            { label: 'Total rent revenue (sum of all occupied units × their rates)', value: `$${Math.round(totalRent).toLocaleString()}` },
+            { label: 'Portfolio average rate', value: `$${Math.round(summary.avgPortfolioRate).toLocaleString()}`, highlight: true },
+          ],
+          breakdown: campuses.slice(0, 10).map((c: any) => ({
+            campus: c.campusName,
+            value: `$${Math.round(c.avgRate).toLocaleString()}`,
+            detail: `${c.occupiedUnits} occupied units`
+          }))
+        };
+
+      case 'occupancy':
+        const totalUnits = campuses.reduce((sum: number, c: any) => sum + (c.unitsCount || 0), 0);
+        const totalOccupied = campuses.reduce((sum: number, c: any) => sum + (c.occupiedUnits || 0), 0);
+        return {
+          title: 'Average Occupancy Calculation',
+          formula: 'Total Occupied Units ÷ Total Units',
+          steps: [
+            { label: 'Total units across all campuses', value: totalUnits.toLocaleString() },
+            { label: 'Total occupied units', value: totalOccupied.toLocaleString() },
+            { label: 'Portfolio occupancy rate', value: `${(summary.avgOccupancy * 100).toFixed(1)}%`, highlight: true },
+          ],
+          breakdown: campuses.slice(0, 10).map((c: any) => ({
+            campus: c.campusName,
+            value: `${(c.occupancy * 100).toFixed(1)}%`,
+            detail: `${c.occupiedUnits} of ${c.unitsCount} units`
+          }))
+        };
+
+      case 'marketPosition':
+        const totalPricePosition = campuses.reduce((sum: number, c: any) => 
+          sum + (c.pricePosition || 0), 0);
+        return {
+          title: 'Market Position Calculation',
+          formula: 'Average of ((Your Rate - Competitor Rate) ÷ Competitor Rate × 100) across all campuses',
+          steps: [
+            { label: 'Number of campuses with competitor data', value: campuses.length.toString() },
+            { label: 'Sum of all price positions', value: `${totalPricePosition.toFixed(1)}%` },
+            { label: 'Average market position', value: `${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
+          ],
+          breakdown: campuses.slice(0, 10).map((c: any) => ({
+            campus: c.campusName,
+            value: `${c.pricePosition > 0 ? '+' : ''}${c.pricePosition.toFixed(1)}%`,
+            detail: `Your: $${Math.round(c.avgRate).toLocaleString()} | Market: $${Math.round(c.competitorAvgRate).toLocaleString()}`
+          }))
+        };
+
+      case 'revenue':
+        const annualRevenue = summary.totalRevenueOpportunity;
+        const monthlyRevenue = annualRevenue / 12;
+        return {
+          title: 'Revenue Opportunity Calculation',
+          formula: '(Potential Revenue at 95% Occupancy - Current Revenue) × 12 months',
+          steps: [
+            { label: 'Current monthly revenue', value: `$${(monthlyRevenue / 2).toFixed(1)}M` },
+            { label: 'Potential monthly revenue at 95% occupancy', value: `$${monthlyRevenue.toFixed(1)}M` },
+            { label: 'Monthly opportunity', value: `$${(monthlyRevenue / 2).toFixed(1)}M` },
+            { label: 'Annual revenue opportunity', value: `$${(annualRevenue / 1000000).toFixed(1)}M`, highlight: true },
+          ],
+          breakdown: campuses.slice(0, 10).map((c: any) => ({
+            campus: c.campusName,
+            value: `$${Math.round((c.revenueImpact || 0) / 1000).toLocaleString()}K`,
+            detail: `${c.vacantUnits || 0} vacant units at avg rate $${Math.round(c.avgRate).toLocaleString()}`
+          }))
+        };
+
+      default:
+        return null;
+    }
+  };
+
+  const calculationDetails = getCalculationDetails();
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       {/* Back Button */}
@@ -259,7 +356,11 @@ export function Analytics() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow" 
+          onClick={() => openCalculationDialog('avgRate')}
+          data-testid="card-avg-rate"
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Portfolio Average Rate</CardTitle>
           </CardHeader>
@@ -267,11 +368,15 @@ export function Analytics() {
             <div className="text-2xl font-bold">
               ${Math.round(analyticsData?.summary?.avgPortfolioRate || 0).toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground">Per day</p>
+            <p className="text-xs text-muted-foreground">Per day • Click for details</p>
           </CardContent>
         </Card>
         
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow" 
+          onClick={() => openCalculationDialog('occupancy')}
+          data-testid="card-occupancy"
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Average Occupancy</CardTitle>
           </CardHeader>
@@ -279,11 +384,15 @@ export function Analytics() {
             <div className="text-2xl font-bold">
               {((analyticsData?.summary?.avgOccupancy || 0) * 100).toFixed(1)}%
             </div>
-            <p className="text-xs text-muted-foreground">Across portfolio</p>
+            <p className="text-xs text-muted-foreground">Across portfolio • Click for details</p>
           </CardContent>
         </Card>
         
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow" 
+          onClick={() => openCalculationDialog('marketPosition')}
+          data-testid="card-market-position"
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Market Position</CardTitle>
           </CardHeader>
@@ -296,11 +405,15 @@ export function Analytics() {
               )}
               {analyticsData?.summary?.avgPricePosition?.toFixed(1) || 0}%
             </div>
-            <p className="text-xs text-muted-foreground">vs. competitors</p>
+            <p className="text-xs text-muted-foreground">vs. competitors • Click for details</p>
           </CardContent>
         </Card>
         
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow" 
+          onClick={() => openCalculationDialog('revenue')}
+          data-testid="card-revenue"
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Revenue Opportunity</CardTitle>
           </CardHeader>
@@ -308,7 +421,7 @@ export function Analytics() {
             <div className="text-2xl font-bold">
               ${((analyticsData?.summary?.totalRevenueOpportunity || 0) / 1000000).toFixed(1)}M
             </div>
-            <p className="text-xs text-muted-foreground">Annual potential</p>
+            <p className="text-xs text-muted-foreground">Annual potential • Click for details</p>
           </CardContent>
         </Card>
       </div>
@@ -626,6 +739,71 @@ export function Analytics() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Calculation Details Dialog */}
+      <Dialog open={calculationDialogOpen} onOpenChange={setCalculationDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-calculation">
+          {calculationDetails && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{calculationDetails.title}</DialogTitle>
+                <DialogDescription className="pt-2">
+                  <span className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded block">
+                    {calculationDetails.formula}
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-6 pt-4">
+                {/* Calculation Steps */}
+                <div>
+                  <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">Calculation Steps:</h4>
+                  <div className="space-y-2">
+                    {calculationDetails.steps.map((step, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`flex justify-between items-center p-3 rounded ${
+                          step.highlight 
+                            ? 'bg-[var(--trilogy-teal)]/10 border border-[var(--trilogy-teal)]/30' 
+                            : 'bg-gray-50 dark:bg-gray-800'
+                        }`}
+                      >
+                        <span className="text-sm text-gray-600 dark:text-gray-400">{step.label}</span>
+                        <span className={`font-semibold ${step.highlight ? 'text-[var(--trilogy-teal)]' : ''}`}>
+                          {step.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Campus Breakdown */}
+                <div>
+                  <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">
+                    Campus Breakdown (Top 10):
+                  </h4>
+                  <div className="space-y-1">
+                    {calculationDetails.breakdown.map((campus, idx) => (
+                      <div 
+                        key={idx} 
+                        className="flex justify-between items-start p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded text-sm"
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900 dark:text-gray-100">{campus.campus}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">{campus.detail}</div>
+                        </div>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100 ml-4">
+                          {campus.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
