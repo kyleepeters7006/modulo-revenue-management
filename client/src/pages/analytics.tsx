@@ -164,7 +164,7 @@ export function Analytics() {
       'Northeast': '#065F46',  // Hunter Green
       'Northeast Ohio': '#DC2626',  // Red
       'Northwest': '#F59E0B',  // Amber
-      'Northwest Ohio': '#8B5CF6',  // Purple
+      'Northwest Ohio': '#059669',  // Emerald Green
       'Southeast': '#EC4899',  // Pink
       'Southeast Indiana': '#14B8A6',  // Teal
       'Southwest': '#EF4444',  // Bright Red
@@ -462,7 +462,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="rateGrowthT6" 
                     name="Rate Growth"
-                    label={{ value: 'T6 Avg In-House Rate Growth (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    label={{ value: 'T6 Avg In-House Rate Growth (%)', angle: -90, position: 'insideLeft', offset: 20 }}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
@@ -512,7 +512,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="avgRate" 
                     name="Your Rate"
-                    label={{ value: 'Your Campus Rate ($)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    label={{ value: 'Your Campus Rate ($)', angle: -90, position: 'insideLeft', offset: 20 }}
                     domain={['dataMin - 20', 'dataMax + 20']}
                     tickFormatter={(value) => value.toLocaleString()}
                   />
@@ -563,7 +563,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="pricePosition" 
                     name="Price Position"
-                    label={{ value: '% Higher/Lower than Competitor', angle: -90, position: 'insideLeft', offset: 10 }}
+                    label={{ value: '% Higher/Lower than Competitor', angle: -90, position: 'insideLeft', offset: 20 }}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
@@ -613,7 +613,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="avgRate" 
                     name="ADR"
-                    label={{ value: 'Average Daily Rate ($)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    label={{ value: 'Average Daily Rate ($)', angle: -90, position: 'insideLeft', offset: 20 }}
                     tickFormatter={(value) => value.toLocaleString()}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
@@ -663,7 +663,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="revenueImpact" 
                     name="Revenue Impact"
-                    label={{ value: 'Monthly Revenue Impact ($K)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    label={{ value: 'Monthly Revenue Impact ($K)', angle: -90, position: 'insideLeft', offset: 20 }}
                     tickFormatter={(value) => `$${Math.round(value / 1000).toLocaleString()}K`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
@@ -713,7 +713,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="occupancy" 
                     name="Occupancy"
-                    label={{ value: 'Occupancy Rate (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    label={{ value: 'Occupancy Rate (%)', angle: -90, position: 'insideLeft', offset: 20 }}
                     domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
