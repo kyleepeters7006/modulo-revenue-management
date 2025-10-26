@@ -339,7 +339,11 @@ export default function PricingWeights() {
                   variant="ghost"
                   size="icon"
                   className="h-5 w-5 p-0 hover:bg-[var(--trilogy-teal)]/10"
-                  onClick={() => setSelectedWeightKey(config.key)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedWeightKey(config.key);
+                  }}
                   data-testid={`button-info-${config.key}`}
                 >
                   <Info className="h-4 w-4 text-[var(--trilogy-teal)]" />
