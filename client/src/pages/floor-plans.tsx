@@ -91,7 +91,7 @@ export default function FloorPlansPage() {
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => setLocation('/floor-plans-admin')}
+                onClick={() => setLocation(selectedCampus ? `/floor-plans-admin?campus=${selectedCampus}` : '/floor-plans-admin')}
                 className="hover:bg-slate-100"
                 data-testid="button-admin"
               >
@@ -120,7 +120,7 @@ export default function FloorPlansPage() {
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => setLocation('/floor-plans-admin')}
+                onClick={() => setLocation(selectedCampus ? `/floor-plans-admin?campus=${selectedCampus}` : '/floor-plans-admin')}
                 className="hover:bg-slate-100"
                 data-testid="button-admin-mobile"
               >

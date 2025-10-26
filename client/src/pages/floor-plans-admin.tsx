@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,15 @@ export default function FloorPlansAdminPage() {
   const [selectedCampus, setSelectedCampus] = useState<string>("");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [, setLocation] = useLocation();
+
+  // Read campus from URL parameters on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const campusParam = params.get('campus');
+    if (campusParam) {
+      setSelectedCampus(campusParam);
+    }
+  }, []);
 
   const { data: locationsData } = useQuery({
     queryKey: ['/api/locations'],
