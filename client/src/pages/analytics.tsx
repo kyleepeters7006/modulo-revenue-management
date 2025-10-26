@@ -48,36 +48,36 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     const data = payload[0].payload;
     return (
       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-        <p className="font-semibold text-sm mb-2">{data.campusName}</p>
+        <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
         <div className="space-y-1 text-xs">
-          <p className="text-gray-600 dark:text-gray-400">Region: {data.region}</p>
+          <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
           {data.avgRate && (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-700 dark:text-gray-300">
               Avg Rate: ${data.avgRate?.toFixed(0)}
             </p>
           )}
           {data.occupancy !== undefined && (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-700 dark:text-gray-300">
               Occupancy: {(data.occupancy * 100).toFixed(1)}%
             </p>
           )}
           {data.competitorAvgRate && (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-700 dark:text-gray-300">
               Market Avg: ${data.competitorAvgRate?.toFixed(0)}
             </p>
           )}
           {data.pricePosition !== undefined && (
-            <p className={`font-medium ${data.pricePosition > 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`font-medium ${data.pricePosition > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
               Position: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
             </p>
           )}
           {data.rateGrowthT6 !== undefined && (
-            <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
               T6 Rate Growth: {data.rateGrowthT6 > 0 ? '+' : ''}{data.rateGrowthT6.toFixed(1)}%
             </p>
           )}
           {data.revenueImpact && (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-700 dark:text-gray-300">
               Revenue Impact: ${(data.revenueImpact / 1000).toFixed(0)}K
             </p>
           )}
