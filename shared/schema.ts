@@ -595,6 +595,25 @@ export const insertUnitPolygonSchema = createInsertSchema(unitPolygons).omit({
   updatedAt: true,
 });
 
+// Pricing change history for revert functionality
+export const pricingHistory = pgTable("pricing_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  appliedAt: timestamp("applied_at").defaultNow().notNull(),
+  actionType: text("action_type").notNull(), // 'accept_modulo', 'accept_ai', 'manual'
+  serviceLine: text("service_line"), // Filter applied (null = all units)
+  unitsAffected: integer("units_affected").notNull(), // Number of units changed
+  changesSnapshot: jsonb("changes_snapshot").notNull(), // Array of {roomNumber, oldRate, newRate, location}
+  description: text("description").notNull(), // Human-readable description
+  userId: varchar("user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPricingHistorySchema = createInsertSchema(pricingHistory).omit({
+  id: true,
+  appliedAt: true,
+  createdAt: true,
+});
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -636,3 +655,5 @@ export type FloorPlan = typeof floorPlans.$inferSelect;
 export type InsertFloorPlan = z.infer<typeof insertFloorPlanSchema>;
 export type UnitPolygon = typeof unitPolygons.$inferSelect;
 export type InsertUnitPolygon = z.infer<typeof insertUnitPolygonSchema>;
+export type PricingHistory = typeof pricingHistory.$inferSelect;
+export type InsertPricingHistory = z.infer<typeof insertPricingHistorySchema>;
