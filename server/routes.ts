@@ -3046,6 +3046,10 @@ Keep recommendations specific and quantitative when possible.`;
       // Get guardrails for smart adjustments
       const guardrailsData = await storage.getCurrentGuardrails();
       
+      // Get active adjustment rules
+      const activeRules = await storage.getAdjustmentRules ? 
+        (await storage.getAdjustmentRules()).filter((r: any) => r.isActive) : [];
+      
       // Get stock market performance (mock data for now, could integrate with real API)
       const stockMarketChange = 2.5; // Assume market is up 2.5% over last week
       
@@ -3067,8 +3071,35 @@ Keep recommendations specific and quantitative when possible.`;
           adjustments: [],
           weights: { ...weights },
           totalAdjustment: 0,
-          finalRate: 0
+          finalRate: 0,
+          appliedRules: [] as string[]
         };
+        
+        // Check and apply matching adjustment rules
+        for (const rule of activeRules) {
+          const filters = rule.action?.filters;
+          let matches = true;
+          
+          // Check if unit matches rule filters
+          if (filters) {
+            if (filters.roomType && !filters.roomType.includes(unit.roomType)) matches = false;
+            if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) matches = false;
+            if (filters.occupancy === 'vacant' && unit.occupiedYN) matches = false;
+            if (filters.occupancy === 'occupied' && !unit.occupiedYN) matches = false;
+          }
+          
+          if (matches && rule.action) {
+            // Apply the rule adjustment
+            if (rule.action.adjustmentType === 'percentage') {
+              const adjustment = rule.action.adjustmentValue / 100;
+              suggestion *= (1 + adjustment);
+              calculationDetails.appliedRules.push(rule.name);
+            } else if (rule.action.adjustmentType === 'absolute') {
+              suggestion += rule.action.adjustmentValue;
+              calculationDetails.appliedRules.push(rule.name);
+            }
+          }
+        }
         
         // Apply occupancy pressure (weighted adjustment based on market conditions)
         let occupancyAdjustment = 0;

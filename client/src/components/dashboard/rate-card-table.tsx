@@ -489,40 +489,19 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {(() => {
                           try {
-                            // Check if adjustment rules were applied (stored in Modulo calculation details)
+                            // Show only manual adjustment rules that were applied, not automatic Modulo calculations
                             const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
-                            const appliedRules: string[] = [];
-                            
-                            // Check for vacant unit increases
-                            if (!unit.occupiedYN && details?.adjustments) {
-                              const vacantAdj = details.adjustments.find((adj: any) => adj.factor === 'Days Vacant Decay');
-                              if (vacantAdj) {
-                                appliedRules.push(`Vacant ${vacantAdj.weightedAdjustment > 0 ? '+' : ''}${vacantAdj.weightedAdjustment.toFixed(1)}%`);
-                              }
-                            }
-                            
-                            // Check for room type specific adjustments
-                            if (details?.adjustments) {
-                              const roomAdj = details.adjustments.find((adj: any) => adj.factor === 'Room Attributes');
-                              if (roomAdj && roomAdj.weightedAdjustment !== 0) {
-                                appliedRules.push(`${unit.roomType} ${roomAdj.weightedAdjustment > 0 ? '+' : ''}${roomAdj.weightedAdjustment.toFixed(1)}%`);
-                              }
-                            }
-                            
-                            // Check for smart adjustments/guardrails
-                            if (details?.guardrailsApplied?.length > 0) {
-                              appliedRules.push(`Guardrails (${details.guardrailsApplied.length})`);
-                            }
+                            const appliedRules = details?.appliedRules || [];
                             
                             return appliedRules.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
-                                {appliedRules.map((rule, i) => (
-                                  <Badge key={i} variant="secondary" className="text-xs">
+                                {appliedRules.map((rule: string, i: number) => (
+                                  <Badge key={i} variant="default" className="text-xs bg-purple-600">
                                     {rule}
                                   </Badge>
                                 ))}
                               </div>
-                            ) : <span className="text-muted-foreground text-xs">None</span>;
+                            ) : <span className="text-muted-foreground text-xs">-</span>;
                           } catch {
                             return <span className="text-muted-foreground text-xs">-</span>;
                           }
