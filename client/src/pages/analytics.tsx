@@ -52,7 +52,10 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     const rateCardUrl = `/rate-card?location=${encodeURIComponent(data.campusName)}&serviceLine=${encodeURIComponent(data.serviceLine || 'All')}`;
     
     return (
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+      <div 
+        className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700"
+        style={{ pointerEvents: 'auto' }}
+      >
         <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
         <div className="space-y-1 text-xs mb-3">
           <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
@@ -473,7 +476,12 @@ export function Analytics() {
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    isAnimationActive={false}
+                  />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
@@ -524,7 +532,12 @@ export function Analytics() {
                     tickFormatter={(value) => value.toLocaleString()}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    isAnimationActive={false}
+                  />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
@@ -574,7 +587,12 @@ export function Analytics() {
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    isAnimationActive={false}
+                  />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
@@ -624,7 +642,12 @@ export function Analytics() {
                     tickFormatter={(value) => value.toLocaleString()}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    isAnimationActive={false}
+                  />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
@@ -674,7 +697,12 @@ export function Analytics() {
                     tickFormatter={(value) => `$${Math.round(value / 1000).toLocaleString()}K`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    isAnimationActive={false}
+                  />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
@@ -725,7 +753,12 @@ export function Analytics() {
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip 
+                    content={<CustomTooltip />}
+                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    isAnimationActive={false}
+                  />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
