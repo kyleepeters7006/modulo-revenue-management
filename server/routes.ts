@@ -1907,7 +1907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Analytics - Campus Metrics for Scatter Plots
   app.get("/api/analytics/campus-metrics", async (req, res) => {
     try {
-      const { region, serviceLine } = req.query;
+      const { region, division, serviceLine } = req.query;
       
       // Get all required data
       const [rentRollData, campusData, competitors, pricingWeights] = await Promise.all([
@@ -1981,12 +1981,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const potentialRevenue = avgRate * metrics.totalUnits * 30 * 0.95; // Assume 95% max occupancy
         const revenueImpact = potentialRevenue - currentMonthlyRevenue;
 
-        // Find campus info for region (name field is the KeyStats name)
+        // Find campus info for region and division (name field is the KeyStats name)
         const campusInfo = campusData.find((c: any) => c.name === campusId);
         const campusRegion = campusInfo?.region || 'Unknown';
+        const campusDivision = campusInfo?.division || 'Unknown';
         
         // Apply filters
         if (region && region !== 'all' && campusRegion !== region) {
+          return;
+        }
+        
+        if (division && division !== 'all' && campusDivision !== division) {
           return;
         }
         
@@ -2011,6 +2016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           campusId,
           campusName: campusInfo?.name || campusId,
           region: campusRegion,
+          division: campusDivision,
           serviceLine: primaryServiceLine,
           avgRate: Math.round(avgRate),
           occupancy,

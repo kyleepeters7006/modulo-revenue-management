@@ -99,14 +99,16 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
 
 export function Analytics() {
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
+  const [selectedDivision, setSelectedDivision] = useState<string>('all');
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>('all');
 
   // Fetch campus analytics data
   const { data: analyticsData, isLoading } = useQuery({
-    queryKey: ['/api/analytics/campus-metrics', selectedRegion, selectedServiceLine],
+    queryKey: ['/api/analytics/campus-metrics', selectedRegion, selectedDivision, selectedServiceLine],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedRegion !== 'all') params.append('region', selectedRegion);
+      if (selectedDivision !== 'all') params.append('division', selectedDivision);
       if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
       const queryString = params.toString() ? `?${params.toString()}` : '';
       
@@ -131,23 +133,32 @@ export function Analytics() {
     }));
   }, [analyticsData]);
 
-  // Get unique regions for filtering
+  // Get unique regions and divisions for filtering
   const regions = useMemo(() => {
     if (!analyticsData?.campuses) return [];
     const uniqueRegions = [...new Set(analyticsData.campuses.map((c: any) => c.region))];
     return uniqueRegions.filter(Boolean);
   }, [analyticsData]);
 
-  // Color scale for regions
-  const getColor = (region: string) => {
+  const divisions = useMemo(() => {
+    if (!analyticsData?.campuses) return [];
+    const uniqueDivisions = [...new Set(analyticsData.campuses.map((c: any) => c.division))];
+    return uniqueDivisions.filter(Boolean);
+  }, [analyticsData]);
+
+  // Color scale for divisions
+  const getColor = (division: string) => {
     const colors: Record<string, string> = {
-      'Central': '#3B82F6',
-      'North': '#10B981',
-      'South': '#F59E0B',
-      'East': '#8B5CF6',
-      'West': '#EF4444',
+      'Division 1': '#3B82F6',
+      'Division 2': '#10B981',
+      'Division 3': '#F59E0B',
+      'Division 4': '#8B5CF6',
+      'Division 5': '#EF4444',
+      'Division 6': '#EC4899',
+      'Division 7': '#06B6D4',
+      'Division 8': '#84CC16',
     };
-    return colors[region] || '#6B7280';
+    return colors[division] || '#6B7280';
   };
 
   const handleExportChart = () => {
@@ -199,11 +210,11 @@ export function Analytics() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 items-center">
+      <div className="flex gap-3 items-center flex-wrap">
         <span className="text-sm font-medium">Filters:</span>
         <Select value={selectedRegion} onValueChange={setSelectedRegion}>
-          <SelectTrigger className="w-[180px]" data-testid="select-region">
-            <SelectValue placeholder="Select Region" />
+          <SelectTrigger className="w-[160px]" data-testid="select-region">
+            <SelectValue placeholder="Region" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Regions</SelectItem>
@@ -213,8 +224,20 @@ export function Analytics() {
           </SelectContent>
         </Select>
         
+        <Select value={selectedDivision} onValueChange={setSelectedDivision}>
+          <SelectTrigger className="w-[160px]" data-testid="select-division">
+            <SelectValue placeholder="Division" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Divisions</SelectItem>
+            {divisions.map(division => (
+              <SelectItem key={division} value={division}>{division}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        
         <Select value={selectedServiceLine} onValueChange={setSelectedServiceLine}>
-          <SelectTrigger className="w-[180px]" data-testid="select-service-line">
+          <SelectTrigger className="w-[160px]" data-testid="select-service-line">
             <SelectValue placeholder="Service Line" />
           </SelectTrigger>
           <SelectContent>
@@ -326,16 +349,16 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                {regions.map(region => (
-                  <Badge key={region} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
-                    {region}
+                {divisions.map(division => (
+                  <Badge key={division} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                    {division}
                   </Badge>
                 ))}
               </div>
@@ -377,16 +400,16 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                {regions.map(region => (
-                  <Badge key={region} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
-                    {region}
+                {divisions.map(division => (
+                  <Badge key={division} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                    {division}
                   </Badge>
                 ))}
               </div>
@@ -427,16 +450,16 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                {regions.map(region => (
-                  <Badge key={region} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
-                    {region}
+                {divisions.map(division => (
+                  <Badge key={division} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                    {division}
                   </Badge>
                 ))}
               </div>
@@ -477,16 +500,16 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                {regions.map(region => (
-                  <Badge key={region} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
-                    {region}
+                {divisions.map(division => (
+                  <Badge key={division} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                    {division}
                   </Badge>
                 ))}
               </div>
@@ -527,16 +550,16 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                {regions.map(region => (
-                  <Badge key={region} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
-                    {region}
+                {divisions.map(division => (
+                  <Badge key={division} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                    {division}
                   </Badge>
                 ))}
               </div>
@@ -578,16 +601,16 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                {regions.map(region => (
-                  <Badge key={region} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
-                    {region}
+                {divisions.map(division => (
+                  <Badge key={division} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                    {division}
                   </Badge>
                 ))}
               </div>
