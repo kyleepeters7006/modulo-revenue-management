@@ -454,61 +454,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   async bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void> {
-    const { inArray, sql } = await import('drizzle-orm');
-    
-    // Process in batches of 200 to avoid memory issues
-    const batchSize = 200;
+    // Process in batches of 50 and run updates in parallel within each batch
+    const batchSize = 50;
     for (let i = 0; i < updates.length; i += batchSize) {
       const batch = updates.slice(i, i + batchSize);
       
-      // Use a SQL CASE statement for efficient bulk update
-      const cases = batch.map(u => 
-        `WHEN id = '${u.id}' THEN ${u.moduloSuggestedRate}`
-      ).join(' ');
+      // Run all updates in this batch in parallel
+      await Promise.all(
+        batch.map(update => 
+          db.update(rentRollData)
+            .set({
+              moduloSuggestedRate: update.moduloSuggestedRate,
+              moduloCalculationDetails: update.moduloCalculationDetails
+            })
+            .where(eq(rentRollData.id, update.id))
+        )
+      );
       
-      const detailsCases = batch.map(u => 
-        `WHEN id = '${u.id}' THEN '${u.moduloCalculationDetails.replace(/'/g, "''")}'`
-      ).join(' ');
-      
-      const ids = batch.map(u => u.id);
-      
-      await db.execute(sql`
-        UPDATE rent_roll_data 
-        SET 
-          modulo_suggested_rate = CASE ${sql.raw(cases)} END,
-          modulo_calculation_details = CASE ${sql.raw(detailsCases)} END
-        WHERE id = ANY(${ids})
-      `);
-      
-      console.log(`Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
+      console.log(`Updated Modulo batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
     }
   }
 
   async bulkUpdateAIRates(updates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }>): Promise<void> {
-    const { inArray, sql } = await import('drizzle-orm');
-    
-    // Process in batches of 200
-    const batchSize = 200;
+    // Process in batches of 50 and run updates in parallel within each batch
+    const batchSize = 50;
     for (let i = 0; i < updates.length; i += batchSize) {
       const batch = updates.slice(i, i + batchSize);
       
-      const cases = batch.map(u => 
-        `WHEN id = '${u.id}' THEN ${u.aiSuggestedRate}`
-      ).join(' ');
-      
-      const detailsCases = batch.map(u => 
-        `WHEN id = '${u.id}' THEN '${u.aiCalculationDetails.replace(/'/g, "''")}'`
-      ).join(' ');
-      
-      const ids = batch.map(u => u.id);
-      
-      await db.execute(sql`
-        UPDATE rent_roll_data 
-        SET 
-          ai_suggested_rate = CASE ${sql.raw(cases)} END,
-          ai_calculation_details = CASE ${sql.raw(detailsCases)} END
-        WHERE id = ANY(${ids})
-      `);
+      // Run all updates in this batch in parallel
+      await Promise.all(
+        batch.map(update => 
+          db.update(rentRollData)
+            .set({
+              aiSuggestedRate: update.aiSuggestedRate,
+              aiCalculationDetails: update.aiCalculationDetails
+            })
+            .where(eq(rentRollData.id, update.id))
+        )
+      );
       
       console.log(`Updated AI batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
     }
