@@ -152,14 +152,19 @@ export function Analytics() {
   // Color scale for divisions - using grey, black, dark teal, light teal, dark orange, dark blue, hunter green
   const getColor = (division: string) => {
     const colors: Record<string, string> = {
-      'Division 1': '#6B7280',  // Grey
-      'Division 2': '#1F2937',  // Black
-      'Division 3': '#0F766E',  // Dark Teal
-      'Division 4': '#5EEAD4',  // Light Teal
-      'Division 5': '#EA580C',  // Dark Orange
-      'Division 6': '#1E40AF',  // Dark Blue
-      'Division 7': '#065F46',  // Hunter Green
-      'Division 8': '#DC2626',  // Red (variation)
+      'Central': '#6B7280',  // Grey
+      'Central Indiana': '#1F2937',  // Black
+      'Central Kentucky': '#0F766E',  // Dark Teal
+      'Indianapolis Metro': '#5EEAD4',  // Light Teal
+      'Lexington Metro': '#EA580C',  // Dark Orange
+      'Louisville Metro': '#1E40AF',  // Dark Blue
+      'Northeast': '#065F46',  // Hunter Green
+      'Northeast Ohio': '#DC2626',  // Red
+      'Northwest': '#F59E0B',  // Amber
+      'Northwest Ohio': '#8B5CF6',  // Purple
+      'Southeast': '#EC4899',  // Pink
+      'Southeast Indiana': '#14B8A6',  // Teal
+      'Southwest': '#EF4444',  // Bright Red
     };
     return colors[division] || '#6B7280';
   };
