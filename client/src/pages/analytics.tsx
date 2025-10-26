@@ -234,7 +234,7 @@ export function Analytics() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${(analyticsData?.summary?.avgPortfolioRate || 0).toFixed(0).toLocaleString()}
+              ${Math.round(analyticsData?.summary?.avgPortfolioRate || 0).toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground">Per day</p>
           </CardContent>
