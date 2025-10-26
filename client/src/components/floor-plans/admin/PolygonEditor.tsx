@@ -249,9 +249,9 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
 
         <TabsContent value="manual" className="space-y-4">
           {detectedPolygons.length > 0 && (
-            <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+            <Card className="bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)] border-2">
               <CardHeader>
-                <CardTitle className="text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                <CardTitle className="text-[var(--trilogy-navy)] flex items-center gap-2">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                   </svg>
@@ -259,7 +259,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-purple-800 dark:text-purple-200 mb-3">
+                <p className="text-sm text-[var(--trilogy-dark-blue)] font-medium mb-3">
                   Select a room below, then click a detected polygon preset to place it:
                 </p>
                 <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
@@ -267,7 +267,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                     <Button
                       key={index}
                       variant="outline"
-                      className="h-auto p-3 flex flex-col items-start gap-1 hover:bg-purple-100 dark:hover:bg-purple-900/30"
+                      className="h-auto p-3 flex flex-col items-start gap-1 bg-white hover:bg-[var(--trilogy-teal)] hover:text-white border-[var(--trilogy-teal)] border-2 transition-all font-semibold"
                       onClick={() => handlePlaceDetectedPolygon(polygon)}
                       data-testid={`button-preset-${index}`}
                     >
@@ -341,6 +341,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                 <Button
                   onClick={handleStartDrawing}
                   disabled={!selectedRoomId}
+                  className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white font-semibold"
                   data-testid="button-start-drawing"
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -352,6 +353,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                     variant="outline"
                     onClick={handleUndo}
                     disabled={currentPoints.length === 0}
+                    className="border-2 border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)] hover:text-white font-semibold"
                     data-testid="button-undo"
                   >
                     <Undo className="h-4 w-4 mr-2" />
@@ -360,6 +362,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                   <Button
                     variant="outline"
                     onClick={resetDrawing}
+                    className="border-2 border-slate-400 text-slate-700 hover:bg-slate-100 font-semibold"
                     data-testid="button-cancel"
                   >
                     <X className="h-4 w-4 mr-2" />
@@ -368,6 +371,7 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                   <Button
                     onClick={handleFinishDrawing}
                     disabled={currentPoints.length < 3}
+                    className="bg-[var(--trilogy-navy)] hover:bg-[var(--trilogy-dark-blue)] text-white font-semibold shadow-lg"
                     data-testid="button-finish"
                   >
                     <Save className="h-4 w-4 mr-2" />

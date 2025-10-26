@@ -223,7 +223,7 @@ export default function AutoDetectPolygons({ campusMap, onPolygonsDetected }: Au
         <Button
           onClick={detectRooms}
           disabled={detecting || aiDetecting || !campusMap?.baseImageUrl}
-          className="w-full"
+          className="w-full bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white font-semibold"
           data-testid="button-auto-detect"
         >
           <Wand2 className="h-4 w-4 mr-2" />
@@ -233,7 +233,7 @@ export default function AutoDetectPolygons({ campusMap, onPolygonsDetected }: Au
         <Button
           onClick={detectRoomsWithAI}
           disabled={detecting || aiDetecting || !campusMap?.baseImageUrl}
-          className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+          className="w-full bg-[var(--trilogy-navy)] hover:bg-[var(--trilogy-dark-blue)] text-white font-semibold shadow-lg"
           data-testid="button-ai-detect"
         >
           <Sparkles className="h-4 w-4 mr-2" />
