@@ -20,6 +20,7 @@ import {
   campusMaps,
   floorPlans,
   unitPolygons,
+  pricingHistory,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -61,10 +62,12 @@ import {
   type FloorPlan,
   type InsertFloorPlan,
   type UnitPolygon,
-  type InsertUnitPolygon
+  type InsertUnitPolygon,
+  type PricingHistory,
+  type InsertPricingHistory
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import OpenAI from "openai";
 
 // Initialize OpenAI if API key is available
@@ -185,6 +188,11 @@ export interface IStorage {
   createUnitPolygon(data: any): Promise<any>;
   updateUnitPolygon(id: string, data: any): Promise<any>;
   deleteUnitPolygon(id: string): Promise<void>;
+  
+  // Pricing History methods
+  createPricingHistory(data: InsertPricingHistory): Promise<PricingHistory>;
+  getPricingHistory(limit: number): Promise<PricingHistory[]>;
+  getPricingHistoryById(id: string): Promise<PricingHistory | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1122,6 +1130,27 @@ Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate"
 
   async deleteUnitPolygon(id: string): Promise<void> {
     await db.delete(unitPolygons).where(eq(unitPolygons.id, id));
+  }
+
+  // Pricing History implementations
+  async createPricingHistory(data: InsertPricingHistory): Promise<PricingHistory> {
+    const result = await db.insert(pricingHistory).values(data).returning();
+    return result[0];
+  }
+
+  async getPricingHistory(limit: number): Promise<PricingHistory[]> {
+    return await db.select()
+      .from(pricingHistory)
+      .orderBy(desc(pricingHistory.appliedAt))
+      .limit(limit);
+  }
+
+  async getPricingHistoryById(id: string): Promise<PricingHistory | undefined> {
+    const result = await db.select()
+      .from(pricingHistory)
+      .where(eq(pricingHistory.id, id))
+      .limit(1);
+    return result[0];
   }
 }
 

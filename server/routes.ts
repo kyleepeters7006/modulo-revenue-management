@@ -3586,10 +3586,11 @@ Keep recommendations specific and quantitative when possible.`;
   // Accept pricing suggestions
   app.post("/api/pricing/accept-suggestions", async (req, res) => {
     try {
-      const { unitIds, suggestionType } = req.body;
+      const { unitIds, suggestionType, serviceLine } = req.body;
       
-      // Track which months need rate card regeneration
+      // Track which months need rate card regeneration and changes for history
       const affectedMonths = new Set<string>();
+      const changesSnapshot: any[] = [];
       
       for (const unitId of unitIds) {
         const unit = await storage.getRentRollDataById(unitId);
@@ -3599,6 +3600,16 @@ Keep recommendations specific and quantitative when possible.`;
           unit.moduloSuggestedRate : unit.aiSuggestedRate;
           
         if (newRate) {
+          // Record the change for history
+          changesSnapshot.push({
+            roomNumber: unit.roomNumber,
+            location: unit.location,
+            oldRate: unit.streetRate,
+            newRate: newRate,
+            serviceLine: unit.serviceLine,
+            unitId: unit.id
+          });
+          
           await storage.updateRentRollData(unitId, {
             streetRate: newRate
           });
@@ -3615,10 +3626,85 @@ Keep recommendations specific and quantitative when possible.`;
         await storage.generateRateCard(month);
       }
       
+      // Create pricing history record
+      if (changesSnapshot.length > 0) {
+        await storage.createPricingHistory({
+          actionType: suggestionType === 'modulo' ? 'accept_modulo' : 'accept_ai',
+          serviceLine: serviceLine || null,
+          unitsAffected: changesSnapshot.length,
+          changesSnapshot: changesSnapshot,
+          description: `Applied ${suggestionType === 'modulo' ? 'Modulo' : 'AI'} suggestions to ${changesSnapshot.length} units${serviceLine ? ` (${serviceLine})` : ''}`,
+          userId: null // Can be populated from session if needed
+        });
+      }
+      
       res.json({ success: true });
     } catch (error) {
       console.error('Accept suggestions error:', error);
       res.status(500).json({ error: 'Failed to accept suggestions' });
+    }
+  });
+
+  // Pricing history endpoints
+  app.get("/api/pricing-history", async (req, res) => {
+    try {
+      const history = await storage.getPricingHistory(10); // Get last 10 changes
+      res.json(history);
+    } catch (error) {
+      console.error('Error fetching pricing history:', error);
+      res.status(500).json({ error: 'Failed to fetch pricing history' });
+    }
+  });
+
+  app.post("/api/pricing-history/:id/revert", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const historyRecord = await storage.getPricingHistoryById(id);
+      
+      if (!historyRecord) {
+        return res.status(404).json({ error: 'History record not found' });
+      }
+      
+      // Revert the changes
+      const changesSnapshot = historyRecord.changesSnapshot as any[];
+      const affectedMonths = new Set<string>();
+      
+      for (const change of changesSnapshot) {
+        const unit = await storage.getRentRollDataById(change.unitId);
+        if (unit) {
+          await storage.updateRentRollData(change.unitId, {
+            streetRate: change.oldRate
+          });
+          
+          if (unit.uploadMonth) {
+            affectedMonths.add(unit.uploadMonth);
+          }
+        }
+      }
+      
+      // Regenerate rate cards for affected months
+      for (const month of affectedMonths) {
+        await storage.generateRateCard(month);
+      }
+      
+      // Create a new history record for the revert action
+      await storage.createPricingHistory({
+        actionType: 'manual',
+        serviceLine: historyRecord.serviceLine,
+        unitsAffected: changesSnapshot.length,
+        changesSnapshot: changesSnapshot.map(c => ({
+          ...c,
+          oldRate: c.newRate,
+          newRate: c.oldRate
+        })),
+        description: `Reverted: ${historyRecord.description}`,
+        userId: null
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error reverting pricing changes:', error);
+      res.status(500).json({ error: 'Failed to revert pricing changes' });
     }
   });
 
