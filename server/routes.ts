@@ -1917,10 +1917,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getPricingWeights()
       ]);
 
+      // Filter rent roll data by service line first if needed
+      let filteredRentRollData = rentRollData;
+      if (serviceLine && serviceLine !== 'all') {
+        filteredRentRollData = rentRollData.filter((unit: any) => unit.serviceLine === serviceLine);
+      }
+
       // Group rent roll data by campus
       const campusMetrics = new Map();
       
-      rentRollData.forEach((unit: any) => {
+      filteredRentRollData.forEach((unit: any) => {
         const campusId = unit.location || 'Unknown';
         if (!campusMetrics.has(campusId)) {
           campusMetrics.set(campusId, {
@@ -1993,14 +1999,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (division && division !== 'all' && campusDivision !== division) {
           return;
-        }
-        
-        if (serviceLine && serviceLine !== 'all') {
-          // Filter by service line if needed
-          const hasServiceLine = metrics.units.some((u: any) => 
-            u.roomType?.includes(serviceLine)
-          );
-          if (!hasServiceLine) return;
         }
 
         // Determine primary service line for this campus
