@@ -462,7 +462,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="rateGrowthT6" 
                     name="Rate Growth"
-                    label={{ value: 'T6 Avg In-House Rate Growth (%)', angle: -90, position: 'center', dx: -35 }}
+                    label={{ value: 'T6 Avg In-House Rate Growth (%)', angle: -90, position: 'center', dx: -50 }}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />

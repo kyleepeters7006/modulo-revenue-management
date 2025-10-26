@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Wand2, AlertCircle } from "lucide-react";
+import { Wand2, AlertCircle, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { apiRequest } from "@/lib/queryClient";
 
 interface AutoDetectPolygonsProps {
   campusMap: any;
@@ -14,6 +15,7 @@ interface AutoDetectPolygonsProps {
 
 export default function AutoDetectPolygons({ campusMap, onPolygonsDetected }: AutoDetectPolygonsProps) {
   const [detecting, setDetecting] = useState(false);
+  const [aiDetecting, setAiDetecting] = useState(false);
   const [sensitivity, setSensitivity] = useState([50]);
   const [minRoomSize, setMinRoomSize] = useState([1000]);
   const { toast } = useToast();
@@ -100,6 +102,69 @@ export default function AutoDetectPolygons({ campusMap, onPolygonsDetected }: Au
     }
   };
 
+  const detectRoomsWithAI = async () => {
+    if (!campusMap?.baseImageUrl) {
+      toast({
+        title: "No image available",
+        description: "Please upload a floor plan image first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAiDetecting(true);
+
+    try {
+      // Call the AI vision endpoint
+      const result: any = await apiRequest('/api/floor-plans/detect-rooms', 'POST', {
+        campusMapId: campusMap.id,
+      });
+
+      if (result?.detected && result.detected.length > 0) {
+        // Convert AI response to polygon format
+        const roomPolygons = result.detected.map((room: any) => {
+          // Parse polygon coordinates from "x1,y1 x2,y2 x3,y3" format
+          const coords = room.polygon.split(' ').map((pair: string) => {
+            const [x, y] = pair.split(',').map(Number);
+            return [
+              Math.round((x / 100) * (campusMap.width || 1024)),
+              Math.round((y / 100) * (campusMap.height || 683))
+            ];
+          });
+
+          return {
+            points: coords,
+            label: room.label,
+            color: getRandomColor(),
+            roomType: room.roomType,
+            confidence: room.confidence
+          };
+        });
+
+        onPolygonsDetected(roomPolygons);
+        toast({
+          title: "AI Detection Complete",
+          description: `Found ${roomPolygons.length} rooms using AI vision analysis`,
+        });
+      } else {
+        toast({
+          title: "No rooms detected",
+          description: "The AI couldn't identify rooms in this floor plan",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('AI detection error:', error);
+      toast({
+        title: "AI Detection failed",
+        description: String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setAiDetecting(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -157,13 +222,30 @@ export default function AutoDetectPolygons({ campusMap, onPolygonsDetected }: Au
 
         <Button
           onClick={detectRooms}
-          disabled={detecting || !campusMap?.baseImageUrl}
+          disabled={detecting || aiDetecting || !campusMap?.baseImageUrl}
           className="w-full"
           data-testid="button-auto-detect"
         >
           <Wand2 className="h-4 w-4 mr-2" />
-          {detecting ? "Detecting..." : "Auto-Detect Rooms"}
+          {detecting ? "Detecting..." : "Auto-Detect Rooms (Free)"}
         </Button>
+
+        <Button
+          onClick={detectRoomsWithAI}
+          disabled={detecting || aiDetecting || !campusMap?.baseImageUrl}
+          className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+          data-testid="button-ai-detect"
+        >
+          <Sparkles className="h-4 w-4 mr-2" />
+          {aiDetecting ? "AI Analyzing..." : "AI Detect Rooms (Premium)"}
+        </Button>
+
+        <Alert className="mt-2">
+          <Sparkles className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            <strong>Premium AI Detection:</strong> Uses advanced vision AI to identify room boundaries and labels with higher accuracy. Consumes credits.
+          </AlertDescription>
+        </Alert>
       </CardContent>
     </Card>
   );
