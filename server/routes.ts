@@ -3043,6 +3043,9 @@ Keep recommendations specific and quantitative when possible.`;
       };
       const weights = await storage.getLatestWeights() || defaultWeights;
       
+      // Get guardrails for smart adjustments
+      const guardrailsData = await storage.getCurrentGuardrails();
+      
       // Get stock market performance (mock data for now, could integrate with real API)
       const stockMarketChange = 2.5; // Assume market is up 2.5% over last week
       
@@ -3214,6 +3217,55 @@ Keep recommendations specific and quantitative when possible.`;
         calculationDetails.totalAdjustment = (occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
                                               competitorAdjustment + seasonalAdjustment + marketAdjustment) * 100;
         calculationDetails.finalRate = Math.round(suggestion);
+        
+        // Apply guardrails (smart adjustments)
+        const guardrailsApplied: string[] = [];
+        if (guardrailsData) {
+          const originalSuggestion = suggestion;
+          
+          // Min rate decrease limit
+          if (guardrailsData.minRateDecrease) {
+            const minRate = unit.streetRate * (1 - guardrailsData.minRateDecrease);
+            if (suggestion < minRate) {
+              suggestion = minRate;
+              guardrailsApplied.push(`Minimum rate decrease limit applied (${(guardrailsData.minRateDecrease * 100).toFixed(1)}%)`);
+            }
+          }
+          
+          // Max rate increase limit
+          if (guardrailsData.maxRateIncrease) {
+            const maxRate = unit.streetRate * (1 + guardrailsData.maxRateIncrease);
+            if (suggestion > maxRate) {
+              suggestion = maxRate;
+              guardrailsApplied.push(`Maximum rate increase limit applied (${(guardrailsData.maxRateIncrease * 100).toFixed(1)}%)`);
+            }
+          }
+          
+          // Competitor variance limits
+          if (guardrailsData.competitorVarianceLimit && unit.competitorRate) {
+            const maxVariance = unit.competitorRate * guardrailsData.competitorVarianceLimit;
+            const minCompetitorRate = unit.competitorRate - maxVariance;
+            const maxCompetitorRate = unit.competitorRate + maxVariance;
+            
+            if (suggestion < minCompetitorRate) {
+              suggestion = minCompetitorRate;
+              guardrailsApplied.push(`Competitor variance floor applied (${(guardrailsData.competitorVarianceLimit * 100).toFixed(1)}%)`);
+            }
+            
+            if (suggestion > maxCompetitorRate) {
+              suggestion = maxCompetitorRate;
+              guardrailsApplied.push(`Competitor variance ceiling applied (${(guardrailsData.competitorVarianceLimit * 100).toFixed(1)}%)`);
+            }
+          }
+          
+          // Update final rate if guardrails were applied
+          if (guardrailsApplied.length > 0) {
+            calculationDetails.finalRate = Math.round(suggestion);
+          }
+        }
+        
+        // Store guardrails in calculation details
+        calculationDetails.guardrailsApplied = guardrailsApplied;
         
         // Ensure suggestions are different from street rates (minimum 1% change)
         const minChange = unit.streetRate * 0.01;
