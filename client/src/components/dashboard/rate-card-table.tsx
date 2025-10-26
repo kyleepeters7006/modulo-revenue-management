@@ -496,7 +496,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                             return appliedRules.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {appliedRules.map((rule: string, i: number) => (
-                                  <Badge key={i} variant="default" className="text-xs bg-purple-600">
+                                  <Badge key={i} variant="default" className="text-xs bg-blue-800">
                                     {rule}
                                   </Badge>
                                 ))}
