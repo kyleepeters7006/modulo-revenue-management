@@ -28,12 +28,21 @@ const loadFiltersFromStorage = () => {
 };
 
 export default function RateCard() {
-  // Load initial state from localStorage or use defaults
+  // Check for URL parameters first
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlLocation = urlParams.get('location');
+  const urlServiceLine = urlParams.get('serviceLine');
+  
+  // Load initial state from URL params, then localStorage, or use defaults
   const savedFilters = loadFiltersFromStorage();
-  const [selectedServiceLine, setSelectedServiceLine] = useState<string>(savedFilters?.serviceLine || "All");
+  const [selectedServiceLine, setSelectedServiceLine] = useState<string>(
+    urlServiceLine || savedFilters?.serviceLine || "All"
+  );
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations || []);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(
+    urlLocation ? [urlLocation] : (savedFilters?.locations || [])
+  );
 
   // Save filters to localStorage whenever they change
   useEffect(() => {

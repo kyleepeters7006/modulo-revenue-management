@@ -1998,10 +1998,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!hasServiceLine) return;
         }
 
+        // Determine primary service line for this campus
+        const serviceLineCounts = metrics.units.reduce((acc: any, u: any) => {
+          const sl = u.serviceLine || 'Unknown';
+          acc[sl] = (acc[sl] || 0) + 1;
+          return acc;
+        }, {});
+        const primaryServiceLine = Object.entries(serviceLineCounts)
+          .sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'All';
+
         campusesData.push({
           campusId,
           campusName: campusInfo?.name || campusId,
           region: campusRegion,
+          serviceLine: primaryServiceLine,
           avgRate: Math.round(avgRate),
           occupancy,
           competitorAvgRate: Math.round(competitorAvgRate),

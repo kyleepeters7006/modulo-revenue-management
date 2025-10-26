@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import {
   ScatterChart,
   Scatter,
@@ -46,10 +46,14 @@ interface CustomTooltipProps {
 const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
+    
+    // Build rate card URL with filters
+    const rateCardUrl = `/rate-card?location=${encodeURIComponent(data.campusName)}&serviceLine=${encodeURIComponent(data.serviceLine || 'All')}`;
+    
     return (
       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
         <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
-        <div className="space-y-1 text-xs">
+        <div className="space-y-1 text-xs mb-3">
           <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
           {data.avgRate && (
             <p className="text-gray-700 dark:text-gray-300">
@@ -82,6 +86,11 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
             </p>
           )}
         </div>
+        <Link href={rateCardUrl}>
+          <a className="inline-block w-full text-center px-3 py-1.5 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white rounded text-xs font-medium transition-colors">
+            Edit Pricing →
+          </a>
+        </Link>
       </div>
     );
   }
