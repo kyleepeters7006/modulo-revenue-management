@@ -242,7 +242,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           room_attributes: weights.roomAttributes,
           seasonality: weights.seasonality,
           competitor_rates: weights.competitorRates,
-          stock_market: weights.stockMarket
+          stock_market: weights.stockMarket,
+          inquiry_tour_volume: weights.inquiryTourVolume || 0
         } : null
       });
     } catch (error) {
@@ -635,12 +636,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         seasonality: req.body.seasonality,
         competitorRates: req.body.competitor_rates,
         stockMarket: req.body.stock_market,
+        inquiryTourVolume: req.body.inquiry_tour_volume || 0,
       };
       
       // Validate that weights total 100
       const total = transformedData.occupancyPressure + transformedData.daysVacantDecay + 
                     transformedData.roomAttributes + transformedData.seasonality + 
-                    transformedData.competitorRates + transformedData.stockMarket;
+                    transformedData.competitorRates + transformedData.stockMarket + 
+                    transformedData.inquiryTourVolume;
       
       if (total !== 100) {
         return res.status(400).json({ error: `Weights must total 100%, currently ${total}%` });
@@ -659,7 +662,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           room_attributes: weights.roomAttributes,
           seasonality: weights.seasonality,
           competitor_rates: weights.competitorRates,
-          stock_market: weights.stockMarket
+          stock_market: weights.stockMarket,
+          inquiry_tour_volume: weights.inquiryTourVolume || 0
         }
       });
     } catch (error) {
@@ -1379,6 +1383,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             Modulo_Suggested_Rate: 3650,
             AI_Suggested_Rate: 3700,
             Promotion_Allowance: 100,
+            Inquiry_Count: 5,
+            Tour_Count: 3,
           },
         ];
         filename = 'rent_roll_template.csv';

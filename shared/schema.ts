@@ -139,6 +139,8 @@ export const rentRollData = pgTable("rent_roll_data", {
   medicareRate: real("medicare_rate"), // Medicare reimbursement rate if applicable
   assessmentDate: text("assessment_date"), // Date of last care assessment
   marketingSource: text("marketing_source"), // How resident found the facility
+  inquiryCount: integer("inquiry_count").default(0), // Number of inquiries for this unit in trailing 30 days
+  tourCount: integer("tour_count").default(0), // Number of tours for this unit in trailing 30 days
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -176,6 +178,7 @@ export const pricingWeights = pgTable("pricing_weights", {
   seasonality: integer("seasonality").notNull(),
   competitorRates: integer("competitor_rates").notNull(),
   stockMarket: integer("stock_market").notNull(),
+  inquiryTourVolume: integer("inquiry_tour_volume").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -10,11 +10,12 @@ import { apiRequest } from "@/lib/queryClient";
 
 const weightConfigs = [
   { key: "occupancyPressure", label: "Occupancy Pressure", default: 25 },
-  { key: "daysVacantDecay", label: "Days Vacant Decay", default: 20 },
-  { key: "roomAttributes", label: "Room Attributes", default: 25 },
+  { key: "daysVacantDecay", label: "Days Vacant Decay", default: 15 },
+  { key: "roomAttributes", label: "Room Attributes", default: 20 },
   { key: "seasonality", label: "Seasonality", default: 10 },
   { key: "competitorRates", label: "Competitor Rates", default: 10 },
   { key: "stockMarket", label: "Stock Market", default: 10 },
+  { key: "inquiryTourVolume", label: "Inquiry & Tour Volume", default: 10 },
 ];
 
 const weightDetails: Record<string, {
@@ -100,6 +101,18 @@ const weightDetails: Record<string, {
       adjustment: 200,
       finalRate: 5200
     }
+  },
+  inquiryTourVolume: {
+    title: "Inquiry & Tour Volume",
+    description: "Increases rates for units with high inquiry and tour activity, indicating strong demand. Reduces rates for units with low interest to stimulate inquiries.",
+    calculation: "Adjustment = ((Inquiry Count + Tour Count × 2) / Target Volume - 1) × Weight × Base Rate",
+    dataSource: "Inquiry and tour counts from rent_roll_data table (inquiry_count and tour_count fields), tracked over trailing 30 days",
+    example: {
+      scenario: "Unit with 8 inquiries and 4 tours (16 total demand score)",
+      baseRate: 5000,
+      adjustment: 250,
+      finalRate: 5250
+    }
   }
 };
 
@@ -122,11 +135,12 @@ export default function PricingWeights() {
       const apiWeights = status.weights as any;
       const loadedWeights = {
         occupancyPressure: apiWeights.occupancy_pressure ?? 25,
-        daysVacantDecay: apiWeights.days_vacant_decay ?? 20,
-        roomAttributes: apiWeights.room_attributes ?? 25,
+        daysVacantDecay: apiWeights.days_vacant_decay ?? 15,
+        roomAttributes: apiWeights.room_attributes ?? 20,
         seasonality: apiWeights.seasonality ?? 10,
         competitorRates: apiWeights.competitor_rates ?? 10,
         stockMarket: apiWeights.stock_market ?? 10,
+        inquiryTourVolume: apiWeights.inquiry_tour_volume ?? 10,
       };
       
       // Verify weights total 100 (they should from backend)
@@ -162,6 +176,7 @@ export default function PricingWeights() {
         seasonality: weightsData.seasonality,
         competitor_rates: weightsData.competitorRates,
         stock_market: weightsData.stockMarket,
+        inquiry_tour_volume: weightsData.inquiryTourVolume,
       };
       return apiRequest('/api/weights', 'POST', payload);
     },
