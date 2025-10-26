@@ -3075,32 +3075,6 @@ Keep recommendations specific and quantitative when possible.`;
           appliedRules: [] as string[]
         };
         
-        // Check and apply matching adjustment rules
-        for (const rule of activeRules) {
-          const filters = rule.action?.filters;
-          let matches = true;
-          
-          // Check if unit matches rule filters
-          if (filters) {
-            if (filters.roomType && !filters.roomType.includes(unit.roomType)) matches = false;
-            if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) matches = false;
-            if (filters.occupancy === 'vacant' && unit.occupiedYN) matches = false;
-            if (filters.occupancy === 'occupied' && !unit.occupiedYN) matches = false;
-          }
-          
-          if (matches && rule.action) {
-            // Apply the rule adjustment
-            if (rule.action.adjustmentType === 'percentage') {
-              const adjustment = rule.action.adjustmentValue / 100;
-              suggestion *= (1 + adjustment);
-              calculationDetails.appliedRules.push(rule.name);
-            } else if (rule.action.adjustmentType === 'absolute') {
-              suggestion += rule.action.adjustmentValue;
-              calculationDetails.appliedRules.push(rule.name);
-            }
-          }
-        }
-        
         // Apply occupancy pressure (weighted adjustment based on market conditions)
         let occupancyAdjustment = 0;
         if (weights?.occupancyPressure) {
@@ -3297,6 +3271,61 @@ Keep recommendations specific and quantitative when possible.`;
         
         // Store guardrails in calculation details
         calculationDetails.guardrailsApplied = guardrailsApplied;
+        
+        // Apply manual adjustment rules AFTER Modulo calculation and guardrails
+        for (const rule of activeRules) {
+          const filters = rule.action?.filters;
+          let matches = true;
+          
+          // Check if unit matches rule filters
+          if (filters) {
+            if (filters.roomType && !filters.roomType.includes(unit.roomType)) matches = false;
+            if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) matches = false;
+            if (filters.occupancy === 'vacant' && unit.occupiedYN) matches = false;
+            if (filters.occupancy === 'occupied' && !unit.occupiedYN) matches = false;
+          }
+          
+          if (matches && rule.action) {
+            const beforeRuleRate = suggestion;
+            
+            // Apply the rule adjustment
+            if (rule.action.adjustmentType === 'percentage') {
+              const adjustment = rule.action.adjustmentValue / 100;
+              suggestion *= (1 + adjustment);
+              
+              // Add to adjustments array for display in dialog
+              calculationDetails.adjustments.push({
+                factor: `Rule: ${rule.name}`,
+                description: rule.description || `${rule.action.adjustmentValue}% adjustment`,
+                calculation: `${beforeRuleRate.toFixed(0)} × ${(1 + adjustment).toFixed(3)}`,
+                weight: 100,
+                adjustment: rule.action.adjustmentValue,
+                weightedAdjustment: rule.action.adjustmentValue,
+                impact: beforeRuleRate * adjustment
+              });
+              
+              calculationDetails.appliedRules.push(rule.name);
+            } else if (rule.action.adjustmentType === 'absolute') {
+              suggestion += rule.action.adjustmentValue;
+              
+              // Add to adjustments array for display in dialog
+              calculationDetails.adjustments.push({
+                factor: `Rule: ${rule.name}`,
+                description: rule.description || `+$${rule.action.adjustmentValue} adjustment`,
+                calculation: `${beforeRuleRate.toFixed(0)} + ${rule.action.adjustmentValue}`,
+                weight: 100,
+                adjustment: (rule.action.adjustmentValue / beforeRuleRate) * 100,
+                weightedAdjustment: (rule.action.adjustmentValue / beforeRuleRate) * 100,
+                impact: rule.action.adjustmentValue
+              });
+              
+              calculationDetails.appliedRules.push(rule.name);
+            }
+          }
+        }
+        
+        // Update final rate after rules
+        calculationDetails.finalRate = Math.round(suggestion);
         
         // Ensure suggestions are different from street rates (minimum 1% change)
         const minChange = unit.streetRate * 0.01;
