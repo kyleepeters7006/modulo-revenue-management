@@ -113,10 +113,35 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     setHoveredUnitId(unitId);
     const rect = svgContainerRef.current?.getBoundingClientRect();
     if (rect) {
-      setTooltipPosition({
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      });
+      // Calculate position with smart viewport bounds checking
+      const tooltipWidth = 280; // Slightly larger than minWidth to account for padding
+      const tooltipHeight = 150; // Approximate height
+      const offset = 15;
+      
+      let x = event.clientX - rect.left + offset;
+      let y = event.clientY - rect.top + offset;
+      
+      // Check right edge - if tooltip would go off-screen, position it to the left of cursor
+      if (x + tooltipWidth > rect.width) {
+        x = event.clientX - rect.left - tooltipWidth - offset;
+      }
+      
+      // Check bottom edge - if tooltip would go off-screen, position it above cursor
+      if (y + tooltipHeight > rect.height) {
+        y = event.clientY - rect.top - tooltipHeight - offset;
+      }
+      
+      // Ensure tooltip doesn't go off left edge
+      if (x < 0) {
+        x = offset;
+      }
+      
+      // Ensure tooltip doesn't go off top edge
+      if (y < 0) {
+        y = offset;
+      }
+      
+      setTooltipPosition({ x, y });
     }
   };
 
@@ -218,11 +243,25 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                       onMouseEnter={(e) => handlePolygonHover(polygon.rentRollDataId, e)}
                       onMouseMove={(e) => {
                         const rect = svgContainerRef.current?.getBoundingClientRect();
-                        if (rect) {
-                          setTooltipPosition({
-                            x: e.clientX - rect.left,
-                            y: e.clientY - rect.top,
-                          });
+                        if (rect && hoveredUnitId === polygon.rentRollDataId) {
+                          // Smart positioning to keep tooltip in viewport
+                          const tooltipWidth = 280;
+                          const tooltipHeight = 150;
+                          const offset = 15;
+                          
+                          let x = e.clientX - rect.left + offset;
+                          let y = e.clientY - rect.top + offset;
+                          
+                          if (x + tooltipWidth > rect.width) {
+                            x = e.clientX - rect.left - tooltipWidth - offset;
+                          }
+                          if (y + tooltipHeight > rect.height) {
+                            y = e.clientY - rect.top - tooltipHeight - offset;
+                          }
+                          if (x < 0) x = offset;
+                          if (y < 0) y = offset;
+                          
+                          setTooltipPosition({ x, y });
                         }
                       }}
                       onMouseLeave={handlePolygonLeave}
