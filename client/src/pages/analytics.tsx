@@ -55,6 +55,9 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
         <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
         <div className="space-y-1 text-xs mb-3">
           <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
+          {data.division && (
+            <p className="text-gray-700 dark:text-gray-300">Division: {data.division}</p>
+          )}
           {data.avgRate && (
             <p className="text-gray-700 dark:text-gray-300">
               Avg Rate: ${Math.round(data.avgRate).toLocaleString()}
@@ -146,17 +149,17 @@ export function Analytics() {
     return uniqueDivisions.filter(Boolean);
   }, [analyticsData]);
 
-  // Color scale for divisions
+  // Color scale for divisions - using grey, black, dark teal, light teal, dark orange, dark blue, hunter green
   const getColor = (division: string) => {
     const colors: Record<string, string> = {
-      'Division 1': '#3B82F6',
-      'Division 2': '#10B981',
-      'Division 3': '#F59E0B',
-      'Division 4': '#8B5CF6',
-      'Division 5': '#EF4444',
-      'Division 6': '#EC4899',
-      'Division 7': '#06B6D4',
-      'Division 8': '#84CC16',
+      'Division 1': '#6B7280',  // Grey
+      'Division 2': '#1F2937',  // Black
+      'Division 3': '#0F766E',  // Dark Teal
+      'Division 4': '#5EEAD4',  // Light Teal
+      'Division 5': '#EA580C',  // Dark Orange
+      'Division 6': '#1E40AF',  // Dark Blue
+      'Division 7': '#065F46',  // Hunter Green
+      'Division 8': '#DC2626',  // Red (variation)
     };
     return colors[division] || '#6B7280';
   };
