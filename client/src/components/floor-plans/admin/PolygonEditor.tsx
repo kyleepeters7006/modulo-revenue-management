@@ -154,12 +154,39 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
     });
   };
 
+  const handlePlaceDetectedPolygon = (polygon: any) => {
+    if (!selectedRoomId) {
+      toast({
+        title: "No room selected",
+        description: "Please select a room to link this polygon to",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedRoom = rentRollData.find((r: any) => r.id === selectedRoomId);
+    if (!selectedRoom) return;
+
+    const polygonData = {
+      campusMapId: campusMap.id,
+      rentRollDataId: selectedRoomId,
+      label: selectedRoom.roomNumber,
+      polygonCoordinates: JSON.stringify(polygon.points),
+      fillColor: polygon.color,
+      strokeColor: "#334155",
+    };
+
+    createPolygonMutation.mutate(polygonData);
+    // Remove the polygon from detected list after placing it
+    setDetectedPolygons(detectedPolygons.filter((p) => p !== polygon));
+  };
+
   return (
     <div className="space-y-4">
-      <Tabs defaultValue="manual" className="w-full">
+      <Tabs defaultValue="auto" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="auto">Auto-Detect</TabsTrigger>
-          <TabsTrigger value="manual">Manual Draw</TabsTrigger>
+          <TabsTrigger value="auto" data-testid="tab-auto">Step 1: Auto-Detect</TabsTrigger>
+          <TabsTrigger value="manual" data-testid="tab-manual">Step 2: Place & Draw</TabsTrigger>
         </TabsList>
 
         <TabsContent value="auto" className="space-y-4">
@@ -221,9 +248,49 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
         </TabsContent>
 
         <TabsContent value="manual" className="space-y-4">
+          {detectedPolygons.length > 0 && (
+            <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+              <CardHeader>
+                <CardTitle className="text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                  </svg>
+                  AI Detected Presets ({detectedPolygons.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-purple-800 dark:text-purple-200 mb-3">
+                  Select a room below, then click a detected polygon preset to place it:
+                </p>
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {detectedPolygons.map((polygon, index) => (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      className="h-auto p-3 flex flex-col items-start gap-1 hover:bg-purple-100 dark:hover:bg-purple-900/30"
+                      onClick={() => handlePlaceDetectedPolygon(polygon)}
+                      data-testid={`button-preset-${index}`}
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        <div 
+                          className="w-4 h-4 rounded border"
+                          style={{ backgroundColor: polygon.color }}
+                        />
+                        <span className="font-medium text-sm">{polygon.label || `Preset ${index + 1}`}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {polygon.points.length} points • {polygon.roomType || 'Unknown type'}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           <Card>
             <CardHeader>
-              <CardTitle>Draw Room Polygons</CardTitle>
+              <CardTitle>Manual Drawing Controls</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
