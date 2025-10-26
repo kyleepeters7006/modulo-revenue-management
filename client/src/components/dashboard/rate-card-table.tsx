@@ -462,6 +462,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                     <TableHead>Service Line</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Street Rate</TableHead>
+                    <TableHead>Applied Rules</TableHead>
                     <TableHead>Modulo</TableHead>
                     <TableHead>AI</TableHead>
                     <TableHead>Competitor</TableHead>
@@ -485,6 +486,48 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         </Badge>
                       </TableCell>
                       <TableCell>${Math.round(unit.streetRate || 0).toLocaleString()}</TableCell>
+                      <TableCell>
+                        {(() => {
+                          try {
+                            // Check if adjustment rules were applied (stored in Modulo calculation details)
+                            const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
+                            const appliedRules: string[] = [];
+                            
+                            // Check for vacant unit increases
+                            if (!unit.occupiedYN && details?.adjustments) {
+                              const vacantAdj = details.adjustments.find((adj: any) => adj.factor === 'Days Vacant Decay');
+                              if (vacantAdj) {
+                                appliedRules.push(`Vacant ${vacantAdj.weightedAdjustment > 0 ? '+' : ''}${vacantAdj.weightedAdjustment.toFixed(1)}%`);
+                              }
+                            }
+                            
+                            // Check for room type specific adjustments
+                            if (details?.adjustments) {
+                              const roomAdj = details.adjustments.find((adj: any) => adj.factor === 'Room Attributes');
+                              if (roomAdj && roomAdj.weightedAdjustment !== 0) {
+                                appliedRules.push(`${unit.roomType} ${roomAdj.weightedAdjustment > 0 ? '+' : ''}${roomAdj.weightedAdjustment.toFixed(1)}%`);
+                              }
+                            }
+                            
+                            // Check for smart adjustments/guardrails
+                            if (details?.guardrailsApplied?.length > 0) {
+                              appliedRules.push(`Guardrails (${details.guardrailsApplied.length})`);
+                            }
+                            
+                            return appliedRules.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {appliedRules.map((rule, i) => (
+                                  <Badge key={i} variant="secondary" className="text-xs">
+                                    {rule}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : <span className="text-muted-foreground text-xs">None</span>;
+                          } catch {
+                            return <span className="text-muted-foreground text-xs">-</span>;
+                          }
+                        })()}
+                      </TableCell>
                       <TableCell>
                         {unit.moduloSuggestedRate ? (
                           <div className="flex items-center space-x-2">
