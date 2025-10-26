@@ -190,36 +190,32 @@ export function Analytics() {
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="flex gap-4">
-          <Select value={selectedRegion} onValueChange={setSelectedRegion}>
-            <SelectTrigger className="w-[200px]" data-testid="select-region">
-              <SelectValue placeholder="Select Region" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Regions</SelectItem>
-              {regions.map(region => (
-                <SelectItem key={region} value={region}>{region}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          
-          <Select value={selectedServiceLine} onValueChange={setSelectedServiceLine}>
-            <SelectTrigger className="w-[200px]" data-testid="select-service-line">
-              <SelectValue placeholder="Service Line" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Service Lines</SelectItem>
-              <SelectItem value="AL">Assisted Living</SelectItem>
-              <SelectItem value="MC">Memory Care</SelectItem>
-              <SelectItem value="HC">Healthcare</SelectItem>
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
+      <div className="flex gap-3 items-center">
+        <span className="text-sm font-medium">Filters:</span>
+        <Select value={selectedRegion} onValueChange={setSelectedRegion}>
+          <SelectTrigger className="w-[180px]" data-testid="select-region">
+            <SelectValue placeholder="Select Region" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Regions</SelectItem>
+            {regions.map(region => (
+              <SelectItem key={region} value={region}>{region}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        
+        <Select value={selectedServiceLine} onValueChange={setSelectedServiceLine}>
+          <SelectTrigger className="w-[180px]" data-testid="select-service-line">
+            <SelectValue placeholder="Service Line" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Service Lines</SelectItem>
+            <SelectItem value="AL">Assisted Living</SelectItem>
+            <SelectItem value="MC">Memory Care</SelectItem>
+            <SelectItem value="HC">Healthcare</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
