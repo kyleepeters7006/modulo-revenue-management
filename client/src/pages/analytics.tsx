@@ -163,7 +163,7 @@ export function Analytics() {
       'Louisville Metro': '#1E40AF',  // Dark Blue
       'Northeast': '#065F46',  // Hunter Green
       'Northeast Ohio': '#DC2626',  // Red
-      'Northwest': '#F59E0B',  // Amber
+      'Northwest': '#9CA3AF',  // Medium Grey
       'Northwest Ohio': '#059669',  // Emerald Green
       'Southeast': '#EC4899',  // Pink
       'Southeast Indiana': '#14B8A6',  // Teal
