@@ -515,40 +515,51 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {unit.moduloSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <ModuloCalculationDialog
-                              roomType={unit.roomType}
-                              currentRate={unit.streetRate}
-                              unitId={unit.id}
-                              calculationDetails={unit.moduloCalculationDetails}
-                            >
-                              <button 
-                                className="cursor-pointer flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
-                                type="button"
-                                data-testid={`tooltip-modulo-${unit.roomNumber}`}
+                            <div className="flex flex-col">
+                              <ModuloCalculationDialog
+                                roomType={unit.roomType}
+                                currentRate={unit.streetRate}
+                                unitId={unit.id}
+                                calculationDetails={unit.moduloCalculationDetails}
                               >
-                                <span>${Math.round(unit.moduloSuggestedRate).toLocaleString()}</span>
-                                {(() => {
-                                  try {
-                                    const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
-                                    return details?.guardrailsApplied?.length > 0 ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Shield className="h-3 w-3 text-amber-600" />
-                                        </TooltipTrigger>
-                                        <TooltipContent className="max-w-xs">
-                                          <p className="font-semibold text-xs mb-1">Smart Adjustments Applied</p>
-                                          {details.guardrailsApplied.map((rule: string, i: number) => (
-                                            <p key={i} className="text-xs">{rule}</p>
-                                          ))}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    ) : <Info className="h-3 w-3" />;
-                                  } catch {
-                                    return <Info className="h-3 w-3" />;
-                                  }
-                                })()}
-                              </button>
-                            </ModuloCalculationDialog>
+                                <button 
+                                  className="cursor-pointer flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                                  type="button"
+                                  data-testid={`tooltip-modulo-${unit.roomNumber}`}
+                                >
+                                  <span>${Math.round(unit.moduloSuggestedRate).toLocaleString()}</span>
+                                  {(() => {
+                                    try {
+                                      const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
+                                      return details?.guardrailsApplied?.length > 0 ? (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Shield className="h-3 w-3 text-amber-600" />
+                                          </TooltipTrigger>
+                                          <TooltipContent className="max-w-xs">
+                                            <p className="font-semibold text-xs mb-1">Smart Adjustments Applied</p>
+                                            {details.guardrailsApplied.map((rule: string, i: number) => (
+                                              <p key={i} className="text-xs">{rule}</p>
+                                            ))}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      ) : <Info className="h-3 w-3" />;
+                                    } catch {
+                                      return <Info className="h-3 w-3" />;
+                                    }
+                                  })()}
+                                </button>
+                              </ModuloCalculationDialog>
+                              {(() => {
+                                const change = Math.round(unit.moduloSuggestedRate - unit.streetRate);
+                                const changePercent = Math.round((change / unit.streetRate) * 100);
+                                return (
+                                  <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {change > 0 ? '+' : ''}${change.toLocaleString()} ({change > 0 ? '+' : ''}{changePercent}%)
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             <Button
                               size="sm"
                               variant="outline"
@@ -566,22 +577,33 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>
                         {unit.aiSuggestedRate ? (
                           <div className="flex items-center space-x-2">
-                            <button 
-                              className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAIDialogUnit({
-                                  unitId: unit.id,
-                                  roomType: unit.roomType,
-                                  streetRate: unit.streetRate || 0
-                                });
-                              }}
-                              data-testid={`tooltip-ai-${unit.roomNumber}`}
-                            >
-                              <span>${Math.round(unit.aiSuggestedRate).toLocaleString()}</span>
-                              <Info className="h-3 w-3" />
-                            </button>
+                            <div className="flex flex-col">
+                              <button 
+                                className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAIDialogUnit({
+                                    unitId: unit.id,
+                                    roomType: unit.roomType,
+                                    streetRate: unit.streetRate || 0
+                                  });
+                                }}
+                                data-testid={`tooltip-ai-${unit.roomNumber}`}
+                              >
+                                <span>${Math.round(unit.aiSuggestedRate).toLocaleString()}</span>
+                                <Info className="h-3 w-3" />
+                              </button>
+                              {(() => {
+                                const change = Math.round(unit.aiSuggestedRate - unit.streetRate);
+                                const changePercent = Math.round((change / unit.streetRate) * 100);
+                                return (
+                                  <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {change > 0 ? '+' : ''}${change.toLocaleString()} ({change > 0 ? '+' : ''}{changePercent}%)
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             <Button
                               size="sm"
                               variant="outline"
