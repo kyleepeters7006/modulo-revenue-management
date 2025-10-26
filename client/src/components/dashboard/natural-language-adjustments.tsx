@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SpeechRecognitionEvent extends Event {
@@ -275,6 +275,28 @@ export function NaturalLanguageAdjustments() {
     }
   };
 
+  const deleteRule = async (ruleId: string, ruleName: string) => {
+    try {
+      const response = await fetch(`/api/adjustment-rules/${ruleId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete rule');
+      
+      setRules(rules.filter(rule => rule.id !== ruleId));
+      
+      toast({
+        title: "Rule deleted",
+        description: `"${ruleName}" has been removed`,
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to delete rule",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -416,12 +438,24 @@ export function NaturalLanguageAdjustments() {
                         )}
                       </div>
                     </div>
-                    <Switch
-                      checked={rule.isActive}
-                      onCheckedChange={() => toggleRuleStatus(rule.id)}
-                      aria-label={`Toggle rule ${rule.name}`}
-                      data-testid={`switch-rule-${rule.id}`}
-                    />
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={rule.isActive}
+                        onCheckedChange={() => toggleRuleStatus(rule.id)}
+                        aria-label={`Toggle rule ${rule.name}`}
+                        data-testid={`switch-rule-${rule.id}`}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteRule(rule.id, rule.name)}
+                        aria-label={`Delete rule ${rule.name}`}
+                        data-testid={`button-delete-${rule.id}`}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
