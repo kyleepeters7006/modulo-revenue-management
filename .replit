@@ -39,10 +39,6 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 33421
-externalPort = 8000
-
-[[ports]]
 localPort = 33619
 externalPort = 5173
 
@@ -77,6 +73,10 @@ externalPort = 3003
 [[ports]]
 localPort = 45617
 externalPort = 5000
+
+[[ports]]
+localPort = 46781
+externalPort = 8008
 
 [agent]
 integrations = ["javascript_gemini==1.0.0", "javascript_database==1.0.0", "javascript_log_in_with_replit==1.0.0", "javascript_object_storage==1.0.0", "javascript_openai==1.0.0"]
