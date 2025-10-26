@@ -306,7 +306,7 @@ export function Analytics() {
                     dataKey="occupancy" 
                     name="Occupancy"
                     label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
-                    domain={[0, 1]}
+                    domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
                   <YAxis 
@@ -407,7 +407,7 @@ export function Analytics() {
                     dataKey="occupancy" 
                     name="Occupancy"
                     label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
-                    domain={[0, 1]}
+                    domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
                   <YAxis 
@@ -457,7 +457,7 @@ export function Analytics() {
                     dataKey="occupancy" 
                     name="Occupancy"
                     label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
-                    domain={[0, 1]}
+                    domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
                   <YAxis 
@@ -564,7 +564,7 @@ export function Analytics() {
                     dataKey="occupancy" 
                     name="Occupancy"
                     label={{ value: 'Occupancy Rate (%)', angle: -90, position: 'insideLeft' }}
-                    domain={[0, 1]}
+                    domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
