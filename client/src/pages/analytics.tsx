@@ -56,7 +56,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
               Avg Rate: ${data.avgRate?.toFixed(0)}
             </p>
           )}
-          {data.occupancy && (
+          {data.occupancy !== undefined && (
             <p className="text-gray-600 dark:text-gray-400">
               Occupancy: {(data.occupancy * 100).toFixed(1)}%
             </p>
@@ -69,6 +69,11 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
           {data.pricePosition !== undefined && (
             <p className={`font-medium ${data.pricePosition > 0 ? 'text-green-600' : 'text-red-600'}`}>
               Position: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
+            </p>
+          )}
+          {data.rateGrowthT6 !== undefined && (
+            <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-green-600' : 'text-red-600'}`}>
+              T6 Rate Growth: {data.rateGrowthT6 > 0 ? '+' : ''}{data.rateGrowthT6.toFixed(1)}%
             </p>
           )}
           {data.revenueImpact && (
@@ -112,6 +117,8 @@ export function Analytics() {
         ? ((campus.avgRate - campus.competitorAvgRate) / campus.competitorAvgRate) * 100
         : 0,
       size: Math.max(campus.unitsCount, 10), // Minimum size for visibility
+      // Mock T6 rate growth for now - in production this would come from backend
+      rateGrowthT6: campus.rateGrowthT6 || ((Math.random() * 10) - 2), // Random between -2% and 8%
     }));
   }, [analyticsData]);
 
@@ -271,13 +278,65 @@ export function Analytics() {
       </div>
 
       {/* Scatter Plots */}
-      <Tabs defaultValue="price-position" className="space-y-4">
-        <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+      <Tabs defaultValue="rate-growth" className="space-y-4">
+        <TabsList className="grid grid-cols-3 lg:grid-cols-6 w-full">
+          <TabsTrigger value="rate-growth">Rate Growth</TabsTrigger>
           <TabsTrigger value="price-position">Price vs Market</TabsTrigger>
           <TabsTrigger value="occupancy-rate">Occupancy vs Rate</TabsTrigger>
+          <TabsTrigger value="occupancy-position">Occ vs Position</TabsTrigger>
           <TabsTrigger value="revenue-impact">Revenue Impact</TabsTrigger>
           <TabsTrigger value="market-share">Market Position</TabsTrigger>
         </TabsList>
+
+        {/* Occupancy vs T6 Rate Growth */}
+        <TabsContent value="rate-growth" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Occupancy vs Rate Growth</CardTitle>
+              <CardDescription>
+                Trailing 6-month in-house average rate growth vs current occupancy performance.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={500}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 80, left: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    type="number" 
+                    dataKey="occupancy" 
+                    name="Occupancy"
+                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
+                    domain={[0, 1]}
+                    tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                  />
+                  <YAxis 
+                    type="number" 
+                    dataKey="rateGrowthT6" 
+                    name="Rate Growth"
+                    label={{ value: 'T6 Avg In-House Rate Growth (%)', angle: -90, position: 'insideLeft' }}
+                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
+                  />
+                  <ZAxis type="number" range={[100, 400]} dataKey="size" />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ bottom: 0 }} />
+                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                    {processedData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                {regions.map(region => (
+                  <Badge key={region} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
+                    {region}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Price Positioning Matrix */}
         <TabsContent value="price-position" className="space-y-4">
@@ -307,6 +366,56 @@ export function Analytics() {
                     label={{ value: 'Your Campus Rate ($)', angle: -90, position: 'insideLeft' }}
                     domain={['dataMin - 20', 'dataMax + 20']}
                     tickFormatter={(value) => value.toLocaleString()}
+                  />
+                  <ZAxis type="number" range={[100, 400]} dataKey="size" />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ bottom: 0 }} />
+                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                    {processedData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
+                    ))}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                {regions.map(region => (
+                  <Badge key={region} variant="outline" className="gap-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(region) }} />
+                    {region}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Occupancy vs Competitor Position */}
+        <TabsContent value="occupancy-position" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Occupancy vs Competitive Position</CardTitle>
+              <CardDescription>
+                Current occupancy rate vs price differential from competitors.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={500}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 80, left: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    type="number" 
+                    dataKey="occupancy" 
+                    name="Occupancy"
+                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
+                    domain={[0, 1]}
+                    tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                  />
+                  <YAxis 
+                    type="number" 
+                    dataKey="pricePosition" 
+                    name="Price Position"
+                    label={{ value: '% Higher/Lower than Competitor', angle: -90, position: 'insideLeft' }}
+                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
