@@ -455,7 +455,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 90 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -470,11 +470,12 @@ export function Analytics() {
                     dataKey="avgRate" 
                     name="ADR"
                     label={{ value: 'Average Daily Rate ($)', angle: -90, position: 'insideLeft' }}
+                    tickFormatter={(value) => value.toLocaleString()}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend />
-                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
                     ))}
@@ -504,7 +505,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 90 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -519,12 +520,12 @@ export function Analytics() {
                     dataKey="revenueImpact" 
                     name="Revenue Impact"
                     label={{ value: 'Monthly Revenue Impact ($K)', angle: -90, position: 'insideLeft' }}
-                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                    tickFormatter={(value) => `$${Math.round(value / 1000).toLocaleString()}K`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend />
-                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
                     ))}
@@ -554,7 +555,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 90 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -574,8 +575,8 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend />
-                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
                     ))}
