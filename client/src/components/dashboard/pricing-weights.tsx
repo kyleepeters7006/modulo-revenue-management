@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, AlertCircle, RotateCcw } from "lucide-react";
+import { Settings, AlertCircle, RotateCcw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -15,8 +17,95 @@ const weightConfigs = [
   { key: "stockMarket", label: "Stock Market", default: 10 },
 ];
 
+const weightDetails: Record<string, {
+  title: string;
+  description: string;
+  calculation: string;
+  dataSource: string;
+  example: {
+    scenario: string;
+    baseRate: number;
+    adjustment: number;
+    finalRate: number;
+  };
+}> = {
+  occupancyPressure: {
+    title: "Occupancy Pressure",
+    description: "Adjusts pricing based on current occupancy levels to balance revenue optimization with occupancy targets.",
+    calculation: "Adjustment = (Current Occupancy - Target Occupancy) × Weight × Sensitivity Factor",
+    dataSource: "Real-time occupancy data from rent_roll_data table (occupied_yn field)",
+    example: {
+      scenario: "Campus at 90% occupancy (target: 85%)",
+      baseRate: 5000,
+      adjustment: 150,
+      finalRate: 5150
+    }
+  },
+  daysVacantDecay: {
+    title: "Days Vacant Decay",
+    description: "Gradually reduces rates for units that remain vacant longer to accelerate occupancy.",
+    calculation: "Adjustment = -1 × (Days Vacant / 30) × Weight × Base Rate",
+    dataSource: "Days vacant calculated from rent_roll_data.move_out_date field",
+    example: {
+      scenario: "Unit vacant for 45 days",
+      baseRate: 5000,
+      adjustment: -250,
+      finalRate: 4750
+    }
+  },
+  roomAttributes: {
+    title: "Room Attributes",
+    description: "Premium or discount pricing based on room features like view, floor level, proximity to amenities.",
+    calculation: "Adjustment = Σ(Attribute Value × Attribute Weight) × Overall Weight",
+    dataSource: "Room attributes from rent_roll_data (view, floor, amenities columns)",
+    example: {
+      scenario: "Premium corner unit with city view",
+      baseRate: 5000,
+      adjustment: 400,
+      finalRate: 5400
+    }
+  },
+  seasonality: {
+    title: "Seasonality",
+    description: "Adjusts rates based on seasonal demand patterns (higher in spring/fall, lower in winter/summer).",
+    calculation: "Adjustment = Base Rate × Seasonal Index × Weight",
+    dataSource: "Historical occupancy trends by month from rent_roll_data aggregated by move-in dates",
+    example: {
+      scenario: "Peak season (October)",
+      baseRate: 5000,
+      adjustment: 300,
+      finalRate: 5300
+    }
+  },
+  competitorRates: {
+    title: "Competitor Rates",
+    description: "Positions your rates relative to nearby competitors to remain competitive while optimizing revenue.",
+    calculation: "Adjustment = (Competitor Avg Rate - Your Rate) × Market Position Factor × Weight",
+    dataSource: "Competitor pricing from competitors table (street_rate field by location)",
+    example: {
+      scenario: "Competitor avg: $5,200, Your rate: $5,000",
+      baseRate: 5000,
+      adjustment: 120,
+      finalRate: 5120
+    }
+  },
+  stockMarket: {
+    title: "Stock Market",
+    description: "Correlates pricing with broader economic indicators (S&P 500 performance) as a proxy for consumer confidence.",
+    calculation: "Adjustment = (S&P YTD Change %) × Correlation Factor × Weight × Base Rate",
+    dataSource: "S&P 500 index data from Alpha Vantage API (cached daily)",
+    example: {
+      scenario: "S&P 500 up 8% YTD",
+      baseRate: 5000,
+      adjustment: 200,
+      finalRate: 5200
+    }
+  }
+};
+
 export default function PricingWeights() {
   const [weights, setWeights] = useState<Record<string, number>>({});
+  const [selectedWeightKey, setSelectedWeightKey] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -227,9 +316,20 @@ export default function PricingWeights() {
         {weightConfigs.map((config) => (
           <div key={config.key} className="space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-[var(--dashboard-text)]">
-                {config.label}
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-[var(--dashboard-text)]">
+                  {config.label}
+                </label>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 p-0 hover:bg-[var(--trilogy-teal)]/10"
+                  onClick={() => setSelectedWeightKey(config.key)}
+                  data-testid={`button-info-${config.key}`}
+                >
+                  <Info className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                </Button>
+              </div>
               <span 
                 className="px-2 py-1 text-xs font-mono bg-[var(--dashboard-bg)] border border-[var(--dashboard-border)] rounded text-[var(--dashboard-text)]"
                 data-testid={`value-weight-${config.key}`}
@@ -274,6 +374,89 @@ export default function PricingWeights() {
           </Button>
         </div>
       </div>
+
+      {/* Weight Details Dialog */}
+      <Dialog open={selectedWeightKey !== null} onOpenChange={(open) => !open && setSelectedWeightKey(null)}>
+        <DialogContent className="max-w-2xl">
+          {selectedWeightKey && weightDetails[selectedWeightKey] && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+                  {weightDetails[selectedWeightKey].title}
+                  <Badge variant="outline" className="ml-2">
+                    {weights[selectedWeightKey] !== undefined ? weights[selectedWeightKey] : weightConfigs.find(c => c.key === selectedWeightKey)?.default}% Weight
+                  </Badge>
+                </DialogTitle>
+                <DialogDescription className="text-base">
+                  {weightDetails[selectedWeightKey].description}
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-6 mt-4">
+                {/* Calculation Formula */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm text-[var(--dashboard-text)] flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-[var(--trilogy-teal)]/10 flex items-center justify-center text-[var(--trilogy-teal)] text-xs">1</span>
+                    Calculation Formula
+                  </h4>
+                  <div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <code className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+                      {weightDetails[selectedWeightKey].calculation}
+                    </code>
+                  </div>
+                </div>
+
+                {/* Data Source */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm text-[var(--dashboard-text)] flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-[var(--trilogy-teal)]/10 flex items-center justify-center text-[var(--trilogy-teal)] text-xs">2</span>
+                    Data Source
+                  </h4>
+                  <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                    {weightDetails[selectedWeightKey].dataSource}
+                  </p>
+                </div>
+
+                {/* Example Application */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm text-[var(--dashboard-text)] flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-[var(--trilogy-teal)]/10 flex items-center justify-center text-[var(--trilogy-teal)] text-xs">3</span>
+                    Example Application
+                  </h4>
+                  <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800 space-y-3">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {weightDetails[selectedWeightKey].example.scenario}
+                    </p>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Base Rate</p>
+                        <p className="font-semibold text-lg">
+                          ${weightDetails[selectedWeightKey].example.baseRate.toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Adjustment</p>
+                        <p className={`font-semibold text-lg ${weightDetails[selectedWeightKey].example.adjustment >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {weightDetails[selectedWeightKey].example.adjustment >= 0 ? '+' : ''}${weightDetails[selectedWeightKey].example.adjustment.toLocaleString()}
+                          <span className="text-xs ml-1">
+                            ({((weightDetails[selectedWeightKey].example.adjustment / weightDetails[selectedWeightKey].example.baseRate) * 100).toFixed(1)}%)
+                          </span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Final Rate</p>
+                        <p className="font-semibold text-lg text-[var(--trilogy-teal)]">
+                          ${weightDetails[selectedWeightKey].example.finalRate.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
