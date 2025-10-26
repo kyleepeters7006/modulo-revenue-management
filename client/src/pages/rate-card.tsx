@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import Navigation from "@/components/navigation";
 import RateCardTable from "@/components/dashboard/rate-card-table";
+import PricingHistory from "@/components/dashboard/pricing-history";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -301,6 +302,11 @@ export default function RateCard() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Pricing Change History */}
+        <div className="mb-8">
+          <PricingHistory />
         </div>
 
         <RateCardTable 

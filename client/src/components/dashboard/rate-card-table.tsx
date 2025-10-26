@@ -134,13 +134,18 @@ export default function RateCardTable({
 
   const acceptSuggestionsMutation = useMutation({
     mutationFn: ({ unitIds, type }: { unitIds: string[], type: string }) => 
-      apiRequest('/api/pricing/accept-suggestions', 'POST', { unitIds, suggestionType: type }),
+      apiRequest('/api/pricing/accept-suggestions', 'POST', { 
+        unitIds, 
+        suggestionType: type,
+        serviceLine: selectedServiceLine !== "All" ? selectedServiceLine : null
+      }),
     onSuccess: () => {
       toast({
         title: "Suggestions accepted",
         description: "Street rates have been updated"
       });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pricing-history'] });
     }
   });
 
