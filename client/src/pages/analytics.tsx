@@ -290,7 +290,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 80, left: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -298,6 +298,7 @@ export function Analytics() {
                     name="Market Average Rate"
                     label={{ value: 'Competitor Average Rate ($)', position: 'insideBottom', offset: -10 }}
                     domain={['dataMin - 20', 'dataMax + 20']}
+                    tickFormatter={(value) => value.toLocaleString()}
                   />
                   <YAxis 
                     type="number" 
@@ -305,10 +306,11 @@ export function Analytics() {
                     name="Your Rate"
                     label={{ value: 'Your Campus Rate ($)', angle: -90, position: 'insideLeft' }}
                     domain={['dataMin - 20', 'dataMax + 20']}
+                    tickFormatter={(value) => value.toLocaleString()}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ bottom: 0 }} />
                   <Scatter name="Campuses" data={processedData} fill="#8884d8">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
