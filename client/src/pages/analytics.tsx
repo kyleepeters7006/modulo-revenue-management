@@ -57,7 +57,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
           <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
           {data.avgRate && (
             <p className="text-gray-700 dark:text-gray-300">
-              Avg Rate: ${data.avgRate?.toFixed(0)}
+              Avg Rate: ${Math.round(data.avgRate).toLocaleString()}
             </p>
           )}
           {data.occupancy !== undefined && (
@@ -67,7 +67,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
           )}
           {data.competitorAvgRate && (
             <p className="text-gray-700 dark:text-gray-300">
-              Market Avg: ${data.competitorAvgRate?.toFixed(0)}
+              Market Avg: ${Math.round(data.competitorAvgRate).toLocaleString()}
             </p>
           )}
           {data.pricePosition !== undefined && (
@@ -82,7 +82,7 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
           )}
           {data.revenueImpact && (
             <p className="text-gray-700 dark:text-gray-300">
-              Revenue Impact: ${(data.revenueImpact / 1000).toFixed(0)}K
+              Revenue Impact: ${Math.round(data.revenueImpact / 1000).toLocaleString()}K
             </p>
           )}
         </div>
