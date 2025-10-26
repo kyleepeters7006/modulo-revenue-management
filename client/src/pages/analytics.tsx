@@ -265,16 +265,23 @@ export function Analytics() {
         };
 
       case 'revenue':
-        const annualRevenue = summary.totalRevenueOpportunity;
-        const monthlyRevenue = annualRevenue / 12;
+        // totalRevenueOpportunity is the monthly opportunity (not annual)
+        const monthlyOpportunity = summary.totalRevenueOpportunity;
+        const annualOpportunity = monthlyOpportunity * 12;
+        
+        // Calculate current and potential revenue
+        const currentMonthlyRevenue = campuses.reduce((sum: number, c: any) => 
+          sum + (c.avgRate * c.occupiedUnits * 30), 0);
+        const potentialMonthlyRevenue = currentMonthlyRevenue + monthlyOpportunity;
+        
         return {
           title: 'Revenue Opportunity Calculation',
           formula: '(Potential Revenue at 95% Occupancy - Current Revenue) × 12 months',
           steps: [
-            { label: 'Current monthly revenue', value: `$${(monthlyRevenue / 2).toFixed(1)}M` },
-            { label: 'Potential monthly revenue at 95% occupancy', value: `$${monthlyRevenue.toFixed(1)}M` },
-            { label: 'Monthly opportunity', value: `$${(monthlyRevenue / 2).toFixed(1)}M` },
-            { label: 'Annual revenue opportunity', value: `$${(annualRevenue / 1000000).toFixed(1)}M`, highlight: true },
+            { label: 'Current monthly revenue', value: `$${(currentMonthlyRevenue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+            { label: 'Potential monthly revenue at 95% occupancy', value: `$${(potentialMonthlyRevenue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+            { label: 'Monthly opportunity', value: `$${(monthlyOpportunity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+            { label: 'Annual revenue opportunity', value: `$${(annualOpportunity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, highlight: true },
           ],
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,
