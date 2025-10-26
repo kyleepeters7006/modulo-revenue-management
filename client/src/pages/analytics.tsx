@@ -304,7 +304,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 70 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 90 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -324,7 +324,7 @@ export function Analytics() {
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
                     ))}
@@ -354,7 +354,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 70 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 90 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -375,7 +375,7 @@ export function Analytics() {
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
                     ))}
@@ -405,7 +405,7 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 70 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 90 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
@@ -425,7 +425,7 @@ export function Analytics() {
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#8884d8">
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
                     ))}
