@@ -299,13 +299,13 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 80, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 70 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
                     dataKey="occupancy" 
                     name="Occupancy"
-                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
+                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -5 }}
                     domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
@@ -318,7 +318,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ bottom: 0 }} />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#8884d8">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
@@ -349,13 +349,13 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 80, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 70 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
                     dataKey="competitorAvgRate" 
                     name="Market Average Rate"
-                    label={{ value: 'Competitor Average Rate ($)', position: 'insideBottom', offset: -10 }}
+                    label={{ value: 'Competitor Average Rate ($)', position: 'insideBottom', offset: -5 }}
                     domain={['dataMin - 20', 'dataMax + 20']}
                     tickFormatter={(value) => value.toLocaleString()}
                   />
@@ -369,7 +369,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ bottom: 0 }} />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#8884d8">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
@@ -400,13 +400,13 @@ export function Analytics() {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={500}>
-                <ScatterChart margin={{ top: 20, right: 20, bottom: 80, left: 60 }}>
+                <ScatterChart margin={{ top: 20, right: 20, bottom: 100, left: 70 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
                     dataKey="occupancy" 
                     name="Occupancy"
-                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
+                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -5 }}
                     domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
@@ -419,7 +419,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ bottom: 0 }} />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#8884d8">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.region)} />
@@ -456,7 +456,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="occupancy" 
                     name="Occupancy"
-                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -10 }}
+                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -5 }}
                     domain={['dataMin - 0.05', 'dataMax + 0.05']}
                     tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
@@ -505,7 +505,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="pricePosition" 
                     name="Price Position"
-                    label={{ value: 'Price Position vs Market (%)', position: 'insideBottom', offset: -10 }}
+                    label={{ value: 'Price Position vs Market (%)', position: 'insideBottom', offset: -5 }}
                     domain={['dataMin - 5', 'dataMax + 5']}
                     tickFormatter={(value) => `${value}%`}
                   />
@@ -555,7 +555,7 @@ export function Analytics() {
                     type="number" 
                     dataKey="pricePosition" 
                     name="Price Position"
-                    label={{ value: 'Price Differential from Market (%)', position: 'insideBottom', offset: -10 }}
+                    label={{ value: 'Price Differential from Market (%)', position: 'insideBottom', offset: -5 }}
                     domain={['dataMin - 5', 'dataMax + 5']}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value}%`}
                   />
