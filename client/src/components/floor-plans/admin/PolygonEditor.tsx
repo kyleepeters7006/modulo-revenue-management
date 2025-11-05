@@ -306,6 +306,8 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
           <AutoDetectPolygons 
             campusMap={campusMap} 
             onPolygonsDetected={handlePolygonsDetected}
+            rentRollData={rentRollData}
+            existingPolygons={existingPolygons}
           />
           
           {detectedPolygons.length > 0 && (
