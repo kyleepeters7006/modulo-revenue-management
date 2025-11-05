@@ -5109,61 +5109,70 @@ Respond in JSON format:
       // Initialize OpenAI client
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-      // Use GPT-5 vision to analyze the floor plan
-      const response = await openai.chat.completions.create({
-        model: "gpt-5",
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert at analyzing architectural floor plans for senior living facilities. 
-            Analyze the floor plan image and detect individual room boundaries. 
-            For each room detected, provide:
-            1. A polygon boundary (as normalized coordinates 0-100% for SVG)
-            2. A suggested room label (e.g., "101", "AL-102", "MC-01")
-            3. Approximate room center point
-            4. Room type if identifiable (Studio, 1BR, 2BR, Semi-Private, etc.)
-            
-            Return your response as a JSON object with this structure:
+      console.log(`Starting AI room detection for campus map ${campusMapId}...`);
+      
+      // Use GPT-5 vision to analyze the floor plan with timeout
+      const response = await Promise.race([
+        openai.chat.completions.create({
+          model: "gpt-5",
+          messages: [
             {
-              "rooms": [
+              role: "system",
+              content: `You are an expert at analyzing architectural floor plans for senior living facilities. 
+              Analyze the floor plan image and detect individual room boundaries. 
+              For each room detected, provide:
+              1. A polygon boundary (as normalized coordinates 0-100% for SVG)
+              2. A suggested room label (e.g., "101", "AL-102", "MC-01")
+              3. Approximate room center point
+              4. Room type if identifiable (Studio, 1BR, 2BR, Semi-Private, etc.)
+              
+              Return your response as a JSON object with this structure:
+              {
+                "rooms": [
+                  {
+                    "label": "101",
+                    "polygon": "10,10 20,10 20,20 10,20",
+                    "centerX": 15,
+                    "centerY": 15,
+                    "roomType": "Studio",
+                    "confidence": 0.95
+                  }
+                ],
+                "imageWidth": 1024,
+                "imageHeight": 683
+              }
+              
+              Notes:
+              - Polygon coordinates should be in SVG format as percentages (0-100)
+              - Only detect actual resident rooms, not common areas
+              - Look for room numbers in the image
+              - Confidence should be 0-1 (1 being most confident)`
+            },
+            {
+              role: "user",
+              content: [
                 {
-                  "label": "101",
-                  "polygon": "10,10 20,10 20,20 10,20",
-                  "centerX": 15,
-                  "centerY": 15,
-                  "roomType": "Studio",
-                  "confidence": 0.95
+                  type: "text",
+                  text: "Analyze this floor plan and detect all resident rooms with their boundaries and labels."
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:image/jpeg;base64,${imageBase64}`
+                  }
                 }
               ],
-              "imageWidth": 1024,
-              "imageHeight": 683
-            }
-            
-            Notes:
-            - Polygon coordinates should be in SVG format as percentages (0-100)
-            - Only detect actual resident rooms, not common areas
-            - Look for room numbers in the image
-            - Confidence should be 0-1 (1 being most confident)`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Analyze this floor plan and detect all resident rooms with their boundaries and labels."
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageBase64}`
-                }
-              }
-            ],
-          },
-        ],
-        response_format: { type: "json_object" },
-        max_completion_tokens: 4096,
-      });
+            },
+          ],
+          response_format: { type: "json_object" },
+          max_completion_tokens: 4096,
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI detection timed out after 60 seconds')), 60000)
+        )
+      ]) as any;
+      
+      console.log('AI room detection completed successfully');
 
       const detectionResult = JSON.parse(response.choices[0].message.content || '{"rooms": []}');
       

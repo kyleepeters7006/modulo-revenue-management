@@ -45,6 +45,11 @@ export default function AutoDetectPolygons({
 
     try {
       // Step 1: Detect rooms using AI
+      toast({
+        title: "Analyzing floor plan...",
+        description: "AI is scanning the image to detect rooms (this may take 30-60 seconds)",
+      });
+
       const result: any = await apiRequest('/api/floor-plans/detect-rooms', 'POST', {
         campusMapId: campusMap.id,
       });
@@ -57,6 +62,11 @@ export default function AutoDetectPolygons({
         });
         return;
       }
+
+      toast({
+        title: `Detected ${result.detected.length} rooms`,
+        description: "Now sorting and mapping to available units...",
+      });
 
       // Step 2: Convert AI response to polygon format with center coordinates
       const detectedRooms = result.detected.map((room: any) => {
