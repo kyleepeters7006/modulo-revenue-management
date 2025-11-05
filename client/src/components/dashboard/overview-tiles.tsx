@@ -1,12 +1,8 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { DollarSign, Home, Users, TrendingUp, Info } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface OverviewData {
   occupancyByRoomType: {
@@ -36,6 +32,9 @@ interface OverviewData {
 }
 
 export default function OverviewTiles() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogContent, setDialogContent] = useState<{ type: string; calculation: string } | null>(null);
+
   const { data: overviewData, isLoading } = useQuery<OverviewData>({
     queryKey: ["/api/overview"],
   });
@@ -102,7 +101,7 @@ export default function OverviewTiles() {
     return colors[color as keyof typeof colors] || colors.emerald;
   };
 
-  const renderRemainderWithTooltip = (item: any, type: string) => {
+  const renderRemainderWithDialog = (item: any, type: string) => {
     const avgRate = item.avgRate || 0;
     const moduloRate = item.avgModuloRate || 0;
     const remainder = item.monthlyRemainder || 0;
@@ -113,28 +112,24 @@ export default function OverviewTiles() {
     const currentMonthlyRevenue = avgRate * occupied;
     const potentialMonthlyRevenue = moduloRate * targetOccupancy;
     
-    const calculation = `Detailed Breakdown:\n\nCurrent Monthly Revenue:\n$${Math.round(avgRate).toLocaleString()} × ${occupied} units = $${Math.round(currentMonthlyRevenue).toLocaleString()}\n\nPotential at 95% Occupancy:\n$${Math.round(moduloRate).toLocaleString()} × ${targetOccupancy} units = $${Math.round(potentialMonthlyRevenue).toLocaleString()}\n\nMonthly Remainder:\n$${Math.round(potentialMonthlyRevenue).toLocaleString()} - $${Math.round(currentMonthlyRevenue).toLocaleString()} = $${Math.round(remainder).toLocaleString()}`;
+    const calculation = `Current Monthly Revenue:\n$${Math.round(avgRate).toLocaleString()} × ${occupied} units = $${Math.round(currentMonthlyRevenue).toLocaleString()}\n\nPotential at 95% Occupancy:\n$${Math.round(moduloRate).toLocaleString()} × ${targetOccupancy} units = $${Math.round(potentialMonthlyRevenue).toLocaleString()}\n\nMonthly Remainder:\n$${Math.round(potentialMonthlyRevenue).toLocaleString()} - $${Math.round(currentMonthlyRevenue).toLocaleString()} = $${Math.round(remainder).toLocaleString()}`;
+    
+    const handleClick = () => {
+      setDialogContent({ type, calculation });
+      setDialogOpen(true);
+    };
     
     return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex justify-between items-center cursor-help hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 transition-colors">
-              <span className="text-[var(--dashboard-muted)] text-xs sm:text-sm flex-shrink-0">Monthly Remainder:</span>
-              <div className="flex items-center gap-1 ml-2">
-                <span className="font-medium text-[var(--trilogy-success)] text-xs sm:text-sm whitespace-nowrap">${Math.round(remainder).toLocaleString()}</span>
-                <Info className="w-3 h-3 text-[var(--dashboard-muted)] flex-shrink-0" />
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-sm">
-            <div className="text-sm">
-              <p className="font-medium mb-2">{type} Remainder Calculation</p>
-              <div className="text-xs font-mono whitespace-pre-line">{calculation}</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <div 
+        className="flex justify-between items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 transition-colors active:bg-gray-200 dark:active:bg-gray-700"
+        onClick={handleClick}
+      >
+        <span className="text-[var(--dashboard-muted)] text-xs sm:text-sm flex-shrink-0">Monthly Remainder:</span>
+        <div className="flex items-center gap-1 ml-2">
+          <span className="font-medium text-[var(--trilogy-success)] text-xs sm:text-sm whitespace-nowrap">${Math.round(remainder).toLocaleString()}</span>
+          <Info className="w-3 h-3 text-[var(--dashboard-muted)] flex-shrink-0" />
+        </div>
+      </div>
     );
   };
 
@@ -214,7 +209,7 @@ export default function OverviewTiles() {
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
                     <span className="font-medium">${Math.round(serviceLine.avgCompetitorRate || 0).toLocaleString()}</span>
                   </div>
-                  {renderRemainderWithTooltip(serviceLine, serviceLine.serviceLine)}
+                  {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
                 </div>
               </div>
             )) || []}
@@ -264,13 +259,30 @@ export default function OverviewTiles() {
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
                     <span className="font-medium">${Math.round(roomType.avgCompetitorRate || 0).toLocaleString()}</span>
                   </div>
-                  {renderRemainderWithTooltip(roomType, roomType.roomType)}
+                  {renderRemainderWithDialog(roomType, roomType.roomType)}
                 </div>
               </div>
             ))}
           </div>
         </CardContent>
       </Card>
+
+      {/* Monthly Remainder Calculation Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{dialogContent?.type} Remainder Calculation</DialogTitle>
+            <DialogDescription>
+              Detailed breakdown of monthly revenue opportunity
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            <pre className="text-xs font-mono whitespace-pre-line bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+              {dialogContent?.calculation}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
