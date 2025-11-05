@@ -16,7 +16,7 @@ export default function Landing() {
         {/* Hero Content */}
         <div className="mb-12">
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-light text-[var(--trilogy-dark-blue)] mb-6">
-            Portfolio Revenue Management System
+            Revenue Management Dashboard
           </h1>
           <p className="text-lg sm:text-xl lg:text-2xl font-light text-[var(--trilogy-grey)] leading-relaxed mb-8">
             Optimize pricing in real time. Automated execution of and set algorithmic controls for AI driven dynamic pricing
