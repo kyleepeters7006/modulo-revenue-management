@@ -31,6 +31,7 @@ export default function FloorPlanImageUpload({
   const [preview, setPreview] = useState("");
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(683);
+  const [isDragging, setIsDragging] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -120,6 +121,62 @@ export default function FloorPlanImageUpload({
     setHeight(683);
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!validTypes.includes(file.type)) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select a JPG, PNG, or WebP image",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setImageFile(file);
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          setWidth(img.width);
+          setHeight(img.height);
+          setPreview(e.target?.result as string);
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+
+      if (!name) {
+        setName(file.name.replace(/\.[^/.]+$/, ''));
+      }
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -144,13 +201,44 @@ export default function FloorPlanImageUpload({
 
           <div>
             <Label htmlFor="image-file">Floor Plan Image</Label>
-            <Input
-              id="image-file"
-              type="file"
-              accept="image/jpeg,image/jpg,image/png,image/webp"
-              onChange={handleFileChange}
-              data-testid="input-image-file"
-            />
+            <div
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                isDragging 
+                  ? 'border-[var(--trilogy-teal)] bg-teal-50' 
+                  : 'border-slate-300 hover:border-slate-400'
+              }`}
+            >
+              {!preview ? (
+                <div className="space-y-4">
+                  <ImageIcon className="h-12 w-12 text-slate-400 mx-auto" />
+                  <div>
+                    <p className="text-sm text-slate-600 mb-2">
+                      Drag and drop your image here, or
+                    </p>
+                    <label htmlFor="image-file" className="cursor-pointer">
+                      <span className="text-sm font-medium text-[var(--trilogy-teal)] hover:underline">
+                        browse files
+                      </span>
+                    </label>
+                    <Input
+                      id="image-file"
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      data-testid="input-image-file"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Supports JPG, PNG, and WebP formats
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           {preview && (

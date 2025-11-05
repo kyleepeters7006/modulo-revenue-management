@@ -19,6 +19,14 @@ export default function FloorPlansPage() {
   const { data: locationsData } = useQuery({
     queryKey: ['/api/locations'],
   });
+
+  // Auto-select first campus when locations load
+  useEffect(() => {
+    const locations = locationsData?.locations || [];
+    if (locations.length > 0 && !selectedCampus) {
+      setSelectedCampus(locations[0].id);
+    }
+  }, [locationsData, selectedCampus]);
   
   // Fetch floor plans for filters
   const { data: floorPlans = [] } = useQuery({

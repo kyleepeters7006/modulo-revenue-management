@@ -26,6 +26,14 @@ export default function FloorPlansAdminPage() {
     queryKey: ['/api/locations'],
   });
 
+  // Auto-select first campus when locations load if not set from URL
+  useEffect(() => {
+    const locations = locationsData?.locations || [];
+    if (locations.length > 0 && !selectedCampus) {
+      setSelectedCampus(locations[0].id);
+    }
+  }, [locationsData, selectedCampus]);
+
   const { data: campusMaps = [] } = useQuery({
     queryKey: [`/api/campus-maps/${selectedCampus}`],
     enabled: !!selectedCampus,
