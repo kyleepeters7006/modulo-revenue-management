@@ -5302,6 +5302,17 @@ Respond in JSON format:
     }
   });
 
+  app.patch("/api/unit-polygons/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const polygon = await storage.updateUnitPolygon(id, req.body);
+      res.json(polygon);
+    } catch (error) {
+      console.error('Error updating unit polygon:', error);
+      res.status(500).json({ error: "Failed to update unit polygon" });
+    }
+  });
+
   app.delete("/api/unit-polygons/:id", async (req, res) => {
     try {
       const { id } = req.params;
