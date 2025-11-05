@@ -37,14 +37,14 @@ export default function Overview() {
           <OverviewTiles />
         </div>
 
-        {/* Annual Impact Summary */}
-        <div className="mb-12">
-          <AnnualImpactSummary />
-        </div>
-
         {/* Revenue Growth Chart */}
         <div className="mb-12">
           <RevenueChart />
+        </div>
+
+        {/* Annual Impact Summary */}
+        <div className="mb-12">
+          <AnnualImpactSummary />
         </div>
       </div>
     </div>
