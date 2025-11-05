@@ -54,6 +54,13 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     enabled: !!hoveredUnitId,
   });
 
+  // Close edit dialog when edit mode is disabled
+  useEffect(() => {
+    if (!editMode && editingUnit) {
+      setEditingUnit(null);
+    }
+  }, [editMode, editingUnit]);
+
   // Handle pinch zoom
   useEffect(() => {
     const container = svgContainerRef.current;
@@ -180,14 +187,37 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const handleSaveEdit = async () => {
     if (!editingUnit) return;
 
+    // Validate rate
+    const rate = parseFloat(editFormData.streetRate);
+    if (isNaN(rate) || rate <= 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid positive monthly rate",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       await apiRequest(`/api/rent-roll-data/${editingUnit.id}`, 'PATCH', {
-        streetRate: parseFloat(editFormData.streetRate),
+        streetRate: rate,
         occupiedYN: editFormData.occupiedYN === 'yes',
       });
 
-      queryClient.invalidateQueries({ queryKey: [`/api/rent-roll-data/${editingUnit.id}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/rent-roll-data/location`] });
+      // Invalidate all rent-roll-data queries to refresh all views
+      // Use predicate to match both string and array query keys
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key: unknown = query.queryKey;
+          if (typeof key === 'string') {
+            return key.includes('/api/rent-roll-data');
+          }
+          if (Array.isArray(key)) {
+            return key.some((k: unknown) => typeof k === 'string' && k.includes('/api/rent-roll-data'));
+          }
+          return false;
+        },
+      });
 
       toast({
         title: "Success",
