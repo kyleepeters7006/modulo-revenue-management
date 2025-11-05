@@ -120,10 +120,10 @@ export default function OverviewTiles() {
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex justify-between items-center cursor-help hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 transition-colors">
-              <span className="text-[var(--dashboard-muted)]">Monthly Remainder:</span>
-              <div className="flex items-center gap-1">
-                <span className="font-medium text-[var(--trilogy-success)]">${Math.round(remainder).toLocaleString()}</span>
-                <Info className="w-3 h-3 text-[var(--dashboard-muted)]" />
+              <span className="text-[var(--dashboard-muted)] text-xs sm:text-sm flex-shrink-0">Monthly Remainder:</span>
+              <div className="flex items-center gap-1 ml-2">
+                <span className="font-medium text-[var(--trilogy-success)] text-xs sm:text-sm whitespace-nowrap">${Math.round(remainder).toLocaleString()}</span>
+                <Info className="w-3 h-3 text-[var(--dashboard-muted)] flex-shrink-0" />
               </div>
             </div>
           </TooltipTrigger>
