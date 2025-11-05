@@ -50,9 +50,35 @@ export default function AutoDetectPolygons({
         description: "AI is scanning the image to detect rooms (this may take 30-60 seconds)",
       });
 
-      const result: any = await apiRequest('/api/floor-plans/detect-rooms', 'POST', {
-        campusMapId: campusMap.id,
-      });
+      // Use custom fetch with extended timeout for AI vision API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 second timeout
+      
+      let result: any;
+      try {
+        const response = await fetch('/api/floor-plans/detect-rooms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ campusMapId: campusMap.id }),
+          credentials: 'include',
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`${response.status}: ${errorText}`);
+        }
+        
+        result = await response.json();
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          throw new Error('AI detection timed out. Please try again or use a smaller image.');
+        }
+        throw fetchError;
+      }
 
       if (!result?.detected || result.detected.length === 0) {
         toast({
