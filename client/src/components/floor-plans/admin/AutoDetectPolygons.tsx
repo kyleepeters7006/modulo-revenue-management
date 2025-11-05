@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Wand2, AlertCircle, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface AutoDetectPolygonsProps {
   campusMap: any;
@@ -239,10 +239,11 @@ export default function AutoDetectPolygons({
       const availableRooms = rentRollData
         .filter((room: any) => !assignedRoomIds.has(room.id))
         .sort((a: any, b: any) => {
-          // Sort by room number numerically
-          const numA = parseInt(a.roomNumber) || 0;
-          const numB = parseInt(b.roomNumber) || 0;
-          return numA - numB;
+          // Sort by room number alphanumerically (handles "A1", "101B", etc.)
+          return a.roomNumber.localeCompare(b.roomNumber, undefined, { 
+            numeric: true, 
+            sensitivity: 'base' 
+          });
         });
 
       if (availableRooms.length === 0) {
@@ -288,13 +289,15 @@ export default function AutoDetectPolygons({
         }
       }
 
+      // Invalidate the query cache to refresh the UI with newly saved polygons
+      await queryClient.invalidateQueries({ 
+        queryKey: ['/api/unit-polygons/map', campusMap.id] 
+      });
+
       toast({
         title: "Auto-mapping complete!",
         description: `Successfully mapped and saved ${savedCount} out of ${matchCount} rooms in left-to-right order`,
       });
-
-      // Trigger refresh by calling onPolygonsDetected with empty array
-      onPolygonsDetected([]);
 
     } catch (error) {
       console.error('Auto-mapping error:', error);
