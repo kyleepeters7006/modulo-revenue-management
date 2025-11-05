@@ -19,7 +19,7 @@ export default function Landing() {
             Portfolio Revenue Management System
           </h1>
           <p className="text-lg sm:text-xl lg:text-2xl font-light text-[var(--trilogy-grey)] leading-relaxed mb-8">
-            Optimize pricing in real time. Automate execution and set algorithmic controls for AI driven dynamic pricing
+            Optimize pricing in real time. Automated execution of and set algorithmic controls for AI driven dynamic pricing
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <div className="flex items-center space-x-2 text-[var(--trilogy-teal)]">
