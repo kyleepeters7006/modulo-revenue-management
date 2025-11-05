@@ -36,6 +36,8 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
   const [editingPointIndex, setEditingPointIndex] = useState<number | null>(null);
   const [showMobileControls, setShowMobileControls] = useState(false);
+  const [draggedPolygon, setDraggedPolygon] = useState<any>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const { toast } = useToast();
@@ -207,24 +209,51 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
     });
   };
 
-  const handlePlaceDetectedPolygon = (polygon: any) => {
-    if (!selectedRoomId) {
+  const handlePlaceDetectedPolygon = (polygon: any, dropPosition?: { x: number; y: number }) => {
+    // Auto-select next available room if none selected
+    let roomToUse = selectedRoomId;
+    let selectedRoom = rentRollData.find((r: any) => r.id === selectedRoomId);
+    
+    if (!roomToUse && availableRooms.length > 0) {
+      roomToUse = availableRooms[0].id;
+      selectedRoom = availableRooms[0];
+      setSelectedRoomId(roomToUse);
+    }
+
+    if (!roomToUse || !selectedRoom) {
       toast({
-        title: "No room selected",
-        description: "Please select a room to link this polygon to",
+        title: "No rooms available",
+        description: "All rooms have been mapped. Delete an existing polygon to free up a room.",
         variant: "destructive",
       });
       return;
     }
 
-    const selectedRoom = rentRollData.find((r: any) => r.id === selectedRoomId);
-    if (!selectedRoom) return;
+    // If drop position provided, adjust polygon coordinates to center at drop location
+    let adjustedPoints = polygon.points;
+    if (dropPosition && imageRef.current) {
+      const rect = imageRef.current.getBoundingClientRect();
+      // Convert screen coords to image coords
+      const dropX = Math.round((dropPosition.x / rect.width) * (campusMap?.width || 1024));
+      const dropY = Math.round((dropPosition.y / rect.height) * (campusMap?.height || 683));
+      
+      // Calculate polygon center
+      const centerX = polygon.points.reduce((sum: number, p: number[]) => sum + p[0], 0) / polygon.points.length;
+      const centerY = polygon.points.reduce((sum: number, p: number[]) => sum + p[1], 0) / polygon.points.length;
+      
+      // Offset to move center to drop position
+      const offsetX = dropX - centerX;
+      const offsetY = dropY - centerY;
+      
+      // Adjust all points
+      adjustedPoints = polygon.points.map((p: number[]) => [p[0] + offsetX, p[1] + offsetY]);
+    }
 
     const polygonData = {
       campusMapId: campusMap.id,
-      rentRollDataId: selectedRoomId,
+      rentRollDataId: roomToUse,
       label: selectedRoom.roomNumber,
-      polygonCoordinates: JSON.stringify(polygon.points),
+      polygonCoordinates: JSON.stringify(adjustedPoints),
       fillColor: polygon.color,
       strokeColor: "#334155",
     };
@@ -232,6 +261,11 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
     createPolygonMutation.mutate(polygonData);
     // Remove the polygon from detected list after placing it
     setDetectedPolygons(detectedPolygons.filter((p) => p !== polygon));
+    
+    toast({
+      title: "Room placed",
+      description: `Placed ${polygon.label} as Room ${selectedRoom.roomNumber}`,
+    });
   };
 
   const handlePolygonClick = (polygon: any, e: React.MouseEvent | React.TouchEvent) => {
@@ -292,6 +326,37 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
         return `${x},${y}`;
       })
       .join(" ");
+  };
+
+  const handleDragStart = (polygon: any, e: React.DragEvent) => {
+    setDraggedPolygon(polygon);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify(polygon));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    
+    if (!draggedPolygon || !imageRef.current) return;
+    
+    const rect = imageRef.current.getBoundingClientRect();
+    const dropX = e.clientX - rect.left;
+    const dropY = e.clientY - rect.top;
+    
+    handlePlaceDetectedPolygon(draggedPolygon, { x: dropX, y: dropY });
+    setDraggedPolygon(null);
   };
 
   return (
@@ -375,28 +440,35 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-[var(--trilogy-dark-blue)] font-medium mb-3">
-                  Select a room below, then click a detected polygon preset to place it:
+                  Drag and drop room boxes onto the floor plan below, or click to auto-place:
                 </p>
                 <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
                   {detectedPolygons.map((polygon, index) => (
-                    <Button
+                    <div
                       key={index}
-                      variant="outline"
-                      className="h-auto p-3 flex flex-col items-start gap-1 bg-white hover:bg-[var(--trilogy-teal)] hover:text-white border-[var(--trilogy-teal)] border-2 transition-all font-semibold"
-                      onClick={() => handlePlaceDetectedPolygon(polygon)}
-                      data-testid={`button-preset-${index}`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(polygon, e)}
+                      className="cursor-move"
+                      data-testid={`draggable-preset-${index}`}
                     >
-                      <div className="flex items-center gap-2 w-full">
-                        <div 
-                          className="w-4 h-4 rounded border"
-                          style={{ backgroundColor: polygon.color }}
-                        />
-                        <span className="font-medium text-sm">{polygon.label || `Preset ${index + 1}`}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {polygon.points.length} points • {polygon.roomType || 'Unknown type'}
-                      </span>
-                    </Button>
+                      <Button
+                        variant="outline"
+                        className="h-auto p-3 w-full flex flex-col items-start gap-1 bg-white hover:bg-[var(--trilogy-teal)] hover:text-white border-[var(--trilogy-teal)] border-2 transition-all font-semibold"
+                        onClick={() => handlePlaceDetectedPolygon(polygon)}
+                        data-testid={`button-preset-${index}`}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <div 
+                            className="w-4 h-4 rounded border"
+                            style={{ backgroundColor: polygon.color }}
+                          />
+                          <span className="font-medium text-sm">{polygon.label || `Preset ${index + 1}`}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {polygon.points.length} points • {polygon.roomType || 'Unknown type'}
+                        </span>
+                      </Button>
+                    </div>
                   ))}
                 </div>
               </CardContent>
@@ -551,16 +623,36 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
               </p>
             </div>
           )}
-          <div className="relative inline-block touch-none">
+          <div 
+            className="relative inline-block touch-none"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             <img
               ref={imageRef}
               src={campusMap.baseImageUrl}
               alt="Floor plan"
-              className={`max-w-full h-auto border rounded ${isDrawing ? 'cursor-crosshair' : editorMode ? 'cursor-pointer' : ''}`}
+              className={`max-w-full h-auto border-4 rounded transition-all ${
+                isDraggingOver 
+                  ? 'border-[var(--trilogy-teal)] shadow-lg' 
+                  : isDrawing 
+                    ? 'cursor-crosshair border-gray-300' 
+                    : editorMode 
+                      ? 'cursor-pointer border-gray-300' 
+                      : 'border-gray-300'
+              }`}
               onClick={handleImageClick}
               onTouchStart={handleImageTouch}
               data-testid="floor-plan-image"
             />
+            {isDraggingOver && (
+              <div className="absolute inset-0 bg-[var(--trilogy-teal)] bg-opacity-10 border-4 border-dashed border-[var(--trilogy-teal)] rounded pointer-events-none flex items-center justify-center">
+                <div className="bg-white px-6 py-3 rounded-lg shadow-lg">
+                  <p className="text-[var(--trilogy-teal)] font-semibold text-lg">Drop here to place room</p>
+                </div>
+              </div>
+            )}
             
             {/* SVG overlay for existing polygons, current drawing, and edit mode */}
             <svg
