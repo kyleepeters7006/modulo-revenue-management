@@ -172,6 +172,7 @@ export interface IStorage {
   
   // Floor Plans methods
   getCampusMaps(): Promise<any[]>;
+  getCampusMapById(id: string): Promise<any | undefined>;
   getCampusMapByLocation(locationId: string): Promise<any | undefined>;
   createCampusMap(data: any): Promise<any>;
   updateCampusMap(id: string, data: any): Promise<any>;
@@ -1048,6 +1049,11 @@ Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate"
   // Floor Plans methods implementation
   async getCampusMaps(): Promise<CampusMap[]> {
     return await db.select().from(campusMaps);
+  }
+
+  async getCampusMapById(id: string): Promise<CampusMap | undefined> {
+    const [map] = await db.select().from(campusMaps).where(eq(campusMaps.id, id));
+    return map;
   }
 
   async getCampusMapByLocation(locationId: string): Promise<CampusMap | undefined> {
