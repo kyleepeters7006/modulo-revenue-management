@@ -11,7 +11,7 @@ const defaultGuardrails = {
   min_price_change_pct: -15,
   max_price_change_pct: 25,
   min_absolute_price: 2500,
-  max_absolute_price: 8000,
+  max_absolute_price: 15000,
   occupancy_threshold: 0.95,
   vacancy_days_threshold: 30,
   seasonal_adjustments: {
@@ -60,17 +60,19 @@ export default function GuardrailsEditor() {
     },
   });
 
-  const handleInputChange = (field: string, value: number) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const handleInputChange = (field: string, value: string) => {
+    const numValue = value === '' ? 0 : parseFloat(value);
+    setFormData(prev => ({ ...prev, [field]: numValue }));
     setSaveStatus("Configuration ready to save...");
   };
 
-  const handleSeasonalChange = (season: string, value: number) => {
+  const handleSeasonalChange = (season: string, value: string) => {
+    const numValue = value === '' ? 0 : parseFloat(value);
     setFormData(prev => ({
       ...prev,
       seasonal_adjustments: {
         ...prev.seasonal_adjustments,
-        [season]: value
+        [season]: numValue
       }
     }));
     setSaveStatus("Configuration ready to save...");
@@ -111,7 +113,7 @@ export default function GuardrailsEditor() {
               id="min_price_change"
               type="number"
               value={formData.min_price_change_pct}
-              onChange={(e) => handleInputChange('min_price_change_pct', Number(e.target.value))}
+              onChange={(e) => handleInputChange('min_price_change_pct', e.target.value)}
               className="dashboard-input"
               data-testid="input-min-price-change"
             />
@@ -122,7 +124,7 @@ export default function GuardrailsEditor() {
               id="max_price_change"
               type="number"
               value={formData.max_price_change_pct}
-              onChange={(e) => handleInputChange('max_price_change_pct', Number(e.target.value))}
+              onChange={(e) => handleInputChange('max_price_change_pct', e.target.value)}
               className="dashboard-input"
               data-testid="input-max-price-change"
             />
@@ -137,7 +139,7 @@ export default function GuardrailsEditor() {
               id="min_absolute_price"
               type="number"
               value={formData.min_absolute_price}
-              onChange={(e) => handleInputChange('min_absolute_price', Number(e.target.value))}
+              onChange={(e) => handleInputChange('min_absolute_price', e.target.value)}
               className="dashboard-input"
               data-testid="input-min-absolute-price"
             />
@@ -148,7 +150,7 @@ export default function GuardrailsEditor() {
               id="max_absolute_price"
               type="number"
               value={formData.max_absolute_price}
-              onChange={(e) => handleInputChange('max_absolute_price', Number(e.target.value))}
+              onChange={(e) => handleInputChange('max_absolute_price', e.target.value)}
               className="dashboard-input"
               data-testid="input-max-absolute-price"
             />
@@ -166,7 +168,7 @@ export default function GuardrailsEditor() {
               min="0"
               max="1"
               value={formData.occupancy_threshold}
-              onChange={(e) => handleInputChange('occupancy_threshold', Number(e.target.value))}
+              onChange={(e) => handleInputChange('occupancy_threshold', e.target.value)}
               className="dashboard-input"
               data-testid="input-occupancy-threshold"
             />
@@ -177,7 +179,7 @@ export default function GuardrailsEditor() {
               id="vacancy_days_threshold"
               type="number"
               value={formData.vacancy_days_threshold}
-              onChange={(e) => handleInputChange('vacancy_days_threshold', Number(e.target.value))}
+              onChange={(e) => handleInputChange('vacancy_days_threshold', e.target.value)}
               className="dashboard-input"
               data-testid="input-vacancy-days-threshold"
             />
@@ -195,7 +197,7 @@ export default function GuardrailsEditor() {
                 type="number"
                 step="0.01"
                 value={formData.seasonal_adjustments.summer}
-                onChange={(e) => handleSeasonalChange('summer', Number(e.target.value))}
+                onChange={(e) => handleSeasonalChange('summer', e.target.value)}
                 className="dashboard-input"
                 data-testid="input-summer-adjustment"
               />
@@ -207,7 +209,7 @@ export default function GuardrailsEditor() {
                 type="number"
                 step="0.01"
                 value={formData.seasonal_adjustments.winter}
-                onChange={(e) => handleSeasonalChange('winter', Number(e.target.value))}
+                onChange={(e) => handleSeasonalChange('winter', e.target.value)}
                 className="dashboard-input"
                 data-testid="input-winter-adjustment"
               />
