@@ -5093,13 +5093,17 @@ Respond in JSON format:
         }
         
         // Validate that the path doesn't contain traversal attempts
-        if (campusMap.baseImageUrl.includes('..') || !campusMap.baseImageUrl.startsWith('attached_assets/')) {
+        const normalizedPath = campusMap.baseImageUrl.startsWith('/') 
+          ? campusMap.baseImageUrl.substring(1) 
+          : campusMap.baseImageUrl;
+          
+        if (campusMap.baseImageUrl.includes('..') || !normalizedPath.startsWith('attached_assets/')) {
           return res.status(400).json({ error: "Invalid image path" });
         }
         
         // Read the image file and convert to base64
         const fs = await import('fs/promises');
-        const imagePath = path.join(process.cwd(), campusMap.baseImageUrl);
+        const imagePath = path.join(process.cwd(), normalizedPath);
         const imageBuffer = await fs.readFile(imagePath);
         imageBase64 = imageBuffer.toString('base64');
       } else {
