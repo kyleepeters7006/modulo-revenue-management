@@ -44,6 +44,7 @@ export default function AdjustmentRanges() {
   const queryClient = useQueryClient();
   const [ranges, setRanges] = useState<AdjustmentRange>(defaultRanges);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const { data: savedRanges, isLoading } = useQuery<AdjustmentRange>({
     queryKey: ['/api/adjustment-ranges'],
@@ -55,6 +56,18 @@ export default function AdjustmentRanges() {
     }
   }, [savedRanges]);
 
+  // Auto-save with debounce
+  useEffect(() => {
+    if (!hasChanges) return;
+    
+    const timeoutId = setTimeout(() => {
+      setIsSaving(true);
+      saveMutation.mutate(ranges);
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [ranges, hasChanges]);
+
   const saveMutation = useMutation({
     mutationFn: async (data: AdjustmentRange) => {
       await apiRequest('/api/adjustment-ranges', 'PUT', data);
@@ -63,13 +76,11 @@ export default function AdjustmentRanges() {
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-ranges'] });
       queryClient.invalidateQueries({ queryKey: ['/api/calculation'] });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
-      toast({
-        title: "Success",
-        description: "Adjustment ranges have been updated.",
-      });
       setHasChanges(false);
+      setIsSaving(false);
     },
     onError: () => {
+      setIsSaving(false);
       toast({
         title: "Error",
         description: "Failed to update adjustment ranges.",

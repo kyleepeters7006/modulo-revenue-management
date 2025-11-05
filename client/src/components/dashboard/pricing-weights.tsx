@@ -119,6 +119,8 @@ const weightDetails: Record<string, {
 export default function PricingWeights() {
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [selectedWeightKey, setSelectedWeightKey] = useState<string | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -130,8 +132,20 @@ export default function PricingWeights() {
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0);
   const isValid = totalWeight === 100;
 
+  // Auto-save with debounce
   useEffect(() => {
-    if (status && 'weights' in status && status.weights) {
+    if (!hasChanges || !isValid) return;
+    
+    const timeoutId = setTimeout(() => {
+      setIsSaving(true);
+      saveWeightsMutation.mutate(weights);
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [weights, hasChanges, isValid]);
+
+  useEffect(() => {
+    if (status && typeof status === 'object' && 'weights' in status && status.weights) {
       const apiWeights = status.weights as any;
       const loadedWeights = {
         occupancyPressure: apiWeights.occupancy_pressure ?? 25,
@@ -181,15 +195,14 @@ export default function PricingWeights() {
       return apiRequest('/api/weights', 'POST', payload);
     },
     onSuccess: () => {
-      toast({
-        title: "Weights Saved",
-        description: "Pricing algorithm weights updated successfully",
-      });
       queryClient.invalidateQueries({ queryKey: ['/api/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
+      setHasChanges(false);
+      setIsSaving(false);
     },
     onError: (error) => {
+      setIsSaving(false);
       toast({
         title: "Save Failed",
         description: error.message,
@@ -223,6 +236,7 @@ export default function PricingWeights() {
       });
       
       setWeights(newWeights);
+      setHasChanges(true);
     } else if (otherKeys.length > 0) {
       // Proportionally adjust other weights based on their current ratios
       const newWeights = { ...weights, [key]: newValue };
@@ -269,6 +283,7 @@ export default function PricingWeights() {
       }
       
       setWeights(newWeights);
+      setHasChanges(true);
     }
   };
 

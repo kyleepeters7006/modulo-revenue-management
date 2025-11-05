@@ -52,6 +52,7 @@ export function AiAdjustmentRanges() {
   const { toast } = useToast();
   const [localRanges, setLocalRanges] = useState<AiAdjustmentRanges>(defaultRanges);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const { data: ranges, isLoading } = useQuery<AiAdjustmentRanges>({
     queryKey: ['/api/ai-adjustment-ranges'],
@@ -63,24 +64,30 @@ export function AiAdjustmentRanges() {
     }
   }, [ranges]);
 
+  // Auto-save with debounce
+  useEffect(() => {
+    if (!hasChanges) return;
+    
+    const timeoutId = setTimeout(() => {
+      setIsSaving(true);
+      saveMutation.mutate(localRanges);
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [localRanges, hasChanges]);
+
   const saveMutation = useMutation({
     mutationFn: async (data: AiAdjustmentRanges) => {
-      await apiRequest('/api/ai-adjustment-ranges', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      await apiRequest('/api/ai-adjustment-ranges', 'PUT', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-adjustment-ranges'] });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
       setHasChanges(false);
-      toast({
-        title: 'AI Ranges Saved',
-        description: 'AI adjustment ranges have been updated successfully.',
-      });
+      setIsSaving(false);
     },
     onError: () => {
+      setIsSaving(false);
       toast({
         title: 'Error',
         description: 'Failed to save AI adjustment ranges.',
