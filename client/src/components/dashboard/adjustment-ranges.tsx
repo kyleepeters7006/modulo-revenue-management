@@ -62,6 +62,7 @@ export default function AdjustmentRanges() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-ranges'] });
       queryClient.invalidateQueries({ queryKey: ['/api/calculation'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
       toast({
         title: "Success",
         description: "Adjustment ranges have been updated.",

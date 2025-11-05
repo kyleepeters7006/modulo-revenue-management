@@ -73,6 +73,7 @@ export function AiAdjustmentRanges() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-adjustment-ranges'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
       setHasChanges(false);
       toast({
         title: 'AI Ranges Saved',

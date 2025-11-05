@@ -187,6 +187,7 @@ export default function PricingWeights() {
       });
       queryClient.invalidateQueries({ queryKey: ['/api/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
     },
     onError: (error) => {
       toast({
