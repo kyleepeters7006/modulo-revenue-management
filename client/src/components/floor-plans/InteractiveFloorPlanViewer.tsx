@@ -2,7 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ZoomIn, ZoomOut, Maximize2, Edit3, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface InteractiveFloorPlanViewerProps {
   campusMap: any;
@@ -30,8 +35,12 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [zoom, setZoom] = useState(1);
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  const [editMode, setEditMode] = useState(false);
+  const [editingUnit, setEditingUnit] = useState<any | null>(null);
+  const [editFormData, setEditFormData] = useState<any>({});
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const lastTouchDistance = useRef<number | null>(null);
+  const { toast } = useToast();
 
   // Fetch unit polygons for this map
   const { data: polygons = [] } = useQuery<UnitPolygon[]>({
@@ -147,6 +156,52 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
 
   const handlePolygonLeave = () => {
     setHoveredUnitId(null);
+  };
+
+  const handlePolygonClick = async (rentRollDataId: string) => {
+    if (!editMode) return;
+    
+    try {
+      const unit: any = await apiRequest(`/api/rent-roll-data/${rentRollDataId}`, 'GET');
+      setEditingUnit(unit);
+      setEditFormData({
+        streetRate: unit.streetRate,
+        occupiedYN: unit.occupiedYN ? 'yes' : 'no',
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load unit details",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingUnit) return;
+
+    try {
+      await apiRequest(`/api/rent-roll-data/${editingUnit.id}`, 'PATCH', {
+        streetRate: parseFloat(editFormData.streetRate),
+        occupiedYN: editFormData.occupiedYN === 'yes',
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/rent-roll-data/${editingUnit.id}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/rent-roll-data/location`] });
+
+      toast({
+        title: "Success",
+        description: `Unit ${editingUnit.roomNumber} updated successfully`,
+      });
+
+      setEditingUnit(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update unit",
+        variant: "destructive",
+      });
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -265,7 +320,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                         }
                       }}
                       onMouseLeave={handlePolygonLeave}
-                      onClick={() => console.log('Clicked unit:', polygon.label)}
+                      onClick={() => handlePolygonClick(polygon.rentRollDataId)}
                       data-testid={`polygon-unit-${polygon.label}`}
                     />
                   );
@@ -279,8 +334,24 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           )}
         </div>
 
-        {/* Zoom Controls */}
-        <div className="absolute top-4 right-4 flex flex-col gap-2 bg-white/90 rounded-lg p-1 shadow-md">
+        {/* Controls */}
+        <div className="absolute top-4 right-4 flex flex-col gap-2">
+          {/* Edit Mode Toggle */}
+          <div className="bg-white/90 rounded-lg p-1 shadow-md">
+            <Button 
+              variant={editMode ? "default" : "ghost"}
+              size="sm" 
+              onClick={() => setEditMode(!editMode)}
+              data-testid="button-edit-mode"
+              className={`h-10 w-10 p-0 ${editMode ? 'bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white' : ''}`}
+              title={editMode ? "Exit Edit Mode" : "Enter Edit Mode"}
+            >
+              {editMode ? <X className="h-5 w-5" /> : <Edit3 className="h-5 w-5" />}
+            </Button>
+          </div>
+
+          {/* Zoom Controls */}
+          <div className="bg-white/90 rounded-lg p-1 shadow-md">
             <Button 
               variant="ghost" 
               size="sm" 
@@ -311,6 +382,18 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
               <ZoomOut className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+
+        {/* Edit Mode Indicator */}
+        {editMode && (
+          <div className="absolute top-4 left-4 bg-[var(--trilogy-teal)] text-white px-4 py-2 rounded-lg shadow-md">
+            <div className="flex items-center gap-2">
+              <Edit3 className="h-4 w-4" />
+              <span className="font-medium">Edit Mode Active</span>
+              <span className="text-sm opacity-90">• Click any room to edit</span>
+            </div>
+          </div>
+        )}
 
           {/* Tooltip */}
           {hoveredUnit && hoveredUnitId && (
@@ -378,6 +461,76 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           </div>
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editingUnit} onOpenChange={(open) => !open && setEditingUnit(null)}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-edit-unit">
+          <DialogHeader>
+            <DialogTitle>Edit Unit {editingUnit?.roomNumber}</DialogTitle>
+            <DialogDescription>
+              Update pricing and availability for this unit
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-street-rate">Monthly Rate ($)</Label>
+              <Input
+                id="edit-street-rate"
+                type="number"
+                value={editFormData.streetRate || ''}
+                onChange={(e) => setEditFormData({ ...editFormData, streetRate: e.target.value })}
+                placeholder="Enter monthly rate"
+                data-testid="input-edit-rate"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-status">Status</Label>
+              <select
+                id="edit-status"
+                value={editFormData.occupiedYN || 'no'}
+                onChange={(e) => setEditFormData({ ...editFormData, occupiedYN: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                data-testid="select-edit-status"
+              >
+                <option value="no">Available</option>
+                <option value="yes">Occupied</option>
+              </select>
+            </div>
+
+            <div className="bg-slate-50 p-3 rounded-md text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-slate-600">Room Type:</span>
+                  <p className="font-medium">{editingUnit?.roomType}</p>
+                </div>
+                <div>
+                  <span className="text-slate-600">Floor Plan:</span>
+                  <p className="font-medium">{editingUnit?.size}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setEditingUnit(null)}
+              data-testid="button-cancel-edit"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)]"
+              data-testid="button-save-edit"
+            >
+              Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
