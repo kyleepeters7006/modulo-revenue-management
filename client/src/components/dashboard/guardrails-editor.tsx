@@ -12,6 +12,7 @@ const defaultGuardrails = {
   max_price_change_pct: 25,
   min_absolute_price: 2500,
   max_absolute_price: 15000,
+  competitor_variance_limit: 0.1,
   occupancy_threshold: 0.95,
   vacancy_days_threshold: 30,
   seasonal_adjustments: {
@@ -155,6 +156,25 @@ export default function GuardrailsEditor() {
               data-testid="input-max-absolute-price"
             />
           </div>
+        </div>
+
+        {/* Competitor Variance Limit */}
+        <div className="space-y-2">
+          <Label htmlFor="competitor_variance_limit">Competitor Variance Limit (0-1)</Label>
+          <p className="text-xs text-[var(--dashboard-muted)] mb-2">
+            Maximum allowed deviation from competitor rates (e.g., 0.1 = ±10%)
+          </p>
+          <Input
+            id="competitor_variance_limit"
+            type="number"
+            step="0.01"
+            min="0"
+            max="1"
+            value={formData.competitor_variance_limit}
+            onChange={(e) => handleInputChange('competitor_variance_limit', e.target.value)}
+            className="dashboard-input"
+            data-testid="input-competitor-variance-limit"
+          />
         </div>
 
         {/* Operational Thresholds */}
