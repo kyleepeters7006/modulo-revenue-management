@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info } from "lucide-react";
+import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 interface ModuloCalculationDialogProps {
@@ -193,64 +193,87 @@ export default function ModuloCalculationDialog({
                 </Card>
               )}
 
-              {/* Detailed Calculation Breakdown */}
+              {/* Modulo Algorithm Calculation */}
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Detailed Calculation Breakdown</CardTitle>
+                  <CardTitle className="text-sm">Modulo Algorithm Calculation</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
-                      calcDetails.adjustments.map((adj: any, index: number) => (
-                        <div key={index}>
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="space-y-1 flex-1">
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-sm font-medium">{adj.factor}</h4>
-                                <Badge variant="outline" className="text-xs">
-                                  Weight: {adj.weight}%
-                                </Badge>
+                      <>
+                        {calcDetails.adjustments.filter((adj: any) => !adj.factor.startsWith('Rule:')).map((adj: any, index: number, filteredArray: any[]) => (
+                          <div key={index}>
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="space-y-1 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-sm font-medium">{adj.factor}</h4>
+                                  <Badge variant="outline" className="text-xs">
+                                    Weight: {adj.weight}%
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">{adj.description}</p>
                               </div>
-                              <p className="text-xs text-muted-foreground">{adj.description}</p>
+                              <div className="text-right">
+                                <p className={`text-sm font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                  {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatCurrency(Math.abs(adj.impact))} impact
+                                </p>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <p className={`text-sm font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatCurrency(Math.abs(adj.impact))} impact
-                              </p>
+                            
+                            <div className="bg-muted/50 rounded-md px-3 py-2 mb-2">
+                              <p className="text-xs font-mono">{adj.calculation}</p>
                             </div>
+                            
+                            <div className="flex items-center gap-4 text-xs">
+                              <div className="flex items-center gap-1">
+                                <span className="text-muted-foreground">Raw adjustment:</span>
+                                <span className="font-medium">
+                                  {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
+                                </span>
+                              </div>
+                              <span className="text-muted-foreground">×</span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-muted-foreground">Weight:</span>
+                                <span className="font-medium">{adj.weight}%</span>
+                              </div>
+                              <span className="text-muted-foreground">=</span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-muted-foreground">Weighted:</span>
+                                <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                  {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {index < filteredArray.length - 1 && <Separator className="mt-3" />}
                           </div>
-                          
-                          <div className="bg-muted/50 rounded-md px-3 py-2 mb-2">
-                            <p className="text-xs font-mono">{adj.calculation}</p>
-                          </div>
-                          
-                          <div className="flex items-center gap-4 text-xs">
-                            <div className="flex items-center gap-1">
-                              <span className="text-muted-foreground">Raw adjustment:</span>
-                              <span className="font-medium">
-                                {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
+                        ))}
+                        
+                        {/* Modulo Subtotal */}
+                        {calcDetails.adjustments.filter((adj: any) => !adj.factor.startsWith('Rule:')).length > 0 && (
+                          <div className="mt-4 pt-4 border-t-2 border-[var(--trilogy-teal)]">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold">Modulo Algorithm Result</span>
+                              <span className={`text-base font-bold ${getAdjustmentColor(
+                                calcDetails.adjustments
+                                  .filter((adj: any) => !adj.factor.startsWith('Rule:'))
+                                  .reduce((sum: number, adj: any) => sum + adj.weightedAdjustment, 0)
+                              )}`}>
+                                {calcDetails.adjustments
+                                  .filter((adj: any) => !adj.factor.startsWith('Rule:'))
+                                  .reduce((sum: number, adj: any) => sum + adj.weightedAdjustment, 0) > 0 ? '+' : ''}
+                                {formatPercent(calcDetails.adjustments
+                                  .filter((adj: any) => !adj.factor.startsWith('Rule:'))
+                                  .reduce((sum: number, adj: any) => sum + adj.weightedAdjustment, 0))}
                               </span>
                             </div>
-                            <span className="text-muted-foreground">×</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-muted-foreground">Weight:</span>
-                              <span className="font-medium">{adj.weight}%</span>
-                            </div>
-                            <span className="text-muted-foreground">=</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-muted-foreground">Weighted:</span>
-                              <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                              </span>
-                            </div>
                           </div>
-                          
-                          {index < calcDetails.adjustments.length - 1 && <Separator className="mt-3" />}
-                        </div>
-                      ))
+                        )}
+                      </>
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <Info className="h-8 w-8 mx-auto mb-2" />
@@ -261,6 +284,44 @@ export default function ModuloCalculationDialog({
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Manual Adjustment Rules */}
+              {calcDetails.adjustments && calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).length > 0 && (
+                <Card className="border-purple-500/30 bg-purple-50/50 dark:bg-purple-950/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Settings className="h-4 w-4 text-purple-600" />
+                      Manual Adjustment Rules
+                      <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-300">
+                        Overrides Modulo
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        The following manual rules were applied to override the Modulo algorithm:
+                      </p>
+                      {calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).map((adj: any, index: number) => (
+                        <div key={index} className="flex items-start gap-2 p-3 bg-white dark:bg-gray-900 rounded border border-purple-200 dark:border-purple-800">
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-sm font-medium">{adj.factor.replace('Rule: ', '')}</p>
+                              <p className={`text-lg font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                              </p>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{adj.description}</p>
+                            <div className="mt-2 bg-muted/50 rounded-md px-2 py-1">
+                              <p className="text-xs font-mono">{adj.calculation}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Smart Adjustments (Guardrails) */}
               {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
