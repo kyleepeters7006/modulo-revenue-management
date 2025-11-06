@@ -304,17 +304,17 @@ export default function RateCard() {
           </div>
         </div>
 
-        {/* Pricing Change History */}
-        <div className="mb-8">
-          <PricingHistory />
-        </div>
-
         <RateCardTable 
           selectedServiceLine={selectedServiceLine}
           selectedRegions={selectedRegions}
           selectedDivisions={selectedDivisions}
           selectedLocations={selectedLocations}
         />
+
+        {/* Pricing Change History */}
+        <div className="mt-8">
+          <PricingHistory />
+        </div>
       </div>
     </div>
   );
