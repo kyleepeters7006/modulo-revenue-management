@@ -121,13 +121,15 @@ export default function OverviewTiles() {
     
     return (
       <div 
-        className="flex justify-between items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 transition-colors active:bg-gray-200 dark:active:bg-gray-700"
+        className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 py-1 transition-colors active:bg-gray-200 dark:active:bg-gray-700"
         onClick={handleClick}
       >
-        <span className="text-[var(--dashboard-muted)] text-xs sm:text-sm flex-shrink-0">Monthly Remainder:</span>
-        <div className="flex items-center gap-1 ml-2">
-          <span className="font-medium text-[var(--trilogy-success)] text-xs sm:text-sm whitespace-nowrap">${Math.round(remainder).toLocaleString()}</span>
+        <div className="flex items-center gap-1 mb-0.5">
+          <span className="text-[var(--dashboard-muted)] text-xs flex-shrink-0">Monthly Remainder:</span>
           <Info className="w-3 h-3 text-[var(--dashboard-muted)] flex-shrink-0" />
+        </div>
+        <div className="font-medium text-[var(--trilogy-success)] text-sm">
+          ${Math.round(remainder).toLocaleString()}
         </div>
       </div>
     );
