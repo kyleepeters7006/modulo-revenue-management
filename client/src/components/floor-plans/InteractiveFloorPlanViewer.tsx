@@ -38,6 +38,9 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [editMode, setEditMode] = useState(false);
   const [editingUnit, setEditingUnit] = useState<any | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
+  const [draggingPolygonId, setDraggingPolygonId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [tempPolygonPosition, setTempPolygonPosition] = useState<{[key: string]: {x: number, y: number}}>({});
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const lastTouchDistance = useRef<number | null>(null);
   const { toast } = useToast();
@@ -166,7 +169,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   };
 
   const handlePolygonClick = async (rentRollDataId: string) => {
-    if (!editMode) return;
+    if (!editMode || draggingPolygonId) return;
     
     try {
       const unit: any = await apiRequest(`/api/rent-roll-data/${rentRollDataId}`, 'GET');
@@ -181,6 +184,105 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
         description: "Failed to load unit details",
         variant: "destructive",
       });
+    }
+  };
+
+  const handlePolygonMouseDown = (polygon: UnitPolygon, event: React.MouseEvent) => {
+    if (!editMode) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    const svgElement = (event.currentTarget as SVGElement).ownerSVGElement;
+    if (!svgElement) return;
+    
+    const pt = svgElement.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const svgP = pt.matrixTransform(svgElement.getScreenCTM()?.inverse());
+    
+    const coordinates = JSON.parse(polygon.polygonCoordinates);
+    const centerX = coordinates.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coordinates.length;
+    const centerY = coordinates.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coordinates.length;
+    
+    setDragOffset({
+      x: svgP.x - centerX,
+      y: svgP.y - centerY
+    });
+    
+    setDraggingPolygonId(polygon.id);
+  };
+
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (!draggingPolygonId || !editMode) return;
+    
+    const svgElement = (event.target as SVGElement).ownerSVGElement;
+    if (!svgElement) return;
+    
+    const pt = svgElement.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const svgP = pt.matrixTransform(svgElement.getScreenCTM()?.inverse());
+    
+    setTempPolygonPosition({
+      ...tempPolygonPosition,
+      [draggingPolygonId]: {
+        x: svgP.x - dragOffset.x,
+        y: svgP.y - dragOffset.y
+      }
+    });
+  };
+
+  const handleMouseUp = async () => {
+    if (!draggingPolygonId || !editMode) return;
+    
+    const newPosition = tempPolygonPosition[draggingPolygonId];
+    if (!newPosition) {
+      setDraggingPolygonId(null);
+      return;
+    }
+    
+    const polygon = polygons.find((p: any) => p.id === draggingPolygonId);
+    if (!polygon) {
+      setDraggingPolygonId(null);
+      return;
+    }
+    
+    const coordinates = JSON.parse(polygon.polygonCoordinates);
+    const centerX = coordinates.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coordinates.length;
+    const centerY = coordinates.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coordinates.length;
+    
+    const deltaX = newPosition.x - centerX;
+    const deltaY = newPosition.y - centerY;
+    
+    const newCoordinates = coordinates.map((coord: number[]) => [
+      coord[0] + deltaX,
+      coord[1] + deltaY
+    ]);
+    
+    try {
+      await apiRequest(`/api/unit-polygons/${draggingPolygonId}`, 'PATCH', {
+        polygonCoordinates: JSON.stringify(newCoordinates)
+      });
+      
+      queryClient.invalidateQueries({
+        queryKey: [`/api/unit-polygons/map/${campusMap.id}`]
+      });
+      
+      toast({
+        title: "Success",
+        description: `Room ${polygon.label} repositioned successfully`,
+      });
+      
+      setTempPolygonPosition({});
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update polygon position",
+        variant: "destructive",
+      });
+    } finally {
+      setDraggingPolygonId(null);
     }
   };
 
@@ -309,24 +411,40 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                   maxHeight: '800px',
                   pointerEvents: 'none',
                 }}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
               >
                 {/* Interactive polygon overlays */}
                 {polygons.map((polygon: any) => {
-                  const coordinates = JSON.parse(polygon.polygonCoordinates);
+                  let coordinates = JSON.parse(polygon.polygonCoordinates);
+                  
+                  // Apply temporary position if dragging this polygon
+                  if (draggingPolygonId === polygon.id && tempPolygonPosition[polygon.id]) {
+                    const centerX = coordinates.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coordinates.length;
+                    const centerY = coordinates.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coordinates.length;
+                    const newPos = tempPolygonPosition[polygon.id];
+                    const deltaX = newPos.x - centerX;
+                    const deltaY = newPos.y - centerY;
+                    coordinates = coordinates.map((coord: number[]) => [coord[0] + deltaX, coord[1] + deltaY]);
+                  }
+                  
                   const points = coordinates.map((coord: number[]) => coord.join(',')).join(' ');
+                  const isDragging = draggingPolygonId === polygon.id;
                   
                   return (
                     <polygon
                       key={polygon.id}
                       points={points}
                       fill={polygon.fillColor}
-                      fillOpacity={hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.5}
-                      stroke="#334155"
-                      strokeWidth="2"
-                      className="cursor-pointer transition-all hover:fill-opacity-80"
+                      fillOpacity={isDragging ? 0.9 : (hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.5)}
+                      stroke={isDragging ? "#0d9488" : "#334155"}
+                      strokeWidth={isDragging ? "3" : "2"}
+                      className={`transition-all ${editMode ? 'cursor-move' : 'cursor-pointer'} ${isDragging ? '' : 'hover:fill-opacity-80'}`}
                       style={{ pointerEvents: 'auto' }}
-                      onMouseEnter={(e) => handlePolygonHover(polygon.rentRollDataId, e)}
+                      onMouseDown={(e) => handlePolygonMouseDown(polygon, e)}
+                      onMouseEnter={(e) => !isDragging && handlePolygonHover(polygon.rentRollDataId, e)}
                       onMouseMove={(e) => {
+                        if (isDragging) return;
                         const rect = svgContainerRef.current?.getBoundingClientRect();
                         if (rect && hoveredUnitId === polygon.rentRollDataId) {
                           // Smart positioning to keep tooltip in viewport
@@ -349,8 +467,8 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                           setTooltipPosition({ x, y });
                         }
                       }}
-                      onMouseLeave={handlePolygonLeave}
-                      onClick={() => handlePolygonClick(polygon.rentRollDataId)}
+                      onMouseLeave={() => !isDragging && handlePolygonLeave()}
+                      onClick={() => !isDragging && handlePolygonClick(polygon.rentRollDataId)}
                       data-testid={`polygon-unit-${polygon.label}`}
                     />
                   );
@@ -420,7 +538,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
             <div className="flex items-center gap-2">
               <Edit3 className="h-4 w-4" />
               <span className="font-medium">Edit Mode Active</span>
-              <span className="text-sm opacity-90">• Click any room to edit</span>
+              <span className="text-sm opacity-90">• Drag rooms to reposition • Click to edit details</span>
             </div>
           </div>
         )}
