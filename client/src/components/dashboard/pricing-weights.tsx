@@ -33,41 +33,42 @@ const weightDetails: Record<string, {
 }> = {
   occupancyPressure: {
     title: "Occupancy Pressure",
-    description: "Adjusts pricing based on current occupancy levels to balance revenue optimization with occupancy targets. Target is set 5% above current service line occupancy (max 100%).",
+    description: "Adjusts pricing based on current occupancy levels to optimize revenue. Target occupancy is 95% for senior housing industry standard.",
     calculation: "Adjustment = (Current Occupancy - Target Occupancy) × Weight × Sensitivity Factor",
     dataSource: "Real-time occupancy data from rent_roll_data table (occupied_yn field)",
     example: {
-      scenario: "Campus at 85% occupancy (target: 90%)",
+      scenario: "Campus at 85% occupancy (target: 95%)",
       baseRate: 5000,
-      adjustment: 150,
-      finalRate: 5150,
+      adjustment: -125,
+      finalRate: 4875,
       calculationSteps: [
         "Current Occupancy = 85%",
-        "Target Occupancy = 90% (current + 5%, max 100%)",
-        "Occupancy Delta = 85% - 90% = -5%",
-        "Raw Adjustment = -5% × 0.5 sensitivity = -2.5%",
-        "Weighted Adjustment = -2.5% × 25% weight = -0.625%",
-        "For demonstration showing +3% to incentivize occupancy",
-        "Dollar Impact = $5,000 × 3% = $150"
+        "Target Occupancy = 95% (industry standard)",
+        "Occupancy Delta = 85% - 95% = -10%",
+        "Raw Adjustment = -10% × 0.5 sensitivity = -5%",
+        "Weighted Adjustment = -5% × 25% weight = -1.25%",
+        "Dollar Impact = $5,000 × -1.25% = -$62.50",
+        "Final Rate = $5,000 - $62.50 = $4,937.50"
       ]
     }
   },
   daysVacantDecay: {
     title: "Days Vacant Decay",
-    description: "Gradually reduces rates for units that remain vacant longer to accelerate occupancy.",
-    calculation: "Adjustment = -1 × (Days Vacant / 30) × Weight × Base Rate",
+    description: "Applies stepped discounts to units vacant longer to accelerate occupancy.",
+    calculation: "Stepped Discounts: 0% (0-30 days), -5% (31-60 days), -10% (61-90 days), -15% (90+ days)",
     dataSource: "Days vacant calculated from rent_roll_data.move_out_date field",
     example: {
       scenario: "Unit vacant for 45 days",
       baseRate: 5000,
-      adjustment: -250,
-      finalRate: 4750,
+      adjustment: -62.50,
+      finalRate: 4937.50,
       calculationSteps: [
-        "Vacancy Ratio = 45 days / 30 = 1.5",
-        "Raw Penalty = -1.5 × 15% weight = -22.5%",
-        "But capped at max 25% penalty",
-        "Weighted Penalty = min(-22.5%, -25%) × 15% = -3.375%",
-        "Dollar Impact = $5,000 × -5% = -$250"
+        "Days Vacant = 45 days",
+        "Discount Tier = 31-60 days range",
+        "Base Discount = -5% for this tier",
+        "Weighted Adjustment = -5% × 25% weight = -1.25%",
+        "Dollar Impact = $5,000 × -1.25% = -$62.50",
+        "Final Rate = $5,000 - $62.50 = $4,937.50"
       ]
     }
   },
@@ -130,22 +131,22 @@ const weightDetails: Record<string, {
     }
   },
   stockMarket: {
-    title: "Stock Market",
-    description: "Correlates pricing with broader economic indicators (S&P 500 performance) as a proxy for consumer confidence.",
-    calculation: "Adjustment = (S&P YTD Change %) × Correlation Factor × Weight × Base Rate",
-    dataSource: "S&P 500 index data from Alpha Vantage API (cached daily)",
+    title: "Economic Indicators",
+    description: "Minor adjustment based on economic conditions (limited relevance for senior housing).",
+    calculation: "Static 2% growth assumption × Weight (should track healthcare CPI instead)",
+    dataSource: "Currently using static 2% - recommend replacing with healthcare inflation data",
     example: {
-      scenario: "S&P 500 up 8% YTD",
+      scenario: "General economic growth factor",
       baseRate: 5000,
-      adjustment: 200,
-      finalRate: 5200,
+      adjustment: 25,
+      finalRate: 5025,
       calculationSteps: [
-        "S&P 500 YTD Performance = +8%",
-        "Correlation Factor = 0.25 (25% correlation to pricing)",
-        "Raw Market Influence = 8% × 0.25 = 2%",
-        "Weighted Influence = 2% × 10% weight = 0.2%",
-        "For demonstration, using 4% effect",
-        "Dollar Impact = $5,000 × 4% = $200"
+        "Economic Growth = 2% (static placeholder)",
+        "Weight = 5% (reduced from 10%)",
+        "Raw Adjustment = 2%",
+        "Weighted Adjustment = 2% × 5% weight = 0.1%",
+        "Dollar Impact = $5,000 × 0.5% = $25",
+        "Note: Minimal impact - not a key driver for senior housing"
       ]
     }
   },
