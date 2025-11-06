@@ -19,7 +19,7 @@ export default function Landing() {
             Revenue Management Dashboard
           </h1>
           <p className="text-lg sm:text-xl lg:text-2xl font-light text-[var(--trilogy-grey)] leading-relaxed mb-8" key="slogan">
-            Enable real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
+            Real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <div className="flex items-center space-x-2 text-[var(--trilogy-teal)]">

@@ -96,7 +96,7 @@ export default function Dashboard() {
               Revenue Management Dashboard
             </h1>
             <p className="text-base sm:text-lg lg:text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
-              Enable real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
+              Real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
             </p>
           </div>
 
