@@ -169,6 +169,13 @@ export default function ModuloCalculationDialog({
                         </div>
                         <Progress value={calcDetails.weights.stockMarket} className="h-2" />
                       </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span>Inquiry & Tour</span>
+                          <span className="font-medium">{calcDetails.weights.inquiryTourVolume || 0}%</span>
+                        </div>
+                        <Progress value={calcDetails.weights.inquiryTourVolume || 0} className="h-2" />
+                      </div>
                     </div>
                     <div className="mt-3 text-xs text-muted-foreground text-center">
                       Total Weight: 100%
