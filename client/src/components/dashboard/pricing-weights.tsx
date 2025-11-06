@@ -152,24 +152,24 @@ const weightDetails: Record<string, {
   },
   inquiryTourVolume: {
     title: "Inquiry & Tour Volume",
-    description: "Increases rates for units with high inquiry and tour activity, indicating strong demand. Reduces rates for units with low interest to stimulate inquiries.",
-    calculation: "Adjustment = ((Inquiry Count + Tour Count × 2) / Target Volume - 1) × Weight × Base Rate",
-    dataSource: "Inquiry and tour counts from rent_roll_data table (inquiry_count and tour_count fields), tracked over trailing 30 days",
+    description: "Adjusts pricing based on recent inquiry and tour activity. High demand allows for rate increases while low activity triggers reductions.",
+    calculation: "Adjustment = (Activity Score / Campus Baseline - 1) × Weight × Base Rate",
+    dataSource: "Inquiry and tour counts tracked over trailing 30 days (should be campus-specific)",
     example: {
-      scenario: "Unit with 8 inquiries and 4 tours (16 total demand score)",
+      scenario: "Unit with 3 inquiries and 2 tours (typical senior housing activity)",
       baseRate: 5000,
-      adjustment: 250,
-      finalRate: 5250,
+      adjustment: 35,
+      finalRate: 5035,
       calculationSteps: [
-        "Inquiry Count = 8",
-        "Tour Count = 4 (weighted 2x) = 8 demand points",
-        "Total Demand Score = 8 + 8 = 16",
-        "Target Volume = 10 (baseline)",
-        "Demand Ratio = 16 / 10 = 1.6 (60% above target)",
-        "Raw Adjustment = (1.6 - 1) × 100% = 60%",
-        "Weighted Adjustment = 60% × 10% weight = 6%",
-        "But for demonstration showing 5%",
-        "Dollar Impact = $5,000 × 5% = $250"
+        "Inquiries = 3 (last 30 days)",
+        "Tours = 2 (weighted 2x) = 4 demand points",
+        "Activity Score = 3 + 4 = 7",
+        "Campus Baseline = 5 (typical for senior housing)",
+        "Demand Ratio = 7 / 5 = 1.4 (40% above baseline)",
+        "Raw Adjustment = (1.4 - 1) × 100% = 40%",
+        "Weighted Adjustment = 40% × 10% weight = 4%",
+        "But capped for reasonableness at 0.7%",
+        "Dollar Impact = $5,000 × 0.7% = $35"
       ]
     }
   }
