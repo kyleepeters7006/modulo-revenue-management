@@ -6,6 +6,16 @@ This is a revenue management dashboard application called "Modulo" built for rea
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (November 6, 2024)
+
+## Pricing Algorithm Improvements for Senior Housing Industry
+- **Fixed Occupancy Pressure Logic**: Corrected to use 95% target occupancy (industry standard). High occupancy now properly increases rates, low occupancy decreases rates
+- **Updated Days Vacant Decay**: Implemented stepped discounts (0% for 0-30 days, 5% for 31-60 days, 10% for 61-90 days, 15% for 90+ days) to prevent excessive discounting
+- **Reduced Stock Market Factor**: Renamed to "Economic Indicators" with reduced weight (5% vs 10%) as it has limited relevance for senior housing pricing
+- **Improved Inquiry & Tour Volume**: Updated to use more realistic senior housing activity levels (3 inquiries, 2 tours typical) with campus-specific baselines
+- **Enhanced Pricing Calculation Modal**: Separated Modulo algorithm results from manual adjustment rules with clear subtotals - manual rules now shown in purple card as overrides
+- **UI Layout Improvements**: Moved Pricing Change History to bottom of Rate Card page for better flow
+
 # System Architecture
 
 ## Frontend Architecture
