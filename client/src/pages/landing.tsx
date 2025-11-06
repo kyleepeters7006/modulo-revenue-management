@@ -18,7 +18,7 @@ export default function Landing() {
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-light text-[var(--trilogy-dark-blue)] mb-6">
             Revenue Management Dashboard
           </h1>
-          <p className="text-lg sm:text-xl lg:text-2xl font-light text-[var(--trilogy-grey)] leading-relaxed mb-8">
+          <p className="text-lg sm:text-xl lg:text-2xl font-light text-[var(--trilogy-grey)] leading-relaxed mb-8" key="slogan">
             Optimize pricing in real time. Automated execution of and set algorithmic controls for AI driven dynamic pricing
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
