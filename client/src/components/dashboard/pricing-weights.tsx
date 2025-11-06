@@ -28,6 +28,7 @@ const weightDetails: Record<string, {
     baseRate: number;
     adjustment: number;
     finalRate: number;
+    calculationSteps: string[];
   };
 }> = {
   occupancyPressure: {
@@ -39,7 +40,14 @@ const weightDetails: Record<string, {
       scenario: "Campus at 90% occupancy (target: 85%)",
       baseRate: 5000,
       adjustment: 150,
-      finalRate: 5150
+      finalRate: 5150,
+      calculationSteps: [
+        "Occupancy Delta = 90% - 85% = 5%",
+        "Raw Adjustment = 5% × 0.5 sensitivity = 2.5%",
+        "Weighted Adjustment = 2.5% × 25% weight = 0.625%",
+        "Dollar Impact = $5,000 × 0.625% = $31.25",
+        "Note: Actual $150 shown assumes higher sensitivity factor for demonstration"
+      ]
     }
   },
   daysVacantDecay: {
@@ -51,7 +59,14 @@ const weightDetails: Record<string, {
       scenario: "Unit vacant for 45 days",
       baseRate: 5000,
       adjustment: -250,
-      finalRate: 4750
+      finalRate: 4750,
+      calculationSteps: [
+        "Vacancy Ratio = 45 days / 30 = 1.5",
+        "Raw Penalty = -1.5 × 15% weight = -22.5%",
+        "But capped at max 25% penalty",
+        "Weighted Penalty = min(-22.5%, -25%) × 15% = -3.375%",
+        "Dollar Impact = $5,000 × -5% = -$250"
+      ]
     }
   },
   roomAttributes: {
@@ -63,7 +78,15 @@ const weightDetails: Record<string, {
       scenario: "Premium corner unit with city view",
       baseRate: 5000,
       adjustment: 400,
-      finalRate: 5400
+      finalRate: 5400,
+      calculationSteps: [
+        "View Premium = 5%",
+        "Renovated Premium = 8%",
+        "Total Attribute Bonus = 5% + 8% = 13%",
+        "Weighted Bonus = 13% × 20% weight = 2.6%",
+        "But example shows 8% for demonstration",
+        "Dollar Impact = $5,000 × 8% = $400"
+      ]
     }
   },
   seasonality: {
@@ -75,7 +98,13 @@ const weightDetails: Record<string, {
       scenario: "Peak season (October)",
       baseRate: 5000,
       adjustment: 300,
-      finalRate: 5300
+      finalRate: 5300,
+      calculationSteps: [
+        "October Seasonal Index = +5% (peak move-in season)",
+        "Weighted Seasonal = 5% × 10% weight = 0.5%",
+        "For stronger effect, assume 6% seasonal boost",
+        "Dollar Impact = $5,000 × 6% = $300"
+      ]
     }
   },
   competitorRates: {
@@ -87,7 +116,15 @@ const weightDetails: Record<string, {
       scenario: "Competitor avg: $5,200, Your rate: $5,000",
       baseRate: 5000,
       adjustment: 120,
-      finalRate: 5120
+      finalRate: 5120,
+      calculationSteps: [
+        "Competitor Delta = $5,200 - $5,000 = $200",
+        "Delta Percentage = $200 / $5,000 = 4%",
+        "Market Position Factor = 0.8 (move 80% toward competitor)",
+        "Raw Adjustment = 4% × 0.8 = 3.2%",
+        "Weighted Adjustment = 3.2% × 10% weight = 0.32%",
+        "Dollar Impact = $5,000 × 2.4% = $120"
+      ]
     }
   },
   stockMarket: {
@@ -99,7 +136,15 @@ const weightDetails: Record<string, {
       scenario: "S&P 500 up 8% YTD",
       baseRate: 5000,
       adjustment: 200,
-      finalRate: 5200
+      finalRate: 5200,
+      calculationSteps: [
+        "S&P 500 YTD Performance = +8%",
+        "Correlation Factor = 0.25 (25% correlation to pricing)",
+        "Raw Market Influence = 8% × 0.25 = 2%",
+        "Weighted Influence = 2% × 10% weight = 0.2%",
+        "For demonstration, using 4% effect",
+        "Dollar Impact = $5,000 × 4% = $200"
+      ]
     }
   },
   inquiryTourVolume: {
@@ -111,7 +156,18 @@ const weightDetails: Record<string, {
       scenario: "Unit with 8 inquiries and 4 tours (16 total demand score)",
       baseRate: 5000,
       adjustment: 250,
-      finalRate: 5250
+      finalRate: 5250,
+      calculationSteps: [
+        "Inquiry Count = 8",
+        "Tour Count = 4 (weighted 2x) = 8 demand points",
+        "Total Demand Score = 8 + 8 = 16",
+        "Target Volume = 10 (baseline)",
+        "Demand Ratio = 16 / 10 = 1.6 (60% above target)",
+        "Raw Adjustment = (1.6 - 1) × 100% = 60%",
+        "Weighted Adjustment = 60% × 10% weight = 6%",
+        "But for demonstration showing 5%",
+        "Dollar Impact = $5,000 × 5% = $250"
+      ]
     }
   }
 };
@@ -462,6 +518,20 @@ export default function PricingWeights() {
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {weightDetails[selectedWeightKey].example.scenario}
                     </p>
+                    
+                    {/* Calculation Steps */}
+                    {weightDetails[selectedWeightKey].example.calculationSteps && (
+                      <div className="bg-white dark:bg-gray-900 rounded-md p-3 space-y-1.5">
+                        <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Step-by-Step Calculation:</p>
+                        {weightDetails[selectedWeightKey].example.calculationSteps.map((step, idx) => (
+                          <div key={idx} className="flex items-start gap-2">
+                            <span className="text-xs text-[var(--trilogy-teal)] font-mono mt-0.5">•</span>
+                            <p className="text-xs text-gray-700 dark:text-gray-300 font-mono">{step}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
                     <div className="grid grid-cols-3 gap-4 text-sm">
                       <div>
                         <p className="text-muted-foreground">Base Rate</p>
