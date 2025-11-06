@@ -1,7 +1,6 @@
 import Navigation from "@/components/navigation";
 import OverviewTiles from "@/components/dashboard/overview-tiles";
 import RevenueChart from "@/components/dashboard/revenue-chart";
-import AnnualImpactSummary from "@/components/dashboard/annual-impact-summary";
 
 export default function Overview() {
   return (
@@ -40,11 +39,6 @@ export default function Overview() {
         {/* Revenue Growth Chart */}
         <div className="mb-12">
           <RevenueChart />
-        </div>
-
-        {/* Annual Impact Summary */}
-        <div className="mb-12">
-          <AnnualImpactSummary />
         </div>
       </div>
     </div>
