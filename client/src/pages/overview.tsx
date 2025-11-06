@@ -28,7 +28,7 @@ export default function Overview() {
             Revenue Management Dashboard
           </h1>
           <p className="text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
-            Optimize pricing with data-driven market analysis and competitor intelligence
+            Enable real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
           </p>
         </div>
 
