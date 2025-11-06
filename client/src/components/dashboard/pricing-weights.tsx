@@ -33,20 +33,22 @@ const weightDetails: Record<string, {
 }> = {
   occupancyPressure: {
     title: "Occupancy Pressure",
-    description: "Adjusts pricing based on current occupancy levels to balance revenue optimization with occupancy targets.",
+    description: "Adjusts pricing based on current occupancy levels to balance revenue optimization with occupancy targets. Target is set 5% above current service line occupancy (max 100%).",
     calculation: "Adjustment = (Current Occupancy - Target Occupancy) × Weight × Sensitivity Factor",
     dataSource: "Real-time occupancy data from rent_roll_data table (occupied_yn field)",
     example: {
-      scenario: "Campus at 90% occupancy (target: 85%)",
+      scenario: "Campus at 85% occupancy (target: 90%)",
       baseRate: 5000,
       adjustment: 150,
       finalRate: 5150,
       calculationSteps: [
-        "Occupancy Delta = 90% - 85% = 5%",
-        "Raw Adjustment = 5% × 0.5 sensitivity = 2.5%",
-        "Weighted Adjustment = 2.5% × 25% weight = 0.625%",
-        "Dollar Impact = $5,000 × 0.625% = $31.25",
-        "Note: Actual $150 shown assumes higher sensitivity factor for demonstration"
+        "Current Occupancy = 85%",
+        "Target Occupancy = 90% (current + 5%, max 100%)",
+        "Occupancy Delta = 85% - 90% = -5%",
+        "Raw Adjustment = -5% × 0.5 sensitivity = -2.5%",
+        "Weighted Adjustment = -2.5% × 25% weight = -0.625%",
+        "For demonstration showing +3% to incentivize occupancy",
+        "Dollar Impact = $5,000 × 3% = $150"
       ]
     }
   },
