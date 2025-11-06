@@ -67,6 +67,15 @@ export default function ModuloCalculationDialog({
     return "text-gray-600";
   };
 
+  // Calculate the final rate based on base rate and total adjustment
+  // This ensures the displayed final rate matches the calculation
+  const calculateFinalRate = (details: any) => {
+    if (!details) return currentRate;
+    const base = details.baseRate || currentRate;
+    const adjustment = (details.totalAdjustment || 0) / 100; // Convert percentage to decimal
+    return Math.round(base * (1 + adjustment));
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -113,7 +122,7 @@ export default function ModuloCalculationDialog({
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Final Rate</p>
-                      <p className="text-lg font-bold text-primary">{formatCurrency(calcDetails.finalRate || currentRate)}</p>
+                      <p className="text-lg font-bold text-primary">{formatCurrency(calculateFinalRate(calcDetails))}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -324,7 +333,7 @@ export default function ModuloCalculationDialog({
                       )}
                       <div className="flex items-center justify-between font-bold">
                         <span>Recommended Rate</span>
-                        <span className="text-lg text-primary">{formatCurrency(calcDetails.finalRate)}</span>
+                        <span className="text-lg text-primary">{formatCurrency(calculateFinalRate(calcDetails))}</span>
                       </div>
                     </div>
                   </CardContent>
@@ -338,7 +347,7 @@ export default function ModuloCalculationDialog({
                   <div className="text-xs font-mono space-y-1">
                     <div>Base Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
                     <div className="text-primary">
-                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(calcDetails.totalAdjustment || 0)}) = {formatCurrency(calcDetails.finalRate || currentRate)}
+                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(calcDetails.totalAdjustment || 0)}) = {formatCurrency(calculateFinalRate(calcDetails))}
                     </div>
                   </div>
                 </CardContent>
