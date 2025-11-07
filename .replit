@@ -82,9 +82,5 @@ externalPort = 3003
 localPort = 45617
 externalPort = 5000
 
-[[ports]]
-localPort = 46599
-externalPort = 8080
-
 [agent]
 integrations = ["javascript_gemini==1.0.0", "javascript_database==1.0.0", "javascript_log_in_with_replit==1.0.0", "javascript_object_storage==1.0.0", "javascript_openai==1.0.0"]

@@ -3082,166 +3082,74 @@ Keep recommendations specific and quantitative when possible.`;
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
-      // Generate Modulo suggestions using detailed algorithm
+      // Import the new sophisticated algorithm and explanations
+      const { calculateModuloPrice } = require('./moduloPricingAlgorithm');
+      const { getSentenceExplanation, generateOverallExplanation } = require('./sentenceExplanations');
+      
+      // Generate Modulo suggestions using sophisticated algorithm
       for (const unit of units) {
         const baseRate = unit.streetRate;
         let suggestion = baseRate;
-        let calculationDetails = {
-          baseRate,
-          adjustments: [],
-          weights: { ...weights },
-          totalAdjustment: 0,
-          finalRate: 0,
-          appliedRules: [] as string[]
+        // Prepare inputs for sophisticated algorithm
+        const campusOccupancy = 0.87; // Mock - should calculate from actual campus data
+        const daysVacant = unit.daysVacant || 0;
+        
+        // Calculate attribute score based on unit features
+        let attrScore = 0.5; // Start at midpoint
+        if (unit.view) attrScore += 0.1;
+        if (unit.renovated) attrScore += 0.15;
+        if (unit.roomType === 'Private') attrScore += 0.1;
+        attrScore = Math.min(1.0, attrScore);
+        
+        const monthIndex = new Date(targetMonth).getMonth() + 1;
+        const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [baseRate * 0.95, baseRate * 1.05];
+        const demandHistory = [18, 22, 25, 21, 27, 24, 23, 19]; // Mock - should be from DB
+        const demandCurrent = 25; // Mock - should be from actual data
+        
+        // Use the sophisticated algorithm
+        const moduloInputs = {
+          occupancy: campusOccupancy,
+          daysVacant,
+          attrScore,
+          monthIndex,
+          competitorPrices,
+          marketReturn: stockMarketChange / 100, // Convert percentage to decimal
+          demandCurrent,
+          demandHistory
         };
         
-        // Apply occupancy pressure (weighted adjustment based on market conditions)
-        let occupancyAdjustment = 0;
-        if (weights?.occupancyPressure) {
-          const occupancyRate = unit.occupiedYN ? 0.85 : 0.75; // Lower if vacant
-          const targetOccupancy = 0.95;
-          const occupancyDelta = occupancyRate - targetOccupancy;
-          const pressureAdjustment = occupancyDelta * 0.5; // 50% adjustment per delta
-          const weightedAdjustment = pressureAdjustment * (weights.occupancyPressure / 100);
-          occupancyAdjustment = weightedAdjustment;
-          suggestion *= (1 + weightedAdjustment);
-          
-          calculationDetails.adjustments.push({
-            factor: 'Occupancy Pressure',
-            description: unit.occupiedYN ? 'Unit occupied' : 'Unit vacant',
-            calculation: `(${occupancyRate.toFixed(2)} - ${targetOccupancy}) × 0.5 × ${weights.occupancyPressure}%`,
-            weight: weights.occupancyPressure,
-            adjustment: pressureAdjustment * 100,
-            weightedAdjustment: weightedAdjustment * 100,
-            impact: baseRate * weightedAdjustment
-          });
-        }
+        const moduloWeights = {
+          occupancy: weights?.occupancyPressure || 25,
+          daysVacant: weights?.daysVacantDecay || 15,
+          attributes: weights?.roomAttributes || 20,
+          seasonality: weights?.seasonality || 5,
+          competitors: weights?.competitorRates || 10,
+          market: weights?.stockMarket || 5,
+          demand: weights?.inquiryTourVolume || 20
+        };
         
-        // Apply days vacant decay (weighted for longer vacancies)
-        let vacancyAdjustment = 0;
-        if (unit.daysVacant > 0 && weights?.daysVacantDecay) {
-          const vacancyPenalty = Math.min(unit.daysVacant / 60, 0.25); // Max 25% penalty
-          const weightedAdjustment = -vacancyPenalty * (weights.daysVacantDecay / 100);
-          vacancyAdjustment = weightedAdjustment;
-          suggestion *= (1 + weightedAdjustment);
-          
-          calculationDetails.adjustments.push({
-            factor: 'Days Vacant Decay',
-            description: `${unit.daysVacant} days vacant`,
-            calculation: `min(${unit.daysVacant}/60, 0.25) × ${weights.daysVacantDecay}%`,
-            weight: weights.daysVacantDecay,
-            adjustment: -vacancyPenalty * 100,
-            weightedAdjustment: weightedAdjustment * 100,
-            impact: baseRate * weightedAdjustment
-          });
-        }
+        const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
+        suggestion = result.finalPrice;
         
-        // Apply room attributes premium (weighted for premium features)
-        let attributeAdjustment = 0;
-        if (weights?.roomAttributes) {
-          let attributeBonus = 0;
-          const features = [];
-          
-          if (unit.view) {
-            attributeBonus += 0.05; // 5% for view
-            features.push('View');
-          }
-          if (unit.renovated) {
-            attributeBonus += 0.08; // 8% for renovation
-            features.push('Renovated');
-          }
-          
-          if (attributeBonus > 0) {
-            const weightedAdjustment = attributeBonus * (weights.roomAttributes / 100);
-            attributeAdjustment = weightedAdjustment;
-            suggestion *= (1 + weightedAdjustment);
-            
-            calculationDetails.adjustments.push({
-              factor: 'Room Attributes',
-              description: features.join(', '),
-              calculation: `${(attributeBonus * 100).toFixed(1)}% × ${weights.roomAttributes}%`,
-              weight: weights.roomAttributes,
-              adjustment: attributeBonus * 100,
-              weightedAdjustment: weightedAdjustment * 100,
-              impact: baseRate * weightedAdjustment
-            });
-          }
-        }
+        // Build calculation details with sentence explanations
+        const adjustments = result.adjustments?.map((adj: any) => ({
+          ...adj,
+          description: getSentenceExplanation(adj.factor.toLowerCase(), moduloInputs, adj)
+        })) || [];
         
-        // Apply competitor rate adjustment (market positioning)
-        let competitorAdjustment = 0;
-        if (unit.competitorRate && weights?.competitorRates && unit.competitorRate !== unit.streetRate) {
-          const competitorDiff = (unit.competitorRate - unit.streetRate) / unit.streetRate;
-          const adjustment = competitorDiff * 0.8; // Move 80% toward competitor rate
-          const weightedAdjustment = adjustment * (weights.competitorRates / 100);
-          competitorAdjustment = weightedAdjustment;
-          suggestion *= (1 + weightedAdjustment);
-          
-          calculationDetails.adjustments.push({
-            factor: 'Competitor Rates',
-            description: `Competitor at $${unit.competitorRate.toFixed(0)}`,
-            calculation: `(${unit.competitorRate} - ${baseRate})/${baseRate} × 0.8 × ${weights.competitorRates}%`,
-            weight: weights.competitorRates,
-            adjustment: adjustment * 100,
-            weightedAdjustment: weightedAdjustment * 100,
-            impact: baseRate * weightedAdjustment
-          });
-        }
+        let calculationDetails = {
+          baseRate,
+          adjustments,
+          weights: { ...moduloWeights },
+          totalAdjustment: result.totalAdjustment * 100,
+          finalRate: result.finalPrice,
+          appliedRules: [] as string[],
+          signals: result.signals,
+          blendedSignal: result.blendedSignal,
+          explanation: generateOverallExplanation(result, moduloInputs),
+          guardrailsApplied: [] as string[]
+        };
         
-        // Apply seasonality adjustment
-        let seasonalAdjustment = 0;
-        if (weights?.seasonality) {
-          const month = new Date(targetMonth).getMonth();
-          let seasonalFactor = 0;
-          
-          // Peak season: Sept-Nov (move-in season)
-          if (month >= 8 && month <= 10) {
-            seasonalFactor = 0.05; // 5% increase
-          } else if (month >= 11 || month <= 1) {
-            // Low season: Dec-Feb
-            seasonalFactor = -0.03; // 3% decrease
-          }
-          
-          const weightedAdjustment = seasonalFactor * (weights.seasonality / 100);
-          seasonalAdjustment = weightedAdjustment;
-          suggestion *= (1 + weightedAdjustment);
-          
-          if (seasonalFactor !== 0) {
-            calculationDetails.adjustments.push({
-              factor: 'Seasonality',
-              description: seasonalFactor > 0 ? 'Peak season' : 'Low season',
-              calculation: `${(seasonalFactor * 100).toFixed(1)}% × ${weights.seasonality}%`,
-              weight: weights.seasonality,
-              adjustment: seasonalFactor * 100,
-              weightedAdjustment: weightedAdjustment * 100,
-              impact: baseRate * weightedAdjustment
-            });
-          }
-        }
-        
-        // Apply stock market adjustment
-        let marketAdjustment = 0;
-        if (weights?.stockMarket) {
-          const marketFactor = stockMarketChange > 0 ? 0.02 : -0.01; // 2% if market up, -1% if down
-          const weightedAdjustment = marketFactor * (weights.stockMarket / 100);
-          marketAdjustment = weightedAdjustment;
-          suggestion *= (1 + weightedAdjustment);
-          
-          calculationDetails.adjustments.push({
-            factor: 'Stock Market Performance',
-            description: `S&P 500 ${stockMarketChange > 0 ? 'up' : 'down'} ${Math.abs(stockMarketChange).toFixed(1)}% over last week`,
-            calculation: `Market ${stockMarketChange > 0 ? 'growth' : 'decline'} factor ${(marketFactor * 100).toFixed(1)}% × ${weights.stockMarket}%`,
-            weight: weights.stockMarket,
-            adjustment: marketFactor * 100,
-            weightedAdjustment: weightedAdjustment * 100,
-            impact: baseRate * weightedAdjustment
-          });
-        }
-        
-        // Calculate total adjustment
-        calculationDetails.totalAdjustment = (occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
-                                              competitorAdjustment + seasonalAdjustment + marketAdjustment) * 100;
-        calculationDetails.finalRate = Math.round(suggestion);
         
         // Apply guardrails (smart adjustments)
         const guardrailsApplied: string[] = [];
@@ -3290,7 +3198,10 @@ Keep recommendations specific and quantitative when possible.`;
         }
         
         // Store guardrails in calculation details
-        calculationDetails.guardrailsApplied = guardrailsApplied;
+        if (guardrailsApplied.length > 0) {
+          calculationDetails.guardrailsApplied = guardrailsApplied;
+          calculationDetails.finalRate = Math.round(suggestion);
+        }
         
         // Apply manual adjustment rules AFTER Modulo calculation and guardrails
         for (const rule of activeRules) {
