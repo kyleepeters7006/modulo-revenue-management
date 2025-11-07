@@ -8,6 +8,14 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 7, 2024)
 
+## Formula + Sentence Explanation System
+- **Dual Explanation Format**: All calculation dialogs now display both mathematical formulas FIRST, then narrative sentence explanations
+- **Formula Display**: Each pricing factor shows its calculation formula in a monospace code block (e.g., "Signal (-12.5%) × Weight (25%) = -3.1%")
+- **Sentence Explanations**: Following each formula, contextual narrative explains the business reasoning and impact
+- **Manual Rules Preservation**: Manual adjustment rules continue to override Modulo and are shown separately in purple cards with both formula and explanation
+- **Consistent UI**: Formula-then-sentence pattern applied to Modulo calculations, AI calculations, and manual rules
+- **File Structure**: Formulas from `moduloPricingAlgorithm.ts` + sentences from `sentenceExplanations.ts`
+
 ## Advanced Pricing Algorithm Implementation
 - **Sophisticated Multi-Signal Algorithm**: Implemented advanced pricing algorithm with signal normalization and bounded adjustments
 - **Occupancy Pressure Tiers**: Three-tier system with hard floor at 85% (strong cuts below), target at 90%, and premiums above

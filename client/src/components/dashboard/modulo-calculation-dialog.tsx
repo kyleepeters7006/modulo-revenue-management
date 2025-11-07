@@ -308,18 +308,22 @@ export default function ModuloCalculationDialog({
                         The following manual rules were applied to override the Modulo algorithm:
                       </p>
                       {calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).map((adj: any, index: number) => (
-                        <div key={index} className="flex items-start gap-2 p-3 bg-white dark:bg-gray-900 rounded border border-purple-200 dark:border-purple-800">
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-sm font-medium">{adj.factor.replace('Rule: ', '')}</p>
-                              <p className={`text-lg font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                              </p>
-                            </div>
+                        <div key={index} className="space-y-2 p-3 bg-white dark:bg-gray-900 rounded border border-purple-200 dark:border-purple-800">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">{adj.factor.replace('Rule: ', '')}</p>
+                            <p className={`text-lg font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                              {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                            </p>
+                          </div>
+                          
+                          {/* Formula Display */}
+                          <div className="bg-purple-50 dark:bg-purple-950/30 rounded-md px-3 py-2">
+                            <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
+                          </div>
+                          
+                          {/* Sentence Explanation */}
+                          <div className="border-l-2 border-purple-500/30 pl-3">
                             <p className="text-xs text-muted-foreground">{adj.description}</p>
-                            <div className="mt-2 bg-muted/50 rounded-md px-2 py-1">
-                              <p className="text-xs font-mono">{adj.calculation}</p>
-                            </div>
                           </div>
                         </div>
                       ))}

@@ -3226,10 +3226,12 @@ Keep recommendations specific and quantitative when possible.`;
               suggestion *= (1 + adjustment);
               
               // Add to adjustments array for display in dialog
+              const ruleFormula = `${beforeRuleRate.toFixed(0)} × ${(1 + adjustment).toFixed(3)} = ${(beforeRuleRate * (1 + adjustment)).toFixed(0)}`;
               calculationDetails.adjustments.push({
                 factor: `Rule: ${rule.name}`,
-                description: rule.description || `${rule.action.adjustmentValue}% adjustment`,
-                calculation: `${beforeRuleRate.toFixed(0)} × ${(1 + adjustment).toFixed(3)}`,
+                formula: ruleFormula,
+                description: rule.description || `${rule.action.adjustmentValue}% percentage adjustment applied to override Modulo pricing`,
+                calculation: ruleFormula,
                 weight: 100,
                 adjustment: rule.action.adjustmentValue,
                 weightedAdjustment: rule.action.adjustmentValue,
@@ -3241,10 +3243,12 @@ Keep recommendations specific and quantitative when possible.`;
               suggestion += rule.action.adjustmentValue;
               
               // Add to adjustments array for display in dialog
+              const ruleFormula = `${beforeRuleRate.toFixed(0)} + ${rule.action.adjustmentValue} = ${(beforeRuleRate + rule.action.adjustmentValue).toFixed(0)}`;
               calculationDetails.adjustments.push({
                 factor: `Rule: ${rule.name}`,
-                description: rule.description || `+$${rule.action.adjustmentValue} adjustment`,
-                calculation: `${beforeRuleRate.toFixed(0)} + ${rule.action.adjustmentValue}`,
+                formula: ruleFormula,
+                description: rule.description || `$${rule.action.adjustmentValue} absolute adjustment applied to override Modulo pricing`,
+                calculation: ruleFormula,
                 weight: 100,
                 adjustment: (rule.action.adjustmentValue / beforeRuleRate) * 100,
                 weightedAdjustment: (rule.action.adjustmentValue / beforeRuleRate) * 100,
