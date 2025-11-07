@@ -3063,6 +3063,9 @@ Keep recommendations specific and quantitative when possible.`;
       };
       const weights = await storage.getLatestWeights() || defaultWeights;
       
+      // Check if Modulo algorithm is enabled
+      const weightsEnabled = weights?.enableWeights !== false; // Default to true
+      
       // Get guardrails for smart adjustments
       const guardrailsData = await storage.getCurrentGuardrails();
       
@@ -3077,7 +3080,7 @@ Keep recommendations specific and quantitative when possible.`;
       // This ensures pricing is generated for the entire portfolio
       const units = await storage.getRentRollDataByMonth(targetMonth);
       
-      console.log(`Generating Modulo for ${units.length} units`);
+      console.log(`Generating Modulo for ${units.length} units (Weights ${weightsEnabled ? 'ENABLED' : 'DISABLED'})`);
       
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
@@ -3090,66 +3093,83 @@ Keep recommendations specific and quantitative when possible.`;
       for (const unit of units) {
         const baseRate = unit.streetRate;
         let suggestion = baseRate;
-        // Prepare inputs for sophisticated algorithm
-        const campusOccupancy = 0.87; // Mock - should calculate from actual campus data
-        const daysVacant = unit.daysVacant || 0;
+        let calculationDetails: any;
         
-        // Calculate attribute score based on unit features
-        let attrScore = 0.5; // Start at midpoint
-        if (unit.view) attrScore += 0.1;
-        if (unit.renovated) attrScore += 0.15;
-        if (unit.roomType === 'Private') attrScore += 0.1;
-        attrScore = Math.min(1.0, attrScore);
-        
-        const monthIndex = new Date(targetMonth).getMonth() + 1;
-        const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [baseRate * 0.95, baseRate * 1.05];
-        const demandHistory = [18, 22, 25, 21, 27, 24, 23, 19]; // Mock - should be from DB
-        const demandCurrent = 25; // Mock - should be from actual data
-        
-        // Use the sophisticated algorithm
-        const moduloInputs = {
-          occupancy: campusOccupancy,
-          daysVacant,
-          attrScore,
-          monthIndex,
-          competitorPrices,
-          marketReturn: stockMarketChange / 100, // Convert percentage to decimal
-          demandCurrent,
-          demandHistory
-        };
-        
-        const moduloWeights = {
-          occupancy: weights?.occupancyPressure || 25,
-          daysVacant: weights?.daysVacantDecay || 15,
-          attributes: weights?.roomAttributes || 20,
-          seasonality: weights?.seasonality || 5,
-          competitors: weights?.competitorRates || 10,
-          market: weights?.stockMarket || 5,
-          demand: weights?.inquiryTourVolume || 20
-        };
-        
-        const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
-        suggestion = result.finalPrice;
-        
-        // Build calculation details with both formulas and sentence explanations
-        const adjustments = result.adjustments?.map((adj: any) => ({
-          ...adj,
-          formula: adj.calculation, // This comes from getCalculationString in the algorithm
-          description: getSentenceExplanation(adj.factor.toLowerCase(), moduloInputs, adj)
-        })) || [];
-        
-        let calculationDetails = {
-          baseRate,
-          adjustments,
-          weights: { ...moduloWeights },
-          totalAdjustment: result.totalAdjustment * 100,
-          finalRate: result.finalPrice,
-          appliedRules: [] as string[],
-          signals: result.signals,
-          blendedSignal: result.blendedSignal,
-          explanation: generateOverallExplanation(result, moduloInputs),
-          guardrailsApplied: [] as string[]
-        };
+        // Only run Modulo algorithm if weights are enabled
+        if (weightsEnabled) {
+          // Prepare inputs for sophisticated algorithm
+          const campusOccupancy = 0.87; // Mock - should calculate from actual campus data
+          const daysVacant = unit.daysVacant || 0;
+          
+          // Calculate attribute score based on unit features
+          let attrScore = 0.5; // Start at midpoint
+          if (unit.view) attrScore += 0.1;
+          if (unit.renovated) attrScore += 0.15;
+          if (unit.roomType === 'Private') attrScore += 0.1;
+          attrScore = Math.min(1.0, attrScore);
+          
+          const monthIndex = new Date(targetMonth).getMonth() + 1;
+          const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [baseRate * 0.95, baseRate * 1.05];
+          const demandHistory = [18, 22, 25, 21, 27, 24, 23, 19]; // Mock - should be from DB
+          const demandCurrent = 25; // Mock - should be from actual data
+          
+          // Use the sophisticated algorithm
+          const moduloInputs = {
+            occupancy: campusOccupancy,
+            daysVacant,
+            attrScore,
+            monthIndex,
+            competitorPrices,
+            marketReturn: stockMarketChange / 100, // Convert percentage to decimal
+            demandCurrent,
+            demandHistory
+          };
+          
+          const moduloWeights = {
+            occupancy: weights?.occupancyPressure || 25,
+            daysVacant: weights?.daysVacantDecay || 15,
+            attributes: weights?.roomAttributes || 20,
+            seasonality: weights?.seasonality || 5,
+            competitors: weights?.competitorRates || 10,
+            market: weights?.stockMarket || 5,
+            demand: weights?.inquiryTourVolume || 20
+          };
+          
+          const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
+          suggestion = result.finalPrice;
+          
+          // Build calculation details with both formulas and sentence explanations
+          const adjustments = result.adjustments?.map((adj: any) => ({
+            ...adj,
+            formula: adj.calculation, // This comes from getCalculationString in the algorithm
+            description: getSentenceExplanation(adj.factor.toLowerCase(), moduloInputs, adj)
+          })) || [];
+          
+          calculationDetails = {
+            baseRate,
+            adjustments,
+            weights: { ...moduloWeights },
+            totalAdjustment: result.totalAdjustment * 100,
+            finalRate: result.finalPrice,
+            appliedRules: [] as string[],
+            signals: result.signals,
+            blendedSignal: result.blendedSignal,
+            explanation: generateOverallExplanation(result, moduloInputs),
+            guardrailsApplied: [] as string[]
+          };
+        } else {
+          // Weights disabled - start with base rate, only apply manual rules
+          calculationDetails = {
+            baseRate,
+            adjustments: [],
+            weights: {},
+            totalAdjustment: 0,
+            finalRate: baseRate,
+            appliedRules: [] as string[],
+            guardrailsApplied: [],
+            weightsDisabled: true
+          };
+        }
         
         
         // Apply guardrails (smart adjustments)
