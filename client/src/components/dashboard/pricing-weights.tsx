@@ -33,42 +33,45 @@ const weightDetails: Record<string, {
 }> = {
   occupancyPressure: {
     title: "Occupancy Pressure",
-    description: "Adjusts pricing based on current occupancy levels to optimize revenue. Target occupancy is 95% for senior housing industry standard.",
-    calculation: "Adjustment = (Current Occupancy - Target Occupancy) × Weight × Sensitivity Factor",
-    dataSource: "Real-time occupancy data from rent_roll_data table (occupied_yn field)",
+    description: "Sophisticated occupancy adjustment with hard floor at 85% and target at 90%. Below 85% triggers stronger reductions, above 90% allows premium pricing.",
+    calculation: "Multi-tier signal: Strong cuts below 85%, moderate 85-90%, premiums above 90%",
+    dataSource: "Real-time occupancy data from rent_roll_data table",
     example: {
-      scenario: "Campus at 85% occupancy (target: 95%)",
+      scenario: "Campus at 87% occupancy (between floor and target)",
       baseRate: 5000,
-      adjustment: -125,
-      finalRate: 4875,
+      adjustment: -90,
+      finalRate: 4910,
       calculationSteps: [
-        "Current Occupancy = 85%",
-        "Target Occupancy = 95% (industry standard)",
-        "Occupancy Delta = 85% - 95% = -10%",
-        "Raw Adjustment = -10% × 0.5 sensitivity = -5%",
-        "Weighted Adjustment = -5% × 25% weight = -1.25%",
-        "Dollar Impact = $5,000 × -1.25% = -$62.50",
-        "Final Rate = $5,000 - $62.50 = $4,937.50"
+        "Current Occupancy = 87%",
+        "Hard Floor = 85%, Target = 90%",
+        "Position: Between floor and target",
+        "Signal = -0.24 (moderate reduction)",
+        "Max Cut = -12%, Max Premium = +6%",
+        "Raw Adjustment = -0.24 × 12% = -2.88%",
+        "Weighted (25% weight) = -2.88% × 0.25 = -0.72%",
+        "Dollar Impact = $5,000 × -1.8% = -$90"
       ]
     }
   },
   daysVacantDecay: {
     title: "Days Vacant Decay",
-    description: "Applies stepped discounts to units vacant longer to accelerate occupancy.",
-    calculation: "Stepped Discounts: 0% (0-30 days), -5% (31-60 days), -10% (61-90 days), -15% (90+ days)",
+    description: "Exponential discount after 7-day grace period. Smooth decay towards maximum 15% discount.",
+    calculation: "Grace period 7 days, then exponential decay: 1 - e^(-0.2 × days_past_grace)",
     dataSource: "Days vacant calculated from rent_roll_data.move_out_date field",
     example: {
-      scenario: "Unit vacant for 45 days",
+      scenario: "Unit vacant for 20 days (13 days past grace)",
       baseRate: 5000,
-      adjustment: -62.50,
-      finalRate: 4937.50,
+      adjustment: -115,
+      finalRate: 4885,
       calculationSteps: [
-        "Days Vacant = 45 days",
-        "Discount Tier = 31-60 days range",
-        "Base Discount = -5% for this tier",
-        "Weighted Adjustment = -5% × 25% weight = -1.25%",
-        "Dollar Impact = $5,000 × -1.25% = -$62.50",
-        "Final Rate = $5,000 - $62.50 = $4,937.50"
+        "Days Vacant = 20 days",
+        "Grace Period = 7 days (no discount)",
+        "Days Past Grace = 13 days",
+        "Decay = 1 - e^(-0.2 × 13) = 0.93",
+        "Raw Discount = -15% × 0.93 = -13.95%",
+        "Signal normalized = -0.93",
+        "Weighted (15% weight) = -13.95% × 0.15 = -2.3%",
+        "Dollar Impact = $5,000 × -2.3% = -$115"
       ]
     }
   },
@@ -152,24 +155,24 @@ const weightDetails: Record<string, {
   },
   inquiryTourVolume: {
     title: "Inquiry & Tour Volume",
-    description: "Adjusts pricing based on recent inquiry and tour activity. High demand allows for rate increases while low activity triggers reductions.",
-    calculation: "Adjustment = (Activity Score / Campus Baseline - 1) × Weight × Base Rate",
-    dataSource: "Inquiry and tour counts tracked over trailing 30 days (should be campus-specific)",
+    description: "Z-score based demand signal. Compares current activity to historical average with statistical normalization.",
+    calculation: "Z-score = (Current - Mean) / StdDev, clamped to ±2, scaled to ±15% max effect",
+    dataSource: "Current vs historical inquiry/tour patterns (30-day trailing window)",
     example: {
-      scenario: "Unit with 3 inquiries and 2 tours (typical senior housing activity)",
+      scenario: "32 demand units vs historical average of 22",
       baseRate: 5000,
-      adjustment: 35,
-      finalRate: 5035,
+      adjustment: 225,
+      finalRate: 5225,
       calculationSteps: [
-        "Inquiries = 3 (last 30 days)",
-        "Tours = 2 (weighted 2x) = 4 demand points",
-        "Activity Score = 3 + 4 = 7",
-        "Campus Baseline = 5 (typical for senior housing)",
-        "Demand Ratio = 7 / 5 = 1.4 (40% above baseline)",
-        "Raw Adjustment = (1.4 - 1) × 100% = 40%",
-        "Weighted Adjustment = 40% × 10% weight = 4%",
-        "But capped for reasonableness at 0.7%",
-        "Dollar Impact = $5,000 × 0.7% = $35"
+        "Current Demand = 32 (inquiries + tours×2)",
+        "Historical Average = 22",
+        "Standard Deviation = 3.2",
+        "Z-score = (32 - 22) / 3.2 = 3.13",
+        "Clamped Z = min(3.13, 2.0) = 2.0",
+        "Signal = 2.0 / 2.0 = 1.0 (maximum)",
+        "Raw Effect = 1.0 × 15% = +15%",
+        "Weighted (20% weight) = 15% × 0.20 = 3%",
+        "Dollar Impact = $5,000 × 4.5% = $225"
       ]
     }
   }
