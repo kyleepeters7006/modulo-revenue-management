@@ -5012,6 +5012,92 @@ Respond in JSON format:
     }
   });
 
+  // Batch process multiple campuses with room detection
+  app.post("/api/floor-plans/batch-detect-rooms", async (req, res) => {
+    try {
+      const { limit = 5, strategy = 'hybrid' } = req.body;
+      
+      // Get campus maps with images (limit to first N)
+      const allMaps = await storage.getCampusMaps();
+      const mapsWithImages = allMaps
+        .filter(map => map.baseImageUrl && map.baseImageUrl.endsWith('.png'))
+        .slice(0, limit);
+      
+      console.log(`Starting batch processing of ${mapsWithImages.length} campus maps...`);
+      
+      const results = [];
+      
+      for (const map of mapsWithImages) {
+        try {
+          const normalizedPath = map.baseImageUrl.startsWith('/') 
+            ? map.baseImageUrl.substring(1) 
+            : map.baseImageUrl;
+          const imagePath = path.join(process.cwd(), normalizedPath);
+          
+          console.log(`Processing ${map.id} - ${map.locationId}...`);
+          
+          const detectionResult = await roomDetectionService.detect(
+            imagePath,
+            strategy as DetectionStrategy
+          );
+          
+          // Save detected polygons to database
+          let savedCount = 0;
+          for (const room of detectionResult.rooms) {
+            try {
+              await storage.createUnitPolygon({
+                campusMapId: map.id,
+                rentRollDataId: null, // Will be mapped later
+                label: room.label,
+                polygonCoordinates: room.polygon,
+                fillColor: "#4CAF50",
+                strokeColor: "#2E7D32",
+              });
+              savedCount++;
+            } catch (err) {
+              console.warn(`Failed to save polygon for room ${room.label}:`, err);
+            }
+          }
+          
+          results.push({
+            campusMapId: map.id,
+            locationId: map.locationId,
+            success: detectionResult.success,
+            roomsDetected: detectionResult.metadata.totalRoomsDetected,
+            roomsSaved: savedCount,
+            strategyUsed: detectionResult.metadata.strategyUsed,
+            fallbackUsed: detectionResult.metadata.fallbackUsed || false,
+          });
+          
+          console.log(`✓ Completed ${map.locationId}: ${savedCount}/${detectionResult.metadata.totalRoomsDetected} rooms saved`);
+          
+        } catch (error) {
+          console.error(`Error processing ${map.id}:`, error);
+          results.push({
+            campusMapId: map.id,
+            locationId: map.locationId,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      
+      console.log(`Batch processing complete. Processed ${results.length} campus maps.`);
+      
+      res.json({
+        success: true,
+        processed: results.length,
+        results,
+      });
+    } catch (error) {
+      console.error('Error in batch room detection:', error);
+      res.status(500).json({ 
+        error: "Failed to batch process rooms",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   // Unit Polygons endpoints
   app.get("/api/unit-polygons/:campusMapId", async (req, res) => {
     try {
