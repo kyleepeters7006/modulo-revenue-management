@@ -1,4 +1,9 @@
 import { storage } from './storage';
+import { 
+  calculateModuloPrice, 
+  PricingInputs as ModuloPricingInputs, 
+  PricingWeights as ModuloPricingWeights
+} from './moduloPricingAlgorithm';
 
 interface PricingInputs {
   unitId: string;
@@ -42,68 +47,68 @@ export class PricingAlgorithm {
     const guardrails = await storage.getGuardrails();
     const attributeRatings = await storage.getAttributeRatings();
     
-    // Set default weights if none configured
+    // Set default weights if none configured (using 0-100 scale)
     const defaultWeights = {
       occupancyPressure: 25,
-      daysVacantDecay: 20,
-      roomAttributes: 25,
-      seasonality: 10,
+      daysVacantDecay: 15,
+      roomAttributes: 20,
+      seasonality: 5,
       competitorRates: 10,
-      stockMarket: 10
+      stockMarket: 5,
+      inquiryTourVolume: 20
     };
     
     const activeWeights = weights || defaultWeights;
-    
-    // Base rate (current market rate or competitor rate)
     const baseRate = inputs.competitorRate || inputs.currentRate;
     
-    // Calculate individual adjustments based on weights
-    const occupancyAdjustment = this.calculateOccupancyAdjustment(
-      inputs.occupancyRate, 
-      inputs.totalUnits, 
-      activeWeights.occupancyPressure
-    );
+    // Calculate attribute score (0-1 normalized)
+    let attrScore = 0.5; // Default to midpoint
+    if (inputs.attributes) {
+      // Simple scoring based on presence of premium features
+      let score = 0.5;
+      if (inputs.attributes.view === 'city' || inputs.attributes.view === 'garden') score += 0.1;
+      if (inputs.attributes.renovation === 'recent') score += 0.15;
+      if (inputs.attributes.location === 'corner' || inputs.attributes.location === 'end') score += 0.1;
+      if (inputs.attributes.size === 'large') score += 0.1;
+      if (inputs.attributes.amenity === 'premium') score += 0.05;
+      attrScore = Math.min(1.0, score);
+    }
     
-    const vacancyAdjustment = this.calculateVacancyAdjustment(
-      inputs.daysVacant, 
-      activeWeights.daysVacantDecay
-    );
+    // Get competitor prices (if available)
+    const competitorPrices: number[] = inputs.competitorRate ? [inputs.competitorRate] : [];
     
-    const attributeAdjustment = await this.calculateAttributeAdjustment(
-      inputs.attributes, 
-      attributeRatings, 
-      activeWeights.roomAttributes
-    );
+    // Generate demand history (mock for now - should be fetched from DB)
+    const demandHistory = [18, 22, 25, 21, 27, 24, 23, 19]; // Historical inquiries/tours
+    const demandCurrent = 25; // Current period inquiries/tours
     
-    const seasonalAdjustment = this.calculateSeasonalAdjustment(
-      activeWeights.seasonality
-    );
+    // Use the new sophisticated algorithm
+    const moduloInputs: ModuloPricingInputs = {
+      occupancy: inputs.occupancyRate,
+      daysVacant: inputs.daysVacant,
+      attrScore,
+      monthIndex: new Date().getMonth() + 1, // 1-12
+      competitorPrices,
+      marketReturn: 0.02, // Static 2% for now (should be fetched from market API)
+      demandCurrent,
+      demandHistory
+    };
     
-    const competitorAdjustment = this.calculateCompetitorAdjustment(
-      inputs.currentRate, 
-      inputs.competitorRate, 
-      activeWeights.competitorRates
-    );
+    const moduloWeights: ModuloPricingWeights = {
+      occupancy: activeWeights.occupancyPressure,
+      daysVacant: activeWeights.daysVacantDecay,
+      attributes: activeWeights.roomAttributes,
+      seasonality: activeWeights.seasonality,
+      competitors: activeWeights.competitorRates,
+      market: activeWeights.stockMarket,
+      demand: activeWeights.inquiryTourVolume || 20
+    };
     
-    const marketAdjustment = this.calculateMarketAdjustment(
-      activeWeights.stockMarket
-    );
+    const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
     
-    // Sum all adjustments weighted by algorithm percentages
-    const totalAdjustment = (
-      occupancyAdjustment * (activeWeights.occupancyPressure / 100) +
-      vacancyAdjustment * (activeWeights.daysVacantDecay / 100) +
-      attributeAdjustment * (activeWeights.roomAttributes / 100) +
-      seasonalAdjustment * (activeWeights.seasonality / 100) +
-      competitorAdjustment * (activeWeights.competitorRates / 100) +
-      marketAdjustment * (activeWeights.stockMarket / 100)
-    );
-    
-    // Calculate recommended rate
-    let recommendedRate = baseRate * (1 + totalAdjustment);
-    
-    // Apply guardrails
+    // Apply guardrails to the final price
+    let recommendedRate = result.finalPrice;
     const guardrailsApplied: string[] = [];
+    
     if (guardrails) {
       const { rate: finalRate, appliedRules } = this.applyGuardrails(
         recommendedRate, 
@@ -115,17 +120,26 @@ export class PricingAlgorithm {
       guardrailsApplied.push(...appliedRules);
     }
     
+    // Map the new result format to the expected format
+    const adjustments = result.adjustments || [];
+    const occupancyAdj = adjustments.find(a => a.factor === 'Occupancy');
+    const vacancyAdj = adjustments.find(a => a.factor === 'Daysvacant');
+    const attrAdj = adjustments.find(a => a.factor === 'Attributes');
+    const seasonalAdj = adjustments.find(a => a.factor === 'Seasonality');
+    const competitorAdj = adjustments.find(a => a.factor === 'Competitors');
+    const marketAdj = adjustments.find(a => a.factor === 'Market');
+    
     return {
       recommendedRate,
       calculation: {
         baseRate,
-        occupancyAdjustment,
-        vacancyAdjustment,
-        attributeAdjustment,
-        seasonalAdjustment,
-        competitorAdjustment,
-        marketAdjustment,
-        totalAdjustment,
+        occupancyAdjustment: occupancyAdj?.adjustment || 0,
+        vacancyAdjustment: vacancyAdj?.adjustment || 0,
+        attributeAdjustment: attrAdj?.adjustment || 0,
+        seasonalAdjustment: seasonalAdj?.adjustment || 0,
+        competitorAdjustment: competitorAdj?.adjustment || 0,
+        marketAdjustment: marketAdj?.adjustment || 0,
+        totalAdjustment: result.totalAdjustment,
         guardrailsApplied
       }
     };
