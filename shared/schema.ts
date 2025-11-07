@@ -172,6 +172,7 @@ export const assumptions = pgTable("assumptions", {
 
 export const pricingWeights = pgTable("pricing_weights", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  enableWeights: boolean("enable_weights").notNull().default(true),
   occupancyPressure: integer("occupancy_pressure").notNull(),
   daysVacantDecay: integer("days_vacant_decay").notNull(),
   roomAttributes: integer("room_attributes").notNull(),

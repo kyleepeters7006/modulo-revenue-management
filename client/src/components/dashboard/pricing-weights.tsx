@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings, AlertCircle, RotateCcw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -180,6 +181,7 @@ const weightDetails: Record<string, {
 
 export default function PricingWeights() {
   const [weights, setWeights] = useState<Record<string, number>>({});
+  const [enableWeights, setEnableWeights] = useState<boolean>(true);
   const [selectedWeightKey, setSelectedWeightKey] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -205,10 +207,20 @@ export default function PricingWeights() {
 
     return () => clearTimeout(timeoutId);
   }, [weights, hasChanges, isValid]);
+  
+  // Handle enableWeights changes
+  const handleEnableWeightsChange = (checked: boolean) => {
+    setEnableWeights(checked);
+    setHasChanges(true);
+  };
 
   useEffect(() => {
     if (status && typeof status === 'object' && 'weights' in status && status.weights) {
       const apiWeights = status.weights as any;
+      
+      // Load enableWeights flag
+      setEnableWeights(apiWeights.enable_weights !== false); // Default to true if not present
+      
       const loadedWeights = {
         occupancyPressure: apiWeights.occupancy_pressure ?? 25,
         daysVacantDecay: apiWeights.days_vacant_decay ?? 15,
@@ -246,6 +258,7 @@ export default function PricingWeights() {
   const saveWeightsMutation = useMutation({
     mutationFn: async (weightsData: Record<string, number>) => {
       const payload = {
+        enable_weights: enableWeights,
         occupancy_pressure: weightsData.occupancyPressure,
         days_vacant_decay: weightsData.daysVacantDecay,
         room_attributes: weightsData.roomAttributes,
@@ -405,6 +418,25 @@ export default function PricingWeights() {
         </div>
       )}
       
+      {/* Enable/Disable Weights Toggle */}
+      <div className="flex items-center justify-between p-4 mb-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+        <div className="flex-1">
+          <h4 className="text-sm font-medium text-[var(--dashboard-text)] mb-1">
+            Use Modulo Algorithm Weights
+          </h4>
+          <p className="text-xs text-[var(--dashboard-muted)]">
+            {enableWeights 
+              ? "Modulo algorithm is active. Pricing will use weighted factors below." 
+              : "Modulo algorithm disabled. Only manual adjustment rules will be applied."}
+          </p>
+        </div>
+        <Switch
+          checked={enableWeights}
+          onCheckedChange={handleEnableWeightsChange}
+          data-testid="switch-enable-weights"
+        />
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {weightConfigs.map((config) => (
           <div key={config.key} className="space-y-4">
@@ -441,6 +473,7 @@ export default function PricingWeights() {
               max={100}
               step={1}
               className="w-full"
+              disabled={!enableWeights}
               data-testid={`slider-weight-${config.key}`}
             />
           </div>
