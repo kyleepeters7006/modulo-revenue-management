@@ -3087,8 +3087,10 @@ Keep recommendations specific and quantitative when possible.`;
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
       // Import the new sophisticated algorithm and explanations
-      const { calculateModuloPrice } = require('./moduloPricingAlgorithm');
-      const { getSentenceExplanation, generateOverallExplanation } = require('./sentenceExplanations');
+      const moduloPricingModule = await import('./moduloPricingAlgorithm');
+      const sentenceExplanationsModule = await import('./sentenceExplanations');
+      const { calculateModuloPrice } = moduloPricingModule;
+      const { getSentenceExplanation, generateOverallExplanation } = sentenceExplanationsModule;
       
       // Generate Modulo suggestions using sophisticated algorithm
       for (const unit of units) {
