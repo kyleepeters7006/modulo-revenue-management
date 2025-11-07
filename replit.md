@@ -6,6 +6,16 @@ This is a revenue management dashboard application called "Modulo" built for rea
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (November 7, 2024)
+
+## Advanced Pricing Algorithm Implementation
+- **Sophisticated Multi-Signal Algorithm**: Implemented advanced pricing algorithm with signal normalization and bounded adjustments
+- **Occupancy Pressure Tiers**: Three-tier system with hard floor at 85% (strong cuts below), target at 90%, and premiums above
+- **Exponential Vacancy Decay**: 7-day grace period followed by smooth exponential decay to -15% maximum discount
+- **Z-Score Demand Analysis**: Statistical demand signal using z-score comparison to historical averages
+- **Bounded Adjustments**: Global caps at -25%/+25% with individual factor limits for stability
+- **Signal Blending**: Normalized signals (-1 to +1) with weighted blending for balanced price recommendations
+
 # Recent Changes (November 6, 2024)
 
 ## Pricing Algorithm Improvements for Senior Housing Industry
