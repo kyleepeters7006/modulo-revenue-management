@@ -128,8 +128,28 @@ export default function ModuloCalculationDialog({
                 </CardContent>
               </Card>
 
+              {/* Weights Disabled Message */}
+              {calcDetails.weightsDisabled && (
+                <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                          Modulo Algorithm Disabled
+                        </h4>
+                        <p className="text-xs text-blue-800 dark:text-blue-200">
+                          The Modulo pricing algorithm is currently turned off. Only manual adjustment rules are being applied to pricing. 
+                          To enable the algorithm, go to the Pricing Weights section and toggle "Use Modulo Algorithm Weights".
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Algorithm Weights */}
-              {calcDetails.weights && (
+              {calcDetails.weights && !calcDetails.weightsDisabled && (
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm">Algorithm Weights Configuration</CardTitle>
@@ -194,13 +214,14 @@ export default function ModuloCalculationDialog({
               )}
 
               {/* Modulo Algorithm Calculation */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Modulo Algorithm Calculation</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
+              {!calcDetails.weightsDisabled && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm">Modulo Algorithm Calculation</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
                       <>
                         {calcDetails.adjustments.filter((adj: any) => !adj.factor.startsWith('Rule:')).map((adj: any, index: number, filteredArray: any[]) => (
                           <div key={index}>
@@ -289,6 +310,7 @@ export default function ModuloCalculationDialog({
                   </div>
                 </CardContent>
               </Card>
+              )}
 
               {/* Manual Adjustment Rules */}
               {calcDetails.adjustments && calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).length > 0 && (
