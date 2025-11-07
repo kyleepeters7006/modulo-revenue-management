@@ -212,7 +212,6 @@ export default function ModuloCalculationDialog({
                                     Weight: {adj.weight}%
                                   </Badge>
                                 </div>
-                                <p className="text-xs text-muted-foreground">{adj.description}</p>
                               </div>
                               <div className="text-right">
                                 <p className={`text-sm font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
@@ -224,8 +223,14 @@ export default function ModuloCalculationDialog({
                               </div>
                             </div>
                             
+                            {/* Formula Display */}
                             <div className="bg-muted/50 rounded-md px-3 py-2 mb-2">
-                              <p className="text-xs font-mono">{adj.calculation}</p>
+                              <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
+                            </div>
+                            
+                            {/* Sentence Explanation */}
+                            <div className="border-l-2 border-primary/20 pl-3 mb-2">
+                              <p className="text-xs text-muted-foreground">{adj.description}</p>
                             </div>
                             
                             <div className="flex items-center gap-4 text-xs">

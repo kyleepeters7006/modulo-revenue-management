@@ -3131,9 +3131,10 @@ Keep recommendations specific and quantitative when possible.`;
         const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
         suggestion = result.finalPrice;
         
-        // Build calculation details with sentence explanations
+        // Build calculation details with both formulas and sentence explanations
         const adjustments = result.adjustments?.map((adj: any) => ({
           ...adj,
+          formula: adj.calculation, // This comes from getCalculationString in the algorithm
           description: getSentenceExplanation(adj.factor.toLowerCase(), moduloInputs, adj)
         })) || [];
         
@@ -3405,9 +3406,10 @@ Keep recommendations specific and quantitative when possible.`;
         const result = calculateModuloPrice(baseRate, algorithmWeights, aiInputs);
         const aiSuggestion = result.finalPrice;
         
-        // Build adjustments with sentence explanations
+        // Build adjustments with both formulas and sentence explanations
         const adjustments = result.adjustments?.map((adj: any) => ({
           ...adj,
+          formula: adj.calculation, // This comes from getCalculationString in the algorithm
           description: getSentenceExplanation(adj.factor.toLowerCase(), aiInputs, adj)
         })) || [];
         
@@ -3956,9 +3958,10 @@ Keep recommendations specific and quantitative when possible.`;
       const result = calculateModuloPrice(streetRate, algorithmWeights, aiInputs);
       const aiSuggestedRate = storedAiRate || result.finalPrice;
       
-      // Build adjustments with sentence explanations
+      // Build adjustments with both formulas and sentence explanations
       const adjustments = result.adjustments?.map((adj: any) => ({
         ...adj,
+        formula: adj.calculation, // This comes from getCalculationString in the algorithm
         description: getSentenceExplanation(adj.factor.toLowerCase(), aiInputs, adj)
       })) || [];
       

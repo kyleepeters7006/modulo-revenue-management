@@ -117,10 +117,44 @@ export default function AICalculationDialog({
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Calculation Breakdown</h3>
               
-              <div className="grid gap-3">
-                {calculation.calculation && (
+              <div className="space-y-4">
+                {calculation.calculation?.adjustments && calculation.calculation.adjustments.length > 0 ? (
                   <>
-                    {/* Occupancy Adjustment */}
+                    {calculation.calculation.adjustments.map((adj: any, index: number) => (
+                      <div key={index} className="space-y-2">
+                        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            <div className={`p-1 rounded ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                              {getAdjustmentIcon(adj.weightedAdjustment)}
+                            </div>
+                            <div>
+                              <div className="font-medium">{adj.factor}</div>
+                              <div className="text-xs text-gray-500">Weight: {adj.weight}%</div>
+                            </div>
+                          </div>
+                          <div className={`text-right ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                            <div className="font-semibold">{formatPercent(adj.weightedAdjustment)}</div>
+                            <div className="text-xs">
+                              {formatCurrency(Math.abs(adj.impact))} impact
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Formula Display */}
+                        <div className="bg-purple-50/50 dark:bg-purple-950/20 rounded-md px-3 py-2">
+                          <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
+                        </div>
+                        
+                        {/* Sentence Explanation */}
+                        <div className="border-l-2 border-purple-500/20 pl-3">
+                          <p className="text-xs text-gray-600 dark:text-gray-400">{adj.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : calculation.calculation && (
+                  <>
+                    {/* Fallback to old format */}
                     <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="ai-adjustment-occupancy">
                       <div className="flex items-center space-x-3">
                         <div className={`p-1 rounded ${getAdjustmentColor(calculation.calculation.occupancyAdjustment)}`}>
@@ -128,7 +162,7 @@ export default function AICalculationDialog({
                         </div>
                         <div>
                           <div className="font-medium">Occupancy Pressure</div>
-                          <div className="text-xs text-gray-500">Target 95% occupancy</div>
+                          <div className="text-xs text-gray-500">Target occupancy adjustments</div>
                         </div>
                       </div>
                       <div className={`text-right ${getAdjustmentColor(calculation.calculation.occupancyAdjustment)}`}>
