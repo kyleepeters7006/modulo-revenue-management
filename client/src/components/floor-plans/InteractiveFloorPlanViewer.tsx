@@ -41,6 +41,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [draggingPolygonId, setDraggingPolygonId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempPolygonPosition, setTempPolygonPosition] = useState<{[key: string]: {x: number, y: number}}>({});
+  const [showBookingDialog, setShowBookingDialog] = useState(false);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const lastTouchDistance = useRef<number | null>(null);
   const { toast } = useToast();
@@ -50,6 +51,14 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     queryKey: [`/api/unit-polygons/map/${campusMap.id}`],
     enabled: !!campusMap.id,
   });
+
+  // Fetch all units for this campus to determine occupancy colors
+  const { data: allUnitsData } = useQuery({
+    queryKey: [`/api/rent-roll-data/location/${campusMap.locationId}`],
+    enabled: !!campusMap.locationId,
+  });
+  
+  const allUnits = allUnitsData || [];
 
   // Fetch unit details when hovering
   const { data: hoveredUnit } = useQuery<UnitDetails>({
@@ -374,6 +383,15 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     return labels[type] || type;
   };
 
+  // Get color based on occupancy status for customer-facing view
+  const getOccupancyColor = (rentRollDataId: string): string => {
+    const unit = allUnits.find((u: any) => u.id === rentRollDataId);
+    if (!unit) return '#9ca3af'; // Grey default
+    
+    // Green for vacant, Grey for occupied
+    return unit.occupiedYN ? '#9ca3af' : '#6bcf7f';
+  };
+
   return (
     <div className="h-full w-full flex flex-col bg-slate-50">
       {/* Floor Plan */}
@@ -435,8 +453,8 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                     <polygon
                       key={polygon.id}
                       points={points}
-                      fill={polygon.fillColor}
-                      fillOpacity={isDragging ? 0.9 : (hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.5)}
+                      fill={getOccupancyColor(polygon.rentRollDataId)}
+                      fillOpacity={isDragging ? 0.9 : (hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.6)}
                       stroke={isDragging ? "#0d9488" : "#334155"}
                       strokeWidth={isDragging ? "3" : "2"}
                       className={`transition-all ${editMode ? 'cursor-move' : 'cursor-pointer'} ${isDragging ? '' : 'hover:fill-opacity-80'}`}
@@ -484,6 +502,19 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
 
         {/* Controls */}
         <div className="absolute top-4 right-4 flex flex-col gap-2">
+          {/* Book Now Button - Customer Facing */}
+          <div className="bg-white/90 rounded-lg shadow-md">
+            <Button 
+              variant="default"
+              size="lg" 
+              onClick={() => setShowBookingDialog(true)}
+              data-testid="button-book-now"
+              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white font-semibold px-6"
+            >
+              Book Now
+            </Button>
+          </div>
+
           {/* Edit Mode Toggle */}
           <div className="bg-white/90 rounded-lg p-1 shadow-md">
             <Button 
@@ -593,22 +624,25 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           )}
       </div>
 
-      {/* Legend - Bottom */}
-      {roomTypeLegend.length > 0 && (
-        <div className="bg-white border-t px-6 py-3">
-          <div className="flex flex-wrap items-center gap-4">
-            {roomTypeLegend.map((type: string) => (
-              <div key={type} className="flex items-center gap-2">
-                <div 
-                  className="w-5 h-5 rounded border border-slate-300"
-                  style={{ backgroundColor: getLegendColor(type) }}
-                />
-                <span className="text-sm text-slate-700">{getLegendLabel(type)}</span>
-              </div>
-            ))}
+      {/* Legend - Bottom - Customer Facing Occupancy Status */}
+      <div className="bg-white border-t px-6 py-3">
+        <div className="flex flex-wrap items-center gap-6">
+          <div className="flex items-center gap-2">
+            <div 
+              className="w-5 h-5 rounded border border-slate-300"
+              style={{ backgroundColor: '#6bcf7f' }}
+            />
+            <span className="text-sm text-slate-700 font-medium">Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div 
+              className="w-5 h-5 rounded border border-slate-300"
+              style={{ backgroundColor: '#9ca3af' }}
+            />
+            <span className="text-sm text-slate-700 font-medium">Reserved</span>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Edit Dialog */}
       <Dialog open={!!editingUnit} onOpenChange={(open) => !open && setEditingUnit(null)}>
@@ -675,6 +709,43 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
               data-testid="button-save-edit"
             >
               Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Book Now - Coming Soon Dialog */}
+      <Dialog open={showBookingDialog} onOpenChange={setShowBookingDialog}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-coming-soon">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-center">Coming Soon!</DialogTitle>
+            <DialogDescription className="text-center pt-4">
+              Online booking for Trilogy senior living communities will be available soon. 
+              In the meantime, please contact us directly to schedule a tour or inquire about availability.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="bg-slate-50 p-4 rounded-lg text-center">
+              <p className="text-sm text-slate-700 mb-3">
+                <strong>Call us today:</strong>
+              </p>
+              <p className="text-2xl font-semibold text-[var(--trilogy-teal)] mb-4">
+                1-800-TRILOGY
+              </p>
+              <p className="text-xs text-slate-600">
+                Our friendly staff is ready to help you find the perfect home for your loved one.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-center">
+            <Button
+              onClick={() => setShowBookingDialog(false)}
+              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] px-8"
+              data-testid="button-close-coming-soon"
+            >
+              Close
             </Button>
           </div>
         </DialogContent>
