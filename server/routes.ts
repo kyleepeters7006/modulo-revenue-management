@@ -3928,32 +3928,23 @@ Keep recommendations specific and quantitative when possible.`;
         }
       }
       
+      // Import sophisticated algorithm and explanations
+      const { calculateModuloPrice } = require('./moduloPricingAlgorithm');
+      const { getSentenceExplanation, generateOverallExplanation } = require('./sentenceExplanations');
+      
       // Fallback to dynamic calculation if no stored details
       const storedAiRate = unit.aiSuggestedRate;
       const streetRate = unit.streetRate || 3185;
       
-      // Get AI-specific weights and ranges for calculation
+      // Get AI-specific weights - more aggressive than Modulo
       const aiWeights = await storage.getAiPricingWeights() || {
-        occupancyPressure: 20,
-        daysVacantDecay: 20,
+        occupancyPressure: 30,
+        daysVacantDecay: 25,
         roomAttributes: 15,
-        competitorRates: 15,
-        seasonality: 15,
-        stockMarket: 15
-      };
-      const aiRanges = await storage.getAiAdjustmentRanges() || {
-        occupancyMin: -0.15,
-        occupancyMax: 0.15,
-        vacancyMin: -0.30,
-        vacancyMax: 0.00,
-        attributesMin: 0.00,
-        attributesMax: 0.20,
-        competitorMin: -0.15,
-        competitorMax: 0.15,
-        seasonalMin: -0.08,
-        seasonalMax: 0.08,
-        marketMin: 0.00,
-        marketMax: 0.05
+        competitorRates: 10,
+        seasonality: 5,
+        stockMarket: 5,
+        inquiryTourVolume: 10
       };
       
       // Get all units to calculate actual occupancy rate
@@ -3961,77 +3952,59 @@ Keep recommendations specific and quantitative when possible.`;
       const occupiedUnits = allUnits.filter(u => u.occupiedYN);
       const actualOccupancyRate = occupiedUnits.length / allUnits.length;
       
-      // Calculate AI adjustments - more aggressive than Modulo
-      let aiOccupancyAdjustment = 0;
-      if (aiWeights.occupancyPressure > 0) {
-        // AI uses more aggressive occupancy-based pricing
-        if (actualOccupancyRate >= 0.90) {
-          // High occupancy - push rates up
-          const scale = Math.min((actualOccupancyRate - 0.90) / 0.10, 1);
-          aiOccupancyAdjustment = aiRanges.occupancyMax * (0.5 + scale * 0.5) * (aiWeights.occupancyPressure / 100);
-        } else if (actualOccupancyRate <= 0.80) {
-          // Low occupancy - reduce rates
-          const scale = Math.min((0.80 - actualOccupancyRate) / 0.20, 1);
-          aiOccupancyAdjustment = aiRanges.occupancyMin * (0.5 + scale * 0.5) * (aiWeights.occupancyPressure / 100);
-        } else {
-          // Mid-range occupancy - slight positive adjustment
-          const scale = (actualOccupancyRate - 0.80) / 0.10;
-          aiOccupancyAdjustment = aiRanges.occupancyMax * scale * 0.3 * (aiWeights.occupancyPressure / 100);
-        }
+      // Prepare inputs for sophisticated AI algorithm (more aggressive than Modulo)
+      const daysVacant = unit.daysVacant || 0;
+      
+      // Calculate attribute score
+      let attrScore = 0.5;
+      if (unit.attributes) {
+        if (unit.attributes.view) attrScore += 0.1;
+        if (unit.attributes.renovated) attrScore += 0.15;
+        if (unit.attributes.corner) attrScore += 0.1;
       }
+      if (unit.roomType === 'Private') attrScore += 0.1;
+      attrScore = Math.min(1.0, attrScore);
       
-      let aiVacancyAdjustment = 0;
-      if (aiWeights.daysVacantDecay > 0 && !unit.occupiedYN && unit.daysVacant && unit.daysVacant > 0) {
-        // AI is more aggressive with vacancy adjustments
-        const severity = Math.min(unit.daysVacant / 60, 1); // More aggressive curve (60 days instead of 90)
-        aiVacancyAdjustment = aiRanges.vacancyMin * severity * (aiWeights.daysVacantDecay / 100);
-      }
+      const monthIndex = new Date().getMonth() + 1;
+      const competitorPrices = unit.competitorBenchmarkRate ? 
+        [unit.competitorBenchmarkRate] : 
+        [streetRate * 0.95, streetRate * 1.05];
       
-      let aiAttributeAdjustment = 0;
-      if (aiWeights.roomAttributes > 0 && unit.attributes) {
-        // Only apply if unit has documented attributes
-        let attributeScore = 0;
-        const attrs = unit.attributes;
-        
-        if (attrs.view) attributeScore += 0.3;
-        if (attrs.renovated) attributeScore += 0.4;
-        if (attrs.corner) attributeScore += 0.3;
-        
-        if (attributeScore > 0) {
-          aiAttributeAdjustment = aiRanges.attributesMax * attributeScore * (aiWeights.roomAttributes / 100);
-        }
-      }
+      // Mock demand data - AI sees higher volatility
+      const demandHistory = [15, 20, 30, 18, 35, 22, 28, 16];
+      const demandCurrent = 32;
       
-      let aiSeasonalAdjustment = 0;
-      if (aiWeights.seasonality > 0) {
-        const currentMonth = new Date().getMonth();
-        const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
-        if (isPeakSeason) {
-          aiSeasonalAdjustment = aiRanges.seasonalMax * 0.8 * (aiWeights.seasonality / 100);
-        } else {
-          aiSeasonalAdjustment = aiRanges.seasonalMin * 0.5 * (aiWeights.seasonality / 100);
-        }
-      }
+      const aiInputs = {
+        occupancy: actualOccupancyRate,
+        daysVacant,
+        attrScore,
+        monthIndex,
+        competitorPrices,
+        marketReturn: 0.03, // AI is more optimistic
+        demandCurrent,
+        demandHistory
+      };
       
-      let aiCompetitorAdjustment = 0;
-      if (aiWeights.competitorRates > 0 && unit.competitorBenchmarkRate) {
-        const competitorRate = unit.competitorBenchmarkRate;
-        const priceDifference = (streetRate - competitorRate) / competitorRate;
-        const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
-        const direction = priceDifference > 0 ? -1 : 1;
-        const range = direction > 0 ? aiRanges.competitorMax : aiRanges.competitorMin;
-        aiCompetitorAdjustment = range * severity * (aiWeights.competitorRates / 100);
-      }
+      // Convert AI weights to algorithm format
+      const algorithmWeights = {
+        occupancy: aiWeights.occupancyPressure || 30,
+        daysVacant: aiWeights.daysVacantDecay || 25,
+        attributes: aiWeights.roomAttributes || 15,
+        seasonality: aiWeights.seasonality || 5,
+        competitors: aiWeights.competitorRates || 10,
+        market: aiWeights.stockMarket || 5,
+        demand: aiWeights.inquiryTourVolume || 10
+      };
       
-      let aiMarketAdjustment = 0;
-      // Market adjustment only applies if we have actual market data
-      // In this case we don't have real market data, so it stays at 0
+      // Calculate using sophisticated algorithm
+      const result = calculateModuloPrice(streetRate, algorithmWeights, aiInputs);
+      const aiSuggestedRate = storedAiRate || result.finalPrice;
       
-      const aiTotalAdjustment = aiOccupancyAdjustment + aiVacancyAdjustment + aiAttributeAdjustment + 
-                                aiSeasonalAdjustment + aiCompetitorAdjustment + aiMarketAdjustment;
-      
-      // Use stored AI rate if available, otherwise calculate
-      const aiSuggestedRate = storedAiRate || Math.round(streetRate * (1 + aiTotalAdjustment));
+      // Build adjustments with sentence explanations
+      const adjustments = result.adjustments?.map((adj: any) => ({
+        ...adj,
+        description: getSentenceExplanation(adj.factor.toLowerCase(), aiInputs, adj)
+      })) || [];
       
       res.json({
         unitId: unit.id,
@@ -4040,13 +4013,13 @@ Keep recommendations specific and quantitative when possible.`;
         aiSuggestedRate: aiSuggestedRate,
         calculation: {
           baseRate: streetRate,
-          occupancyAdjustment: aiOccupancyAdjustment,
-          vacancyAdjustment: aiVacancyAdjustment,
-          attributeAdjustment: aiAttributeAdjustment,
-          seasonalAdjustment: aiSeasonalAdjustment,
-          competitorAdjustment: aiCompetitorAdjustment,
-          marketAdjustment: aiMarketAdjustment,
-          totalAdjustment: aiTotalAdjustment,
+          adjustments,
+          weights: algorithmWeights,
+          totalAdjustment: result.totalAdjustment * 100,
+          finalRate: aiSuggestedRate,
+          signals: result.signals,
+          blendedSignal: result.blendedSignal,
+          explanation: generateOverallExplanation(result, aiInputs),
           actualOccupancyRate: actualOccupancyRate,
           unitData: {
             unitId: unit.id,
