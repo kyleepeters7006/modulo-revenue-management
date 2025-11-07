@@ -1,0 +1,282 @@
+from dataclasses import dataclass
+from math import exp
+from statistics import mean, pstdev
+
+@dataclass
+class ModuloPricingConfig:
+    # Global caps on the final blended adjustment
+    min_total_adj: float = -0.25   # -25% max discount
+    max_total_adj: float =  0.25   # +25% max premium
+
+    # Occupancy
+    occ_target: float = 0.90       # target campus occupancy (90%)
+    occ_hard_floor: float = 0.85   # if below this, trigger stronger reduction
+    occ_max_cut: float = -0.12     # strongest cut from occupancy alone (-12%)
+    occ_max_premium: float = 0.06  # strongest premium from occupancy alone (+6%)
+
+    # Days Vacant (per-unit)
+    dv_grace_days: int = 7         # no discount until after this many days
+    dv_max_cut: float = -0.15      # max discount from days-vacant alone (-15%)
+    dv_decay_speed: float = 0.20   # higher → reaches max faster after grace
+
+    # Room Attributes (per-unit desirability score in [0,1])
+    # You provide a normalized score; 0=worst room, 1=best room
+    attr_midpoint: float = 0.50
+    attr_max_span: float = 0.10    # ±10% swing at extremes from attributes
+
+    # Seasonality
+    # month_index: 1..12 → multiplier band; keep small so seasonality doesn't dominate
+    seasonality_span: float = 0.05 # ±5% max
+    # Defaults skew a bit higher for spring/summer, lower for late fall
+    seasonality_profile: tuple = (
+        0.00,  # Jan
+        0.01,  # Feb
+        0.02,  # Mar
+        0.03,  # Apr
+        0.05,  # May
+        0.05,  # Jun
+        0.04,  # Jul
+        0.02,  # Aug
+        0.01,  # Sep
+        -0.02, # Oct
+        -0.03, # Nov
+        -0.02  # Dec
+    )
+
+    # Competitor Rates (compare your intended base price vs. market)
+    comp_cap: float = 0.08         # cap the effect to ±8%
+    comp_sensitivity: float = 0.75 # how aggressively to follow comps
+
+    # Stock Market (you pass in a %-change, e.g., 0.03 for +3% last 30d)
+    mkt_span: float = 0.03         # ±3% max effect
+    mkt_max_abs_return: float = 0.10 # normalize any |return| ≥ 10% to full span
+
+    # Inquiry & Tour Volume (demand proxy vs trailing baseline)
+    # You pass current inquiries/tours and a trailing window for avg/std
+    demand_span: float = 0.15      # ±15% max from demand
+    demand_max_z: float = 2.0      # clamp |z| to avoid outliers dominating
+
+
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+
+def normalize_weights(weights_dict):
+    """
+    Input: {'occupancy': 0..100, 'days_vacant': 0..100, ...}
+    Output: normalized weights that sum to 1.0 (if all zero -> equal split)
+    """
+    total = sum(weights_dict.values())
+    if total <= 0:
+        n = len(weights_dict)
+        return {k: 1.0 / n for k in weights_dict}
+    return {k: v / total for k, v in weights_dict.items()}
+
+
+def signal_occupancy(occupancy: float, cfg: ModuloPricingConfig) -> float:
+    """
+    Campus occupancy in [0,1]. Below 85% → stronger negative.
+    Between 85% and 100% → linearly improve toward +premium around/above target.
+    Returns a signal in [-1, +1], scaled later by weight.
+    """
+    o = clamp(occupancy, 0.0, 1.0)
+
+    if o < cfg.occ_hard_floor:
+        # Stronger downward pressure as we drop below the hard floor
+        # Map [0, occ_hard_floor) → [-1, -0.3]
+        frac = (o / cfg.occ_hard_floor)
+        sig = -1.0 + 0.7 * frac
+    else:
+        # Map [occ_hard_floor, occ_target] → [-0.3, 0]
+        if o <= cfg.occ_target:
+            span = cfg.occ_target - cfg.occ_hard_floor
+            frac = 0 if span == 0 else (o - cfg.occ_hard_floor) / span
+            sig = -0.3 + 0.3 * frac
+        else:
+            # Map (occ_target, 1.0] → (0, +1]
+            span = 1.0 - cfg.occ_target
+            frac = 1.0 if span == 0 else (o - cfg.occ_target) / span
+            sig = 0.0 + 1.0 * frac
+
+    # Convert the abstract signal to a *bounded price effect* for occupancy alone,
+    # then re-normalize back to [-1, +1] so blending is consistent.
+    # Effect when sig=-1 should be ~occ_max_cut; when sig=+1 → ~occ_max_premium.
+    # We map back by dividing through the larger magnitude so the weight blending
+    # remains interpretable.
+    neg = abs(cfg.occ_max_cut)
+    pos = cfg.occ_max_premium
+    # Convert sig to asymmetrical effect, then renormalize by the bigger side:
+    if sig >= 0:
+        effect = sig * pos
+        norm = pos if pos > 0 else 1e-9
+    else:
+        effect = sig * neg
+        norm = neg if neg > 0 else 1e-9
+    return clamp(effect / norm, -1.0, 1.0)
+
+
+def signal_days_vacant(days_vacant: int, cfg: ModuloPricingConfig) -> float:
+    """
+    No discount until after dv_grace_days.
+    After that, apply a smooth exponential toward dv_max_cut.
+    Returned as normalized [-1,+1] where -1 corresponds to dv_max_cut.
+    """
+    if days_vacant <= cfg.dv_grace_days:
+        return 0.0
+    d = days_vacant - cfg.dv_grace_days
+    # Smooth approach: 1 - exp(-k*d)
+    frac = 1.0 - exp(-cfg.dv_decay_speed * d)
+    # Map 0..1 → 0..(max_cut as negative)
+    effect = cfg.dv_max_cut * frac  # negative value toward dv_max_cut
+    return clamp(effect / abs(cfg.dv_max_cut), -1.0, 0.0)
+
+
+def signal_room_attributes(attr_score: float, cfg: ModuloPricingConfig) -> float:
+    """
+    attr_score in [0,1]. Midpoint is neutral. Above midpoint → positive premium.
+    Convert to effect in ±attr_max_span and renormalize to [-1,+1].
+    """
+    s = clamp(attr_score, 0.0, 1.0)
+    # Map [0,1] around midpoint → [-1,+1]
+    if s == cfg.attr_midpoint:
+        sig = 0.0
+    elif s > cfg.attr_midpoint:
+        sig = (s - cfg.attr_midpoint) / (1.0 - cfg.attr_midpoint)
+    else:
+        sig = - (cfg.attr_midpoint - s) / (cfg.attr_midpoint - 0.0)
+
+    effect = sig * cfg.attr_max_span
+    return clamp(effect / cfg.attr_max_span, -1.0, 1.0)
+
+
+def signal_seasonality(month_index: int, cfg: ModuloPricingConfig) -> float:
+    """
+    month_index: 1..12. Uses a profile scaled by seasonality_span.
+    """
+    m = clamp(month_index, 1, 12)
+    base = cfg.seasonality_profile[m - 1]  # already in roughly [-.05, +.05]
+    # Normalize back to [-1, +1] by dividing by span.
+    return clamp(base / cfg.seasonality_span, -1.0, 1.0)
+
+
+def signal_competitors(base_price: float, competitor_prices: list[float], cfg: ModuloPricingConfig) -> float:
+    """
+    Compare base_price to median competitor. If you're above market, signal negative.
+    Effect is capped and softened by comp_sensitivity.
+    """
+    if not competitor_prices:
+        return 0.0
+    comp_med = sorted(competitor_prices)[len(competitor_prices)//2]
+    if comp_med <= 0:
+        return 0.0
+
+    pct_diff = (base_price - comp_med) / comp_med  # + means you're higher than comps
+    raw_effect = clamp(-pct_diff * cfg.comp_sensitivity, -cfg.comp_cap, cfg.comp_cap)
+    # Normalize by cap to [-1,+1]
+    return clamp(raw_effect / cfg.comp_cap, -1.0, 1.0)
+
+
+def signal_market(mkt_return: float, cfg: ModuloPricingConfig) -> float:
+    """
+    mkt_return example: +0.03 for +3% in the last 30d.
+    Small, sentiment-style nudge. Normalize by max_abs_return.
+    """
+    r = clamp(mkt_return, -cfg.mkt_max_abs_return, cfg.mkt_max_abs_return)
+    effect = (r / cfg.mkt_max_abs_return) * cfg.mkt_span
+    return clamp(effect / cfg.mkt_span, -1.0, 1.0)
+
+
+def signal_demand(current: float, history: list[float], cfg: ModuloPricingConfig) -> float:
+    """
+    Demand proxy (inquiries or tours). Compute a z-score vs trailing history.
+    Positive z → stronger demand → positive price pressure.
+    """
+    if not history:
+        return 0.0
+    mu = mean(history)
+    sigma = pstdev(history) if len(history) > 1 else 0.0
+    if sigma == 0:
+        z = 0.0
+    else:
+        z = (current - mu) / sigma
+    z = clamp(z, -cfg.demand_max_z, cfg.demand_max_z)
+    effect = (z / cfg.demand_max_z) * cfg.demand_span
+    return clamp(effect / cfg.demand_span, -1.0, 1.0)
+
+
+def price_recommendation(
+    base_price: float,
+    weights_0_to_100: dict,
+    inputs: dict,
+    cfg: ModuloPricingConfig = ModuloPricingConfig()
+) -> dict:
+    """
+    Inputs dict expects:
+      occupancy: float in [0,1]
+      days_vacant: int
+      attr_score: float in [0,1]
+      month_index: int 1..12
+      competitor_prices: list[float]
+      market_return: float (e.g., +0.03 for +3%)
+      demand_current: float
+      demand_history: list[float]
+
+    weights_0_to_100 keys must match:
+      ['occupancy','days_vacant','attributes','seasonality','competitors','market','demand']
+    """
+    w = normalize_weights(weights_0_to_100)
+
+    sigs = {
+        "occupancy":   signal_occupancy(inputs["occupancy"], cfg),
+        "days_vacant": signal_days_vacant(inputs["days_vacant"], cfg),
+        "attributes":  signal_room_attributes(inputs["attr_score"], cfg),
+        "seasonality": signal_seasonality(inputs["month_index"], cfg),
+        "competitors": signal_competitors(base_price, inputs.get("competitor_prices", []), cfg),
+        "market":      signal_market(inputs.get("market_return", 0.0), cfg),
+        "demand":      signal_demand(inputs["demand_current"], inputs.get("demand_history", []), cfg),
+    }
+
+    blended_signal = sum(w[k] * sigs[k] for k in w.keys())
+    # Convert normalized blended signal into a percentage by scaling to max caps
+    # We map [-1,+1] to [min_total_adj, max_total_adj] linearly
+    if blended_signal >= 0:
+        total_adj = blended_signal * cfg.max_total_adj
+    else:
+        total_adj = blended_signal * abs(cfg.min_total_adj)
+
+    total_adj = clamp(total_adj, cfg.min_total_adj, cfg.max_total_adj)
+    final_price = base_price * (1.0 + total_adj)
+
+    return {
+        "signals": sigs,                 # each in [-1,+1]
+        "weights": w,                    # sum to 1.0
+        "blended_signal": blended_signal,# in [-1,+1]
+        "total_adjustment": total_adj,   # e.g., -0.08 for -8%
+        "final_price": round(final_price, 2)
+    }
+
+
+# ---------------------------
+# Example (delete in prod):
+if __name__ == "__main__":
+    base = 4000.0
+    weights = {
+        "occupancy": 0,             # 0%
+        "days_vacant": 19,          # 19%
+        "attributes": 19,           # 19%
+        "seasonality": 0,           # 0%
+        "competitors": 0,           # 0%
+        "market": 18,               # 18%
+        "demand": 44                # 44%
+    }
+    inputs = {
+        "occupancy": 0.83,                  # 83% → reduction strategy triggers
+        "days_vacant": 14,                  # 7 day grace; discount grows after
+        "attr_score": 0.65,                 # slightly above median room
+        "month_index": 6,                   # June
+        "competitor_prices": [3800, 3950, 4100, 4050],
+        "market_return": 0.02,              # +2% last 30 days
+        "demand_current": 32,               # this week inquiries/tours
+        "demand_history": [18, 22, 25, 21, 27, 24, 23, 19]
+    }
+    print(price_recommendation(base, weights, inputs))
