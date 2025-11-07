@@ -19,6 +19,7 @@ import {
   insertGuardrailsSchema
 } from "@shared/schema";
 import { demoCompetitors, demoRentRoll } from "./seed-data";
+import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -4942,16 +4943,20 @@ Respond in JSON format:
     }
   });
 
-  // AI-powered room detection endpoint
-  // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+  // AI-powered room detection endpoint with hybrid OpenCV + OpenAI strategy
   app.post("/api/floor-plans/detect-rooms", upload.single('image'), async (req, res) => {
     try {
-      const { campusMapId } = req.body;
-      let imageBase64: string;
+      const { campusMapId, strategy = 'hybrid' } = req.body;
+      let imagePath: string;
+      let tempFile: string | null = null;
 
-      // Get image from either uploaded file or campusMapId (validated)
+      // Get image path from either uploaded file or campusMapId (validated)
       if (req.file) {
-        imageBase64 = req.file.buffer.toString('base64');
+        // Save uploaded file temporarily
+        const fs = await import('fs/promises');
+        tempFile = path.join(process.cwd(), `temp_${Date.now()}.png`);
+        await fs.writeFile(tempFile, req.file.buffer);
+        imagePath = tempFile;
       } else if (campusMapId) {
         // Fetch the campus map to get the base image URL - validates ownership/existence
         const campusMap = await storage.getCampusMapById(campusMapId);
@@ -4968,96 +4973,38 @@ Respond in JSON format:
           return res.status(400).json({ error: "Invalid image path" });
         }
         
-        // Read the image file and convert to base64
-        const fs = await import('fs/promises');
-        const imagePath = path.join(process.cwd(), normalizedPath);
-        const imageBuffer = await fs.readFile(imagePath);
-        imageBase64 = imageBuffer.toString('base64');
+        imagePath = path.join(process.cwd(), normalizedPath);
       } else {
         return res.status(400).json({ error: "No image provided. Please provide either campusMapId or upload an image file" });
       }
 
-      // Initialize OpenAI client
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-      console.log(`Starting AI room detection for campus map ${campusMapId}...`);
+      console.log(`Starting room detection (strategy: ${strategy}) for campus map ${campusMapId}...`);
       
-      // Use GPT-5 vision to analyze the floor plan with timeout
-      const response = await Promise.race([
-        openai.chat.completions.create({
-          model: "gpt-5",
-          messages: [
-            {
-              role: "system",
-              content: `You are an expert at analyzing architectural floor plans for senior living facilities. 
-              Analyze the floor plan image and detect individual room boundaries. 
-              For each room detected, provide:
-              1. A polygon boundary (as normalized coordinates 0-100% for SVG)
-              2. A suggested room label (e.g., "101", "AL-102", "MC-01")
-              3. Approximate room center point
-              4. Room type if identifiable (Studio, 1BR, 2BR, Semi-Private, etc.)
-              
-              Return your response as a JSON object with this structure:
-              {
-                "rooms": [
-                  {
-                    "label": "101",
-                    "polygon": "10,10 20,10 20,20 10,20",
-                    "centerX": 15,
-                    "centerY": 15,
-                    "roomType": "Studio",
-                    "confidence": 0.95
-                  }
-                ],
-                "imageWidth": 1024,
-                "imageHeight": 683
-              }
-              
-              Notes:
-              - Polygon coordinates should be in SVG format as percentages (0-100)
-              - Only detect actual resident rooms, not common areas
-              - Look for room numbers in the image
-              - Confidence should be 0-1 (1 being most confident)`
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Analyze this floor plan and detect all resident rooms with their boundaries and labels."
-                },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:image/jpeg;base64,${imageBase64}`
-                  }
-                }
-              ],
-            },
-          ],
-          response_format: { type: "json_object" },
-          max_completion_tokens: 4096,
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('AI detection timed out after 60 seconds')), 60000)
-        )
-      ]) as any;
+      // Use the room detection service with specified strategy
+      const result = await roomDetectionService.detect(
+        imagePath,
+        strategy as DetectionStrategy
+      );
       
-      console.log('AI room detection completed successfully');
-
-      const detectionResult = JSON.parse(response.choices[0].message.content || '{"rooms": []}');
+      // Clean up temp file if created
+      if (tempFile) {
+        try {
+          const fs = await import('fs/promises');
+          await fs.unlink(tempFile);
+        } catch (err) {
+          console.warn('Failed to delete temp file:', err);
+        }
+      }
+      
+      console.log(`Room detection completed: ${result.metadata.totalRoomsDetected} rooms detected using ${result.metadata.strategyUsed}${result.metadata.fallbackUsed ? ' (fallback)' : ''}`);
       
       res.json({
-        success: true,
-        detected: detectionResult.rooms || [],
-        metadata: {
-          imageWidth: detectionResult.imageWidth || 1024,
-          imageHeight: detectionResult.imageHeight || 683,
-          totalRoomsDetected: (detectionResult.rooms || []).length
-        }
+        success: result.success,
+        detected: result.rooms,
+        metadata: result.metadata
       });
     } catch (error) {
-      console.error('Error detecting rooms with AI:', error);
+      console.error('Error detecting rooms:', error);
       res.status(500).json({ 
         error: "Failed to detect rooms",
         details: error instanceof Error ? error.message : String(error)
