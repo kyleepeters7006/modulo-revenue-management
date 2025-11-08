@@ -355,31 +355,56 @@ export default function ModuloCalculationDialog({
 
               {/* Smart Adjustments (Guardrails) */}
               {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
-                <Card className="border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
-                  <CardHeader className="pb-3">
+                <Card className="border-amber-500 bg-amber-50 dark:bg-amber-950/30 shadow-md">
+                  <CardHeader className="pb-3 bg-amber-100 dark:bg-amber-950/50">
                     <CardTitle className="text-sm flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-amber-600" />
-                      Smart Adjustments Applied
-                      <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
-                        Overrides Modulo
+                      <Shield className="h-5 w-5 text-amber-600" />
+                      <span className="font-semibold">Guardrails Applied</span>
+                      <Badge variant="default" className="bg-amber-600 text-white">
+                        Safety Limits Active
                       </Badge>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        The following safety rules were applied to keep pricing within acceptable limits:
+                  <CardContent className="pt-4">
+                    <div className="space-y-4">
+                      {/* Show the impact of guardrails */}
+                      <div className="bg-white dark:bg-gray-900 rounded-lg p-3 border-2 border-amber-400">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Algorithm Calculated</p>
+                            <p className="text-lg font-bold text-red-600">
+                              {formatCurrency(calcDetails.finalRate)}
+                            </p>
+                            <p className="text-xs text-red-600">
+                              ({calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)})
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">After Guardrails</p>
+                            <p className="text-lg font-bold text-green-600">
+                              {formatCurrency(Math.round(calcDetails.baseRate * 0.95))}
+                            </p>
+                            <p className="text-xs text-green-600">
+                              (-5.0% max decrease)
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <p className="text-xs text-amber-800 dark:text-amber-200 font-medium">
+                        The algorithm recommended a larger adjustment, but guardrails limited it to protect pricing stability:
                       </p>
+                      
                       {calcDetails.guardrailsApplied.map((rule: string, index: number) => (
-                        <div key={index} className="flex items-start gap-2 p-2 bg-white dark:bg-gray-900 rounded border border-amber-200 dark:border-amber-800">
-                          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <div key={index} className="flex items-start gap-2 p-3 bg-white dark:bg-gray-900 rounded border-l-4 border-amber-500">
+                          <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
                           <div className="flex-1">
-                            <p className="text-sm font-medium">{rule}</p>
+                            <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">{rule}</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {rule.includes('Minimum') && 'Prevents rates from dropping too rapidly'}
-                              {rule.includes('Maximum') && 'Prevents rates from increasing too rapidly'}
-                              {rule.includes('Competitor variance floor') && 'Ensures rates stay competitive within market range'}
-                              {rule.includes('Competitor variance ceiling') && 'Ensures rates stay competitive within market range'}
+                              {rule.includes('Minimum') && 'This guardrail prevents rates from dropping more than 5% at once to maintain revenue stability'}
+                              {rule.includes('Maximum') && 'This guardrail prevents rates from increasing more than 15% at once to avoid pricing shocks'}
+                              {rule.includes('Competitor variance floor') && 'This guardrail ensures rates stay within 10% of competitor pricing'}
+                              {rule.includes('Competitor variance ceiling') && 'This guardrail ensures rates stay within 10% of competitor pricing'}
                             </p>
                           </div>
                         </div>

@@ -684,7 +684,16 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 roomType={unit.roomType}
                                 currentRate={unit.streetRate}
                                 unitId={unit.id}
-                                calculationDetails={unit.moduloCalculationDetails}
+                                calculationDetails={(() => {
+                                  try {
+                                    if (!unit.moduloCalculationDetails) return null;
+                                    return typeof unit.moduloCalculationDetails === 'string' 
+                                      ? JSON.parse(unit.moduloCalculationDetails)
+                                      : unit.moduloCalculationDetails;
+                                  } catch {
+                                    return null;
+                                  }
+                                })()}
                               >
                                 <button 
                                   className="cursor-pointer flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
