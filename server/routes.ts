@@ -3298,8 +3298,8 @@ Keep recommendations specific and quantitative when possible.`;
             explanation: generateOverallExplanation(result, moduloInputs),
             guardrailsApplied: [] as string[]
           };
-        } else {
-          // Weights disabled - start with base rate, only apply manual rules
+        } else if (!manualRuleApplied) {
+          // Weights disabled AND no manual rule - start with base rate
           if (isDebugUnit) {
             console.log('DEBUG hit ELSE block - manualRuleApplied:', manualRuleApplied, 'weightsEnabled:', weightsEnabled);
           }
@@ -3314,6 +3314,7 @@ Keep recommendations specific and quantitative when possible.`;
             weightsDisabled: true
           };
         }
+        // If manualRuleApplied is true, calculationDetails was already set above, so don't overwrite it
         
         
         // Apply guardrails (smart adjustments) - only if no manual rule was applied
