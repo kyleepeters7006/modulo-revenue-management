@@ -2827,208 +2827,15 @@ Keep recommendations specific and quantitative when possible.`;
         unitLevelData = unitLevelData.filter(unit => selectedLocations.includes(unit.location));
       }
 
-      // Recalculate modulo rates dynamically based on current algorithm settings
-      const weights = await storage.getPricingWeights();
-      const ranges = await storage.getAdjustmentRanges();
-      
-      // Get all units to calculate actual occupancy rate
-      const allUnits = await storage.getRentRollData();
-      const occupiedUnits = allUnits.filter(unit => unit.occupiedYN);
-      const actualOccupancyRate = occupiedUnits.length / allUnits.length;
-      
-      // Recalculate modulo rates for each unit
-      for (const unit of unitLevelData) {
-        const streetRate = unit.streetRate || 3185;
-        
-        // Get weight percentages (0-100)
-        const occupancyWeight = weights?.occupancyPressure ?? 25;
-        const vacancyWeight = weights?.daysVacantDecay ?? 20;
-        const attributeWeight = weights?.roomAttributes ?? 25;
-        const seasonalWeight = weights?.seasonality ?? 10;
-        const competitorWeight = weights?.competitorRates ?? 10;
-        const marketWeight = weights?.stockMarket ?? 10;
-        
-        // Get adjustment ranges, using defaults if not configured
-        const occupancyMin = ranges?.occupancyMin ?? -0.10;
-        const occupancyMax = ranges?.occupancyMax ?? 0.05;
-        const vacancyMin = ranges?.vacancyMin ?? -0.15;
-        const vacancyMax = ranges?.vacancyMax ?? 0.00;
-        const attributesMin = ranges?.attributesMin ?? -0.05;
-        const attributesMax = ranges?.attributesMax ?? 0.10;
-        const seasonalityMin = ranges?.seasonalityMin ?? -0.05;
-        const seasonalityMax = ranges?.seasonalityMax ?? 0.10;
-        const competitorMin = ranges?.competitorMin ?? -0.10;
-        const competitorMax = ranges?.competitorMax ?? 0.10;
-        const marketMin = ranges?.marketMin ?? -0.05;
-        const marketMax = ranges?.marketMax ?? 0.05;
-        
-        // Calculate occupancy pressure adjustment
-        let occupancyAdjustment = 0;
-        if (occupancyWeight > 0) {
-          if (actualOccupancyRate >= 0.95) {
-            occupancyAdjustment = occupancyMax * (occupancyWeight / 100);
-          } else if (actualOccupancyRate >= 0.85) {
-            const scale = (actualOccupancyRate - 0.85) / 0.10;
-            occupancyAdjustment = occupancyMax * scale * (occupancyWeight / 100);
-          } else if (actualOccupancyRate <= 0.7) {
-            occupancyAdjustment = occupancyMin * (occupancyWeight / 100);
-          } else {
-            const scale = (0.85 - actualOccupancyRate) / 0.15;
-            occupancyAdjustment = occupancyMin * scale * (occupancyWeight / 100);
-          }
-        }
-        
-        // Calculate vacancy adjustment
-        let vacancyAdjustment = 0;
-        if (vacancyWeight > 0 && !unit.occupiedYN && unit.daysVacant) {
-          const severity = Math.min(unit.daysVacant / 90, 1);
-          vacancyAdjustment = vacancyMin * severity * (vacancyWeight / 100);
-        }
-        
-        // Calculate attribute adjustment
-        let attributeAdjustment = 0;
-        // Skip complex attribute calculations for now
-        
-        // Calculate seasonality
-        let seasonalAdjustment = 0;
-        if (seasonalWeight > 0) {
-          const currentMonth = new Date().getMonth();
-          const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
-          if (isPeakSeason) {
-            seasonalAdjustment = seasonalityMax * 0.8 * (seasonalWeight / 100);
-          } else {
-            seasonalAdjustment = seasonalityMin * 0.5 * (seasonalWeight / 100);
-          }
-        }
-        
-        // Calculate competitor adjustment
-        let competitorAdjustment = 0;
-        if (competitorWeight > 0 && unit.competitorBenchmarkRate) {
-          const competitorRate = unit.competitorBenchmarkRate;
-          const priceDifference = (streetRate - competitorRate) / competitorRate;
-          if (Math.abs(priceDifference) > 0.05) {
-            const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
-            const direction = priceDifference > 0 ? -1 : 1;
-            const range = direction > 0 ? competitorMax : competitorMin;
-            competitorAdjustment = range * severity * (competitorWeight / 100);
-          }
-        }
-        
-        // Calculate market adjustment
-        let marketAdjustment = 0;
-        if (marketWeight > 0) {
-          marketAdjustment = marketMax * 0.3 * (marketWeight / 100);
-        }
-        
-        // Calculate total adjustment and new rate
-        const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
-                               seasonalAdjustment + competitorAdjustment + marketAdjustment;
-        
-        // Update the modulo suggested rate in the unit data (for display only, not saved to DB)
-        unit.moduloSuggestedRate = Math.round(streetRate * (1 + totalAdjustment));
-      }
+      // NOTE: Modulo rates are already calculated and stored in the database
+      // We should NOT recalculate them here as it overrides the correct values
+      // The sophisticated pricing algorithm with proper guardrails has already run
+      // and saved the results when "Generate Modulo Suggestions" was clicked
 
-      // Recalculate AI rates dynamically based on current AI algorithm settings  
-      const aiWeights = await storage.getAiPricingWeights() || {
-        occupancyPressure: 20,
-        daysVacantDecay: 20,
-        roomAttributes: 15,
-        competitorRates: 15,
-        seasonality: 15,
-        stockMarket: 15
-      };
-      const aiRanges = await storage.getAiAdjustmentRanges() || {
-        occupancyMin: -0.15,
-        occupancyMax: 0.15,
-        vacancyMin: -0.30,
-        vacancyMax: 0.00,
-        attributesMin: 0.00,
-        attributesMax: 0.20,
-        competitorMin: -0.15,
-        competitorMax: 0.15,
-        seasonalMin: -0.08,
-        seasonalMax: 0.08,
-        marketMin: 0.00,
-        marketMax: 0.05
-      };
-      
-      // Recalculate AI rates for each unit
-      for (const unit of unitLevelData) {
-        const streetRate = unit.streetRate || 3185;
-        
-        // Get AI weight percentages (0-100)
-        const aiOccupancyWeight = aiWeights.occupancyPressure;
-        const aiVacancyWeight = aiWeights.daysVacantDecay;
-        const aiAttributeWeight = aiWeights.roomAttributes;
-        const aiSeasonalWeight = aiWeights.seasonality;
-        const aiCompetitorWeight = aiWeights.competitorRates;
-        const aiMarketWeight = aiWeights.stockMarket;
-        
-        // Calculate AI occupancy pressure adjustment
-        let aiOccupancyAdjustment = 0;
-        if (aiOccupancyWeight > 0) {
-          if (actualOccupancyRate >= 0.95) {
-            aiOccupancyAdjustment = aiRanges.occupancyMax * (aiOccupancyWeight / 100);
-          } else if (actualOccupancyRate >= 0.85) {
-            const scale = (actualOccupancyRate - 0.85) / 0.10;
-            aiOccupancyAdjustment = aiRanges.occupancyMax * scale * (aiOccupancyWeight / 100);
-          } else if (actualOccupancyRate <= 0.7) {
-            aiOccupancyAdjustment = aiRanges.occupancyMin * (aiOccupancyWeight / 100);
-          } else {
-            const scale = (0.85 - actualOccupancyRate) / 0.15;
-            aiOccupancyAdjustment = aiRanges.occupancyMin * scale * (aiOccupancyWeight / 100);
-          }
-        }
-        
-        // Calculate AI vacancy adjustment
-        let aiVacancyAdjustment = 0;
-        if (aiVacancyWeight > 0 && !unit.occupiedYN && unit.daysVacant) {
-          const severity = Math.min(unit.daysVacant / 90, 1);
-          aiVacancyAdjustment = aiRanges.vacancyMin * severity * (aiVacancyWeight / 100);
-        }
-        
-        // Calculate AI attribute adjustment
-        let aiAttributeAdjustment = 0;
-        // Skip complex attribute calculations for now
-        
-        // Calculate AI seasonality
-        let aiSeasonalAdjustment = 0;
-        if (aiSeasonalWeight > 0) {
-          const currentMonth = new Date().getMonth();
-          const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
-          if (isPeakSeason) {
-            aiSeasonalAdjustment = aiRanges.seasonalMax * 0.8 * (aiSeasonalWeight / 100);
-          } else {
-            aiSeasonalAdjustment = aiRanges.seasonalMin * 0.5 * (aiSeasonalWeight / 100);
-          }
-        }
-        
-        // Calculate AI competitor adjustment
-        let aiCompetitorAdjustment = 0;
-        if (aiCompetitorWeight > 0 && unit.competitorBenchmarkRate) {
-          const competitorRate = unit.competitorBenchmarkRate;
-          const priceDifference = (streetRate - competitorRate) / competitorRate;
-          if (Math.abs(priceDifference) > 0.05) {
-            const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
-            const direction = priceDifference > 0 ? -1 : 1;
-            const range = direction > 0 ? aiRanges.competitorMax : aiRanges.competitorMin;
-            aiCompetitorAdjustment = range * severity * (aiCompetitorWeight / 100);
-          }
-        }
-        
-        // Calculate AI market adjustment
-        let aiMarketAdjustment = 0;
-        if (aiMarketWeight > 0) {
-          aiMarketAdjustment = aiRanges.marketMax * 0.3 * (aiMarketWeight / 100);
-        }
-        
-        // Calculate total AI adjustment and new rate
-        const aiTotalAdjustment = aiOccupancyAdjustment + aiVacancyAdjustment + aiAttributeAdjustment + 
-                                  aiSeasonalAdjustment + aiCompetitorAdjustment + aiMarketAdjustment;
-        
-        // Update the AI suggested rate in the unit data (for display only, not saved to DB)
-        unit.aiSuggestedRate = Math.round(streetRate * (1 + aiTotalAdjustment));
-      }
+      // NOTE: AI rates are also calculated and stored in the database
+      // We should NOT recalculate them here as it overrides the correct values
+      // The AI pricing algorithm has already run and saved the results
+      // Use the database values as-is without modification
 
       let rateCardSummary = await storage.getRateCardByMonth(targetMonth);
       
@@ -3248,12 +3055,30 @@ Keep recommendations specific and quantitative when possible.`;
         if (!manualRuleApplied && guardrailsData) {
           const originalSuggestion = suggestion;
           
+          // Debug logging for HC unit
+          if (unit.streetRate === 11460) {
+            console.log('DEBUG HC-305 Before guardrails:', {
+              streetRate: unit.streetRate,
+              suggestion: suggestion,
+              guardrails: guardrailsData
+            });
+          }
+          
           // Min rate decrease limit
           if (guardrailsData.minRateDecrease) {
             const minRate = unit.streetRate * (1 - guardrailsData.minRateDecrease);
             if (suggestion < minRate) {
+              const oldSuggestion = suggestion;
               suggestion = minRate;
               guardrailsApplied.push(`Minimum rate decrease limit applied (${(guardrailsData.minRateDecrease * 100).toFixed(1)}%)`);
+              
+              if (unit.streetRate === 11460) {
+                console.log('DEBUG HC-305 Min rate applied:', {
+                  oldSuggestion,
+                  minRate,
+                  newSuggestion: suggestion
+                });
+              }
             }
           }
           
@@ -3297,6 +3122,20 @@ Keep recommendations specific and quantitative when possible.`;
           if (Math.abs(suggestion - unit.streetRate) < minChange) {
             suggestion = unit.streetRate + (Math.random() > 0.5 ? minChange : -minChange);
           }
+        }
+        
+        // Debug final suggestion for HC unit
+        if (unit.streetRate === 11460) {
+          console.log('DEBUG HC-305 Final values:', {
+            streetRate: unit.streetRate,
+            finalSuggestion: suggestion,
+            roundedSuggestion: Math.round(suggestion),
+            guardrailsApplied,
+            calculationDetails: {
+              finalRate: calculationDetails.finalRate,
+              totalAdjustment: calculationDetails.totalAdjustment
+            }
+          });
         }
         
         // Add to bulk update array
