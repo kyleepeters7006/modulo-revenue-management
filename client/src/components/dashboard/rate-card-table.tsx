@@ -379,6 +379,9 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                     { month: '2025-07', display: 'July 2025' },
                     { month: '2025-08', display: 'August 2025' },
                     { month: '2025-09', display: 'September 2025' },
+                    { month: '2025-10', display: 'October 2025' },
+                    { month: '2025-11', display: 'November 2025' },
+                    { month: '2025-12', display: 'December 2025' },
                   ].map(({ month, display }) => (
                     <SelectItem key={month} value={month}>
                       {display}
