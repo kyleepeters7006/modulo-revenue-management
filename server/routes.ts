@@ -3262,16 +3262,13 @@ Keep recommendations specific and quantitative when possible.`;
             }
           }
           
-          // Update final rate if guardrails were applied
-          if (guardrailsApplied.length > 0) {
-            calculationDetails.finalRate = Math.round(suggestion);
-          }
+          // Note: Do NOT update finalRate - it should remain as algorithm output
         }
         
         // Store guardrails in calculation details
         if (guardrailsApplied.length > 0) {
           calculationDetails.guardrailsApplied = guardrailsApplied;
-          calculationDetails.finalRate = Math.round(suggestion);
+          // Note: Do NOT update finalRate - it should remain as algorithm output
         }
         
         // Apply manual adjustment rules AFTER Modulo calculation and guardrails
@@ -3330,14 +3327,14 @@ Keep recommendations specific and quantitative when possible.`;
           }
         }
         
-        // Update final rate after rules
-        calculationDetails.finalRate = Math.round(suggestion);
+        // Note: Do NOT update calculationDetails.finalRate here - it should remain as the algorithm output
+        // The manual rules are shown separately in the calculation dialog
         
         // Ensure suggestions are different from street rates (minimum 1% change)
         const minChange = unit.streetRate * 0.01;
         if (Math.abs(suggestion - unit.streetRate) < minChange) {
           suggestion = unit.streetRate + (Math.random() > 0.5 ? minChange : -minChange);
-          calculationDetails.finalRate = Math.round(suggestion);
+          // Note: Do NOT update finalRate - it should remain as algorithm output
         }
         
         // Add to bulk update array
