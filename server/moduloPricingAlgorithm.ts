@@ -303,6 +303,12 @@ export function calculateModuloPrice(
     const weight = w[key];
     const weightedSignal = signal * weight;
     
+    // Calculate this factor's proportional contribution to the total adjustment
+    // Each factor gets (its weighted signal / total blended signal) × total adjustment
+    const factorAdjustment = blendedSignal !== 0 
+      ? (weightedSignal / blendedSignal) * totalAdj 
+      : 0;
+    
     // Convert back to percentage for display
     let adjustmentPct: number;
     if (key === 'occupancy') {
@@ -327,8 +333,8 @@ export function calculateModuloPrice(
       factor: key.charAt(0).toUpperCase() + key.slice(1),
       adjustment: adjustmentPct * 100,
       weight: weights0To100[key as keyof PricingWeights],
-      weightedAdjustment: weightedSignal * totalAdj * 100,
-      impact: basePrice * weightedSignal * totalAdj,
+      weightedAdjustment: factorAdjustment * 100,
+      impact: basePrice * factorAdjustment,
       description: getFactorDescription(key, inputs, adjustmentPct),
       calculation: getCalculationString(key, inputs, signal, adjustmentPct)
     };
