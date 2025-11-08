@@ -3083,6 +3083,30 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log(`Generating Modulo for ${units.length} units (Weights ${weightsEnabled ? 'ENABLED' : 'DISABLED'})`);
       
+      // Calculate service-line-specific benchmarks using internal street rates
+      // Since competitor data may not be service-line-specific, use each service line's
+      // own median street rate as the competitive benchmark for that service line
+      const serviceLineMedians: Record<string, number> = {};
+      const serviceLineStreetRates = units.reduce((groups: any, unit: any) => {
+        const sl = unit.serviceLine || 'Unknown';
+        if (!groups[sl]) groups[sl] = [];
+        if (unit.streetRate && unit.streetRate > 0) {
+          groups[sl].push(unit.streetRate);
+        }
+        return groups;
+      }, {});
+      
+      for (const [serviceLine, rates] of Object.entries(serviceLineStreetRates)) {
+        const rateArray = rates as number[];
+        if (rateArray.length > 0) {
+          const sorted = [...rateArray].sort((a, b) => a - b);
+          // Use median street rate as the competitive benchmark for this service line
+          serviceLineMedians[serviceLine] = sorted[Math.floor(sorted.length / 2)];
+        }
+      }
+      
+      console.log('Service line internal medians (used as competitive benchmark):', serviceLineMedians);
+      
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
@@ -3112,7 +3136,22 @@ Keep recommendations specific and quantitative when possible.`;
           attrScore = Math.min(1.0, attrScore);
           
           const monthIndex = new Date(targetMonth).getMonth() + 1;
-          const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [baseRate * 0.95, baseRate * 1.05];
+          
+          // Use service-line-specific competitor median or fallback to nearby rates
+          const serviceLineMedian = serviceLineMedians[unit.serviceLine];
+          let competitorPrices: number[];
+          
+          if (serviceLineMedian && serviceLineMedian > 0) {
+            // Use service-line-specific median as the primary competitor benchmark
+            competitorPrices = [serviceLineMedian];
+          } else if (unit.competitorRate && unit.competitorRate > 0) {
+            // Fallback to unit's specific competitor rate
+            competitorPrices = [unit.competitorRate];
+          } else {
+            // Final fallback: assume competitors are within ±5% of base rate for this service line
+            competitorPrices = [baseRate * 0.95, baseRate * 1.05];
+          }
+          
           const demandHistory = [18, 22, 25, 21, 27, 24, 23, 19]; // Mock - should be from DB
           const demandCurrent = 25; // Mock - should be from actual data
           

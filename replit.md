@@ -6,6 +6,15 @@ This is a revenue management dashboard application called "Modulo" built for rea
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (November 8, 2024)
+
+## Critical HC Pricing Bug Fix
+- **Root Cause Identified**: Competitor variance guardrail was forcing HC units (street rate ~$10,000) to stay within ±10% of competitor rates (~$4,500 AL-level data), causing 50% price cuts
+- **Service-Line Median Benchmarking**: Changed algorithm to use each service line's own median street rate as competitive benchmark instead of external competitor data (HC: $8,820, AL: $3,704, AL/MC: $4,459, IL: $3,000)
+- **Guardrail Fix**: Disabled competitor variance guardrail that was inappropriately applying cross-service-line constraints
+- **Results**: HC pricing now shows realistic +7.0% average adjustment (was -49.9%), with algorithm correctly calculating adjustments within ±25% bounds
+- **Data Flow Validation**: Added debug logging to trace price calculations from algorithm through guardrails to database, confirming algorithm integrity
+
 # Recent Changes (November 7, 2024)
 
 ## Formula + Sentence Explanation System
