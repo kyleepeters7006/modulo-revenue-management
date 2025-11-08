@@ -3051,7 +3051,8 @@ Keep recommendations specific and quantitative when possible.`;
   app.post("/api/pricing/generate-modulo", async (req, res) => {
     try {
       const { month, serviceLine, regions, divisions, locations } = req.body;
-      const targetMonth = month || new Date().toISOString().substring(0, 7);
+      // Default to October 2025 which has the data, instead of current month
+      const targetMonth = month || '2025-10';
       
       // Get current weights for calculation with defaults
       const defaultWeights = {
