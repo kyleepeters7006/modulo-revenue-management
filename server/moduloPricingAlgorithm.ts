@@ -252,6 +252,9 @@ export interface PricingResult {
     impact: number;
     description: string;
     calculation: string;
+    signal?: number;
+    rawData?: Record<string, any>;
+    signalExplanation?: string;
   }>;
 }
 
@@ -336,7 +339,10 @@ export function calculateModuloPrice(
       weightedAdjustment: factorAdjustment * 100,
       impact: basePrice * factorAdjustment,
       description: getFactorDescription(key, inputs, adjustmentPct),
-      calculation: getCalculationString(key, inputs, signal, adjustmentPct)
+      calculation: getCalculationString(key, inputs, signal, adjustmentPct),
+      signal: signal,
+      rawData: getRawData(key, inputs, basePrice, cfg),
+      signalExplanation: getSignalExplanation(key, signal, adjustmentPct)
     };
   });
   
@@ -397,6 +403,90 @@ function getCalculationString(factor: string, inputs: PricingInputs, signal: num
       return `Z-score: ${z.toFixed(2)} → ${(adjustment * 100).toFixed(2)}%`;
     default:
       return '';
+  }
+}
+
+function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cfg: ModuloPricingConfig): Record<string, any> {
+  switch(factor) {
+    case 'occupancy':
+      return {
+        'Current Occupancy': `${(inputs.occupancy * 100).toFixed(1)}%`,
+        'Target Occupancy': '90%',
+        'Floor (Strong Cuts)': '85%',
+        'Occupancy Pressure': inputs.occupancy < 0.85 ? 'High pressure to cut' : inputs.occupancy > 0.90 ? 'Premium territory' : 'Moderate zone'
+      };
+    case 'daysVacant':
+      return {
+        'Days Vacant': inputs.daysVacant,
+        'Grace Period': '7 days',
+        'Days Beyond Grace': Math.max(0, inputs.daysVacant - 7),
+        'Max Decay': '-15%'
+      };
+    case 'attributes':
+      return {
+        'Desirability Score': `${(inputs.attrScore * 100).toFixed(1)}%`,
+        'Midpoint (Neutral)': '50%',
+        'Variance from Midpoint': `${((inputs.attrScore - 0.5) * 100).toFixed(1)}%`,
+        'Max Premium': '+10%'
+      };
+    case 'seasonality':
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return {
+        'Current Month': months[inputs.monthIndex - 1],
+        'Month Index': inputs.monthIndex,
+        'Seasonal Pattern': 'Winter=Low, Spring/Fall=Moderate, Summer=Peak'
+      };
+    case 'competitors':
+      const sorted = inputs.competitorPrices.sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      return {
+        'Base Price': `$${basePrice.toFixed(0)}`,
+        'Competitor Median': `$${median.toFixed(0)}`,
+        'Price Difference': `$${(basePrice - median).toFixed(0)}`,
+        'Variance': `${(((basePrice - median) / median) * 100).toFixed(1)}%`,
+        'Competitor Count': inputs.competitorPrices.length
+      };
+    case 'market':
+      return {
+        'Market Return': `${(inputs.marketReturn * 100).toFixed(2)}%`,
+        'Sentiment': inputs.marketReturn > 0 ? 'Positive' : inputs.marketReturn < 0 ? 'Negative' : 'Neutral',
+        'Max Influence': '±5%'
+      };
+    case 'demand':
+      const mean = inputs.demandHistory.reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
+      const variance = inputs.demandHistory.map(v => Math.pow(v - mean, 2)).reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
+      const stdDev = Math.sqrt(variance);
+      const z = inputs.demandHistory.length > 1 ? (inputs.demandCurrent - mean) / stdDev : 0;
+      return {
+        'Current Demand': inputs.demandCurrent,
+        'Historical Average': mean.toFixed(1),
+        'Standard Deviation': stdDev.toFixed(1),
+        'Z-Score': z.toFixed(2),
+        'Interpretation': z > 1 ? 'High demand' : z < -1 ? 'Low demand' : 'Normal demand'
+      };
+    default:
+      return {};
+  }
+}
+
+function getSignalExplanation(factor: string, signal: number, adjustment: number): string {
+  switch(factor) {
+    case 'occupancy':
+      return `The campus occupancy signal (${signal.toFixed(3)}) was normalized to -1 to +1 range based on proximity to the 90% target, then scaled to a ${(adjustment * 100).toFixed(1)}% price adjustment.`;
+    case 'daysVacant':
+      return `The vacancy duration signal (${signal.toFixed(3)}) represents the exponential decay after the 7-day grace period, scaled to a ${(adjustment * 100).toFixed(1)}% adjustment with a -15% maximum discount.`;
+    case 'attributes':
+      return `The room quality signal (${signal.toFixed(3)}) compares the desirability score to the 50% midpoint, allowing up to ±10% adjustment for premium or basic units.`;
+    case 'seasonality':
+      return `The seasonal signal (${signal.toFixed(3)}) reflects typical senior housing demand patterns, with peaks in summer months and valleys in winter.`;
+    case 'competitors':
+      return `The competitive pricing signal (${signal.toFixed(3)}) measures how far your price deviates from the market median, capped at ${Math.abs(adjustment * 100).toFixed(1)}% to stay competitive.`;
+    case 'market':
+      return `The economic indicator signal (${signal.toFixed(3)}) reflects broader market conditions with limited ${(Math.abs(adjustment) * 100).toFixed(1)}% influence on senior housing pricing.`;
+    case 'demand':
+      return `The demand signal (${signal.toFixed(3)}) uses statistical z-score analysis to detect unusual inquiry/tour volume relative to historical patterns, adjusting prices by up to ${(Math.abs(adjustment) * 100).toFixed(1)}%.`;
+    default:
+      return 'Signal normalized to -1 to +1 range and converted to percentage adjustment.';
   }
 }
 

@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 interface ModuloCalculationDialogProps {
@@ -253,26 +254,72 @@ export default function ModuloCalculationDialog({
                               <p className="text-xs text-muted-foreground">{adj.description}</p>
                             </div>
                             
-                            <div className="flex items-center gap-4 text-xs">
-                              <div className="flex items-center gap-1">
-                                <span className="text-muted-foreground">Raw adjustment:</span>
-                                <span className="font-medium">
-                                  {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
-                                </span>
-                              </div>
-                              <span className="text-muted-foreground">×</span>
-                              <div className="flex items-center gap-1">
-                                <span className="text-muted-foreground">Weight:</span>
-                                <span className="font-medium">{adj.weight}%</span>
-                              </div>
-                              <span className="text-muted-foreground">=</span>
-                              <div className="flex items-center gap-1">
-                                <span className="text-muted-foreground">Weighted:</span>
-                                <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                  {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                                </span>
-                              </div>
-                            </div>
+                            <Collapsible>
+                              <CollapsibleTrigger className="w-full group">
+                                <div className="flex items-center gap-2 text-xs hover:bg-muted/50 rounded p-2 transition-colors">
+                                  <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90 transition-transform" />
+                                  <div className="flex items-center gap-4 flex-1">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-muted-foreground">Raw adjustment:</span>
+                                      <span className="font-medium">
+                                        {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
+                                      </span>
+                                    </div>
+                                    <span className="text-muted-foreground">×</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-muted-foreground">Weight:</span>
+                                      <span className="font-medium">{adj.weight}%</span>
+                                    </div>
+                                    <span className="text-muted-foreground">=</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-muted-foreground">Weighted:</span>
+                                      <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                        {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground italic">Click for details</span>
+                                </div>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800 space-y-2">
+                                  <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Signal Calculation Breakdown</p>
+                                  
+                                  {/* Signal Value */}
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted-foreground">Normalized Signal:</span>
+                                    <span className="text-xs font-mono font-medium">
+                                      {adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Signal to Adjustment Conversion */}
+                                  <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
+                                    <p className="text-xs font-mono">
+                                      Signal ({adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}) → Adjustment ({adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)})
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {adj.signalExplanation || 'The normalized signal is converted to a percentage adjustment based on the algorithm\'s scaling factors.'}
+                                    </p>
+                                  </div>
+                                  
+                                  {/* Raw Data Used */}
+                                  {adj.rawData && (
+                                    <div className="space-y-1">
+                                      <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Raw Data:</p>
+                                      <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
+                                        {Object.entries(adj.rawData).map(([key, value]: [string, any]) => (
+                                          <div key={key} className="flex items-center justify-between text-xs">
+                                            <span className="text-muted-foreground">{key}:</span>
+                                            <span className="font-mono">{typeof value === 'number' ? value.toFixed(2) : value}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
                             
                             {index < filteredArray.length - 1 && <Separator className="mt-3" />}
                           </div>
