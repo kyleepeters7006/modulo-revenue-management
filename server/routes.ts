@@ -3067,6 +3067,11 @@ Keep recommendations specific and quantitative when possible.`;
       // Check if Modulo algorithm is enabled
       const weightsEnabled = weights?.enableWeights !== false; // Default to true
       
+      // DEBUG: Log weights object to diagnose enable_weights issue
+      console.log('DEBUG weights object:', JSON.stringify(weights));
+      console.log('DEBUG weightsEnabled:', weightsEnabled);
+      console.log('DEBUG weights.enableWeights:', weights?.enableWeights);
+      
       // Get guardrails for smart adjustments
       const guardrailsData = await storage.getCurrentGuardrails();
       
