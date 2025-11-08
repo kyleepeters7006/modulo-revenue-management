@@ -3190,7 +3190,15 @@ Keep recommendations specific and quantitative when possible.`;
           calculationDetails = {
             baseRate,
             adjustments,
-            weights: { ...moduloWeights },
+            weights: {
+              occupancyPressure: moduloWeights.occupancy,
+              daysVacantDecay: moduloWeights.daysVacant,
+              roomAttributes: moduloWeights.attributes,
+              seasonality: moduloWeights.seasonality,
+              competitorRates: moduloWeights.competitors,
+              stockMarket: moduloWeights.market,
+              inquiryTourVolume: moduloWeights.demand
+            },
             totalAdjustment: result.totalAdjustment * 100,
             finalRate: result.finalPrice,
             appliedRules: [] as string[],
@@ -3483,7 +3491,15 @@ Keep recommendations specific and quantitative when possible.`;
         const aiCalculationDetails = {
           baseRate,
           adjustments,
-          weights: algorithmWeights,
+          weights: {
+            occupancyPressure: algorithmWeights.occupancy,
+            daysVacantDecay: algorithmWeights.daysVacant,
+            roomAttributes: algorithmWeights.attributes,
+            seasonality: algorithmWeights.seasonality,
+            competitorRates: algorithmWeights.competitors,
+            stockMarket: algorithmWeights.market,
+            inquiryTourVolume: algorithmWeights.demand
+          },
           totalAdjustment: result.totalAdjustment * 100,
           finalRate: aiSuggestion,
           signals: result.signals,
@@ -4039,7 +4055,15 @@ Keep recommendations specific and quantitative when possible.`;
         calculation: {
           baseRate: streetRate,
           adjustments,
-          weights: algorithmWeights,
+          weights: {
+            occupancyPressure: algorithmWeights.occupancy,
+            daysVacantDecay: algorithmWeights.daysVacant,
+            roomAttributes: algorithmWeights.attributes,
+            seasonality: algorithmWeights.seasonality,
+            competitorRates: algorithmWeights.competitors,
+            stockMarket: algorithmWeights.market,
+            inquiryTourVolume: algorithmWeights.demand
+          },
           totalAdjustment: result.totalAdjustment * 100,
           finalRate: aiSuggestedRate,
           signals: result.signals,
