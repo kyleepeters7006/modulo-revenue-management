@@ -3126,7 +3126,6 @@ Keep recommendations specific and quantitative when possible.`;
         const baseRate = unit.streetRate;
         let suggestion = baseRate;
         let calculationDetails: any;
-        let manualRuleApplied = false;
         
         // DEBUG: Log for specific HC unit
         const isDebugUnit = unit.streetRate === 11460 && unit.serviceLine === 'HC';
@@ -3134,87 +3133,9 @@ Keep recommendations specific and quantitative when possible.`;
           console.log('DEBUG HC unit:', unit.id, 'baseRate:', baseRate, 'serviceLine:', unit.serviceLine);
         }
         
-        // Check if any manual adjustment rule matches this unit (rules override algorithm)
-        for (const rule of activeRules) {
-          const filters = rule.action?.filters;
-          let matches = true;
-          
-          // Check if unit matches rule filters
-          if (filters) {
-            if (filters.roomType && !filters.roomType.includes(unit.roomType)) matches = false;
-            if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) matches = false;
-            if (filters.occupancy === 'vacant' && unit.occupiedYN) matches = false;
-            if (filters.occupancy === 'occupied' && !unit.occupiedYN) matches = false;
-          }
-          
-          if (isDebugUnit) {
-            console.log('DEBUG rule check:', rule.name, 'matches:', matches, 'hasAction:', !!rule.action);
-          }
-          
-          if (matches && rule.action) {
-            manualRuleApplied = true;
-            
-            if (isDebugUnit) {
-              console.log('DEBUG rule APPLIED:', rule.name, 'adjustmentType:', rule.action.adjustmentType);
-            }
-            
-            // Apply the rule adjustment to street rate (OVERRIDE algorithm)
-            if (rule.action.adjustmentType === 'percentage') {
-              const adjustment = rule.action.adjustmentValue / 100;
-              suggestion = baseRate * (1 + adjustment);
-              
-              // Create calculation details showing the manual rule
-              const ruleFormula = `${baseRate.toFixed(0)} × ${(1 + adjustment).toFixed(3)} = ${suggestion.toFixed(0)}`;
-              calculationDetails = {
-                baseRate,
-                adjustments: [{
-                  factor: `Rule: ${rule.name}`,
-                  formula: ruleFormula,
-                  description: rule.description || `${rule.action.adjustmentValue}% adjustment applied (overrides algorithm)`,
-                  calculation: ruleFormula,
-                  weight: 100,
-                  adjustment: rule.action.adjustmentValue,
-                  weightedAdjustment: rule.action.adjustmentValue,
-                  impact: baseRate * adjustment
-                }],
-                weights: {},
-                totalAdjustment: rule.action.adjustmentValue,
-                finalRate: Math.round(suggestion),
-                appliedRules: [rule.name],
-                guardrailsApplied: [],
-                manualRuleOverride: true
-              };
-            } else if (rule.action.adjustmentType === 'absolute') {
-              suggestion = baseRate + rule.action.adjustmentValue;
-              
-              // Create calculation details showing the manual rule
-              const ruleFormula = `${baseRate.toFixed(0)} + ${rule.action.adjustmentValue} = ${suggestion.toFixed(0)}`;
-              calculationDetails = {
-                baseRate,
-                adjustments: [{
-                  factor: `Rule: ${rule.name}`,
-                  formula: ruleFormula,
-                  description: rule.description || `$${rule.action.adjustmentValue} adjustment applied (overrides algorithm)`,
-                  calculation: ruleFormula,
-                  weight: 100,
-                  adjustment: (rule.action.adjustmentValue / baseRate) * 100,
-                  weightedAdjustment: (rule.action.adjustmentValue / baseRate) * 100,
-                  impact: rule.action.adjustmentValue
-                }],
-                weights: {},
-                totalAdjustment: (rule.action.adjustmentValue / baseRate) * 100,
-                finalRate: Math.round(suggestion),
-                appliedRules: [rule.name],
-                guardrailsApplied: [],
-                manualRuleOverride: true
-              };
-            }
-            break; // Only apply the first matching rule
-          }
-        }
-        
-        // Only run Modulo algorithm if no manual rule was applied and weights are enabled
-        if (!manualRuleApplied && weightsEnabled) {
+        // STEP 1: ALWAYS calculate Modulo algorithm first if weights are enabled
+        let moduloCalculation: any = null;
+        if (weightsEnabled) {
           // Prepare inputs for sophisticated algorithm
           const campusOccupancy = 0.87; // Mock - should calculate from actual campus data
           const daysVacant = unit.daysVacant || 0;
