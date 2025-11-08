@@ -361,9 +361,9 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           <CardTitle className="flex items-center justify-between">
             <span>Rate Card & Pricing</span>
             <div className="flex items-center space-x-4">
-              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+              <Select value={selectedMonth || rateCardData?.month || ''} onValueChange={setSelectedMonth}>
                 <SelectTrigger className="w-40">
-                  <SelectValue />
+                  <SelectValue placeholder="Loading..." />
                 </SelectTrigger>
                 <SelectContent>
                   {[
