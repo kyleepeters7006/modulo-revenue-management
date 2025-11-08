@@ -25,7 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2, Shield } from "lucide-react";
+import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -49,6 +49,8 @@ export default function RateCardTable({
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
   const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -256,12 +258,89 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   const summary = rateCardData?.summary || [];
   
   // Filter units by selected service line
-  const filteredUnits = selectedServiceLine === "All" 
+  let filteredUnits = selectedServiceLine === "All" 
     ? units 
     : units.filter((unit: any) => {
         // Use the actual serviceLine field from the data
         return unit.serviceLine === selectedServiceLine;
       });
+
+  // Handle column sorting
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Sort the filtered units based on current sort state
+  if (sortColumn) {
+    filteredUnits = [...filteredUnits].sort((a: any, b: any) => {
+      let aVal, bVal;
+      
+      switch (sortColumn) {
+        case 'unit':
+          aVal = a.roomNumber || '';
+          bVal = b.roomNumber || '';
+          break;
+        case 'roomType':
+          aVal = a.roomType || '';
+          bVal = b.roomType || '';
+          break;
+        case 'serviceLine':
+          aVal = a.serviceLine || '';
+          bVal = b.serviceLine || '';
+          break;
+        case 'status':
+          aVal = a.occupiedYN ? 1 : 0;
+          bVal = b.occupiedYN ? 1 : 0;
+          break;
+        case 'streetRate':
+          aVal = a.streetRate || 0;
+          bVal = b.streetRate || 0;
+          break;
+        case 'modulo':
+          aVal = a.moduloSuggestedRate || 0;
+          bVal = b.moduloSuggestedRate || 0;
+          break;
+        case 'ai':
+          aVal = a.aiSuggestedRate || 0;
+          bVal = b.aiSuggestedRate || 0;
+          break;
+        case 'competitor':
+          aVal = a.competitorRate || 0;
+          bVal = b.competitorRate || 0;
+          break;
+        default:
+          return 0;
+      }
+      
+      // Compare values
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortDirection === 'asc' 
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      } else {
+        return sortDirection === 'asc' 
+          ? (aVal > bVal ? 1 : -1)
+          : (bVal > aVal ? 1 : -1);
+      }
+    });
+  }
+
+  // Render sort icon for column headers
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 text-muted-foreground" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp className="h-3 w-3 ml-1 text-primary" />
+      : <ArrowDown className="h-3 w-3 ml-1 text-primary" />;
+  };
 
   return (
     <TooltipProvider>
@@ -462,15 +541,87 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Room Type</TableHead>
-                    <TableHead>Service Line</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Street Rate</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('unit')}
+                      data-testid="sort-unit"
+                    >
+                      <div className="flex items-center">
+                        Unit
+                        <SortIcon column="unit" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('roomType')}
+                      data-testid="sort-room-type"
+                    >
+                      <div className="flex items-center">
+                        Room Type
+                        <SortIcon column="roomType" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('serviceLine')}
+                      data-testid="sort-service-line"
+                    >
+                      <div className="flex items-center">
+                        Service Line
+                        <SortIcon column="serviceLine" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('status')}
+                      data-testid="sort-status"
+                    >
+                      <div className="flex items-center">
+                        Status
+                        <SortIcon column="status" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('streetRate')}
+                      data-testid="sort-street-rate"
+                    >
+                      <div className="flex items-center">
+                        Street Rate
+                        <SortIcon column="streetRate" />
+                      </div>
+                    </TableHead>
                     <TableHead>Applied Rules</TableHead>
-                    <TableHead>Modulo</TableHead>
-                    <TableHead>AI</TableHead>
-                    <TableHead>Competitor</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('modulo')}
+                      data-testid="sort-modulo"
+                    >
+                      <div className="flex items-center">
+                        Modulo
+                        <SortIcon column="modulo" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('ai')}
+                      data-testid="sort-ai"
+                    >
+                      <div className="flex items-center">
+                        AI
+                        <SortIcon column="ai" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('competitor')}
+                      data-testid="sort-competitor"
+                    >
+                      <div className="flex items-center">
+                        Competitor
+                        <SortIcon column="competitor" />
+                      </div>
+                    </TableHead>
                     <TableHead>Attributes</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
