@@ -3054,6 +3054,8 @@ Keep recommendations specific and quantitative when possible.`;
       // Default to October 2025 which has the data, instead of current month
       const targetMonth = month || '2025-10';
       
+      console.log('DEBUG Modulo Generate - Received month:', month, 'Using targetMonth:', targetMonth, 'serviceLine:', serviceLine);
+      
       // Get current weights for calculation with defaults
       const defaultWeights = {
         occupancyPressure: 25,
