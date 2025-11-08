@@ -3128,6 +3128,12 @@ Keep recommendations specific and quantitative when possible.`;
         let calculationDetails: any;
         let manualRuleApplied = false;
         
+        // DEBUG: Log for specific HC unit
+        const isDebugUnit = unit.streetRate === 11460 && unit.serviceLine === 'HC';
+        if (isDebugUnit) {
+          console.log('DEBUG HC unit:', unit.id, 'baseRate:', baseRate, 'serviceLine:', unit.serviceLine);
+        }
+        
         // Check if any manual adjustment rule matches this unit (rules override algorithm)
         for (const rule of activeRules) {
           const filters = rule.action?.filters;
@@ -3141,8 +3147,16 @@ Keep recommendations specific and quantitative when possible.`;
             if (filters.occupancy === 'occupied' && !unit.occupiedYN) matches = false;
           }
           
+          if (isDebugUnit) {
+            console.log('DEBUG rule check:', rule.name, 'matches:', matches, 'hasAction:', !!rule.action);
+          }
+          
           if (matches && rule.action) {
             manualRuleApplied = true;
+            
+            if (isDebugUnit) {
+              console.log('DEBUG rule APPLIED:', rule.name, 'adjustmentType:', rule.action.adjustmentType);
+            }
             
             // Apply the rule adjustment to street rate (OVERRIDE algorithm)
             if (rule.action.adjustmentType === 'percentage') {
@@ -3286,6 +3300,9 @@ Keep recommendations specific and quantitative when possible.`;
           };
         } else {
           // Weights disabled - start with base rate, only apply manual rules
+          if (isDebugUnit) {
+            console.log('DEBUG hit ELSE block - manualRuleApplied:', manualRuleApplied, 'weightsEnabled:', weightsEnabled);
+          }
           calculationDetails = {
             baseRate,
             adjustments: [],
