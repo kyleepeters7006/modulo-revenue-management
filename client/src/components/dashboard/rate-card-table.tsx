@@ -44,7 +44,7 @@ export default function RateCardTable({
   selectedDivisions,
   selectedLocations
 }: RateCardTableProps) {
-  const [selectedMonth, setSelectedMonth] = useState("2025-10");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
@@ -69,7 +69,11 @@ export default function RateCardTable({
   const { data: rateCardData, isLoading } = useQuery({
     queryKey: ['/api/rate-card', selectedMonth, selectedRegions, selectedDivisions, selectedLocations],
     queryFn: async () => {
-      const params = new URLSearchParams({ month: selectedMonth });
+      const params = new URLSearchParams();
+      // Only include month if it's set, otherwise backend will auto-select latest month
+      if (selectedMonth) {
+        params.append('month', selectedMonth);
+      }
       if (selectedRegions && selectedRegions.length > 0) {
         selectedRegions.forEach(region => params.append('regions', region));
       }
@@ -82,9 +86,15 @@ export default function RateCardTable({
       
       const response = await fetch(`/api/rate-card?${params.toString()}`);
       return response.json();
-    },
-    enabled: !!selectedMonth
+    }
   });
+
+  // Sync selectedMonth with the month returned by the API (most recent month with data)
+  useEffect(() => {
+    if (rateCardData?.month && !selectedMonth) {
+      setSelectedMonth(rateCardData.month);
+    }
+  }, [rateCardData?.month, selectedMonth]);
 
   const generateModuloMutation = useMutation({
     mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { 
