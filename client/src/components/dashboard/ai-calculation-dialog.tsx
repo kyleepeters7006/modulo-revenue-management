@@ -85,7 +85,7 @@ export default function AICalculationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900">
+      <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900 sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Calculator className="w-5 h-5 text-purple-600" />

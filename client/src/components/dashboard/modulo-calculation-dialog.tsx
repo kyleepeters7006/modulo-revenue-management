@@ -81,7 +81,7 @@ export default function ModuloCalculationDialog({
       <DialogTrigger asChild>
         {children}
       </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
@@ -99,7 +99,7 @@ export default function ModuloCalculationDialog({
                   <CardTitle className="text-sm">Rate Summary</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <p className="text-xs text-muted-foreground">Base Rate</p>
                       <p className="text-lg font-bold">{formatCurrency(calcDetails.baseRate || currentRate)}</p>
@@ -155,7 +155,7 @@ export default function ModuloCalculationDialog({
                     <CardTitle className="text-sm">Algorithm Weights Configuration</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span>Occupancy</span>
