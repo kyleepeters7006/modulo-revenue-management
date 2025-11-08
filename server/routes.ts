@@ -3126,6 +3126,7 @@ Keep recommendations specific and quantitative when possible.`;
         const baseRate = unit.streetRate;
         let suggestion = baseRate;
         let calculationDetails: any;
+        let manualRuleApplied = false; // Track if a manual rule matched this unit
         
         // DEBUG: Log for specific HC unit
         const isDebugUnit = unit.streetRate === 11460 && unit.serviceLine === 'HC';
@@ -3133,8 +3134,7 @@ Keep recommendations specific and quantitative when possible.`;
           console.log('DEBUG HC unit:', unit.id, 'baseRate:', baseRate, 'serviceLine:', unit.serviceLine);
         }
         
-        // STEP 1: ALWAYS calculate Modulo algorithm first if weights are enabled
-        let moduloCalculation: any = null;
+        // Only run Modulo algorithm if weights are enabled
         if (weightsEnabled) {
           // Prepare inputs for sophisticated algorithm
           const campusOccupancy = 0.87; // Mock - should calculate from actual campus data
