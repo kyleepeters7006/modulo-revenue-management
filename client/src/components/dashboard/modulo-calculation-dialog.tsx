@@ -67,13 +67,12 @@ export default function ModuloCalculationDialog({
     return "text-gray-600";
   };
 
-  // Calculate the final rate based on base rate and total adjustment
-  // This ensures the displayed final rate matches the calculation
-  const calculateFinalRate = (details: any) => {
+  // Use the actual final rate from the backend calculation
+  // This ensures the popup shows the exact same rate as the rate card table
+  const getFinalRate = (details: any) => {
     if (!details) return currentRate;
-    const base = details.baseRate || currentRate;
-    const adjustment = (details.totalAdjustment || 0) / 100; // Convert percentage to decimal
-    return Math.round(base * (1 + adjustment));
+    // Use the finalRate from calculation details (which includes guardrails)
+    return details.finalRate || currentRate;
   };
 
   return (
@@ -122,7 +121,7 @@ export default function ModuloCalculationDialog({
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Final Rate</p>
-                      <p className="text-lg font-bold text-primary">{formatCurrency(calculateFinalRate(calcDetails))}</p>
+                      <p className="text-lg font-bold text-primary">{formatCurrency(getFinalRate(calcDetails))}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -425,7 +424,7 @@ export default function ModuloCalculationDialog({
                       )}
                       <div className="flex items-center justify-between font-bold">
                         <span>Recommended Rate</span>
-                        <span className="text-lg text-primary">{formatCurrency(calculateFinalRate(calcDetails))}</span>
+                        <span className="text-lg text-primary">{formatCurrency(getFinalRate(calcDetails))}</span>
                       </div>
                     </div>
                   </CardContent>
@@ -439,7 +438,7 @@ export default function ModuloCalculationDialog({
                   <div className="text-xs font-mono space-y-1">
                     <div>Base Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
                     <div className="text-primary">
-                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(calcDetails.totalAdjustment || 0)}) = {formatCurrency(calculateFinalRate(calcDetails))}
+                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(calcDetails.totalAdjustment || 0)}) = {formatCurrency(getFinalRate(calcDetails))}
                     </div>
                   </div>
                 </CardContent>
