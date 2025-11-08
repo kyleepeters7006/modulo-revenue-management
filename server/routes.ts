@@ -2797,8 +2797,10 @@ Keep recommendations specific and quantitative when possible.`;
       if (unitLevelData.length === 0) {
         const allData = await storage.getRentRollData();
         if (allData.length > 0) {
-          // Get the upload month from the first record
-          targetMonth = allData[0].uploadMonth || targetMonth;
+          // Get the LATEST upload month (sort descending and take first)
+          const uniqueMonths = [...new Set(allData.map(d => d.uploadMonth))].filter(Boolean);
+          uniqueMonths.sort((a, b) => b.localeCompare(a)); // Sort descending (latest first)
+          targetMonth = uniqueMonths[0] || targetMonth;
           unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
         }
       }
