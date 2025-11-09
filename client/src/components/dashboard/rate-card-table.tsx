@@ -96,6 +96,19 @@ export default function RateCardTable({
     }
   }, [rateCardData?.month, selectedMonth]);
 
+  // DEBUG: Log the data to see what's being received
+  useEffect(() => {
+    if (rateCardData) {
+      console.log('Rate Card Data:', {
+        month: rateCardData?.month,
+        unitsCount: rateCardData?.units?.length || 0,
+        summaryCount: rateCardData?.summary?.length || 0,
+        sampleUnit: rateCardData?.units?.[0],
+        selectedServiceLine
+      });
+    }
+  }, [rateCardData, selectedServiceLine]);
+
   const generateModuloMutation = useMutation({
     mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { 
       month: selectedMonth,
@@ -266,17 +279,6 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
 
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
-  
-  // DEBUG: Log the data to see what's being received
-  useEffect(() => {
-    console.log('Rate Card Data:', {
-      month: rateCardData?.month,
-      unitsCount: units.length,
-      summaryCount: summary.length,
-      sampleUnit: units[0],
-      selectedServiceLine
-    });
-  }, [rateCardData, selectedServiceLine]);
   
   // Filter units by selected service line
   let filteredUnits = selectedServiceLine === "All" 
