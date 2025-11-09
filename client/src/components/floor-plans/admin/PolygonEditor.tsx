@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Save, Trash2, Undo, Plus, X, Move, Edit, Pencil } from "lucide-react";
+import { Save, Trash2, Undo, Plus, X, Move, Edit, Pencil, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import AutoDetectPolygons from "./AutoDetectPolygons";
 
@@ -885,6 +885,45 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
         </TabsContent>
 
         <TabsContent value="unitAssignment" className="space-y-4">
+          {/* Show helper message if no candidate polygons */}
+          {candidatePolygons.length === 0 && (
+            <Card className="bg-amber-50 border-amber-200 border-2">
+              <CardContent className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <AlertCircle className="h-6 w-6 text-amber-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-amber-900 mb-2">No Room Outlines Detected</h3>
+                    <p className="text-sm text-amber-800 mb-4">
+                      Step 3 requires room polygons from auto-detection. Since no rooms were detected automatically, please use <strong>Step 2: Place & Draw</strong> to manually draw room boundaries and assign units directly.
+                    </p>
+                    <div className="space-y-2 text-sm text-amber-700">
+                      <p><strong>Alternative workflow:</strong></p>
+                      <ol className="list-decimal list-inside space-y-1 ml-2">
+                        <li>Go to "Step 2: Place & Draw"</li>
+                        <li>Click "Start Drawing" and click on the floor plan to create room boundaries</li>
+                        <li>Select a unit from the dropdown and click "Save Polygon"</li>
+                        <li>Repeat for each room</li>
+                      </ol>
+                    </div>
+                    <div className="mt-4">
+                      <Button
+                        onClick={() => {
+                          const manualTab = document.querySelector('[data-testid="tab-manual"]') as HTMLElement;
+                          manualTab?.click();
+                        }}
+                        className="bg-amber-600 hover:bg-amber-700"
+                      >
+                        Go to Manual Drawing
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           {/* Split panel layout: Floor plan on left (60%), Units list on right (40%) */}
           <div className="flex gap-4">
             {/* Left: Floor plan canvas */}
