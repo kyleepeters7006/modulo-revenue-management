@@ -16,12 +16,22 @@ const campuses = [
 
 // Service lines with unit counts and pricing
 const serviceLineConfigs = {
-  "IL": { units: 40, baseRate: 3500, variance: 500, occupancy: 0.92 },
-  "AL": { units: 35, baseRate: 4500, variance: 600, occupancy: 0.88 },
+  "IL": { units: 40, baseRate: 3500, variance: 500, occupancy: 0.93 },
+  "AL": { units: 35, baseRate: 4500, variance: 600, occupancy: 0.92 },
   "AL/MC": { units: 20, baseRate: 6500, variance: 700, occupancy: 0.85 },
-  "HC": { units: 25, baseRate: 7500, variance: 800, occupancy: 0.82 },
+  "HC": { units: 25, baseRate: 7500, variance: 800, occupancy: 0.90 },
   "HC/MC": { units: 15, baseRate: 8500, variance: 900, occupancy: 0.80 },
   "SL": { units: 30, baseRate: 5500, variance: 650, occupancy: 0.90 }
+};
+
+// Low occupancy config for second campus (demo of low demand market)
+const lowOccupancyConfigs = {
+  "IL": { units: 40, baseRate: 3500, variance: 500, occupancy: 0.65 },
+  "AL": { units: 35, baseRate: 4500, variance: 600, occupancy: 0.62 },
+  "AL/MC": { units: 20, baseRate: 6500, variance: 700, occupancy: 0.58 },
+  "HC": { units: 25, baseRate: 7500, variance: 800, occupancy: 0.60 },
+  "HC/MC": { units: 15, baseRate: 8500, variance: 900, occupancy: 0.55 },
+  "SL": { units: 30, baseRate: 5500, variance: 650, occupancy: 0.63 }
 };
 
 // Room types for each service
@@ -76,7 +86,11 @@ export async function initializeProductionDatabase(storage: IStorage): Promise<v
   for (const campus of campuses) {
     let unitCounter = 1;
     
-    for (const [serviceLine, config] of Object.entries(serviceLineConfigs)) {
+    // Use low occupancy config for second campus (Oakwood Retirement Community)
+    const isLowOccupancyCampus = campus.id === "LOC-002";
+    const configToUse = isLowOccupancyCampus ? lowOccupancyConfigs : serviceLineConfigs;
+    
+    for (const [serviceLine, config] of Object.entries(configToUse)) {
       const roomTypesForService = roomTypes[serviceLine as keyof typeof roomTypes];
       const unitsPerRoomType = Math.floor(config.units / roomTypesForService.length);
       

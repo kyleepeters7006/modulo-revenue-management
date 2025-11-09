@@ -216,6 +216,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to generate distance report' });
     }
   });
+
+  // Re-seed database with updated occupancy rates
+  app.post('/api/admin/reseed-database', async (req, res) => {
+    try {
+      console.log('Manually re-seeding database with updated occupancy rates...');
+      const { seedTrilogyRentRoll } = await import('./seedTrilogyRentRoll');
+      await seedTrilogyRentRoll();
+      
+      const unitCount = await storage.getTotalUnits();
+      console.log(`Database re-seeded successfully with ${unitCount} units`);
+      
+      res.json({ 
+        success: true, 
+        message: `Database re-seeded with ${unitCount} units using updated occupancy rates`,
+        occupancyRates: {
+          HC: '90%',
+          AL: '92%',
+          IL: '93%',
+          secondCampus: 'Low occupancy (60-65%)'
+        }
+      });
+    } catch (error) {
+      console.error('Error re-seeding database:', error);
+      res.status(500).json({ error: 'Failed to re-seed database' });
+    }
+  });
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req, res) => {
     try {

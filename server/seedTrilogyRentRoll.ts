@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { locations, rentRollData } from "@shared/schema";
+import { locations, rentRollData, unitPolygons } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
 // Room type distributions by service line
@@ -80,6 +80,26 @@ const serviceLineConfigs = [
   { lines: ['AL', 'AL/MC'], weight: 0.1 }  // AL + Memory Care only
 ];
 
+// Occupancy targets by service line (high occupancy scenario)
+const occupancyByServiceLine: Record<string, number> = {
+  'HC': 0.90,      // Health Center at 90%
+  'HC/MC': 0.88,   // Health Center/Memory Care at 88%
+  'AL': 0.92,      // Assisted Living at 92%
+  'AL/MC': 0.90,   // Assisted Living/Memory Care at 90%
+  'IL': 0.93,      // Independent Living at 93%
+  'SL': 0.91       // Senior Living at 91%
+};
+
+// Low occupancy targets for second campus (low demand market example)
+const lowOccupancyByServiceLine: Record<string, number> = {
+  'HC': 0.60,
+  'HC/MC': 0.58,
+  'AL': 0.62,
+  'AL/MC': 0.60,
+  'IL': 0.65,
+  'SL': 0.63
+};
+
 function getRandomElement<T>(items: Array<{ weight: number } & T>): T {
   const random = Math.random();
   let sum = 0;
@@ -109,6 +129,10 @@ async function seedTrilogyRentRoll() {
   console.log('Starting to seed Trilogy rent roll data...');
 
   try {
+    // Clear existing unit polygons first (foreign key constraint)
+    await db.delete(unitPolygons);
+    console.log('Cleared existing unit polygons');
+    
     // Clear existing rent roll data
     await db.delete(rentRollData);
     console.log('Cleared existing rent roll data');
@@ -126,7 +150,13 @@ async function seedTrilogyRentRoll() {
     const uploadMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
-    for (const campus of trilogyCampuses) {
+    for (let campusIndex = 0; campusIndex < trilogyCampuses.length; campusIndex++) {
+      const campus = trilogyCampuses[campusIndex];
+      
+      // Second campus (Hartford-101) is low occupancy market example
+      const isLowOccupancyCampus = campusIndex === 1;
+      const occupancyConfig = isLowOccupancyCampus ? lowOccupancyByServiceLine : occupancyByServiceLine;
+      
       // Determine service lines for this campus
       const config = getRandomElement(serviceLineConfigs);
       const serviceLines = config.lines;
@@ -155,7 +185,8 @@ async function seedTrilogyRentRoll() {
 
         for (let i = 0; i < unitCount; i++) {
           const roomType = getRandomElement(roomTypes);
-          const isOccupied = Math.random() < 0.85; // 85% occupancy target
+          const targetOccupancy = occupancyConfig[serviceLine] || 0.85;
+          const isOccupied = Math.random() < targetOccupancy;
           const careLevel = getRandomElement(careLevels);
           const payerType = getRandomElement(payerTypes);
           
