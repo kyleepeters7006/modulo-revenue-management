@@ -129,13 +129,25 @@ async function seedTrilogyRentRoll() {
   console.log('Starting to seed Trilogy rent roll data...');
 
   try {
-    // Clear existing unit polygons first (foreign key constraint)
-    await db.delete(unitPolygons);
-    console.log('Cleared existing unit polygons');
+    // Get existing unit polygons to preserve them
+    const existingPolygons = await db.select().from(unitPolygons);
+    const polygonRentRollIds = new Set(existingPolygons.map(p => p.rentRollDataId).filter(Boolean));
+    console.log(`Found ${existingPolygons.length} existing unit polygons to preserve`);
     
-    // Clear existing rent roll data
-    await db.delete(rentRollData);
-    console.log('Cleared existing rent roll data');
+    // Delete only rent roll data that doesn't have polygon mappings
+    if (polygonRentRollIds.size > 0) {
+      const allRentRoll = await db.select().from(rentRollData);
+      const toDelete = allRentRoll.filter(r => !polygonRentRollIds.has(r.id));
+      console.log(`Deleting ${toDelete.length} rent roll units without polygon mappings, preserving ${allRentRoll.length - toDelete.length} with mappings`);
+      
+      for (const unit of toDelete) {
+        await db.delete(rentRollData).where(sql`id = ${unit.id}`);
+      }
+    } else {
+      // No polygons exist, safe to delete all
+      await db.delete(rentRollData);
+      console.log('Cleared all rent roll data');
+    }
 
     // Get all Trilogy campus locations (excluding demo data)
     const campusLocations = await db.select().from(locations);
