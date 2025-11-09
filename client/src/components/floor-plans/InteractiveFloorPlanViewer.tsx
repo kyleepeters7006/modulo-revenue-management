@@ -42,6 +42,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempPolygonPosition, setTempPolygonPosition] = useState<{[key: string]: {x: number, y: number}}>({});
   const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const lastTouchDistance = useRef<number | null>(null);
   const { toast } = useToast();
@@ -64,6 +65,12 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const { data: hoveredUnit } = useQuery<UnitDetails>({
     queryKey: [`/api/rent-roll-data/${hoveredUnitId}`],
     enabled: !!hoveredUnitId,
+  });
+
+  // Fetch unit details for booking dialog
+  const { data: selectedUnit } = useQuery<UnitDetails>({
+    queryKey: [`/api/rent-roll-data/${selectedUnitId}`],
+    enabled: !!selectedUnitId,
   });
 
   // Close edit dialog when edit mode is disabled
@@ -178,21 +185,28 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   };
 
   const handlePolygonClick = async (rentRollDataId: string) => {
-    if (!editMode || draggingPolygonId) return;
+    if (draggingPolygonId) return;
     
-    try {
-      const unit: any = await apiRequest(`/api/rent-roll-data/${rentRollDataId}`, 'GET');
-      setEditingUnit(unit);
-      setEditFormData({
-        streetRate: unit.streetRate,
-        occupiedYN: unit.occupiedYN ? 'yes' : 'no',
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load unit details",
-        variant: "destructive",
-      });
+    // In edit mode: open edit form
+    if (editMode) {
+      try {
+        const unit: any = await apiRequest(`/api/rent-roll-data/${rentRollDataId}`, 'GET');
+        setEditingUnit(unit);
+        setEditFormData({
+          streetRate: unit.streetRate,
+          occupiedYN: unit.occupiedYN ? 'yes' : 'no',
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to load unit details",
+          variant: "destructive",
+        });
+      }
+    } else {
+      // In view mode: open booking dialog
+      setSelectedUnitId(rentRollDataId);
+      setShowBookingDialog(true);
     }
   };
 
@@ -577,13 +591,15 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           {/* Tooltip */}
           {hoveredUnit && hoveredUnitId && (
             <div
-              className="absolute bg-white shadow-xl rounded-lg border p-4 z-50 pointer-events-none"
+              className="absolute bg-white shadow-xl rounded-lg border p-4 z-50 pointer-events-auto"
               style={{
                 left: `${tooltipPosition.x + 15}px`,
                 top: `${tooltipPosition.y + 15}px`,
                 minWidth: '260px',
               }}
               data-testid="unit-tooltip"
+              onMouseEnter={() => setHoveredUnitId(hoveredUnitId)}
+              onMouseLeave={() => setHoveredUnitId(null)}
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between border-b pb-2">
@@ -619,6 +635,23 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                     </div>
                   )}
                 </div>
+
+                {/* Book Now button - only show in view mode */}
+                {!editMode && (
+                  <Button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedUnitId(hoveredUnitId);
+                      setShowBookingDialog(true);
+                      setHoveredUnitId(null);
+                    }}
+                    className="w-full mt-2 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white font-semibold"
+                    size="sm"
+                    data-testid="button-book-now-tooltip"
+                  >
+                    {hoveredUnit.occupiedYN ? 'Join Waitlist' : 'Book Now'}
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -715,39 +748,110 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
       </Dialog>
 
       {/* Book Now - Coming Soon Dialog */}
-      <Dialog open={showBookingDialog} onOpenChange={setShowBookingDialog}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-coming-soon">
-          <DialogHeader>
-            <DialogTitle className="text-2xl text-center">Coming Soon!</DialogTitle>
-            <DialogDescription className="text-center pt-4">
-              Online booking for Trilogy senior living communities will be available soon. 
-              In the meantime, please contact us directly to schedule a tour or inquire about availability.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <div className="bg-slate-50 p-4 rounded-lg text-center">
-              <p className="text-sm text-slate-700 mb-3">
-                <strong>Call us today:</strong>
-              </p>
-              <p className="text-2xl font-semibold text-[var(--trilogy-teal)] mb-4">
-                1-800-TRILOGY
-              </p>
-              <p className="text-xs text-slate-600">
-                Our friendly staff is ready to help you find the perfect home for your loved one.
-              </p>
-            </div>
-          </div>
+      <Dialog open={showBookingDialog} onOpenChange={(open) => {
+        setShowBookingDialog(open);
+        if (!open) setSelectedUnitId(null);
+      }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-unit-booking">
+          {selectedUnit ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl">Room {selectedUnit.roomNumber}</DialogTitle>
+                <DialogDescription>
+                  {selectedUnit.roomType} • {selectedUnit.size}
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded">
+                    <p className="text-xs text-slate-600 mb-1">Current Rate</p>
+                    <p className="text-xl font-semibold text-slate-900">
+                      ${Math.round(selectedUnit.streetRate).toLocaleString()}/mo
+                    </p>
+                  </div>
+                  {selectedUnit.moduloSuggestedRate && (
+                    <div className="bg-[var(--trilogy-teal)]/10 p-3 rounded border border-[var(--trilogy-teal)]">
+                      <p className="text-xs text-[var(--trilogy-navy)] mb-1">Modulo Rate</p>
+                      <p className="text-xl font-semibold text-[var(--trilogy-navy)]">
+                        ${Math.round(selectedUnit.moduloSuggestedRate).toLocaleString()}/mo
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-          <div className="flex justify-center">
-            <Button
-              onClick={() => setShowBookingDialog(false)}
-              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] px-8"
-              data-testid="button-close-coming-soon"
-            >
-              Close
-            </Button>
-          </div>
+                <div className="flex items-center gap-2">
+                  <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    selectedUnit.occupiedYN 
+                      ? 'bg-slate-200 text-slate-700' 
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {selectedUnit.occupiedYN ? 'Occupied' : 'Vacant'}
+                  </div>
+                  {!selectedUnit.occupiedYN && selectedUnit.daysVacant > 0 && (
+                    <span className="text-sm text-slate-600">
+                      Vacant for {selectedUnit.daysVacant} days
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-lg text-center">
+                  <p className="text-sm text-slate-700 mb-3">
+                    <strong>Ready to schedule a tour?</strong>
+                  </p>
+                  <p className="text-2xl font-semibold text-[var(--trilogy-teal)] mb-2">
+                    1-800-TRILOGY
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Our friendly staff is ready to help you find the perfect home.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                {selectedUnit.occupiedYN ? (
+                  <Button
+                    onClick={() => {
+                      toast({
+                        title: "Join Waitlist",
+                        description: "Please call us at 1-800-TRILOGY to join the waitlist for this room.",
+                      });
+                      setShowBookingDialog(false);
+                    }}
+                    className="flex-1 bg-slate-600 hover:bg-slate-700"
+                    data-testid="button-join-waitlist"
+                  >
+                    Join Waitlist
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      toast({
+                        title: "Schedule Tour",
+                        description: `Please call us at 1-800-TRILOGY to schedule a tour of Room ${selectedUnit.roomNumber}.`,
+                      });
+                      setShowBookingDialog(false);
+                    }}
+                    className="flex-1 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)]"
+                    data-testid="button-schedule-tour"
+                  >
+                    Schedule Tour
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBookingDialog(false)}
+                  data-testid="button-close-booking"
+                >
+                  Close
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="py-8 text-center">
+              <p className="text-slate-500">Loading unit details...</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
