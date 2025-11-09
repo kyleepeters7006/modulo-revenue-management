@@ -52,52 +52,51 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     const rateCardUrl = `/rate-card?location=${encodeURIComponent(data.campusName)}&serviceLine=${encodeURIComponent(data.serviceLine || 'All')}`;
     
     return (
-      <div 
-        className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700"
-        style={{ pointerEvents: 'auto' }}
-      >
-        <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
-        <div className="space-y-1 text-xs mb-3">
-          <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
-          {data.division && (
-            <p className="text-gray-700 dark:text-gray-300">Division: {data.division}</p>
-          )}
-          {data.avgRate && (
-            <p className="text-gray-700 dark:text-gray-300">
-              Avg Rate: ${Math.round(data.avgRate).toLocaleString()}
-            </p>
-          )}
-          {data.occupancy !== undefined && (
-            <p className="text-gray-700 dark:text-gray-300">
-              Occupancy: {(data.occupancy * 100).toFixed(1)}%
-            </p>
-          )}
-          {data.competitorAvgRate && (
-            <p className="text-gray-700 dark:text-gray-300">
-              Market Avg: ${Math.round(data.competitorAvgRate).toLocaleString()}
-            </p>
-          )}
-          {data.pricePosition !== undefined && (
-            <p className={`font-medium ${data.pricePosition > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-              Position: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
-            </p>
-          )}
-          {data.rateGrowthT6 !== undefined && (
-            <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-              T6 Rate Growth: {data.rateGrowthT6 > 0 ? '+' : ''}{data.rateGrowthT6.toFixed(1)}%
-            </p>
-          )}
-          {data.revenueImpact && (
-            <p className="text-gray-700 dark:text-gray-300">
-              Revenue Impact: ${Math.round(data.revenueImpact / 1000).toLocaleString()}K
-            </p>
-          )}
+      <div style={{ pointerEvents: 'auto', padding: '20px' }}>
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+          <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
+          <div className="space-y-1 text-xs mb-3">
+            <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
+            {data.division && (
+              <p className="text-gray-700 dark:text-gray-300">Division: {data.division}</p>
+            )}
+            {data.avgRate && (
+              <p className="text-gray-700 dark:text-gray-300">
+                Avg Rate: ${Math.round(data.avgRate).toLocaleString()}
+              </p>
+            )}
+            {data.occupancy !== undefined && (
+              <p className="text-gray-700 dark:text-gray-300">
+                Occupancy: {(data.occupancy * 100).toFixed(1)}%
+              </p>
+            )}
+            {data.competitorAvgRate && (
+              <p className="text-gray-700 dark:text-gray-300">
+                Market Avg: ${Math.round(data.competitorAvgRate).toLocaleString()}
+              </p>
+            )}
+            {data.pricePosition !== undefined && (
+              <p className={`font-medium ${data.pricePosition > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                Position: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
+              </p>
+            )}
+            {data.rateGrowthT6 !== undefined && (
+              <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                T6 Rate Growth: {data.rateGrowthT6 > 0 ? '+' : ''}{data.rateGrowthT6.toFixed(1)}%
+              </p>
+            )}
+            {data.revenueImpact && (
+              <p className="text-gray-700 dark:text-gray-300">
+                Revenue Impact: ${Math.round(data.revenueImpact / 1000).toLocaleString()}K
+              </p>
+            )}
+          </div>
+          <Link href={rateCardUrl}>
+            <a className="inline-block w-full text-center px-3 py-1.5 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white rounded text-xs font-medium transition-colors">
+              Edit Pricing →
+            </a>
+          </Link>
         </div>
-        <Link href={rateCardUrl}>
-          <a className="inline-block w-full text-center px-3 py-1.5 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white rounded text-xs font-medium transition-colors">
-            Edit Pricing →
-          </a>
-        </Link>
       </div>
     );
   }
@@ -481,6 +480,8 @@ export function Analytics() {
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
+                    offset={10}
+                    cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
@@ -537,6 +538,8 @@ export function Analytics() {
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
+                    offset={10}
+                    cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
@@ -592,6 +595,8 @@ export function Analytics() {
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
+                    offset={10}
+                    cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
@@ -647,6 +652,8 @@ export function Analytics() {
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
+                    offset={10}
+                    cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
@@ -702,6 +709,8 @@ export function Analytics() {
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
+                    offset={10}
+                    cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
@@ -758,6 +767,8 @@ export function Analytics() {
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
+                    offset={10}
+                    cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter name="Campuses" data={processedData} fill="#6B7280">
