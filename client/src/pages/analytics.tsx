@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
 import {
@@ -112,6 +112,8 @@ export function Analytics() {
   const [selectedMetric, setSelectedMetric] = useState<'avgRate' | 'occupancy' | 'marketPosition' | 'revenue' | null>(null);
   const [pinnedTooltip, setPinnedTooltip] = useState<any | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const tooltipTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isTooltipLocked, setIsTooltipLocked] = useState(false);
 
   // Fetch campus analytics data
   const { data: analyticsData, isLoading } = useQuery({
@@ -302,15 +304,57 @@ export function Analytics() {
 
   const calculationDetails = getCalculationDetails();
 
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tooltipTimerRef.current) {
+        clearTimeout(tooltipTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Handler to pin tooltip with 3-second minimum visibility (for both click and hover)
+  const lockTooltipWithData = (data: any) => {
+    if (data && data.payload) {
+      setPinnedTooltip(data.payload);
+      setIsTooltipLocked(true);
+      
+      // Clear any existing timer
+      if (tooltipTimerRef.current) {
+        clearTimeout(tooltipTimerRef.current);
+      }
+      
+      // Set 3-second timer to unlock tooltip
+      tooltipTimerRef.current = setTimeout(() => {
+        setIsTooltipLocked(false);
+      }, 3000);
+    }
+  };
+
+  // Handler for scatter plot click
+  const handleScatterClick = (data: any) => {
+    lockTooltipWithData(data);
+  };
+
+  // Handler for scatter plot hover
+  const handleScatterMouseEnter = (data: any) => {
+    lockTooltipWithData(data);
+  };
+
   return (
     <div 
       className="container mx-auto py-6 space-y-6"
       onClick={(e) => {
-        // Close pinned tooltip when clicking outside chart dots
+        // Don't close if tooltip is locked (within 3-second window)
+        if (isTooltipLocked) return;
+        
+        // Close pinned tooltip when clicking outside chart dots and tooltip
         const target = e.target as HTMLElement;
-        // Don't close if clicking on tooltip or chart dots
         if (!target.closest('.recharts-scatter-dot') && !target.closest('.recharts-tooltip-wrapper')) {
           setPinnedTooltip(null);
+          if (tooltipTimerRef.current) {
+            clearTimeout(tooltipTimerRef.current);
+          }
         }
       }}
     >
@@ -501,15 +545,8 @@ export function Analytics() {
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={(data, index, event) => {
-                      if (data && data.payload) {
-                        setPinnedTooltip(data.payload);
-                        const chartEvent = event as any;
-                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
-                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
-                        }
-                      }
-                    }}
+                    onClick={handleScatterClick}
+                    onMouseEnter={handleScatterMouseEnter}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -572,15 +609,8 @@ export function Analytics() {
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={(data, index, event) => {
-                      if (data && data.payload) {
-                        setPinnedTooltip(data.payload);
-                        const chartEvent = event as any;
-                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
-                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
-                        }
-                      }
-                    }}
+                    onClick={handleScatterClick}
+                    onMouseEnter={handleScatterMouseEnter}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -642,15 +672,8 @@ export function Analytics() {
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={(data, index, event) => {
-                      if (data && data.payload) {
-                        setPinnedTooltip(data.payload);
-                        const chartEvent = event as any;
-                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
-                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
-                        }
-                      }
-                    }}
+                    onClick={handleScatterClick}
+                    onMouseEnter={handleScatterMouseEnter}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -712,15 +735,8 @@ export function Analytics() {
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={(data, index, event) => {
-                      if (data && data.payload) {
-                        setPinnedTooltip(data.payload);
-                        const chartEvent = event as any;
-                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
-                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
-                        }
-                      }
-                    }}
+                    onClick={handleScatterClick}
+                    onMouseEnter={handleScatterMouseEnter}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -782,15 +798,8 @@ export function Analytics() {
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={(data, index, event) => {
-                      if (data && data.payload) {
-                        setPinnedTooltip(data.payload);
-                        const chartEvent = event as any;
-                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
-                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
-                        }
-                      }
-                    }}
+                    onClick={handleScatterClick}
+                    onMouseEnter={handleScatterMouseEnter}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -853,15 +862,8 @@ export function Analytics() {
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={(data, index, event) => {
-                      if (data && data.payload) {
-                        setPinnedTooltip(data.payload);
-                        const chartEvent = event as any;
-                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
-                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
-                        }
-                      }
-                    }}
+                    onClick={handleScatterClick}
+                    onMouseEnter={handleScatterMouseEnter}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
