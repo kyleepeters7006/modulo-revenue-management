@@ -54,7 +54,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   });
 
   // Fetch all units for this campus to determine occupancy colors
-  const { data: allUnitsData } = useQuery({
+  const { data: allUnitsData } = useQuery<any[]>({
     queryKey: [`/api/rent-roll-data/location/${campusMap.locationId}`],
     enabled: !!campusMap.locationId,
   });
