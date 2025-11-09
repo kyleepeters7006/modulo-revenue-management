@@ -324,20 +324,17 @@ export function Analytics() {
         clearTimeout(tooltipTimerRef.current);
       }
       
-      // Set 3-second timer to unlock tooltip
+      // Set 3-second timer to unlock AND clear tooltip
       tooltipTimerRef.current = setTimeout(() => {
         setIsTooltipLocked(false);
+        setPinnedTooltip(null);
+        setTooltipPosition(null);
       }, 3000);
     }
   };
 
-  // Handler for scatter plot click
-  const handleScatterClick = (data: any) => {
-    lockTooltipWithData(data);
-  };
-
-  // Handler for scatter plot hover
-  const handleScatterMouseEnter = (data: any) => {
+  // Handler for scatter plot click and hover
+  const handleScatterInteraction = (data: any) => {
     lockTooltipWithData(data);
   };
 
@@ -539,14 +536,15 @@ export function Analytics() {
                     isAnimationActive={false}
                     offset={10}
                     cursor={{ strokeDasharray: '3 3' }}
+                    active={!!pinnedTooltip}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={handleScatterClick}
-                    onMouseEnter={handleScatterMouseEnter}
+                    onClick={handleScatterInteraction}
+                    onMouseEnter={handleScatterInteraction}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -603,14 +601,15 @@ export function Analytics() {
                     isAnimationActive={false}
                     offset={10}
                     cursor={{ strokeDasharray: '3 3' }}
+                    active={!!pinnedTooltip}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={handleScatterClick}
-                    onMouseEnter={handleScatterMouseEnter}
+                    onClick={handleScatterInteraction}
+                    onMouseEnter={handleScatterInteraction}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -666,14 +665,15 @@ export function Analytics() {
                     isAnimationActive={false}
                     offset={10}
                     cursor={{ strokeDasharray: '3 3' }}
+                    active={!!pinnedTooltip}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={handleScatterClick}
-                    onMouseEnter={handleScatterMouseEnter}
+                    onClick={handleScatterInteraction}
+                    onMouseEnter={handleScatterInteraction}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -729,14 +729,15 @@ export function Analytics() {
                     isAnimationActive={false}
                     offset={10}
                     cursor={{ strokeDasharray: '3 3' }}
+                    active={!!pinnedTooltip}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={handleScatterClick}
-                    onMouseEnter={handleScatterMouseEnter}
+                    onClick={handleScatterInteraction}
+                    onMouseEnter={handleScatterInteraction}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -792,14 +793,15 @@ export function Analytics() {
                     isAnimationActive={false}
                     offset={10}
                     cursor={{ strokeDasharray: '3 3' }}
+                    active={!!pinnedTooltip}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={handleScatterClick}
-                    onMouseEnter={handleScatterMouseEnter}
+                    onClick={handleScatterInteraction}
+                    onMouseEnter={handleScatterInteraction}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
@@ -856,14 +858,15 @@ export function Analytics() {
                     isAnimationActive={false}
                     offset={10}
                     cursor={{ strokeDasharray: '3 3' }}
+                    active={!!pinnedTooltip}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
                     data={processedData} 
                     fill="#6B7280"
-                    onClick={handleScatterClick}
-                    onMouseEnter={handleScatterMouseEnter}
+                    onClick={handleScatterInteraction}
+                    onMouseEnter={handleScatterInteraction}
                   >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
