@@ -3057,7 +3057,8 @@ Keep recommendations specific and quantitative when possible.`;
             competitorPrices,
             marketReturn: stockMarketChange / 100, // Convert percentage to decimal
             demandCurrent,
-            demandHistory
+            demandHistory,
+            serviceLine: unit.serviceLine  // Pass service line for market positioning targets
           };
           
           const moduloWeights = {
@@ -3349,7 +3350,8 @@ Keep recommendations specific and quantitative when possible.`;
           competitorPrices,
           marketReturn: 0.03, // AI more optimistic
           demandCurrent,
-          demandHistory
+          demandHistory,
+          serviceLine: unit.serviceLine  // Pass service line for market positioning targets
         };
         
         // Convert weights to algorithm format
@@ -3927,7 +3929,8 @@ Keep recommendations specific and quantitative when possible.`;
         competitorPrices,
         marketReturn: 0.03, // AI is more optimistic
         demandCurrent,
-        demandHistory
+        demandHistory,
+        serviceLine: unit.serviceLine  // Pass service line for market positioning targets
       };
       
       // Convert AI weights to algorithm format

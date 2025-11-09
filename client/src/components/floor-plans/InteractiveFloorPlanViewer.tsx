@@ -752,7 +752,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
         setShowBookingDialog(open);
         if (!open) setSelectedUnitId(null);
       }}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-unit-booking">
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto" data-testid="dialog-unit-booking">
           {selectedUnit ? (
             <>
               <DialogHeader>

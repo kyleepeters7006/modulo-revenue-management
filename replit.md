@@ -8,12 +8,22 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 9, 2024)
 
+## Market Positioning Strategy Update
+- **Premium Targeting**: Changed competitor algorithm from price-matching to premium positioning strategy
+- **Service-Line-Specific Targets**: AL units target 25% above market, IL targets 10%, HC/AL-MC target 20%, others default to 18%
+- **Algorithm Logic**: Price adjustments now drive toward target premium instead of converging to competitor median
+- **Impact**: Replaces the old "89.4% of market" positioning with strategic premium positioning across service lines
+- **UI Updates**: Calculation dialogs now show "Target Premium", "Current Position", and "Premium Gap" for transparency
+
 ## Service-Line Occupancy Bug Fix
 - **Root Cause**: Occupancy adjustment was incorrectly using campus-level occupancy (87%) instead of service-line-specific occupancy
 - **Impact**: AL units with 91% AL occupancy were showing negative occupancy adjustments when they should have been positive (above 90% target)
 - **Fix**: Updated pricing algorithm to calculate and use service-line-specific occupancy rates for AL, HC, IL, AL/MC, etc.
 - **Affected Endpoints**: Fixed in 3 locations - Modulo recalculation, AI batch suggestions, and AI single-unit calculation
 - **Result**: Occupancy pressure now correctly reflects each service line's performance against the 90% target
+
+## UI Scroll Fix
+- **Booking Dialog**: Added scroll functionality (`max-h-[85vh] overflow-y-auto`) to prevent content cutoff in floor plan booking popups
 
 ## Interactive Floor Plan Booking System
 - **Drag-and-Drop Unit Assignment**: Complete system for linking units to floor plan polygons via drag-and-drop from unit list to canvas

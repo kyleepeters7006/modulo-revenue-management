@@ -170,7 +170,7 @@ function signalSeasonality(monthIndex: number, cfg: ModuloPricingConfig): number
   return clamp(base / cfg.seasonalitySpan, -1.0, 1.0);
 }
 
-function signalCompetitors(basePrice: number, competitorPrices: number[], cfg: ModuloPricingConfig): number {
+function signalCompetitors(basePrice: number, competitorPrices: number[], cfg: ModuloPricingConfig, serviceLine?: string): number {
   if (!competitorPrices || competitorPrices.length === 0) {
     return 0.0;
   }
@@ -182,8 +182,23 @@ function signalCompetitors(basePrice: number, competitorPrices: number[], cfg: M
     return 0.0;
   }
   
-  const pctDiff = (basePrice - compMed) / compMed;
-  const rawEffect = clamp(-pctDiff * cfg.compSensitivity, -cfg.compCap, cfg.compCap);
+  // Define target premium above competitors based on service line
+  let targetPremium = 0.18;  // Default: 18% above competitors
+  if (serviceLine === 'AL') {
+    targetPremium = 0.25;  // AL units should be 25% above competitors
+  } else if (serviceLine === 'IL') {
+    targetPremium = 0.10;  // IL units should be 10% above competitors
+  } else if (serviceLine === 'HC' || serviceLine === 'AL/MC') {
+    targetPremium = 0.20;  // HC and AL/MC should be 20% above
+  }
+  
+  // Calculate how far we are from the target premium
+  const currentPremium = (basePrice - compMed) / compMed;
+  const premiumGap = targetPremium - currentPremium;
+  
+  // Positive gap means we need to raise prices to reach target
+  // Negative gap means we're above target and should lower prices
+  const rawEffect = clamp(premiumGap * cfg.compSensitivity, -cfg.compCap, cfg.compCap);
   return clamp(rawEffect / cfg.compCap, -1.0, 1.0);
 }
 
@@ -226,6 +241,7 @@ export interface PricingInputs {
   marketReturn: number;        // e.g., 0.03 for +3%
   demandCurrent: number;       // current inquiries/tours
   demandHistory: number[];     // historical inquiries/tours
+  serviceLine?: string;        // Service line (AL, HC, IL, AL/MC) for market positioning
 }
 
 export interface PricingWeights {
@@ -281,7 +297,7 @@ export function calculateModuloPrice(
     daysVacant: signalDaysVacant(inputs.daysVacant, cfg),
     attributes: signalRoomAttributes(inputs.attrScore, cfg),
     seasonality: signalSeasonality(inputs.monthIndex, cfg),
-    competitors: signalCompetitors(basePrice, inputs.competitorPrices, cfg),
+    competitors: signalCompetitors(basePrice, inputs.competitorPrices, cfg, inputs.serviceLine),
     market: signalMarket(inputs.marketReturn, cfg),
     demand: signalDemand(inputs.demandCurrent, inputs.demandHistory, cfg)
   };
@@ -338,8 +354,8 @@ export function calculateModuloPrice(
       weight: weights0To100[key as keyof PricingWeights],
       weightedAdjustment: factorAdjustment * 100,
       impact: basePrice * factorAdjustment,
-      description: getFactorDescription(key, inputs, adjustmentPct),
-      calculation: getCalculationString(key, inputs, signal, adjustmentPct),
+      description: getFactorDescription(key, inputs, adjustmentPct, basePrice),
+      calculation: getCalculationString(key, inputs, signal, adjustmentPct, basePrice),
       signal: signal,
       rawData: getRawData(key, inputs, basePrice, cfg),
       signalExplanation: getSignalExplanation(key, signal, adjustmentPct)
@@ -356,7 +372,7 @@ export function calculateModuloPrice(
   };
 }
 
-function getFactorDescription(factor: string, inputs: PricingInputs, adjustment: number): string {
+function getFactorDescription(factor: string, inputs: PricingInputs, adjustment: number, basePrice: number): string {
   switch(factor) {
     case 'occupancy':
       return `Campus at ${Math.round(inputs.occupancy * 100)}% occupancy (target: 90%)`;
@@ -368,7 +384,15 @@ function getFactorDescription(factor: string, inputs: PricingInputs, adjustment:
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return `${months[inputs.monthIndex - 1]} seasonal adjustment`;
     case 'competitors':
-      return `Competitor median: $${Math.round(inputs.competitorPrices.sort((a, b) => a - b)[Math.floor(inputs.competitorPrices.length / 2)])}`;
+      const sortedComp = inputs.competitorPrices.sort((a, b) => a - b);
+      const medianComp = sortedComp[Math.floor(sortedComp.length / 2)];
+      let targetPremComp = 0.18;
+      if (inputs.serviceLine === 'AL') targetPremComp = 0.25;
+      else if (inputs.serviceLine === 'IL') targetPremComp = 0.10;
+      else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremComp = 0.20;
+      const currentPremComp = (basePrice - medianComp) / medianComp;
+      const gapComp = targetPremComp - currentPremComp;
+      return `Currently ${(currentPremComp * 100).toFixed(1)}% ${currentPremComp >= 0 ? 'above' : 'below'} market, target ${(targetPremComp * 100).toFixed(0)}% above (${gapComp > 0 ? '+' : ''}${(gapComp * 100).toFixed(1)}% gap)`;
     case 'market':
       return `Market return: ${(inputs.marketReturn * 100).toFixed(1)}%`;
     case 'demand':
@@ -378,7 +402,7 @@ function getFactorDescription(factor: string, inputs: PricingInputs, adjustment:
   }
 }
 
-function getCalculationString(factor: string, inputs: PricingInputs, signal: number, adjustment: number): string {
+function getCalculationString(factor: string, inputs: PricingInputs, signal: number, adjustment: number, basePrice: number): string {
   switch(factor) {
     case 'occupancy':
       return `Signal: ${signal.toFixed(3)} → Adjustment: ${(adjustment * 100).toFixed(2)}%`;
@@ -393,7 +417,15 @@ function getCalculationString(factor: string, inputs: PricingInputs, signal: num
     case 'seasonality':
       return `Monthly factor → ${(adjustment * 100).toFixed(2)}%`;
     case 'competitors':
-      return `Price variance from median → ${(adjustment * 100).toFixed(2)}%`;
+      const sortedCalc = inputs.competitorPrices.sort((a, b) => a - b);
+      const medianCalc = sortedCalc[Math.floor(sortedCalc.length / 2)];
+      let targetPremCalc = 0.18;
+      if (inputs.serviceLine === 'AL') targetPremCalc = 0.25;
+      else if (inputs.serviceLine === 'IL') targetPremCalc = 0.10;
+      else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremCalc = 0.20;
+      const currentPremCalc = (basePrice - medianCalc) / medianCalc;
+      const gapCalc = targetPremCalc - currentPremCalc;
+      return `Target ${(targetPremCalc * 100).toFixed(0)}% - Current ${(currentPremCalc * 100).toFixed(1)}% = ${(gapCalc * 100).toFixed(1)}% gap → ${(adjustment * 100).toFixed(2)}% adjustment`;
     case 'market':
       return `Market sentiment adjustment → ${(adjustment * 100).toFixed(2)}%`;
     case 'demand':
@@ -439,12 +471,23 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
     case 'competitors':
       const sorted = inputs.competitorPrices.sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
+      
+      // Calculate target premium based on service line
+      let targetPremium = 0.18;
+      if (inputs.serviceLine === 'AL') targetPremium = 0.25;
+      else if (inputs.serviceLine === 'IL') targetPremium = 0.10;
+      else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremium = 0.20;
+      
+      const currentPremium = (basePrice - median) / median;
+      const premiumGap = targetPremium - currentPremium;
+      
       return {
         'Base Price': `$${basePrice.toFixed(0)}`,
         'Competitor Median': `$${median.toFixed(0)}`,
-        'Price Difference': `$${(basePrice - median).toFixed(0)}`,
-        'Variance': `${(((basePrice - median) / median) * 100).toFixed(1)}%`,
-        'Competitor Count': inputs.competitorPrices.length
+        'Target Premium': `${(targetPremium * 100).toFixed(0)}% above market`,
+        'Current Position': `${(currentPremium * 100).toFixed(1)}% ${currentPremium >= 0 ? 'above' : 'below'} market`,
+        'Premium Gap': `${(premiumGap * 100).toFixed(1)}% ${premiumGap > 0 ? 'increase needed' : 'above target'}`,
+        'Service Line': inputs.serviceLine || 'Default'
       };
     case 'market':
       return {
@@ -480,7 +523,7 @@ function getSignalExplanation(factor: string, signal: number, adjustment: number
     case 'seasonality':
       return `The seasonal signal (${signal.toFixed(3)}) reflects typical senior housing demand patterns, with peaks in summer months and valleys in winter.`;
     case 'competitors':
-      return `The competitive pricing signal (${signal.toFixed(3)}) measures how far your price deviates from the market median, capped at ${Math.abs(adjustment * 100).toFixed(1)}% to stay competitive.`;
+      return `The market positioning signal (${signal.toFixed(3)}) drives pricing toward your target premium above competitors (18% default, 25% AL, 10% IL, 20% HC/AL-MC), with adjustments capped at ${Math.abs(adjustment * 100).toFixed(1)}% per calculation cycle.`;
     case 'market':
       return `The economic indicator signal (${signal.toFixed(3)}) reflects broader market conditions with limited ${(Math.abs(adjustment) * 100).toFixed(1)}% influence on senior housing pricing.`;
     case 'demand':
