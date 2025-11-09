@@ -3178,7 +3178,8 @@ Keep recommendations specific and quantitative when possible.`;
             }
           }
           
-          // Note: Do NOT update finalRate - it should remain as algorithm output
+          // Update finalRate to reflect guardrail-adjusted value
+          calculationDetails.finalRate = suggestion;
         }
         
         // Store guardrails in calculation details
