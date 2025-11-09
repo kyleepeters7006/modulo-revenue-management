@@ -111,7 +111,7 @@ export default function AboutUs() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://www.linkedin.com/in/kyle-peters', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/kyleedmondpeters/', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-kyle"
                 >
@@ -136,7 +136,7 @@ export default function AboutUs() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://www.linkedin.com/in/michael-kennedy', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/michael-kennedy-58a37156/', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-michael"
                 >
@@ -161,7 +161,7 @@ export default function AboutUs() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open('https://www.linkedin.com/in/irisel-johnston', '_blank')}
+                  onClick={() => window.open('https://www.linkedin.com/in/iriscel-jimenez-737311237/?locale=en', '_blank')}
                   className="w-full border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10"
                   data-testid="button-linkedin-irisel"
                 >
