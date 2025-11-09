@@ -6,7 +6,23 @@ This is a revenue management dashboard application called "Modulo" built for rea
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (November 9, 2024)
+
+## Interactive Floor Plan Booking System
+- **Drag-and-Drop Unit Assignment**: Complete system for linking units to floor plan polygons via drag-and-drop from unit list to canvas
+- **Automatic Polygon Detection**: Centroid-based nearest-neighbor matching with 100px snap radius for dropped units
+- **Visual Feedback**: Candidate polygons rendered with dashed cyan outlines, room number labels at centroids, and drag-over highlighting
+- **Interactive Tooltips**: Hover tooltips now include "Book Now" button (or "Join Waitlist" for occupied units) that opens booking dialog
+- **Smart Booking Dialog**: Displays full unit details (room number, type, size, current rate, Modulo suggested rate, vacancy status) with conditional CTAs
+- **Dual Interaction Modes**: Tooltip button and polygon click both open booking dialog; booking disabled in edit mode to prevent accidental bookings
+- **60/40 Split Layout**: Floor plan editor shows canvas on left (60%) and draggable unit list on right (40%) for efficient unit assignment workflow
+
 # Recent Changes (November 8, 2024)
+
+## Analytics Scatter Plot Improvements
+- **Sticky Tooltips**: Clicking scatter plot dots now keeps tooltips open (pinned state) enabling access to "Edit Pricing" button
+- **Interactive Tooltips**: Tooltips support pointer-events for hovering over buttons and clickable elements
+- **Click-Outside Dismiss**: Clicking elsewhere on the chart dismisses pinned tooltips for clean UX
 
 ## Critical HC Pricing Bug Fix
 - **Root Cause Identified**: Competitor variance guardrail was forcing HC units (street rate ~$10,000) to stay within ±10% of competitor rates (~$4,500 AL-level data), causing 50% price cuts
