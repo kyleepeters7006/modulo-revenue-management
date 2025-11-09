@@ -533,7 +533,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                     <TableCell className="font-medium">{row.serviceLine}</TableCell>
                     <TableCell>
                       <Badge variant={row.occupancyCount / row.totalUnits > 0.85 ? "default" : "secondary"}>
-                        {row.occupancyCount.toLocaleString()}/{row.totalUnits.toLocaleString()} ({Math.round(row.occupancyCount / row.totalUnits * 100)}%)
+                        {row.occupancyCount.toLocaleString()}/{row.totalUnits.toLocaleString()} <span className="text-base font-bold">({Math.round(row.occupancyCount / row.totalUnits * 100)}%)</span>
                       </Badge>
                     </TableCell>
                     <TableCell>${Math.round(row.averageStreetRate || 0).toLocaleString()}</TableCell>
