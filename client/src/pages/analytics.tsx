@@ -44,10 +44,11 @@ interface CustomTooltipProps {
   label?: string;
 }
 
-const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload;
-    
+const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { pinnedData?: any }) => {
+  // Show pinned tooltip data if available, otherwise show hover data
+  const data = pinnedData || (active && payload && payload.length ? payload[0].payload : null);
+  
+  if (data) {
     // Build rate card URL with filters
     const rateCardUrl = `/rate-card?location=${encodeURIComponent(data.campusName)}&serviceLine=${encodeURIComponent(data.serviceLine || 'All')}`;
     
@@ -109,6 +110,8 @@ export function Analytics() {
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>('all');
   const [calculationDialogOpen, setCalculationDialogOpen] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState<'avgRate' | 'occupancy' | 'marketPosition' | 'revenue' | null>(null);
+  const [pinnedTooltip, setPinnedTooltip] = useState<any | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Fetch campus analytics data
   const { data: analyticsData, isLoading } = useQuery({
@@ -300,7 +303,17 @@ export function Analytics() {
   const calculationDetails = getCalculationDetails();
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div 
+      className="container mx-auto py-6 space-y-6"
+      onClick={(e) => {
+        // Close pinned tooltip when clicking outside chart dots
+        const target = e.target as HTMLElement;
+        // Don't close if clicking on tooltip or chart dots
+        if (!target.closest('.recharts-scatter-dot') && !target.closest('.recharts-tooltip-wrapper')) {
+          setPinnedTooltip(null);
+        }
+      }}
+    >
       {/* Back Button */}
       <Link href="/">
         <Button variant="ghost" className="gap-2 mb-4" data-testid="button-back">
@@ -476,7 +489,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={<CustomTooltip pinnedData={pinnedTooltip} />}
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
@@ -484,7 +497,20 @@ export function Analytics() {
                     cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
+                  <Scatter 
+                    name="Campuses" 
+                    data={processedData} 
+                    fill="#6B7280"
+                    onClick={(data, index, event) => {
+                      if (data && data.payload) {
+                        setPinnedTooltip(data.payload);
+                        const chartEvent = event as any;
+                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
+                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
+                        }
+                      }
+                    }}
+                  >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -534,7 +560,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={<CustomTooltip pinnedData={pinnedTooltip} />}
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
@@ -542,7 +568,20 @@ export function Analytics() {
                     cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
+                  <Scatter 
+                    name="Campuses" 
+                    data={processedData} 
+                    fill="#6B7280"
+                    onClick={(data, index, event) => {
+                      if (data && data.payload) {
+                        setPinnedTooltip(data.payload);
+                        const chartEvent = event as any;
+                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
+                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
+                        }
+                      }
+                    }}
+                  >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -591,7 +630,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={<CustomTooltip pinnedData={pinnedTooltip} />}
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
@@ -599,7 +638,20 @@ export function Analytics() {
                     cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
+                  <Scatter 
+                    name="Campuses" 
+                    data={processedData} 
+                    fill="#6B7280"
+                    onClick={(data, index, event) => {
+                      if (data && data.payload) {
+                        setPinnedTooltip(data.payload);
+                        const chartEvent = event as any;
+                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
+                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
+                        }
+                      }
+                    }}
+                  >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -648,7 +700,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={<CustomTooltip pinnedData={pinnedTooltip} />}
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
@@ -656,7 +708,20 @@ export function Analytics() {
                     cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
+                  <Scatter 
+                    name="Campuses" 
+                    data={processedData} 
+                    fill="#6B7280"
+                    onClick={(data, index, event) => {
+                      if (data && data.payload) {
+                        setPinnedTooltip(data.payload);
+                        const chartEvent = event as any;
+                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
+                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
+                        }
+                      }
+                    }}
+                  >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -705,7 +770,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={<CustomTooltip pinnedData={pinnedTooltip} />}
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
@@ -713,7 +778,20 @@ export function Analytics() {
                     cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
+                  <Scatter 
+                    name="Campuses" 
+                    data={processedData} 
+                    fill="#6B7280"
+                    onClick={(data, index, event) => {
+                      if (data && data.payload) {
+                        setPinnedTooltip(data.payload);
+                        const chartEvent = event as any;
+                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
+                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
+                        }
+                      }
+                    }}
+                  >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -763,7 +841,7 @@ export function Analytics() {
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
-                    content={<CustomTooltip />}
+                    content={<CustomTooltip pinnedData={pinnedTooltip} />}
                     wrapperStyle={{ pointerEvents: 'auto', zIndex: 1000 }}
                     allowEscapeViewBox={{ x: true, y: true }}
                     isAnimationActive={false}
@@ -771,7 +849,20 @@ export function Analytics() {
                     cursor={{ strokeDasharray: '3 3' }}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
+                  <Scatter 
+                    name="Campuses" 
+                    data={processedData} 
+                    fill="#6B7280"
+                    onClick={(data, index, event) => {
+                      if (data && data.payload) {
+                        setPinnedTooltip(data.payload);
+                        const chartEvent = event as any;
+                        if (chartEvent && chartEvent.clientX && chartEvent.clientY) {
+                          setTooltipPosition({ x: chartEvent.clientX, y: chartEvent.clientY });
+                        }
+                      }
+                    }}
+                  >
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
