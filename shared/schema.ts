@@ -569,9 +569,13 @@ export const unitPolygons = pgTable("unit_polygons", {
   campusMapId: varchar("campus_map_id").references(() => campusMaps.id).notNull(),
   rentRollDataId: varchar("rent_roll_data_id").references(() => rentRollData.id),
   floorPlanId: varchar("floor_plan_id").references(() => floorPlans.id),
-  polygonCoordinates: text("polygon_coordinates").notNull(), // JSON string: [[x,y], [x,y], ...]
+  polygonCoordinates: text("polygon_coordinates").notNull(), // JSON string: [[x,y], [x,y], ...] (normalized 0-1 or absolute pixels)
+  normalizedCoordinates: jsonb("normalized_coordinates"), // Normalized polygon coordinates as JSON array [{x, y}, ...] (0-1 range)
+  displayRoomNumber: text("display_room_number"), // Room number to display (e.g., "151", "1025")
+  defaultServiceLine: text("default_service_line"), // Default service line (AL, IL, HC, etc.)
+  sectionName: text("section_name"), // Section name (e.g., "AL_West_Assisted_Living", "IL_Center")
   label: text("label"), // Unit number or label to display on map
-  fillColor: text("fill_color").default("#4CAF50"), // Hex color for polygon fill
+  fillColor: text("fill_color").default("#4CAF50"), // Hex color for polygon fill (overridden by occupancy)
   strokeColor: text("stroke_color").default("#2E7D32"), // Hex color for polygon stroke
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
