@@ -914,17 +914,43 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
                           style={{ position: 'absolute', top: 0, left: 0 }}
                         >
                           {/* Render candidate polygons as dashed outlines */}
-                          {candidatePolygons.map((polygon, index) => (
-                            <polygon
-                              key={`candidate-${index}`}
-                              points={getPolygonPointsForCandidate(polygon)}
-                              fill="none"
-                              stroke="#0ea5e9"
-                              strokeWidth="2"
-                              strokeDasharray="5,5"
-                              opacity="0.6"
-                            />
-                          ))}
+                          {candidatePolygons.map((polygon: any, index: number) => {
+                            const rect = imageRef.current?.getBoundingClientRect();
+                            if (!rect) return null;
+                            
+                            // Calculate centroid for label placement
+                            const centroidX = polygon.points.reduce((sum: number, p: number[]) => sum + p[0], 0) / polygon.points.length;
+                            const centroidY = polygon.points.reduce((sum: number, p: number[]) => sum + p[1], 0) / polygon.points.length;
+                            const screenX = (centroidX / (campusMap?.width || 1024)) * rect.width;
+                            const screenY = (centroidY / (campusMap?.height || 683)) * rect.height;
+                            
+                            return (
+                              <g key={`candidate-${index}`}>
+                                <polygon
+                                  points={getPolygonPointsForCandidate(polygon)}
+                                  fill={polygon.color || '#0ea5e9'}
+                                  fillOpacity="0.1"
+                                  stroke="#0ea5e9"
+                                  strokeWidth="2"
+                                  strokeDasharray="5,5"
+                                  opacity="0.8"
+                                />
+                                {/* Room label at centroid */}
+                                <text
+                                  x={screenX}
+                                  y={screenY}
+                                  textAnchor="middle"
+                                  dominantBaseline="middle"
+                                  fill="#0ea5e9"
+                                  fontSize="14"
+                                  fontWeight="bold"
+                                  className="select-none"
+                                >
+                                  {polygon.label || `Room ${index + 1}`}
+                                </text>
+                              </g>
+                            );
+                          })}
                         </svg>
                       </div>
                     )}
