@@ -54,7 +54,7 @@ export default function AboutUs() {
           </CardHeader>
           <CardContent className="text-[var(--trilogy-grey)]">
             <p>
-              Modulo is inspired by the mathematical operator for remainder after division. In programming, it manages cycles to ensure nothing is lost. We apply this philosophy to senior housing pricing—capturing overlooked opportunities and untapped revenue that often gets left on the table.
+              Modulo takes its name from the mathematical operator that represents what remains after division.
             </p>
           </CardContent>
         </Card>
