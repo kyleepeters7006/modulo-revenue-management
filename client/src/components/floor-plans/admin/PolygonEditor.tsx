@@ -23,7 +23,7 @@ interface Point {
   y: number;
 }
 
-type EditorMode = 'draw' | 'drag' | 'edit' | null;
+type EditorMode = 'draw' | 'drag' | 'edit' | 'unitAssignment' | null;
 
 export default function PolygonEditor({ campusMap, locationId }: PolygonEditorProps) {
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
@@ -38,17 +38,19 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
   const [showMobileControls, setShowMobileControls] = useState(false);
   const [draggedPolygon, setDraggedPolygon] = useState<any>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [candidatePolygons, setCandidatePolygons] = useState<any[]>([]);
+  const [draggedUnit, setDraggedUnit] = useState<any>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const { toast } = useToast();
+  const { toast} = useToast();
   const queryClient = useQueryClient();
 
-  const { data: rentRollData = [] } = useQuery({
+  const { data: rentRollData = [] } = useQuery<any[]>({
     queryKey: [`/api/rent-roll-data/location/${locationId}`],
     enabled: !!locationId,
   });
 
-  const { data: existingPolygons = [] } = useQuery({
+  const { data: existingPolygons = [] } = useQuery<any[]>({
     queryKey: [`/api/unit-polygons/map/${campusMap?.id}`],
     enabled: !!campusMap?.id,
   });
@@ -328,6 +330,18 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
       .join(" ");
   };
 
+  const getPolygonPointsForCandidate = (polygon: any) => {
+    if (!imageRef.current) return "";
+    const rect = imageRef.current.getBoundingClientRect();
+    return polygon.points
+      .map((p: number[]) => {
+        const x = (p[0] / (campusMap?.width || 1024)) * rect.width;
+        const y = (p[1] / (campusMap?.height || 683)) * rect.height;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  };
+
   const handleDragStart = (polygon: any, e: React.DragEvent) => {
     setDraggedPolygon(polygon);
     e.dataTransfer.effectAllowed = 'move';
@@ -349,22 +363,110 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
     e.preventDefault();
     setIsDraggingOver(false);
     
-    if (!draggedPolygon || !imageRef.current) return;
+    if (!imageRef.current) return;
     
     const rect = imageRef.current.getBoundingClientRect();
     const dropX = e.clientX - rect.left;
     const dropY = e.clientY - rect.top;
     
-    handlePlaceDetectedPolygon(draggedPolygon, { x: dropX, y: dropY });
-    setDraggedPolygon(null);
+    // Handle unit drop in unit assignment mode
+    if (editorMode === 'unitAssignment' && draggedUnit) {
+      handleUnitDrop(draggedUnit, { x: dropX, y: dropY });
+      setDraggedUnit(null);
+      return;
+    }
+    
+    // Handle detected polygon drop
+    if (draggedPolygon) {
+      handlePlaceDetectedPolygon(draggedPolygon, { x: dropX, y: dropY });
+      setDraggedPolygon(null);
+    }
+  };
+
+  const handleUnitDrop = (unit: any, dropPosition: { x: number; y: number }) => {
+    if (!imageRef.current) return;
+
+    // Convert screen coords to image coords
+    const rect = imageRef.current.getBoundingClientRect();
+    const dropXImg = Math.round((dropPosition.x / rect.width) * (campusMap?.width || 1024));
+    const dropYImg = Math.round((dropPosition.y / rect.height) * (campusMap?.height || 683));
+
+    // Find nearest candidate polygon to drop point
+    let nearestPolygon: any | null = null;
+    let minDistance = Infinity;
+    const MAX_SNAP_DISTANCE = 100; // pixels
+
+    candidatePolygons.forEach((polygon: any) => {
+      // Calculate polygon centroid
+      const centroidX = polygon.points.reduce((sum: number, p: number[]) => sum + p[0], 0) / polygon.points.length;
+      const centroidY = polygon.points.reduce((sum: number, p: number[]) => sum + p[1], 0) / polygon.points.length;
+      
+      const distance = Math.sqrt(Math.pow(dropXImg - centroidX, 2) + Math.pow(dropYImg - centroidY, 2));
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestPolygon = polygon;
+      }
+    });
+
+    // If a candidate polygon is nearby, auto-link the unit to it
+    if (nearestPolygon && minDistance < MAX_SNAP_DISTANCE) {
+      const polygonData = {
+        campusMapId: campusMap.id,
+        rentRollDataId: unit.id,
+        label: unit.roomNumber,
+        polygonCoordinates: JSON.stringify(nearestPolygon.points),
+        fillColor: nearestPolygon.color,
+        strokeColor: "#334155",
+      };
+
+      createPolygonMutation.mutate(polygonData);
+      
+      // Remove from candidates
+      setCandidatePolygons(candidatePolygons.filter(p => p !== nearestPolygon));
+      
+      toast({
+        title: "Unit assigned",
+        description: `Room ${unit.roomNumber} linked to detected polygon`,
+      });
+    } else {
+      // No nearby polygon - prompt for manual drawing
+      toast({
+        title: "No room detected at this location",
+        description: "Try dropping closer to a detected room outline, or use manual drawing",
+        variant: "default",
+      });
+    }
+  };
+
+  // Effect to preload candidate polygons when entering unit assignment mode
+  useEffect(() => {
+    if (editorMode === 'unitAssignment' && detectedPolygons.length > 0) {
+      // Use detected polygons as candidates
+      setCandidatePolygons(detectedPolygons);
+    }
+  }, [editorMode, detectedPolygons]);
+
+  const handleTabChange = (value: string) => {
+    if (value === 'unitAssignment') {
+      setEditorMode('unitAssignment');
+      setIsDrawing(false);
+      setSelectedPolygon(null);
+    } else {
+      // Reset editor mode when leaving unit assignment tab
+      if (editorMode === 'unitAssignment') {
+        setEditorMode(null);
+      }
+    }
   };
 
   return (
     <div className="space-y-4">
-      <Tabs defaultValue="auto" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs defaultValue="auto" className="w-full" onValueChange={handleTabChange}>
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="auto" data-testid="tab-auto">Step 1: Auto-Detect</TabsTrigger>
           <TabsTrigger value="manual" data-testid="tab-manual">Step 2: Place & Draw</TabsTrigger>
+          <TabsTrigger value="unitAssignment" data-testid="tab-unit-assignment">Step 3: Assign Units</TabsTrigger>
         </TabsList>
 
         <TabsContent value="auto" className="space-y-4">
@@ -780,6 +882,101 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="unitAssignment" className="space-y-4">
+          {/* Split panel layout: Floor plan on left (60%), Units list on right (40%) */}
+          <div className="flex gap-4">
+            {/* Left: Floor plan canvas */}
+            <div className="flex-[3]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Floor Plan - Drop Units Here</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="relative">
+                    {campusMap.baseImageUrl && (
+                      <div
+                        className={`relative ${isDraggingOver ? 'ring-4 ring-[var(--trilogy-teal)] ring-opacity-50' : ''}`}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                      >
+                        <img
+                          ref={imageRef}
+                          src={campusMap.baseImageUrl}
+                          alt="Floor Plan"
+                          className="w-full h-auto rounded"
+                        />
+                        <svg
+                          ref={svgRef}
+                          className="absolute top-0 left-0 w-full h-full pointer-events-none"
+                          style={{ position: 'absolute', top: 0, left: 0 }}
+                        >
+                          {/* Render candidate polygons as dashed outlines */}
+                          {candidatePolygons.map((polygon, index) => (
+                            <polygon
+                              key={`candidate-${index}`}
+                              points={getPolygonPointsForCandidate(polygon)}
+                              fill="none"
+                              stroke="#0ea5e9"
+                              strokeWidth="2"
+                              strokeDasharray="5,5"
+                              opacity="0.6"
+                            />
+                          ))}
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right: Unmapped units list */}
+            <div className="flex-[2]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Unmapped Units ({availableRooms.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Drag units onto the floor plan to assign them to rooms
+                  </p>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {availableRooms.map((unit: any) => (
+                      <div
+                        key={unit.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggedUnit(unit);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', JSON.stringify(unit));
+                        }}
+                        className="flex items-center justify-between p-3 border rounded cursor-move hover:bg-[var(--trilogy-teal)]/10 hover:border-[var(--trilogy-teal)] transition-all"
+                        data-testid={`draggable-unit-${unit.roomNumber}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-700">
+                            {unit.roomNumber}
+                          </div>
+                          <div className="text-sm">
+                            <div className="font-medium">{unit.size}</div>
+                            <div className="text-xs text-slate-500">
+                              ${Math.round(unit.streetRate).toLocaleString()}/mo
+                            </div>
+                          </div>
+                        </div>
+                        <Badge variant={unit.occupiedYN ? 'default' : 'secondary'}>
+                          {unit.occupiedYN ? 'Occupied' : 'Vacant'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
 
