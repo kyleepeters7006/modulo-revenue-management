@@ -267,6 +267,17 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
   
+  // DEBUG: Log the data to see what's being received
+  useEffect(() => {
+    console.log('Rate Card Data:', {
+      month: rateCardData?.month,
+      unitsCount: units.length,
+      summaryCount: summary.length,
+      sampleUnit: units[0],
+      selectedServiceLine
+    });
+  }, [rateCardData, selectedServiceLine]);
+  
   // Filter units by selected service line
   let filteredUnits = selectedServiceLine === "All" 
     ? units 
