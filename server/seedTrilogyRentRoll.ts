@@ -169,6 +169,15 @@ async function seedTrilogyRentRoll() {
       const isLowOccupancyCampus = campusIndex === 1;
       const occupancyConfig = isLowOccupancyCampus ? lowOccupancyByServiceLine : occupancyByServiceLine;
       
+      // Determine regional market positioning
+      // North region: higher market position (20-25% above market)
+      // South region: lower market position (12-16% above market)
+      // Overall average: ~18% above market
+      const isNorthRegion = campus.lat > 39.5; // Approximately northern states
+      const baseMarketPosition = isNorthRegion ? 0.225 : 0.14; // North: 22.5%, South: 14%
+      const positionVariation = (Math.random() - 0.5) * 0.08; // ±4% variation
+      const campusMarketPosition = baseMarketPosition + positionVariation;
+      
       // Determine service lines for this campus
       const config = getRandomElement(serviceLineConfigs);
       const serviceLines = config.lines;
@@ -224,8 +233,12 @@ async function seedTrilogyRentRoll() {
           const careRate = careLevel.rate * (1 + (Math.random() - 0.5) * 0.2);
           const totalRate = displayInHouseRate + careRate;
           
-          // Generate competitor rates
-          const competitorRate = Math.round(displayStreetRate * (0.9 + Math.random() * 0.2));
+          // Generate competitor rates based on campus market positioning
+          // Market position = (streetRate - competitorRate) / competitorRate
+          // So: competitorRate = streetRate / (1 + marketPosition)
+          const unitVariation = (Math.random() - 0.5) * 0.06; // ±3% unit-level variation
+          const effectiveMarketPosition = campusMarketPosition + unitVariation;
+          const competitorRate = Math.round(displayStreetRate / (1 + effectiveMarketPosition));
           const competitorCareRate = Math.round(careRate * (0.9 + Math.random() * 0.2));
           const competitorFinalRate = competitorRate + competitorCareRate;
           

@@ -242,6 +242,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to re-seed database' });
     }
   });
+
+  // Re-seed competitor data with updated market positioning
+  app.post('/api/admin/reseed-competitors', async (req, res) => {
+    try {
+      console.log('Manually re-seeding competitor data with updated market positioning...');
+      const { seedCompetitorData } = await import('./seedCompetitorData');
+      await seedCompetitorData();
+      
+      const competitors = await storage.getCompetitors();
+      console.log(`Competitor data re-seeded successfully with ${competitors.length} competitors`);
+      
+      res.json({ 
+        success: true, 
+        message: `Competitor data re-seeded with ${competitors.length} competitors`,
+        marketPosition: 'Target: 18% average (22% North, 14% South)'
+      });
+    } catch (error) {
+      console.error('Error re-seeding competitor data:', error);
+      res.status(500).json({ error: 'Failed to re-seed competitor data' });
+    }
+  });
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req, res) => {
     try {

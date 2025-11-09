@@ -63,12 +63,14 @@ const campusStateMapping: Record<string, string> = {
 };
 
 // Service line base rates for competitors
+// Adjusted to achieve ~18% average market position (Trilogy priced 18% above market)
+// Formula: competitor rate = Trilogy rate / 1.18
 const serviceLineRates: Record<string, { min: number, max: number }> = {
-  'AL': { min: 2800, max: 4500 },
-  'AL/MC': { min: 3800, max: 5500 },
-  'HC': { min: 280, max: 420 }, // Daily rates
-  'HC/MC': { min: 320, max: 480 }, // Daily rates
-  'IL': { min: 2200, max: 3800 }
+  'AL': { min: 2400, max: 3800 },  // ~18% below Trilogy rates
+  'AL/MC': { min: 3200, max: 4600 },  // ~18% below Trilogy rates
+  'HC': { min: 240, max: 360 }, // Daily rates, ~18% below Trilogy
+  'HC/MC': { min: 270, max: 400 }, // Daily rates, ~18% below Trilogy
+  'IL': { min: 1900, max: 3200 }  // ~18% below Trilogy rates
 };
 
 // Care level rates for competitors
@@ -281,16 +283,5 @@ async function seedCompetitorData() {
     throw error;
   }
 }
-
-// Run the seed function when imported
-seedCompetitorData()
-  .then(() => {
-    console.log('Competitor data seed completed successfully');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('Competitor seed failed:', error);
-    process.exit(1);
-  });
 
 export { seedCompetitorData };
