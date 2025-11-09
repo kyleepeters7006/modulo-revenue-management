@@ -110,8 +110,6 @@ export function Analytics() {
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>('all');
   const [calculationDialogOpen, setCalculationDialogOpen] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState<'avgRate' | 'occupancy' | 'marketPosition' | 'revenue' | null>(null);
-  const [selectedCampus, setSelectedCampus] = useState<any | null>(null);
-  const [campusDialogOpen, setCampusDialogOpen] = useState(false);
 
   // Fetch campus analytics data
   const { data: analyticsData, isLoading } = useQuery({
@@ -485,18 +483,7 @@ export function Analytics() {
                     isAnimationActive={false}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter 
-                    name="Campuses" 
-                    data={processedData} 
-                    fill="#6B7280"
-                    onClick={(data) => {
-                      if (data && data.payload) {
-                        setSelectedCampus(data.payload);
-                        setCampusDialogOpen(true);
-                      }
-                    }}
-                    cursor="pointer"
-                  >
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -552,18 +539,7 @@ export function Analytics() {
                     isAnimationActive={false}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter 
-                    name="Campuses" 
-                    data={processedData} 
-                    fill="#6B7280"
-                    onClick={(data) => {
-                      if (data && data.payload) {
-                        setSelectedCampus(data.payload);
-                        setCampusDialogOpen(true);
-                      }
-                    }}
-                    cursor="pointer"
-                  >
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -618,18 +594,7 @@ export function Analytics() {
                     isAnimationActive={false}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter 
-                    name="Campuses" 
-                    data={processedData} 
-                    fill="#6B7280"
-                    onClick={(data) => {
-                      if (data && data.payload) {
-                        setSelectedCampus(data.payload);
-                        setCampusDialogOpen(true);
-                      }
-                    }}
-                    cursor="pointer"
-                  >
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -684,18 +649,7 @@ export function Analytics() {
                     isAnimationActive={false}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter 
-                    name="Campuses" 
-                    data={processedData} 
-                    fill="#6B7280"
-                    onClick={(data) => {
-                      if (data && data.payload) {
-                        setSelectedCampus(data.payload);
-                        setCampusDialogOpen(true);
-                      }
-                    }}
-                    cursor="pointer"
-                  >
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -750,18 +704,7 @@ export function Analytics() {
                     isAnimationActive={false}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter 
-                    name="Campuses" 
-                    data={processedData} 
-                    fill="#6B7280"
-                    onClick={(data) => {
-                      if (data && data.payload) {
-                        setSelectedCampus(data.payload);
-                        setCampusDialogOpen(true);
-                      }
-                    }}
-                    cursor="pointer"
-                  >
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -817,18 +760,7 @@ export function Analytics() {
                     isAnimationActive={false}
                   />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                  <Scatter 
-                    name="Campuses" 
-                    data={processedData} 
-                    fill="#6B7280"
-                    onClick={(data) => {
-                      if (data && data.payload) {
-                        setSelectedCampus(data.payload);
-                        setCampusDialogOpen(true);
-                      }
-                    }}
-                    cursor="pointer"
-                  >
+                  <Scatter name="Campuses" data={processedData} fill="#6B7280">
                     {processedData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
                     ))}
@@ -913,82 +845,6 @@ export function Analytics() {
         </DialogContent>
       </Dialog>
 
-      {/* Campus Details Dialog */}
-      <Dialog open={campusDialogOpen} onOpenChange={setCampusDialogOpen}>
-        <DialogContent className="max-w-md" data-testid="dialog-campus-details">
-          {selectedCampus && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedCampus.campusName}</DialogTitle>
-                <DialogDescription>
-                  Campus Analytics & Pricing
-                </DialogDescription>
-              </DialogHeader>
-              
-              <div className="space-y-3 pt-4">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-muted-foreground text-xs">Region</p>
-                    <p className="font-medium">{selectedCampus.region}</p>
-                  </div>
-                  {selectedCampus.division && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">Division</p>
-                      <p className="font-medium">{selectedCampus.division}</p>
-                    </div>
-                  )}
-                  {selectedCampus.avgRate && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">Avg Rate</p>
-                      <p className="font-medium">${Math.round(selectedCampus.avgRate).toLocaleString()}</p>
-                    </div>
-                  )}
-                  {selectedCampus.occupancy !== undefined && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">Occupancy</p>
-                      <p className="font-medium">{(selectedCampus.occupancy * 100).toFixed(1)}%</p>
-                    </div>
-                  )}
-                  {selectedCampus.competitorAvgRate && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">Market Avg</p>
-                      <p className="font-medium">${Math.round(selectedCampus.competitorAvgRate).toLocaleString()}</p>
-                    </div>
-                  )}
-                  {selectedCampus.pricePosition !== undefined && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">Price Position</p>
-                      <p className={`font-medium ${selectedCampus.pricePosition > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {selectedCampus.pricePosition > 0 ? '+' : ''}{selectedCampus.pricePosition.toFixed(1)}%
-                      </p>
-                    </div>
-                  )}
-                  {selectedCampus.rateGrowthT6 !== undefined && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">T6 Rate Growth</p>
-                      <p className={`font-medium ${selectedCampus.rateGrowthT6 > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {selectedCampus.rateGrowthT6 > 0 ? '+' : ''}{selectedCampus.rateGrowthT6.toFixed(1)}%
-                      </p>
-                    </div>
-                  )}
-                  {selectedCampus.revenueImpact && (
-                    <div>
-                      <p className="text-muted-foreground text-xs">Revenue Impact</p>
-                      <p className="font-medium">${Math.round(selectedCampus.revenueImpact / 1000).toLocaleString()}K</p>
-                    </div>
-                  )}
-                </div>
-                
-                <Link href={`/rate-card?location=${encodeURIComponent(selectedCampus.campusName)}&serviceLine=${encodeURIComponent(selectedCampus.serviceLine || 'All')}`}>
-                  <Button className="w-full mt-4 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)]">
-                    Edit Pricing →
-                  </Button>
-                </Link>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
