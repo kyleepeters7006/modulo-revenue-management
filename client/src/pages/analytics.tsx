@@ -355,13 +355,22 @@ export function Analytics() {
         }
       }}
     >
-      {/* Back Button */}
-      <Link href="/">
-        <Button variant="ghost" className="gap-2 mb-4" data-testid="button-back">
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Button>
-      </Link>
+      {/* Logo and Back Button */}
+      <div className="flex items-center gap-4 mb-4">
+        <Link href="/" data-testid="link-logo">
+          <img 
+            src="/attached_assets/image_1756817717051.png" 
+            alt="Modulo" 
+            className="h-16 w-auto"
+          />
+        </Link>
+        <Link href="/">
+          <Button variant="ghost" className="gap-2" data-testid="button-back">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Dashboard
+          </Button>
+        </Link>
+      </div>
       
       {/* Header */}
       <div className="flex justify-between items-center">

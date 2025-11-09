@@ -40,14 +40,14 @@ export default function Navigation({ className }: NavigationProps) {
   return (
     <nav className={cn("bg-white shadow-sm border-b border-gray-200", className)}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center h-16">
+        <div className="flex items-center h-28">
           {/* Logo */}
           <div className="flex-shrink-0 mr-8">
             <Link href="/overview" className="flex items-center" data-testid="link-home">
               <img 
                 src="/attached_assets/image_1756817717051.png" 
                 alt="Modulo" 
-                className="h-20 w-auto"
+                className="h-24 w-auto"
               />
             </Link>
           </div>

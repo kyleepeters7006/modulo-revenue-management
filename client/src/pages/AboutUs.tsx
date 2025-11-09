@@ -52,59 +52,29 @@ export default function AboutUs() {
               Where the Name Comes From
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
-            <p>
-              The name Modulo is inspired by the mathematical operator that represents the remainder after division. 
-              In programming, it's also a way of managing cycles — ensuring nothing is lost or overlooked as processes repeat.
-            </p>
-            <p>
-              At Modulo Revenue Management, we carry that same philosophy into senior housing and healthcare pricing. 
-              Our systems are designed to account for the "remainder" — the overlooked opportunities, the untapped revenue, 
-              the margin that too often gets left on the table.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Our Promise */}
-        <Card className="mb-8 bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
-          <CardHeader>
-            <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
-              Our Promise
-            </CardTitle>
-          </CardHeader>
           <CardContent className="text-[var(--trilogy-grey)]">
             <p>
-              Just as the modulo function ensures every part of a calculation is captured, we ensure every part of your 
-              revenue cycle is optimized. We don't let the hidden value slip through. Instead, we build tools and strategies 
-              that help you capture the full picture — so you don't leave money on the table.
+              Modulo is inspired by the mathematical operator for remainder after division. In programming, it manages cycles to ensure nothing is lost. We apply this philosophy to senior housing pricing—capturing overlooked opportunities and untapped revenue that often gets left on the table.
             </p>
           </CardContent>
         </Card>
 
-        {/* Company Story */}
+        {/* Our Story and Promise */}
         <Card className="mb-8 bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
           <CardHeader>
             <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
-              Our Story
+              Our Story and Promise
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
             <p>
-              Modulo brings together decades of experience in senior housing operations, technology, 
-              and revenue management. Our team has worked extensively with leading senior housing 
-              operators to understand the unique challenges of pricing optimization in this complex market.
+              Modulo brings together decades of experience in senior housing operations, technology, and revenue management. Our team has worked with leading operators to understand the unique challenges of pricing optimization in this complex market.
             </p>
             <p>
-              We've built Modulo to address the real-world needs of senior housing communities — from 
-              managing diverse service lines and care levels to navigating competitive markets and 
-              regulatory requirements. Our platform combines practical industry knowledge with 
-              advanced analytics to deliver actionable pricing recommendations.
+              We've built Modulo to address real-world needs—from managing diverse service lines and care levels to navigating competitive markets and regulatory requirements. Our platform combines industry knowledge with advanced analytics to deliver actionable pricing recommendations.
             </p>
             <p>
-              Our mission is simple: help senior housing communities optimize their revenue while 
-              maintaining high occupancy and delivering exceptional value to residents. We believe 
-              that data-driven decision making, combined with deep industry expertise, is the key 
-              to sustainable growth in senior housing.
+              Our mission: help senior housing communities optimize revenue while maintaining high occupancy and delivering exceptional value to residents. Just as the modulo function captures every part of a calculation, we ensure every part of your revenue cycle is optimized—so you don't leave money on the table.
             </p>
             <div className="pt-4">
               <Button

@@ -527,10 +527,10 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                       key={polygon.id}
                       points={points}
                       fill={getOccupancyColor(polygon.rentRollDataId)}
-                      fillOpacity={isDragging ? 0.9 : (hoveredUnitId === polygon.rentRollDataId ? 0.8 : 0.6)}
-                      stroke={isDragging ? "#0d9488" : "#334155"}
-                      strokeWidth={isDragging ? "3" : "2"}
-                      className={`transition-all ${editMode ? 'cursor-move' : 'cursor-pointer'} ${isDragging ? '' : 'hover:fill-opacity-80'}`}
+                      fillOpacity={isDragging ? 0.9 : (hoveredUnitId === polygon.rentRollDataId ? 0.9 : 0.7)}
+                      stroke="none"
+                      strokeWidth="0"
+                      className={`transition-all ${editMode ? 'cursor-move' : 'cursor-pointer'} ${isDragging ? '' : 'hover:fill-opacity-90'}`}
                       style={{ pointerEvents: 'auto' }}
                       onMouseDown={(e) => handlePolygonMouseDown(polygon, e)}
                       onMouseEnter={(e) => !isDragging && handlePolygonHover(polygon.rentRollDataId, e)}
