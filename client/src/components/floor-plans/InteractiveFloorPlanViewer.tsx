@@ -43,6 +43,11 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [tempPolygonPosition, setTempPolygonPosition] = useState<{[key: string]: {x: number, y: number}}>({});
   const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const isDraggingRef = useRef(false);
+  const draggingPolygonIdRef = useRef<string | null>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const tempPolygonPositionRef = useRef<{[key: string]: {x: number, y: number}}>({});
+  const svgElementRef = useRef<SVGSVGElement | null>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   const lastTouchDistance = useRef<number | null>(null);
   const { toast } = useToast();
@@ -61,10 +66,10 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   
   const allUnits = allUnitsData || [];
 
-  // Fetch unit details when hovering
+  // Fetch unit details when hovering (disabled during drag)
   const { data: hoveredUnit } = useQuery<UnitDetails>({
     queryKey: [`/api/rent-roll-data/${hoveredUnitId}`],
-    enabled: !!hoveredUnitId,
+    enabled: !!hoveredUnitId && !isDraggingRef.current,
   });
 
   // Fetch unit details for booking dialog
@@ -79,6 +84,14 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
       setEditingUnit(null);
     }
   }, [editMode, editingUnit]);
+
+  // Cleanup window listeners on unmount
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, []);
 
   // Handle pinch zoom
   useEffect(() => {
@@ -219,6 +232,9 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     const svgElement = (event.currentTarget as SVGElement).ownerSVGElement;
     if (!svgElement) return;
     
+    // Store SVG element ref for window listeners
+    svgElementRef.current = svgElement;
+    
     const pt = svgElement.createSVGPoint();
     pt.x = event.clientX;
     pt.y = event.clientY;
@@ -228,12 +244,47 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     const centerX = coordinates.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coordinates.length;
     const centerY = coordinates.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coordinates.length;
     
-    setDragOffset({
+    const offset = {
       x: svgP.x - centerX,
       y: svgP.y - centerY
-    });
+    };
+    
+    setDragOffset(offset);
+    dragOffsetRef.current = offset;
     
     setDraggingPolygonId(polygon.id);
+    draggingPolygonIdRef.current = polygon.id;
+    isDraggingRef.current = true;
+    
+    // Clear tooltip immediately when drag starts
+    setHoveredUnitId(null);
+    
+    // Add window listeners for smooth tracking
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+  };
+
+  // Window-level mouse move handler for smooth tracking (uses refs to avoid stale closures)
+  const handleWindowMouseMove = (event: MouseEvent) => {
+    if (!draggingPolygonIdRef.current || !editMode || !svgElementRef.current) return;
+    
+    const pt = svgElementRef.current.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const svgP = pt.matrixTransform(svgElementRef.current.getScreenCTM()?.inverse());
+    
+    const newPos = {
+      x: svgP.x - dragOffsetRef.current.x,
+      y: svgP.y - dragOffsetRef.current.y
+    };
+    
+    // Update both state and ref
+    tempPolygonPositionRef.current = {
+      ...tempPolygonPositionRef.current,
+      [draggingPolygonIdRef.current]: newPos
+    };
+    
+    setTempPolygonPosition(tempPolygonPositionRef.current);
   };
 
   const handleMouseMove = (event: React.MouseEvent) => {
@@ -256,35 +307,31 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     });
   };
 
-  const handleMouseUp = async () => {
-    if (!draggingPolygonId || !editMode) return;
-    
-    const newPosition = tempPolygonPosition[draggingPolygonId];
-    if (!newPosition) {
-      setDraggingPolygonId(null);
-      return;
-    }
-    
-    const polygon = polygons.find((p: any) => p.id === draggingPolygonId);
-    if (!polygon) {
-      setDraggingPolygonId(null);
-      return;
-    }
-    
-    const coordinates = JSON.parse(polygon.polygonCoordinates);
-    const centerX = coordinates.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coordinates.length;
-    const centerY = coordinates.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coordinates.length;
-    
-    const deltaX = newPosition.x - centerX;
-    const deltaY = newPosition.y - centerY;
-    
-    const newCoordinates = coordinates.map((coord: number[]) => [
-      coord[0] + deltaX,
-      coord[1] + deltaY
-    ]);
-    
+  // Window-level mouse up handler to finish drag and clean up (uses refs to avoid stale closures)
+  const handleWindowMouseUp = async () => {
     try {
-      await apiRequest(`/api/unit-polygons/${draggingPolygonId}`, 'PATCH', {
+      if (!draggingPolygonIdRef.current || !editMode) return;
+      
+      const newPosition = tempPolygonPositionRef.current[draggingPolygonIdRef.current];
+      if (!newPosition) return;
+      
+      const polygon = polygons.find((p: any) => p.id === draggingPolygonIdRef.current);
+      if (!polygon) return;
+      
+      const coordinates = JSON.parse(polygon.polygonCoordinates);
+      const centerX = coordinates.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coordinates.length;
+      const centerY = coordinates.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coordinates.length;
+      
+      const deltaX = newPosition.x - centerX;
+      const deltaY = newPosition.y - centerY;
+      
+      const newCoordinates = coordinates.map((coord: number[]) => [
+        coord[0] + deltaX,
+        coord[1] + deltaY
+      ]);
+      
+      // Use ref value for API call
+      await apiRequest(`/api/unit-polygons/${draggingPolygonIdRef.current}`, 'PATCH', {
         polygonCoordinates: JSON.stringify(newCoordinates)
       });
       
@@ -305,8 +352,20 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
         variant: "destructive",
       });
     } finally {
+      // Always clean up drag state and listeners
       setDraggingPolygonId(null);
+      setTempPolygonPosition({});
+      draggingPolygonIdRef.current = null;
+      tempPolygonPositionRef.current = {};
+      isDraggingRef.current = false;
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
     }
+  };
+
+  const handleMouseUp = async () => {
+    // Delegate to window handler for consistency
+    await handleWindowMouseUp();
   };
 
   const handleSaveEdit = async () => {
@@ -588,8 +647,8 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           </div>
         )}
 
-          {/* Tooltip */}
-          {hoveredUnit && hoveredUnitId && (
+          {/* Tooltip - hidden during drag */}
+          {hoveredUnit && hoveredUnitId && !isDraggingRef.current && (
             <div
               className="absolute bg-white shadow-xl rounded-lg border p-4 z-50 pointer-events-auto"
               style={{
