@@ -82,8 +82,11 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
     onSuccess: () => {
       toast({ title: "Success", description: "Polygon updated successfully" });
       queryClient.invalidateQueries({ queryKey: [`/api/unit-polygons/map/${campusMap?.id}`] });
-      setEditorMode(null);
-      setSelectedPolygon(null);
+      // Only reset editor mode if not in unit assignment mode (to allow multiple unit drops)
+      if (editorMode !== 'unitAssignment') {
+        setEditorMode(null);
+        setSelectedPolygon(null);
+      }
     },
     onError: (error) => {
       toast({ title: "Error", description: String(error), variant: "destructive" });
@@ -411,23 +414,35 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
 
     // If a candidate polygon is nearby, auto-link the unit to it
     if (nearestPolygon && minDistance < MAX_SNAP_DISTANCE) {
-      const polygonData = {
-        campusMapId: campusMap.id,
-        rentRollDataId: unit.id,
-        label: unit.roomNumber,
-        polygonCoordinates: JSON.stringify(nearestPolygon.points),
-        fillColor: nearestPolygon.color,
-        strokeColor: "#334155",
-      };
+      // Check if this is an existing polygon that needs updating
+      if (nearestPolygon.existingId) {
+        // Update existing polygon with unit assignment
+        const updatedData = {
+          rentRollDataId: unit.id,
+          label: unit.roomNumber,
+        };
+        
+        updatePolygonMutation.mutate({ id: nearestPolygon.existingId, data: updatedData });
+      } else {
+        // Create new polygon from detected shape
+        const polygonData = {
+          campusMapId: campusMap.id,
+          rentRollDataId: unit.id,
+          label: unit.roomNumber,
+          polygonCoordinates: JSON.stringify(nearestPolygon.points),
+          fillColor: nearestPolygon.color,
+          strokeColor: "#334155",
+        };
 
-      createPolygonMutation.mutate(polygonData);
+        createPolygonMutation.mutate(polygonData);
+      }
       
       // Remove from candidates
       setCandidatePolygons(candidatePolygons.filter(p => p !== nearestPolygon));
       
       toast({
         title: "Unit assigned",
-        description: `Room ${unit.roomNumber} linked to detected polygon`,
+        description: `Room ${unit.roomNumber} linked to polygon`,
       });
     } else {
       // No nearby polygon - prompt for manual drawing
@@ -441,11 +456,22 @@ export default function PolygonEditor({ campusMap, locationId }: PolygonEditorPr
 
   // Effect to preload candidate polygons when entering unit assignment mode
   useEffect(() => {
-    if (editorMode === 'unitAssignment' && detectedPolygons.length > 0) {
-      // Use detected polygons as candidates
-      setCandidatePolygons(detectedPolygons);
+    if (editorMode === 'unitAssignment') {
+      // Convert existing saved polygons to candidate format
+      const existingAsCandidates = existingPolygons
+        .filter((p: any) => !p.rentRollDataId) // Only unassigned polygons
+        .map((p: any) => ({
+          points: JSON.parse(p.polygonCoordinates),
+          color: p.fillColor,
+          label: p.label,
+          existingId: p.id, // Track that this is an existing polygon
+        }));
+      
+      // Combine detected and existing unassigned polygons
+      const allCandidates = [...detectedPolygons, ...existingAsCandidates];
+      setCandidatePolygons(allCandidates);
     }
-  }, [editorMode, detectedPolygons]);
+  }, [editorMode, detectedPolygons, existingPolygons]);
 
   const handleTabChange = (value: string) => {
     if (value === 'unitAssignment') {
