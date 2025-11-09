@@ -2971,6 +2971,27 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log('Service line internal medians (used as competitive benchmark):', serviceLineMedians);
       
+      // Calculate service-line-specific occupancy rates
+      const serviceLineOccupancy: Record<string, number> = {};
+      const serviceLineStats = units.reduce((acc: any, unit: any) => {
+        const sl = unit.serviceLine || 'Unknown';
+        if (!acc[sl]) {
+          acc[sl] = { occupied: 0, total: 0 };
+        }
+        acc[sl].total++;
+        if (unit.occupiedYN) {
+          acc[sl].occupied++;
+        }
+        return acc;
+      }, {});
+      
+      for (const [serviceLine, stats] of Object.entries(serviceLineStats)) {
+        const { occupied, total } = stats as { occupied: number; total: number };
+        serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0;
+      }
+      
+      console.log('Service line occupancy rates:', serviceLineOccupancy);
+      
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
@@ -2996,7 +3017,8 @@ Keep recommendations specific and quantitative when possible.`;
         // Only run Modulo algorithm if weights are enabled
         if (weightsEnabled) {
           // Prepare inputs for sophisticated algorithm
-          const campusOccupancy = 0.87; // Mock - should calculate from actual campus data
+          // Use service-line-specific occupancy instead of campus-level occupancy
+          const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
           const daysVacant = unit.daysVacant || 0;
           
           // Calculate attribute score based on unit features
@@ -3028,7 +3050,7 @@ Keep recommendations specific and quantitative when possible.`;
           
           // Use the sophisticated algorithm
           const moduloInputs = {
-            occupancy: campusOccupancy,
+            occupancy: serviceLineOcc,
             daysVacant,
             attrScore,
             monthIndex,
@@ -3274,10 +3296,27 @@ Keep recommendations specific and quantitative when possible.`;
         inquiryTourVolume: 10
       };
       
-      // Calculate campus occupancy for AI adjustments
+      // Calculate service-line-specific occupancy for AI adjustments
       const allUnits = await storage.getRentRollData();
-      const occupiedUnits = allUnits.filter(u => u.occupiedYN);
-      const campusOccupancy = allUnits.length > 0 ? occupiedUnits.length / allUnits.length : 0.87;
+      const serviceLineOccupancy: Record<string, number> = {};
+      const serviceLineStats = allUnits.reduce((acc: any, unit: any) => {
+        const sl = unit.serviceLine || 'Unknown';
+        if (!acc[sl]) {
+          acc[sl] = { occupied: 0, total: 0 };
+        }
+        acc[sl].total++;
+        if (unit.occupiedYN) {
+          acc[sl].occupied++;
+        }
+        return acc;
+      }, {});
+      
+      for (const [serviceLine, stats] of Object.entries(serviceLineStats)) {
+        const { occupied, total } = stats as { occupied: number; total: number };
+        serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0.87;
+      }
+      
+      console.log('AI calculation - Service line occupancy rates:', serviceLineOccupancy);
       
       // Generate AI suggestions using sophisticated algorithm with more aggressive parameters
       for (const unit of units) {
@@ -3299,8 +3338,11 @@ Keep recommendations specific and quantitative when possible.`;
         const demandHistory = [15, 20, 30, 18, 35, 22, 28, 16];
         const demandCurrent = 32;
         
+        // Use service-line-specific occupancy instead of campus-level
+        const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
+        
         const aiInputs = {
-          occupancy: campusOccupancy,
+          occupancy: serviceLineOcc,
           daysVacant: unit.daysVacant || 0,
           attrScore,
           monthIndex,
@@ -3832,10 +3874,28 @@ Keep recommendations specific and quantitative when possible.`;
         inquiryTourVolume: 10
       };
       
-      // Get all units to calculate actual occupancy rate
+      // Calculate service-line-specific occupancy rate
       const allUnits = await storage.getRentRollData();
-      const occupiedUnits = allUnits.filter(u => u.occupiedYN);
-      const actualOccupancyRate = occupiedUnits.length / allUnits.length;
+      const serviceLineOccupancy: Record<string, number> = {};
+      const serviceLineStats = allUnits.reduce((acc: any, u: any) => {
+        const sl = u.serviceLine || 'Unknown';
+        if (!acc[sl]) {
+          acc[sl] = { occupied: 0, total: 0 };
+        }
+        acc[sl].total++;
+        if (u.occupiedYN) {
+          acc[sl].occupied++;
+        }
+        return acc;
+      }, {});
+      
+      for (const [serviceLine, stats] of Object.entries(serviceLineStats)) {
+        const { occupied, total } = stats as { occupied: number; total: number };
+        serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0.87;
+      }
+      
+      // Use service-line-specific occupancy for this unit
+      const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
       
       // Prepare inputs for sophisticated AI algorithm (more aggressive than Modulo)
       const daysVacant = unit.daysVacant || 0;
@@ -3860,7 +3920,7 @@ Keep recommendations specific and quantitative when possible.`;
       const demandCurrent = 32;
       
       const aiInputs = {
-        occupancy: actualOccupancyRate,
+        occupancy: serviceLineOcc,
         daysVacant,
         attrScore,
         monthIndex,
@@ -3914,7 +3974,8 @@ Keep recommendations specific and quantitative when possible.`;
           signals: result.signals,
           blendedSignal: result.blendedSignal,
           explanation: generateOverallExplanation(result, aiInputs),
-          actualOccupancyRate: actualOccupancyRate,
+          actualOccupancyRate: serviceLineOcc,
+          serviceLine: unit.serviceLine,
           unitData: {
             unitId: unit.id,
             isOccupied: unit.occupiedYN,

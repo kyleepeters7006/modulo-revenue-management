@@ -8,6 +8,13 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 9, 2024)
 
+## Service-Line Occupancy Bug Fix
+- **Root Cause**: Occupancy adjustment was incorrectly using campus-level occupancy (87%) instead of service-line-specific occupancy
+- **Impact**: AL units with 91% AL occupancy were showing negative occupancy adjustments when they should have been positive (above 90% target)
+- **Fix**: Updated pricing algorithm to calculate and use service-line-specific occupancy rates for AL, HC, IL, AL/MC, etc.
+- **Affected Endpoints**: Fixed in 3 locations - Modulo recalculation, AI batch suggestions, and AI single-unit calculation
+- **Result**: Occupancy pressure now correctly reflects each service line's performance against the 90% target
+
 ## Interactive Floor Plan Booking System
 - **Drag-and-Drop Unit Assignment**: Complete system for linking units to floor plan polygons via drag-and-drop from unit list to canvas
 - **Automatic Polygon Detection**: Centroid-based nearest-neighbor matching with 100px snap radius for dropped units
