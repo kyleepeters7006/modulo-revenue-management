@@ -455,39 +455,39 @@ export default function CompetitorForm({
               {(competitors as any).items.map((competitor: any) => (
                 <Card key={competitor.id} className="bg-[var(--dashboard-bg)] border-[var(--dashboard-border)]">
                   <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 space-y-3 min-w-0">
                         <h4 className="font-medium text-[var(--dashboard-text)]">{competitor.name}</h4>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-[var(--dashboard-muted)]">
-                          {competitor.address && (
-                            <div className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {competitor.address}
-                            </div>
-                          )}
-                          {competitor.streetRate && (
-                            <div>Street Rate: ${competitor.streetRate}</div>
-                          )}
-                          {competitor.avgCareRate && (
-                            <div>Care Rate: ${competitor.avgCareRate}</div>
-                          )}
-                          {competitor.rating && (
-                            <div>Rating: ⭐ {competitor.rating}/5</div>
-                          )}
-                          {competitor.rank && (
-                            <div>Rank: #{competitor.rank}</div>
-                          )}
-                          {competitor.roomType && (
-                            <div>Room: {competitor.roomType}</div>
-                          )}
-                        </div>
-                        {(competitor.ratingA || competitor.ratingB || competitor.ratingC) && (
-                          <div className="flex gap-2">
-                            {competitor.rating && <Badge variant="outline">Rating: {competitor.rating}</Badge>}
+                        
+                        {competitor.address && (
+                          <div className="flex items-center gap-1 text-sm text-[var(--dashboard-muted)]">
+                            <MapPin className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{competitor.address}</span>
                           </div>
                         )}
+                        
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
+                          {competitor.streetRate && (
+                            <div className="whitespace-nowrap">Street Rate: ${competitor.streetRate}</div>
+                          )}
+                          {competitor.avgCareRate && (
+                            <div className="whitespace-nowrap">Care Rate: ${competitor.avgCareRate}</div>
+                          )}
+                          {competitor.rating && (
+                            <div className="whitespace-nowrap">Rating: ⭐ {competitor.rating}/5</div>
+                          )}
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
+                          {competitor.rank && (
+                            <div className="whitespace-nowrap">Rank: #{competitor.rank}</div>
+                          )}
+                          {competitor.roomType && (
+                            <div className="whitespace-nowrap">Room: {competitor.roomType}</div>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-shrink-0">
                         <Button
                           size="sm"
                           variant="outline"
