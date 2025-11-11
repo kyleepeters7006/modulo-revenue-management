@@ -2112,8 +2112,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ? (competitorRatesForType[mid - 1] + competitorRatesForType[mid]) / 2
               : competitorRatesForType[mid];
           } else {
-            // Fall back to portfolio median when no competitor data exists
-            medianCompRate = portfolioMediansByRoomType.get(roomType) || (mix.totalRate / mix.count);
+            // When no competitor data exists for this room type (e.g., HC Semi-Private),
+            // estimate using service-line multipliers from portfolio:
+            // HC is 2.37x AL, IL is 0.81x AL
+            // Use any available AL competitor data as the base, then apply multiplier
+            
+            const alBaseRates: number[] = [];
+            if (locationCompetitors) {
+              ['Studio', '1BR', '2BR'].forEach(alType => {
+                if (locationCompetitors.has(alType)) {
+                  alBaseRates.push(...locationCompetitors.get(alType)!);
+                }
+              });
+            }
+            
+            if (alBaseRates.length > 0) {
+              // Calculate median of AL competitor rates
+              alBaseRates.sort((a, b) => a - b);
+              const mid = Math.floor(alBaseRates.length / 2);
+              const alMedian = alBaseRates.length % 2 === 0
+                ? (alBaseRates[mid - 1] + alBaseRates[mid]) / 2
+                : alBaseRates[mid];
+              
+              // Apply service-line multiplier for HC (2.37x) or IL (0.81x)
+              if (roomType === 'Semi-Private' || roomType === 'Private') {
+                medianCompRate = alMedian * 2.37; // HC multiplier
+              } else {
+                medianCompRate = alMedian; // Default to AL rate
+              }
+            } else {
+              // Last resort: use portfolio median
+              medianCompRate = portfolioMediansByRoomType.get(roomType) || (mix.totalRate / mix.count);
+            }
           }
           
           weightedCompetitorRate += medianCompRate * mix.count;
