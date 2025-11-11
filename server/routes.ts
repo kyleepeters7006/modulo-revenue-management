@@ -2008,14 +2008,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Get competitor averages by campus/location
-      const competitorByCampus = new Map();
-      competitors.forEach((comp: any) => {
-        const campusId = comp.location || 'Unknown';
-        if (!competitorByCampus.has(campusId)) {
-          competitorByCampus.set(campusId, []);
+      // Calculate service-line-specific portfolio medians (same approach as Modulo pricing)
+      const serviceLineMedians = new Map<string, number>();
+      
+      // Group all units by service line to calculate medians
+      const unitsByServiceLine = new Map<string, number[]>();
+      rentRollData.forEach((unit: any) => {
+        const sl = unit.serviceLine || 'Unknown';
+        if (!unitsByServiceLine.has(sl)) {
+          unitsByServiceLine.set(sl, []);
         }
-        competitorByCampus.get(campusId).push(comp);
+        const rate = unit.inHouseRate || unit.streetRate || 0;
+        if (rate > 0) {
+          unitsByServiceLine.get(sl)!.push(rate);
+        }
+      });
+      
+      // Calculate median for each service line
+      unitsByServiceLine.forEach((rates, serviceLine) => {
+        rates.sort((a, b) => a - b);
+        const mid = Math.floor(rates.length / 2);
+        const median = rates.length % 2 === 0
+          ? (rates[mid - 1] + rates[mid]) / 2
+          : rates[mid];
+        serviceLineMedians.set(serviceLine, median);
       });
 
       // Calculate metrics for each campus
@@ -2025,13 +2041,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const occupancy = metrics.occupiedUnits / metrics.totalUnits;
         const avgRate = metrics.occupiedUnits > 0 ? metrics.totalRent / metrics.occupiedUnits : 0;
         
-        // Get competitor average for this campus
-        const campusCompetitors = competitorByCampus.get(campusId) || [];
-        const competitorAvgRate = campusCompetitors.length > 0
-          ? campusCompetitors.reduce((sum: number, c: any) => sum + (c.streetRate || 0), 0) / campusCompetitors.length
-          : avgRate;
+        // Calculate weighted market benchmark based on campus's service line mix
+        // This uses portfolio medians instead of external competitors
+        const serviceLineMix = new Map<string, number>();
+        metrics.units.forEach((unit: any) => {
+          const sl = unit.serviceLine || 'Unknown';
+          const rate = unit.inHouseRate || unit.streetRate || 0;
+          if (rate > 0) {
+            serviceLineMix.set(sl, (serviceLineMix.get(sl) || 0) + rate);
+          }
+        });
         
-        // Calculate price position (% above/below market)
+        let weightedBenchmark = 0;
+        let totalWeight = 0;
+        
+        serviceLineMix.forEach((totalRate, sl) => {
+          const median = serviceLineMedians.get(sl) || avgRate;
+          weightedBenchmark += median * totalRate;
+          totalWeight += totalRate;
+        });
+        
+        const competitorAvgRate = totalWeight > 0 ? weightedBenchmark / totalWeight : avgRate;
+        
+        // Calculate price position (% above/below service-line-weighted portfolio median)
         const pricePosition = competitorAvgRate > 0 
           ? ((avgRate - competitorAvgRate) / competitorAvgRate) * 100
           : 0;
