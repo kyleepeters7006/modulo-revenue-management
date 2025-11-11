@@ -4149,7 +4149,7 @@ Keep recommendations specific and quantitative when possible.`;
             stockMarket: algorithmWeights.market,
             inquiryTourVolume: algorithmWeights.demand
           },
-          totalAdjustment: result.totalAdjustment * 100,
+          totalAdjustment: result.totalAdjustment,
           finalRate: aiSuggestedRate,
           signals: result.signals,
           blendedSignal: result.blendedSignal,
