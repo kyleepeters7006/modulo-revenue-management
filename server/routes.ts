@@ -20,6 +20,8 @@ import {
 } from "@shared/schema";
 import { demoCompetitors, demoRentRoll } from "./seed-data";
 import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
+import { calculateModuloPrice } from "./moduloPricingAlgorithm";
+import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -3409,10 +3411,6 @@ Keep recommendations specific and quantitative when possible.`;
       }
       
       console.log(`Generating AI suggestions for ${units.length} filtered units`);
-      
-      // Import the new sophisticated algorithm and explanations
-      const { calculateModuloPrice } = require('./moduloPricingAlgorithm');
-      const { getSentenceExplanation, generateOverallExplanation } = require('./sentenceExplanations');
       
       // Collect all updates in memory first for bulk processing
       const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
