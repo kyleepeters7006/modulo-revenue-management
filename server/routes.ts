@@ -2043,10 +2043,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metrics.units.forEach((unit: any) => {
           // Normalize room type names to match competitor data
           let roomType = unit.roomType || 'Unknown';
-          // Map our room types to competitor room types
+          // Map our room types to competitor room types (direct mapping)
           if (roomType === 'One Bedroom') roomType = '1BR';
           else if (roomType === 'Two Bedroom') roomType = '2BR';
-          else if (roomType === 'Semi-Private') roomType = 'Studio'; // HC semi-private ~ studio pricing
+          // Keep Semi-Private, Private, Studio, Companion as-is - they match competitor data
           
           const rate = unit.inHouseRate || unit.streetRate || 0;
           if (rate > 0) {
