@@ -3016,13 +3016,61 @@ Keep recommendations specific and quantitative when possible.`;
       // The AI pricing algorithm has already run and saved the results
       // Use the database values as-is without modification
 
-      let rateCardSummary = await storage.getRateCardByMonth(targetMonth);
+      // Calculate summary dynamically from filtered units
+      // This ensures the summary respects location/region/division filters
+      const summaryByServiceLine: Record<string, {
+        serviceLine: string;
+        totalUnits: number;
+        occupancyCount: number;
+        totalStreetRate: number;
+        totalModuloRate: number;
+        totalAiRate: number;
+        moduloCount: number;
+        aiCount: number;
+      }> = {};
       
-      // If no rate card summary exists, generate it from current unit data
-      if (rateCardSummary.length === 0 && unitLevelData.length > 0) {
-        await storage.generateRateCard(targetMonth);
-        rateCardSummary = await storage.getRateCardByMonth(targetMonth);
+      for (const unit of unitLevelData) {
+        const sl = unit.serviceLine || 'Unknown';
+        if (!summaryByServiceLine[sl]) {
+          summaryByServiceLine[sl] = {
+            serviceLine: sl,
+            totalUnits: 0,
+            occupancyCount: 0,
+            totalStreetRate: 0,
+            totalModuloRate: 0,
+            totalAiRate: 0,
+            moduloCount: 0,
+            aiCount: 0
+          };
+        }
+        
+        summaryByServiceLine[sl].totalUnits++;
+        if (unit.occupiedYN) {
+          summaryByServiceLine[sl].occupancyCount++;
+        }
+        
+        const rate = unit.occupiedYN ? (unit.inHouseRate || unit.streetRate || 0) : (unit.streetRate || 0);
+        summaryByServiceLine[sl].totalStreetRate += rate;
+        
+        if (unit.moduloSuggestedRate && unit.moduloSuggestedRate > 0) {
+          summaryByServiceLine[sl].totalModuloRate += unit.moduloSuggestedRate;
+          summaryByServiceLine[sl].moduloCount++;
+        }
+        
+        if (unit.aiSuggestedRate && unit.aiSuggestedRate > 0) {
+          summaryByServiceLine[sl].totalAiRate += unit.aiSuggestedRate;
+          summaryByServiceLine[sl].aiCount++;
+        }
       }
+      
+      const rateCardSummary = Object.values(summaryByServiceLine).map(summary => ({
+        serviceLine: summary.serviceLine,
+        totalUnits: summary.totalUnits,
+        occupancyCount: summary.occupancyCount,
+        averageStreetRate: summary.totalUnits > 0 ? summary.totalStreetRate / summary.totalUnits : 0,
+        averageModuloRate: summary.moduloCount > 0 ? summary.totalModuloRate / summary.moduloCount : null,
+        averageAiRate: summary.aiCount > 0 ? summary.totalAiRate / summary.aiCount : null
+      }));
 
       res.json({
         summary: rateCardSummary,
