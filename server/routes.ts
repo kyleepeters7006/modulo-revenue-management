@@ -2008,6 +2008,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
+      // Calculate portfolio-wide medians by room type as fallback when competitor data is missing
+      const portfolioMediansByRoomType = new Map<string, number>();
+      const ratesByRoomType = new Map<string, number[]>();
+      
+      rentRollData.forEach((unit: any) => {
+        let roomType = unit.roomType || 'Unknown';
+        // Normalize to competitor format
+        if (roomType === 'One Bedroom') roomType = '1BR';
+        else if (roomType === 'Two Bedroom') roomType = '2BR';
+        
+        const rate = unit.inHouseRate || unit.streetRate || 0;
+        if (rate > 0) {
+          if (!ratesByRoomType.has(roomType)) {
+            ratesByRoomType.set(roomType, []);
+          }
+          ratesByRoomType.get(roomType)!.push(rate);
+        }
+      });
+      
+      // Calculate medians
+      ratesByRoomType.forEach((rates, roomType) => {
+        rates.sort((a, b) => a - b);
+        const mid = Math.floor(rates.length / 2);
+        const median = rates.length % 2 === 0
+          ? (rates[mid - 1] + rates[mid]) / 2
+          : rates[mid];
+        portfolioMediansByRoomType.set(roomType, median);
+      });
+      
       // Group competitors by campus and room type for apples-to-apples comparison
       const competitorsByLocationAndType = new Map<string, Map<string, number[]>>();
       
@@ -2073,16 +2102,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           // Calculate median competitor rate for this room type
+          let medianCompRate: number;
+          
           if (competitorRatesForType.length > 0) {
+            // Use actual competitor data when available
             competitorRatesForType.sort((a, b) => a - b);
             const mid = Math.floor(competitorRatesForType.length / 2);
-            const medianCompRate = competitorRatesForType.length % 2 === 0
+            medianCompRate = competitorRatesForType.length % 2 === 0
               ? (competitorRatesForType[mid - 1] + competitorRatesForType[mid]) / 2
               : competitorRatesForType[mid];
-            
-            weightedCompetitorRate += medianCompRate * mix.count;
-            totalUnitsForComparison += mix.count;
+          } else {
+            // Fall back to portfolio median when no competitor data exists
+            medianCompRate = portfolioMediansByRoomType.get(roomType) || (mix.totalRate / mix.count);
           }
+          
+          weightedCompetitorRate += medianCompRate * mix.count;
+          totalUnitsForComparison += mix.count;
         });
         
         const competitorAvgRate = totalUnitsForComparison > 0 
