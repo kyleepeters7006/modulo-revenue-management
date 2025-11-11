@@ -2008,30 +2008,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Calculate service-line-specific portfolio medians (same approach as Modulo pricing)
-      const serviceLineMedians = new Map<string, number>();
+      // Group competitors by campus and room type for apples-to-apples comparison
+      const competitorsByLocationAndType = new Map<string, Map<string, number[]>>();
       
-      // Group all units by service line to calculate medians
-      const unitsByServiceLine = new Map<string, number[]>();
-      rentRollData.forEach((unit: any) => {
-        const sl = unit.serviceLine || 'Unknown';
-        if (!unitsByServiceLine.has(sl)) {
-          unitsByServiceLine.set(sl, []);
+      competitors.forEach((comp: any) => {
+        const campusId = comp.location || 'Unknown';
+        const roomType = comp.roomType || 'Unknown';
+        
+        if (!competitorsByLocationAndType.has(campusId)) {
+          competitorsByLocationAndType.set(campusId, new Map());
         }
-        const rate = unit.inHouseRate || unit.streetRate || 0;
-        if (rate > 0) {
-          unitsByServiceLine.get(sl)!.push(rate);
+        
+        const locationMap = competitorsByLocationAndType.get(campusId)!;
+        if (!locationMap.has(roomType)) {
+          locationMap.set(roomType, []);
         }
-      });
-      
-      // Calculate median for each service line
-      unitsByServiceLine.forEach((rates, serviceLine) => {
-        rates.sort((a, b) => a - b);
-        const mid = Math.floor(rates.length / 2);
-        const median = rates.length % 2 === 0
-          ? (rates[mid - 1] + rates[mid]) / 2
-          : rates[mid];
-        serviceLineMedians.set(serviceLine, median);
+        
+        if (comp.streetRate && comp.streetRate > 0) {
+          locationMap.get(roomType)!.push(comp.streetRate);
+        }
       });
 
       // Calculate metrics for each campus
@@ -2041,29 +2036,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const occupancy = metrics.occupiedUnits / metrics.totalUnits;
         const avgRate = metrics.occupiedUnits > 0 ? metrics.totalRent / metrics.occupiedUnits : 0;
         
-        // Calculate weighted market benchmark based on campus's service line mix
-        // This uses portfolio medians instead of external competitors
-        const serviceLineMix = new Map<string, number>();
+        // Calculate weighted competitor benchmark based on campus's room type mix
+        // This compares our room types to competitor room types (apples-to-apples)
+        const roomTypeMix = new Map<string, { count: number; totalRate: number }>();
+        
         metrics.units.forEach((unit: any) => {
-          const sl = unit.serviceLine || 'Unknown';
+          // Normalize room type names to match competitor data
+          let roomType = unit.roomType || 'Unknown';
+          // Map our room types to competitor room types
+          if (roomType === 'One Bedroom') roomType = '1BR';
+          else if (roomType === 'Two Bedroom') roomType = '2BR';
+          else if (roomType === 'Semi-Private') roomType = 'Studio'; // HC semi-private ~ studio pricing
+          
           const rate = unit.inHouseRate || unit.streetRate || 0;
           if (rate > 0) {
-            serviceLineMix.set(sl, (serviceLineMix.get(sl) || 0) + rate);
+            if (!roomTypeMix.has(roomType)) {
+              roomTypeMix.set(roomType, { count: 0, totalRate: 0 });
+            }
+            const mix = roomTypeMix.get(roomType)!;
+            mix.count++;
+            mix.totalRate += rate;
           }
         });
         
-        let weightedBenchmark = 0;
-        let totalWeight = 0;
+        // Calculate weighted competitor average
+        let weightedCompetitorRate = 0;
+        let totalUnitsForComparison = 0;
+        const locationCompetitors = competitorsByLocationAndType.get(campusId);
         
-        serviceLineMix.forEach((totalRate, sl) => {
-          const median = serviceLineMedians.get(sl) || avgRate;
-          weightedBenchmark += median * totalRate;
-          totalWeight += totalRate;
+        roomTypeMix.forEach((mix, roomType) => {
+          let competitorRatesForType: number[] = [];
+          
+          // Get competitor rates for this room type at this location
+          if (locationCompetitors && locationCompetitors.has(roomType)) {
+            competitorRatesForType = locationCompetitors.get(roomType)!;
+          }
+          
+          // Calculate median competitor rate for this room type
+          if (competitorRatesForType.length > 0) {
+            competitorRatesForType.sort((a, b) => a - b);
+            const mid = Math.floor(competitorRatesForType.length / 2);
+            const medianCompRate = competitorRatesForType.length % 2 === 0
+              ? (competitorRatesForType[mid - 1] + competitorRatesForType[mid]) / 2
+              : competitorRatesForType[mid];
+            
+            weightedCompetitorRate += medianCompRate * mix.count;
+            totalUnitsForComparison += mix.count;
+          }
         });
         
-        const competitorAvgRate = totalWeight > 0 ? weightedBenchmark / totalWeight : avgRate;
+        const competitorAvgRate = totalUnitsForComparison > 0 
+          ? weightedCompetitorRate / totalUnitsForComparison 
+          : avgRate;
         
-        // Calculate price position (% above/below service-line-weighted portfolio median)
+        // Calculate price position (% above/below room-type-weighted competitor median)
         const pricePosition = competitorAvgRate > 0 
           ? ((avgRate - competitorAvgRate) / competitorAvgRate) * 100
           : 0;
