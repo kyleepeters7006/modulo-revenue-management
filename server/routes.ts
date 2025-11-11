@@ -3273,7 +3273,7 @@ Keep recommendations specific and quantitative when possible.`;
               stockMarket: moduloWeights.market,
               inquiryTourVolume: moduloWeights.demand
             },
-            totalAdjustment: result.totalAdjustment * 100,
+            totalAdjustment: result.totalAdjustment,
             finalRate: result.finalPrice,
             appliedRules: [] as string[],
             signals: result.signals,
@@ -3566,7 +3566,7 @@ Keep recommendations specific and quantitative when possible.`;
             stockMarket: algorithmWeights.market,
             inquiryTourVolume: algorithmWeights.demand
           },
-          totalAdjustment: result.totalAdjustment * 100,
+          totalAdjustment: result.totalAdjustment,
           finalRate: aiSuggestion,
           signals: result.signals,
           blendedSignal: result.blendedSignal,
