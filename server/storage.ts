@@ -21,6 +21,10 @@ import {
   floorPlans,
   unitPolygons,
   pricingHistory,
+  rentRollHistory,
+  enquireData,
+  locationMappings,
+  competitiveSurveyData,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -64,10 +68,12 @@ import {
   type UnitPolygon,
   type InsertUnitPolygon,
   type PricingHistory,
-  type InsertPricingHistory
+  type InsertPricingHistory,
+  type LocationMapping,
+  type InsertLocationMapping
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import OpenAI from "openai";
 
 // Initialize OpenAI if API key is available
@@ -194,6 +200,14 @@ export interface IStorage {
   createPricingHistory(data: InsertPricingHistory): Promise<PricingHistory>;
   getPricingHistory(limit: number): Promise<PricingHistory[]>;
   getPricingHistoryById(id: string): Promise<PricingHistory | undefined>;
+  
+  // Data Import methods
+  getLocationMappings(): Promise<LocationMapping[]>;
+  createLocationMapping(data: InsertLocationMapping): Promise<LocationMapping>;
+  getRentRollHistorySummary(): Promise<{ months: string[]; totalRecords: number }>;
+  getEnquireDataSummary(): Promise<{ totalRecords: number; mappedRecords: number; unmappedRecords: number }>;
+  getCompetitiveSurveySummary(): Promise<{ months: string[]; totalRecords: number }>;
+  getLocationMappingSummary(): Promise<{ totalMappings: number; autoMapped: number; manualMapped: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1157,6 +1171,80 @@ Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate"
       .where(eq(pricingHistory.id, id))
       .limit(1);
     return result[0];
+  }
+
+  // Data Import implementations
+  async getLocationMappings(): Promise<LocationMapping[]> {
+    return await db.select().from(locationMappings);
+  }
+
+  async createLocationMapping(data: InsertLocationMapping): Promise<LocationMapping> {
+    const [newMapping] = await db.insert(locationMappings).values(data).returning();
+    return newMapping;
+  }
+
+  async getRentRollHistorySummary(): Promise<{ months: string[]; totalRecords: number }> {
+    const records = await db.selectDistinct({ month: rentRollHistory.uploadMonth })
+      .from(rentRollHistory)
+      .orderBy(rentRollHistory.uploadMonth);
+    
+    const totalCount = await db.select({ count: sql<number>`count(*)::int` })
+      .from(rentRollHistory);
+    
+    return {
+      months: records.map(r => r.month),
+      totalRecords: totalCount[0]?.count || 0
+    };
+  }
+
+  async getEnquireDataSummary(): Promise<{ totalRecords: number; mappedRecords: number; unmappedRecords: number }> {
+    const total = await db.select({ count: sql<number>`count(*)::int` })
+      .from(enquireData);
+    
+    const mapped = await db.select({ count: sql<number>`count(*)::int` })
+      .from(enquireData)
+      .where(sql`${enquireData.mappedLocationId} IS NOT NULL`);
+    
+    const totalCount = total[0]?.count || 0;
+    const mappedCount = mapped[0]?.count || 0;
+    
+    return {
+      totalRecords: totalCount,
+      mappedRecords: mappedCount,
+      unmappedRecords: totalCount - mappedCount
+    };
+  }
+
+  async getCompetitiveSurveySummary(): Promise<{ months: string[]; totalRecords: number }> {
+    const records = await db.selectDistinct({ month: competitiveSurveyData.surveyMonth })
+      .from(competitiveSurveyData)
+      .orderBy(competitiveSurveyData.surveyMonth);
+    
+    const totalCount = await db.select({ count: sql<number>`count(*)::int` })
+      .from(competitiveSurveyData);
+    
+    return {
+      months: records.map(r => r.month),
+      totalRecords: totalCount[0]?.count || 0
+    };
+  }
+
+  async getLocationMappingSummary(): Promise<{ totalMappings: number; autoMapped: number; manualMapped: number }> {
+    const total = await db.select({ count: sql<number>`count(*)::int` })
+      .from(locationMappings);
+    
+    const manual = await db.select({ count: sql<number>`count(*)::int` })
+      .from(locationMappings)
+      .where(eq(locationMappings.isManualMapping, true));
+    
+    const totalCount = total[0]?.count || 0;
+    const manualCount = manual[0]?.count || 0;
+    
+    return {
+      totalMappings: totalCount,
+      autoMapped: totalCount - manualCount,
+      manualMapped: manualCount
+    };
   }
 }
 

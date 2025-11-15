@@ -533,6 +533,104 @@ export const insertStreetRatesSchema = createInsertSchema(streetRates);
 export const insertSpecialRatesSchema = createInsertSchema(specialRates);
 export const insertCompetitiveSurveyDataSchema = createInsertSchema(competitiveSurveyData);
 
+// Historical Rent Roll Data (time series for all 11 months)
+export const rentRollHistory = pgTable("rent_roll_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  uploadMonth: text("upload_month").notNull(),
+  date: text("date").notNull(),
+  location: text("location").notNull(),
+  locationId: varchar("location_id").references(() => locations.id),
+  roomNumber: text("room_number").notNull(),
+  roomType: text("room_type").notNull(),
+  serviceLine: text("service_line").notNull(),
+  occupiedYN: boolean("occupied_yn").notNull(),
+  daysVacant: integer("days_vacant").default(0),
+  preferredLocation: text("preferred_location"),
+  size: text("size").notNull(),
+  view: text("view"),
+  renovated: boolean("renovated").default(false),
+  otherPremiumFeature: text("other_premium_feature"),
+  locationRating: text("location_rating"),
+  sizeRating: text("size_rating"),
+  viewRating: text("view_rating"),
+  renovationRating: text("renovation_rating"),
+  amenityRating: text("amenity_rating"),
+  streetRate: real("street_rate").notNull(),
+  inHouseRate: real("in_house_rate").notNull(),
+  discountToStreetRate: real("discount_to_street_rate"),
+  careLevel: text("care_level"),
+  careRate: real("care_rate"),
+  rentAndCareRate: real("rent_and_care_rate"),
+  competitorRate: real("competitor_rate"),
+  competitorAvgCareRate: real("competitor_avg_care_rate"),
+  competitorFinalRate: real("competitor_final_rate"),
+  residentId: text("resident_id"),
+  residentName: text("resident_name"),
+  moveInDate: text("move_in_date"),
+  moveOutDate: text("move_out_date"),
+  payorType: text("payor_type"),
+  admissionStatus: text("admission_status"),
+  levelOfCare: text("level_of_care"),
+  medicaidRate: real("medicaid_rate"),
+  medicareRate: real("medicare_rate"),
+  assessmentDate: text("assessment_date"),
+  marketingSource: text("marketing_source"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Enquire data with location mapping
+export const enquireData = pgTable("enquire_data", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dataSource: text("data_source").notNull(), // "Senior Housing" or "Post Acute"
+  enquireLocation: text("enquire_location").notNull(), // Original location name from Enquire
+  mappedLocationId: varchar("mapped_location_id").references(() => locations.id), // Mapped to locations table
+  mappedServiceLine: text("mapped_service_line"), // Mapped service line (AL, HC, IL, etc.)
+  inquiryId: text("inquiry_id"), // Unique inquiry identifier
+  inquiryDate: text("inquiry_date"),
+  tourDate: text("tour_date"),
+  moveInDate: text("move_in_date"),
+  leadSource: text("lead_source"),
+  leadStatus: text("lead_status"),
+  prospectName: text("prospect_name"),
+  careNeeds: text("care_needs"),
+  budgetRange: text("budget_range"),
+  desiredMoveInDate: text("desired_move_in_date"),
+  roomTypePreference: text("room_type_preference"),
+  notes: text("notes"),
+  rawData: jsonb("raw_data"), // Store full raw record for reference
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Location mapping table for Enquire → KeyStats campus matching
+export const locationMappings = pgTable("location_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceSystem: text("source_system").notNull(), // "enquire", "matrixcare", etc.
+  sourceLocation: text("source_location").notNull(), // Original location name from source system
+  targetLocationId: varchar("target_location_id").references(() => locations.id).notNull(), // Maps to locations table
+  defaultServiceLine: text("default_service_line"), // Default service line for this mapping
+  confidence: real("confidence").default(1.0), // Mapping confidence score (0-1)
+  isManualMapping: boolean("is_manual_mapping").default(false), // True if manually mapped by user
+  mappedBy: varchar("mapped_by").references(() => users.id), // User who created/approved mapping
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertRentRollHistorySchema = createInsertSchema(rentRollHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertEnquireDataSchema = createInsertSchema(enquireData).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertLocationMappingsSchema = createInsertSchema(locationMappings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Floor Plan Tables for Interactive Campus Maps
 export const campusMaps = pgTable("campus_maps", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -662,3 +760,11 @@ export type UnitPolygon = typeof unitPolygons.$inferSelect;
 export type InsertUnitPolygon = z.infer<typeof insertUnitPolygonSchema>;
 export type PricingHistory = typeof pricingHistory.$inferSelect;
 export type InsertPricingHistory = z.infer<typeof insertPricingHistorySchema>;
+export type RentRollHistory = typeof rentRollHistory.$inferSelect;
+export type InsertRentRollHistory = z.infer<typeof insertRentRollHistorySchema>;
+export type EnquireData = typeof enquireData.$inferSelect;
+export type InsertEnquireData = z.infer<typeof insertEnquireDataSchema>;
+export type LocationMapping = typeof locationMappings.$inferSelect;
+export type InsertLocationMapping = z.infer<typeof insertLocationMappingsSchema>;
+export type CompetitiveSurveyData = typeof competitiveSurveyData.$inferSelect;
+export type InsertCompetitiveSurveyData = z.infer<typeof insertCompetitiveSurveyDataSchema>;

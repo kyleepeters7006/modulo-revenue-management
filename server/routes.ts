@@ -5388,6 +5388,167 @@ Respond in JSON format:
     }
   });
 
+  // =====================================================
+  // Data Import Routes for Production Data Migration
+  // =====================================================
+  
+  app.post("/api/import/rent-roll", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const { uploadMonth } = req.body;
+      if (!uploadMonth) {
+        return res.status(400).json({ error: "Upload month is required" });
+      }
+      
+      const { 
+        importRentRollCSV,
+        syncHistoryToCurrentRentRoll
+      } = await import('./dataImport');
+      
+      const importStats = await importRentRollCSV(
+        req.file.buffer,
+        uploadMonth,
+        req.file.originalname
+      );
+      
+      // If this is the most recent month, sync to current rent roll
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      if (uploadMonth === currentMonth) {
+        const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth);
+        return res.json({
+          ...importStats,
+          syncedToCurrent: true,
+          syncedRecords: syncResult.synced
+        });
+      }
+      
+      res.json({
+        ...importStats,
+        syncedToCurrent: false
+      });
+    } catch (error) {
+      console.error('Error importing rent roll:', error);
+      res.status(500).json({ error: "Failed to import rent roll data" });
+    }
+  });
+  
+  app.post("/api/import/enquire", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const { dataSource } = req.body;
+      if (!dataSource || !['Senior Housing', 'Post Acute'].includes(dataSource)) {
+        return res.status(400).json({ 
+          error: "Data source must be 'Senior Housing' or 'Post Acute'" 
+        });
+      }
+      
+      const { importEnquireCSV } = await import('./dataImport');
+      
+      const importStats = await importEnquireCSV(
+        req.file.buffer,
+        dataSource as 'Senior Housing' | 'Post Acute'
+      );
+      
+      res.json(importStats);
+    } catch (error) {
+      console.error('Error importing Enquire data:', error);
+      res.status(500).json({ error: "Failed to import Enquire data" });
+    }
+  });
+  
+  app.post("/api/import/competitive-survey", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const { surveyMonth } = req.body;
+      if (!surveyMonth) {
+        return res.status(400).json({ error: "Survey month is required" });
+      }
+      
+      const { importCompetitiveSurveyExcel } = await import('./dataImport');
+      
+      const importStats = await importCompetitiveSurveyExcel(
+        req.file.buffer,
+        surveyMonth
+      );
+      
+      res.json(importStats);
+    } catch (error) {
+      console.error('Error importing competitive survey:', error);
+      res.status(500).json({ error: "Failed to import competitive survey data" });
+    }
+  });
+  
+  app.get("/api/import/location-mappings", async (req, res) => {
+    try {
+      const mappings = await storage.getLocationMappings();
+      res.json(mappings);
+    } catch (error) {
+      console.error('Error fetching location mappings:', error);
+      res.status(500).json({ error: "Failed to fetch location mappings" });
+    }
+  });
+  
+  app.post("/api/import/location-mappings", async (req, res) => {
+    try {
+      const mapping = await storage.createLocationMapping(req.body);
+      res.json(mapping);
+    } catch (error) {
+      console.error('Error creating location mapping:', error);
+      res.status(500).json({ error: "Failed to create location mapping" });
+    }
+  });
+  
+  app.post("/api/import/auto-map-locations", async (req, res) => {
+    try {
+      const { autoMapLocations } = await import('./dataImport');
+      const results = await autoMapLocations();
+      res.json(results);
+    } catch (error) {
+      console.error('Error auto-mapping locations:', error);
+      res.status(500).json({ error: "Failed to auto-map locations" });
+    }
+  });
+  
+  app.post("/api/import/sync-to-current/:month", async (req, res) => {
+    try {
+      const { month } = req.params;
+      const { syncHistoryToCurrentRentRoll } = await import('./dataImport');
+      const result = await syncHistoryToCurrentRentRoll(month);
+      res.json(result);
+    } catch (error) {
+      console.error('Error syncing to current rent roll:', error);
+      res.status(500).json({ error: "Failed to sync to current rent roll" });
+    }
+  });
+  
+  app.get("/api/import/status", async (req, res) => {
+    try {
+      const rentRollHistory = await storage.getRentRollHistorySummary();
+      const enquireData = await storage.getEnquireDataSummary();
+      const competitiveSurvey = await storage.getCompetitiveSurveySummary();
+      const locationMappings = await storage.getLocationMappingSummary();
+      
+      res.json({
+        rentRollHistory,
+        enquireData,
+        competitiveSurvey,
+        locationMappings
+      });
+    } catch (error) {
+      console.error('Error fetching import status:', error);
+      res.status(500).json({ error: "Failed to fetch import status" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
