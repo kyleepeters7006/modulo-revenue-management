@@ -5584,6 +5584,118 @@ Respond in JSON format:
     }
   });
   
+  // Data Export Routes  
+  app.get('/api/export/rent-roll-history/:month', async (req, res) => {
+    try {
+      const month = req.params.month;
+      const monthDate = new Date(month + '-01');
+      
+      const data = await db
+        .select()
+        .from(rentRollHistory)
+        .where(eq(rentRollHistory.uploadMonth, monthDate));
+      
+      if (data.length === 0) {
+        return res.status(404).json({ error: 'No data found for this month' });
+      }
+      
+      // Convert to CSV
+      const { stringify } = await import('csv-stringify/sync');
+      const csvContent = stringify(data, { header: true });
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=rent-roll-${month}.csv`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error('Export error:', error);
+      res.status(500).json({ error: 'Export failed' });
+    }
+  });
+  
+  app.get('/api/export/enquire-data', async (req, res) => {
+    try {
+      const { dataSource, startDate, endDate } = req.query;
+      
+      let query = db.select().from(enquireData);
+      const conditions = [];
+      
+      if (dataSource) {
+        conditions.push(eq(enquireData.dataSource, dataSource as string));
+      }
+      
+      if (startDate) {
+        conditions.push(gte(enquireData.activityDate, new Date(startDate as string)));
+      }
+      
+      if (endDate) {
+        conditions.push(lte(enquireData.activityDate, new Date(endDate as string)));
+      }
+      
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
+      }
+      
+      const data = await query;
+      
+      // Convert to CSV
+      const { stringify } = await import('csv-stringify/sync');
+      const csvContent = stringify(data, { header: true });
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=enquire-data-export.csv`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error('Export error:', error);
+      res.status(500).json({ error: 'Export failed' });
+    }
+  });
+  
+  app.get('/api/export/competitive-survey/:month', async (req, res) => {
+    try {
+      const month = req.params.month;
+      const monthDate = new Date(month + '-01');
+      
+      const data = await db
+        .select()
+        .from(competitiveSurveyData)
+        .where(eq(competitiveSurveyData.surveyMonth, monthDate));
+      
+      if (data.length === 0) {
+        return res.status(404).json({ error: 'No data found for this month' });
+      }
+      
+      // Convert to CSV
+      const { stringify } = await import('csv-stringify/sync');
+      const csvContent = stringify(data, { header: true });
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=competitive-survey-${month}.csv`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error('Export error:', error);
+      res.status(500).json({ error: 'Export failed' });
+    }
+  });
+  
+  app.get('/api/export/location-mappings', async (req, res) => {
+    try {
+      const data = await db
+        .select()
+        .from(locationMappings);
+      
+      // Convert to CSV
+      const { stringify } = await import('csv-stringify/sync');
+      const csvContent = stringify(data, { header: true });
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=location-mappings.csv`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error('Export error:', error);
+      res.status(500).json({ error: 'Export failed' });
+    }
+  });
+  
   app.get("/api/import/status", async (req, res) => {
     try {
       const rentRollHistory = await storage.getRentRollHistorySummary();

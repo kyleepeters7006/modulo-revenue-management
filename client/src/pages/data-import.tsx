@@ -14,7 +14,7 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, FileSpreadsheet, Database, MapPin, CheckCircle, XCircle } from "lucide-react";
+import { Upload, FileSpreadsheet, Database, MapPin, CheckCircle, XCircle, Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface ImportStatus {
@@ -284,6 +284,7 @@ export default function DataImport() {
           <TabsTrigger value="enquire">Enquire Data</TabsTrigger>
           <TabsTrigger value="competitive">Competitive Survey</TabsTrigger>
           <TabsTrigger value="history">Historical Data</TabsTrigger>
+          <TabsTrigger value="export">Export Data</TabsTrigger>
         </TabsList>
 
         {/* Rent Roll Import */}
@@ -459,6 +460,115 @@ export default function DataImport() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Export Data Tab */}
+        <TabsContent value="export">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Export Rent Roll History</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {importStatus?.rentRollHistory?.months?.map((month: string) => (
+                <Button
+                  key={month}
+                  variant="outline"
+                  className="w-full justify-between"
+                  onClick={() => {
+                    window.location.href = `/api/export/rent-roll-history/${month}`;
+                  }}
+                >
+                  <span>Rent Roll - {month}</span>
+                  <Download className="h-4 w-4" />
+                </Button>
+              ))}
+              {(!importStatus?.rentRollHistory?.months || importStatus.rentRollHistory.months.length === 0) && (
+                <p className="text-sm text-muted-foreground">No rent roll data available</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Export Enquire Data</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  window.location.href = '/api/export/enquire-data?dataSource=Senior Housing';
+                }}
+              >
+                <span>Senior Housing Enquire Data</span>
+                <Download className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  window.location.href = '/api/export/enquire-data?dataSource=Post Acute';
+                }}
+              >
+                <span>Post Acute Enquire Data</span>
+                <Download className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  window.location.href = '/api/export/enquire-data';
+                }}
+              >
+                <span>All Enquire Data</span>
+                <Download className="h-4 w-4" />
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Export Competitive Survey</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {importStatus?.competitiveSurvey?.months?.map((month: string) => (
+                <Button
+                  key={month}
+                  variant="outline"
+                  className="w-full justify-between"
+                  onClick={() => {
+                    window.location.href = `/api/export/competitive-survey/${month}`;
+                  }}
+                >
+                  <span>Survey - {month}</span>
+                  <Download className="h-4 w-4" />
+                </Button>
+              ))}
+              {(!importStatus?.competitiveSurvey?.months || importStatus.competitiveSurvey.months.length === 0) && (
+                <p className="text-sm text-muted-foreground">No survey data available</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Export Location Mappings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => {
+                  window.location.href = '/api/export/location-mappings';
+                }}
+              >
+                <span>Location Mappings</span>
+                <Download className="h-4 w-4" />
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </TabsContent>
       </Tabs>
 
       {/* Unmapped Locations Alert */}
