@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { toast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Settings } from "lucide-react";
+import { ArrowLeft, Settings, Wand2, Loader2 } from "lucide-react";
 import FloorPlanImageUpload from "@/components/floor-plans/admin/FloorPlanImageUpload";
 import PolygonEditor from "@/components/floor-plans/admin/PolygonEditor";
 
@@ -41,6 +43,41 @@ export default function FloorPlansAdminPage() {
 
   const locations = locationsData?.locations || [];
   const campusMap = campusMaps[0];
+
+  // Auto-map mutation
+  const autoMapMutation = useMutation({
+    mutationFn: async (campusId: string) => {
+      const response = await fetch(`/api/campus-maps/${campusId}/auto-map`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Auto-mapping failed');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Auto-Mapping Complete",
+        description: data.stats ? 
+          `Detected ${data.stats.detected} rooms, matched ${data.stats.matched} units` : 
+          data.message,
+      });
+      
+      // Refresh campus maps and polygons
+      queryClient.invalidateQueries({ queryKey: [`/api/campus-maps/${selectedCampus}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/unit-polygons`] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Auto-Mapping Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -155,7 +192,35 @@ export default function FloorPlansAdminPage() {
 
             <TabsContent value="polygons">
               {campusMap ? (
-                <PolygonEditor campusMap={campusMap} locationId={selectedCampus} />
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <h2 className="text-2xl font-semibold">Map Units to Rooms</h2>
+                      <p className="text-sm text-slate-600 mt-1">
+                        Use AI to automatically detect rooms or manually draw polygons
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={() => autoMapMutation.mutate(selectedCampus)}
+                      disabled={autoMapMutation.isPending}
+                      variant="default"
+                      data-testid="button-auto-map"
+                    >
+                      {autoMapMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Detecting Rooms...
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="mr-2 h-4 w-4" />
+                          Auto-Map with AI
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <PolygonEditor campusMap={campusMap} locationId={selectedCampus} />
+                </div>
               ) : (
                 <div className="border-2 border-dashed border-slate-300 rounded-lg p-12 text-center">
                   <p className="text-slate-500">Please upload a floor plan image first</p>

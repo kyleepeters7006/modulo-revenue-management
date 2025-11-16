@@ -14,6 +14,12 @@ Preferred communication style: Simple, everyday language.
 - **Accurate Revenue**: Calculates current and potential revenue from actual rent roll data
 - **Live Statistics**: Real-time occupancy breakdown by room type and service line
 
+## AI-Powered Floor Plan System (In Progress)
+- **OpenAI Integration**: Set up OpenAI Vision API for automatic room detection
+- **Auto-Mapping**: Added capability to automatically detect and map rooms on floor plans
+- **Admin Interface**: Updated floor plans admin page with AI auto-map button
+- **Grid Layout**: Fallback grid-based layout system for campuses without floor plan images
+
 # Recent Changes (November 16, 2024)
 
 ## Production Data Import System

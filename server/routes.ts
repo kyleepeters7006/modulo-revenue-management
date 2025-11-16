@@ -5676,6 +5676,55 @@ Respond in JSON format:
     }
   });
   
+  // AI Floor Plan Auto-Mapping (simplified grid-based approach)
+  app.post("/api/campus-maps/:campusId/auto-map", async (req, res) => {
+    try {
+      const { campusId } = req.params;
+      const { autoGenerateFloorPlanForCampus } = await import('./autoGenerateFloorMaps');
+      
+      const result = await autoGenerateFloorPlanForCampus(campusId);
+      
+      res.json({
+        success: result.created > 0,
+        message: result.message,
+        stats: {
+          detected: result.created,
+          created: result.created,
+          matched: result.created,
+          unmatched: []
+        }
+      });
+    } catch (error) {
+      console.error('Auto-mapping error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Failed to auto-map campus' 
+      });
+    }
+  });
+  
+  // Generate floor plans for all campuses at once
+  app.post("/api/campus-maps/auto-generate-all", async (req, res) => {
+    try {
+      const { autoGenerateAllFloorPlans } = await import('./autoGenerateFloorMaps');
+      
+      const results = await autoGenerateAllFloorPlans();
+      const totalCreated = results.reduce((sum, r) => sum + r.created, 0);
+      
+      res.json({
+        success: true,
+        message: `Generated floor plans for ${results.length} campuses with ${totalCreated} total units`,
+        results
+      });
+    } catch (error) {
+      console.error('Auto-generation error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Failed to generate floor plans' 
+      });
+    }
+  });
+
   app.get("/api/import/status", async (req, res) => {
     try {
       const rentRollHistory = await storage.getRentRollHistorySummary();
