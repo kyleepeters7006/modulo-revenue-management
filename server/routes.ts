@@ -23,6 +23,7 @@ import { roomDetectionService, DetectionStrategy } from "./roomDetectionService"
 import { calculateModuloPrice } from "./moduloPricingAlgorithm";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import { syncLocationsFromRentRoll } from "./syncLocations";
+import { importProductionData } from "./importProductionData";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -297,6 +298,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error syncing locations:', error);
       res.status(500).json({ error: 'Failed to sync locations' });
+    }
+  });
+
+  // Import production data from attached assets
+  app.post('/api/admin/import-production-data', async (req, res) => {
+    try {
+      console.log('Importing production data from attached assets...');
+      const result = await importProductionData();
+      
+      if (result.success) {
+        // After import, sync locations
+        await syncLocationsFromRentRoll();
+        
+        res.json({ 
+          success: true, 
+          message: result.message
+        });
+      } else {
+        res.status(500).json({ 
+          success: false, 
+          error: result.error || 'Failed to import production data'
+        });
+      }
+    } catch (error) {
+      console.error('Error importing production data:', error);
+      res.status(500).json({ error: 'Failed to import production data' });
     }
   });
   
