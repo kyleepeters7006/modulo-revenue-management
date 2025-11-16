@@ -2726,7 +2726,7 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Overview dashboard endpoint
+  // Overview dashboard endpoint - Real Trilogy Portfolio Data
   app.get("/api/overview", async (req, res) => {
     try {
       const serviceLineFilter = req.query.serviceLine as string;
@@ -2737,29 +2737,9 @@ Keep recommendations specific and quantitative when possible.`;
         ? allRentRollData.filter((unit: any) => unit.serviceLine === serviceLineFilter)
         : allRentRollData;
       
-      // If no current data, return service line aware demo data
-      if (allRentRollData.length === 0) {
-        const demoOverview = {
-          occupancyByRoomType: [
-            { roomType: 'Studio', occupied: 12, total: 15, occupancyRate: 80.0, avgRate: 2400, avgCompetitorRate: 2550, avgModuloRate: 4500, monthlyRemainder: (4500 * 14) - (2400 * 12) },
-            { roomType: 'One Bedroom', occupied: 18, total: 20, occupancyRate: 90.0, avgRate: 2800, avgCompetitorRate: 2900, avgModuloRate: 4800, monthlyRemainder: (4800 * 19) - (2800 * 18) },
-            { roomType: 'Two Bedroom', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3350, avgModuloRate: 5200, monthlyRemainder: (5200 * 10) - (3200 * 8) }
-          ],
-          occupancyByServiceLine: [
-            { serviceLine: 'AL', occupied: 15, total: 20, occupancyRate: 75.0, avgRate: 2600, avgCompetitorRate: 2750, avgModuloRate: 4600, monthlyRemainder: (4600 * 19) - (2600 * 15) },
-            { serviceLine: 'AL/MC', occupied: 8, total: 10, occupancyRate: 80.0, avgRate: 3200, avgCompetitorRate: 3400, avgModuloRate: 5100, monthlyRemainder: (5100 * 10) - (3200 * 8) },
-            { serviceLine: 'HC', occupied: 6, total: 8, occupancyRate: 75.0, avgRate: 3800, avgCompetitorRate: 4000, avgModuloRate: 5500, monthlyRemainder: (5500 * 8) - (3800 * 6) },
-            { serviceLine: 'HC/MC', occupied: 4, total: 5, occupancyRate: 80.0, avgRate: 4200, avgCompetitorRate: 4500, avgModuloRate: 5800, monthlyRemainder: (5800 * 5) - (4200 * 4) },
-            { serviceLine: 'IL', occupied: 6, total: 9, occupancyRate: 67.0, avgRate: 2200, avgCompetitorRate: 2300, avgModuloRate: 4200, monthlyRemainder: (4200 * 9) - (2200 * 6) },
-            { serviceLine: 'SL', occupied: 7, total: 8, occupancyRate: 88.0, avgRate: 1800, avgCompetitorRate: 1950, avgModuloRate: 3800, monthlyRemainder: (3800 * 8) - (1800 * 7) }
-          ],
-          currentAnnualRevenue: 2100000,
-          potentialAnnualRevenue: 2700000,
-          totalUnits: 50,
-          occupiedUnits: 41
-        };
-        return res.json(demoOverview);
-      }
+      // Always use real data - never return demo data
+      // Log the actual portfolio size for monitoring
+      console.log(`Trilogy Portfolio: ${allRentRollData.length} total units across 31 campuses`);
 
       // Calculate room type statistics for filtered data
       const roomTypeStats = rentRollData.reduce((acc: any, unit: any) => {

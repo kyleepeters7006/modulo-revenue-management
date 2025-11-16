@@ -8,6 +8,14 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 16, 2024)
 
+## Real Trilogy Portfolio Data on Overview Page
+- **Removed Demo Data**: Overview page now displays actual portfolio metrics from database
+- **Real Metrics**: Shows actual 3,259 units across 31 Trilogy campuses with real occupancy rates
+- **Accurate Revenue**: Calculates current and potential revenue from actual rent roll data
+- **Live Statistics**: Real-time occupancy breakdown by room type and service line
+
+# Recent Changes (November 16, 2024)
+
 ## Production Data Import System
 - **Database Schema**: Added tables for rentRollHistory, enquireData, competitiveSurveyData, and locationMappings
 - **Import Pipeline**: Transaction-safe import system with duplicate prevention for 11 months of historical rent roll data (190k+ records)
