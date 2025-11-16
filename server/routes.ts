@@ -22,6 +22,7 @@ import { demoCompetitors, demoRentRoll } from "./seed-data";
 import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
 import { calculateModuloPrice } from "./moduloPricingAlgorithm";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
+import { syncLocationsFromRentRoll } from "./syncLocations";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -172,6 +173,15 @@ async function checkAndInitializeDatabase() {
       
       console.log('Database initialization complete with Trilogy portfolio data');
     }
+    
+    // Sync locations from rent roll data (always run to keep locations in sync)
+    if (unitCount > 0) {
+      console.log('Syncing locations from rent roll data...');
+      const syncResult = await syncLocationsFromRentRoll();
+      if (syncResult.success) {
+        console.log(`Locations synced: ${syncResult.created} created, ${syncResult.updated} updated`);
+      }
+    }
   } catch (error) {
     console.error('Error checking/initializing database:', error);
   }
@@ -265,6 +275,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to re-seed competitor data' });
     }
   });
+
+  // Sync locations from rent roll data
+  app.post('/api/admin/sync-locations', async (req, res) => {
+    try {
+      console.log('Syncing locations from rent roll data...');
+      const result = await syncLocationsFromRentRoll();
+      
+      if (result.success) {
+        res.json({ 
+          success: true, 
+          message: `Locations synced successfully: ${result.created} created, ${result.updated} updated`,
+          ...result
+        });
+      } else {
+        res.status(500).json({ 
+          success: false, 
+          error: result.error || 'Failed to sync locations'
+        });
+      }
+    } catch (error) {
+      console.error('Error syncing locations:', error);
+      res.status(500).json({ error: 'Failed to sync locations' });
+    }
+  });
+  
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req, res) => {
     try {
