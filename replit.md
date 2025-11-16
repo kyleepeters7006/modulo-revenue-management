@@ -6,6 +6,17 @@ This is a revenue management dashboard application called "Modulo" built for rea
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (November 16, 2024)
+
+## Production Data Import System
+- **Database Schema**: Added tables for rentRollHistory, enquireData, competitiveSurveyData, and locationMappings
+- **Import Pipeline**: Transaction-safe import system with duplicate prevention for 11 months of historical rent roll data (190k+ records)
+- **Clean Data Management UI**: Simplified table layout with Category, File Selection, Records Count, and Import/Export actions
+- **Enquire Integration**: Updated Modulo pricing algorithm to use real inquiry/tour data from database instead of mock values
+- **Location Mapping**: Fuzzy matching algorithm for auto-mapping Enquire records to campus locations
+- **CSV Export**: Full export functionality for all production data tables for verification and external analysis
+- **Admin Interface**: Navigate to `/data-import` for clean, simple data management interface
+
 # Recent Changes (November 9, 2024)
 
 ## Market Positioning Strategy Update
