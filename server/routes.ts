@@ -3233,7 +3233,20 @@ Keep recommendations specific and quantitative when possible.`;
           competitorFinalRate: parseFloat(getRowValue(row, 'Competitor Final Rate', 'competitor final rate')) || 0,
           moduloSuggestedRate: null,
           aiSuggestedRate: null,
-          promotionAllowance: 0
+          promotionAllowance: 0,
+          residentId: getRowValue(row, 'Resident ID', 'resident id', 'ResidentID', 'residentId') || null,
+          residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
+          moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
+          moveOutDate: getRowValue(row, 'Move Out Date', 'move out date', 'MoveOutDate', 'moveOutDate') || null,
+          payorType: getRowValue(row, 'Payor Type', 'payor type', 'PayorType', 'payorType') || null,
+          admissionStatus: getRowValue(row, 'Admission Status', 'admission status', 'AdmissionStatus', 'admissionStatus') || null,
+          levelOfCare: getRowValue(row, 'Level of Care', 'level of care', 'LevelOfCare', 'levelOfCare') || null,
+          medicaidRate: parseFloat(getRowValue(row, 'Medicaid Rate', 'medicaid rate', 'MedicaidRate', 'medicaidRate')) || null,
+          medicareRate: parseFloat(getRowValue(row, 'Medicare Rate', 'medicare rate', 'MedicareRate', 'medicareRate')) || null,
+          assessmentDate: getRowValue(row, 'Assessment Date', 'assessment date', 'AssessmentDate', 'assessmentDate') || null,
+          marketingSource: getRowValue(row, 'Marketing Source', 'marketing source', 'MarketingSource', 'marketingSource') || null,
+          inquiryCount: parseInt(getRowValue(row, 'Inquiry Count', 'inquiry count', 'InquiryCount', 'inquiryCount')) || 0,
+          tourCount: parseInt(getRowValue(row, 'Tour Count', 'tour count', 'TourCount', 'tourCount')) || 0
         };
 
         processedRecords.push(rentRollEntry);
