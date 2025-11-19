@@ -305,9 +305,18 @@ export default function PricingControls() {
             locationId={selectedLocationId} 
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
-          <NaturalLanguageAdjustments />
-          <AdjustmentRanges />
-          <GuardrailsEditor />
+          <NaturalLanguageAdjustments 
+            locationId={selectedLocationId}
+            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
+          />
+          <AdjustmentRanges 
+            locationId={selectedLocationId}
+            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
+          />
+          <GuardrailsEditor 
+            locationId={selectedLocationId}
+            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
+          />
           <AttributeManagement />
         </div>
       </div>

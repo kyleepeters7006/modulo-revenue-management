@@ -868,7 +868,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Adjustment ranges endpoints
   app.get("/api/adjustment-ranges", async (req, res) => {
     try {
-      const ranges = await storage.getAdjustmentRanges();
+      const { locationId, serviceLine } = req.query;
+      
+      // 3-tier fallback: specific → location → global
+      const conditions = [];
+      if (locationId && serviceLine) {
+        conditions.push(and(
+          eq(adjustmentRanges.locationId, locationId as string),
+          eq(adjustmentRanges.serviceLine, serviceLine as string)
+        ));
+      }
+      if (locationId) {
+        conditions.push(and(
+          eq(adjustmentRanges.locationId, locationId as string),
+          sql`${adjustmentRanges.serviceLine} IS NULL`
+        ));
+      }
+      conditions.push(and(
+        sql`${adjustmentRanges.locationId} IS NULL`,
+        sql`${adjustmentRanges.serviceLine} IS NULL`
+      ));
+      
+      const allRanges = await db.select().from(adjustmentRanges);
+      
+      // Find best match using fallback logic
+      let ranges;
+      for (const condition of conditions) {
+        const match = allRanges.find(r => {
+          if (locationId && serviceLine && r.locationId === locationId && r.serviceLine === serviceLine) return true;
+          if (locationId && !serviceLine && r.locationId === locationId && !r.serviceLine) return true;
+          if (!locationId && !serviceLine && !r.locationId && !r.serviceLine) return true;
+          return false;
+        });
+        if (match) {
+          ranges = match;
+          break;
+        }
+      }
+      
       if (ranges) {
         res.json(ranges);
       } else {
@@ -896,6 +933,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.put("/api/adjustment-ranges", async (req, res) => {
+    try {
+      const { locationId, serviceLine, ...rangeData } = req.body;
+      
+      // Delete existing entry for this scope
+      const deleteConditions = [];
+      if (locationId && serviceLine) {
+        deleteConditions.push(and(
+          eq(adjustmentRanges.locationId, locationId),
+          eq(adjustmentRanges.serviceLine, serviceLine)
+        ));
+      } else if (locationId) {
+        deleteConditions.push(and(
+          eq(adjustmentRanges.locationId, locationId),
+          sql`${adjustmentRanges.serviceLine} IS NULL`
+        ));
+      } else {
+        deleteConditions.push(and(
+          sql`${adjustmentRanges.locationId} IS NULL`,
+          sql`${adjustmentRanges.serviceLine} IS NULL`
+        ));
+      }
+      
+      for (const condition of deleteConditions) {
+        await db.delete(adjustmentRanges).where(condition);
+      }
+      
+      // Insert new values
+      const [newRanges] = await db.insert(adjustmentRanges).values({
+        locationId: locationId || null,
+        serviceLine: serviceLine || null,
+        ...rangeData
+      }).returning();
+      
+      res.json(newRanges);
+    } catch (error) {
+      console.error('Error updating adjustment ranges:', error);
+      res.status(500).json({ error: 'Failed to update adjustment ranges' });
+    }
+  });
+
+  app.put("/api/adjustment-ranges-old", async (req, res) => {
     try {
       const { insertAdjustmentRangesSchema } = await import('@shared/schema');
       const validatedData = insertAdjustmentRangesSchema.parse(req.body);
@@ -1688,19 +1766,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Guardrails CRUD
   app.get("/api/guardrails", async (req, res) => {
     try {
-      const guardrails = await storage.getCurrentGuardrails();
-      res.json(guardrails?.config || {});
+      const { locationId, serviceLine } = req.query;
+      
+      // 3-tier fallback: specific → location → global
+      const allGuardrails = await db.select().from(guardrails);
+      
+      let guardrail;
+      // Try location + service line specific
+      if (locationId && serviceLine) {
+        guardrail = allGuardrails.find(g => g.locationId === locationId && g.serviceLine === serviceLine);
+      }
+      // Fall back to location-level
+      if (!guardrail && locationId) {
+        guardrail = allGuardrails.find(g => g.locationId === locationId && !g.serviceLine);
+      }
+      // Fall back to global
+      if (!guardrail) {
+        guardrail = allGuardrails.find(g => !g.locationId && !g.serviceLine);
+      }
+      
+      res.json(guardrail || {});
     } catch (error) {
+      console.error('Error fetching guardrails:', error);
       res.status(500).json({ error: "Failed to get guardrails" });
     }
   });
 
   app.post("/api/guardrails", async (req, res) => {
     try {
-      const validatedData = insertGuardrailsSchema.parse({ config: req.body });
-      const guardrails = await storage.createOrUpdateGuardrails(validatedData);
-      res.json({ ok: true, guardrails });
+      const { locationId, serviceLine, ...guardrailData } = req.body;
+      
+      // Delete existing entry for this scope
+      const deleteConditions = [];
+      if (locationId && serviceLine) {
+        await db.delete(guardrails).where(and(
+          eq(guardrails.locationId, locationId),
+          eq(guardrails.serviceLine, serviceLine)
+        ));
+      } else if (locationId) {
+        await db.delete(guardrails).where(and(
+          eq(guardrails.locationId, locationId),
+          sql`${guardrails.serviceLine} IS NULL`
+        ));
+      } else {
+        await db.delete(guardrails).where(and(
+          sql`${guardrails.locationId} IS NULL`,
+          sql`${guardrails.serviceLine} IS NULL`
+        ));
+      }
+      
+      // Insert new values
+      const [newGuardrail] = await db.insert(guardrails).values({
+        locationId: locationId || null,
+        serviceLine: serviceLine || null,
+        ...guardrailData
+      }).returning();
+      
+      res.json({ ok: true, guardrails: newGuardrail });
     } catch (error) {
+      console.error('Error saving guardrails:', error);
       res.status(400).json({ error: "Invalid guardrails data" });
     }
   });
@@ -4842,7 +4966,7 @@ Keep recommendations specific and quantitative when possible.`;
   // Natural Language Adjustment Rules endpoints
   app.post("/api/adjustment-rules", async (req, res) => {
     try {
-      const { description, preview } = req.body;
+      const { description, preview, locationId, serviceLine } = req.body;
       
       // Parse the natural language rule
       const parsedRule = parseNaturalLanguageRule(description);
@@ -5025,6 +5149,8 @@ Respond in JSON format:
       
       // Create the rule in database
       const rule = await storage.createAdjustmentRule({
+        locationId: locationId || null,
+        serviceLine: serviceLine || null,
         name: parsedRule.name,
         description: parsedRule.description,
         trigger: parsedRule.trigger,
@@ -5052,7 +5178,30 @@ Respond in JSON format:
   
   app.get("/api/adjustment-rules", async (req, res) => {
     try {
-      const rules = await storage.getAdjustmentRules();
+      const { locationId, serviceLine } = req.query;
+      
+      let query = db.select().from(adjustmentRules);
+      
+      // Filter by location and service line if provided
+      const conditions = [];
+      if (locationId) {
+        conditions.push(or(
+          eq(adjustmentRules.locationId, locationId as string),
+          sql`${adjustmentRules.locationId} IS NULL`
+        ));
+      }
+      if (serviceLine) {
+        conditions.push(or(
+          eq(adjustmentRules.serviceLine, serviceLine as string),
+          sql`${adjustmentRules.serviceLine} IS NULL`
+        ));
+      }
+      
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+      
+      const rules = await query;
       res.json(rules);
     } catch (error) {
       console.error('Error fetching adjustment rules:', error);

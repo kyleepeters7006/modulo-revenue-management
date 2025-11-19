@@ -219,8 +219,11 @@ export const stockMarketCache = pgTable("stock_market_cache", {
 });
 
 // Adjustment ranges for each pricing factor
+// Supports 3-tier hierarchical configuration: location+serviceLine specific → location-level → global defaults
 export const adjustmentRanges = pgTable("adjustment_ranges", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id), // NULL = global default
+  serviceLine: text("service_line"), // NULL = applies to all service lines at this location
   occupancyMin: real("occupancy_min").notNull().default(-0.10), // -10% at low occupancy
   occupancyMax: real("occupancy_max").notNull().default(0.05), // +5% at high occupancy
   vacancyMin: real("vacancy_min").notNull().default(-0.15), // -15% for long vacancy
@@ -238,8 +241,11 @@ export const adjustmentRanges = pgTable("adjustment_ranges", {
 });
 
 // Dynamic pricing guardrails
+// Supports 3-tier hierarchical configuration: location+serviceLine specific → location-level → global defaults
 export const guardrails = pgTable("guardrails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id), // NULL = global default
+  serviceLine: text("service_line"), // NULL = applies to all service lines at this location
   minRateDecrease: real("min_rate_decrease").default(0.05), // 5% minimum
   maxRateIncrease: real("max_rate_increase").default(0.15), // 15% maximum
   occupancyThresholds: jsonb("occupancy_thresholds"), // Different rates for different occupancy levels
@@ -404,6 +410,8 @@ export const insertTargetsAndTrendsSchema = createInsertSchema(targetsAndTrends)
 // Portfolio adjustment rules table
 export const adjustmentRules = pgTable("adjustment_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id), // NULL = applies to all locations
+  serviceLine: text("service_line"), // NULL = applies to all service lines
   name: text("name").notNull(),
   description: text("description").notNull(), // Natural language rule description
   trigger: jsonb("trigger").notNull(), // Parsed trigger conditions
