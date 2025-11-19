@@ -2,7 +2,7 @@ import { db } from "./db";
 import { rentRollData, locations, competitiveSurveyData, enquireData, locationMappings, unitPolygons, competitors } from "../shared/schema";
 import { sql, eq, and } from "drizzle-orm";
 import Papa from "papaparse";
-import * as xlsx from "xlsx";
+import xlsx from "xlsx";
 import { readFileSync } from "fs";
 import path from "path";
 import { geocodeAddress, findNearestLocation } from "./geocoding";
@@ -189,25 +189,46 @@ async function importRentRolls() {
 /**
  * Import competitive survey Excel data and populate competitors table
  */
+export async function importCompetitiveSurveyOnly() {
+  try {
+    const result = await importCompetitiveSurvey();
+    return { success: true, ...result };
+  } catch (error) {
+    console.error('Error in importCompetitiveSurveyOnly:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+}
+
 async function importCompetitiveSurvey() {
   const filename = 'Competitive Survey Data Table_1763249402347.xlsx';
   console.log(`Importing ${filename}...`);
   
-  const filePath = path.join(process.cwd(), 'attached_assets', filename);
-  const workbook = xlsx.readFile(filePath);
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const data = xlsx.utils.sheet_to_json(sheet);
-  
-  // Get all Trilogy locations for distance calculations
-  const trilogyLocations = await db.select().from(locations);
-  console.log(`Found ${trilogyLocations.length} Trilogy locations for mapping`);
-  
-  let surveyImported = 0;
-  let competitorsImported = 0;
-  
-  for (const row of data as any[]) {
-    try {
+  try {
+    const filePath = path.join(process.cwd(), 'attached_assets', filename);
+    console.log(`Reading Excel file from: ${filePath}`);
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+    console.log(`Excel file loaded: ${data.length} rows found`);
+    
+    // Get all Trilogy locations for distance calculations
+    const trilogyLocations = await db.select().from(locations);
+    console.log(`Found ${trilogyLocations.length} Trilogy locations for mapping`);
+    
+    let surveyImported = 0;
+    let competitorsImported = 0;
+    let rowNum = 0;
+    
+    for (const row of data as any[]) {
+      rowNum++;
+      if (rowNum % 50 === 0) {
+        console.log(`Processing row ${rowNum}/${data.length}...`);
+      }
+      try {
       const keyStatsLocation = row['KeyStats Location'] || row['Location'] || 'Unknown';
       const competitorName = row['Competitor Name'] || row['Name'] || 'Unknown';
       const competitorAddress = row['Address'] || row['Competitor Address'] || null;
@@ -293,12 +314,22 @@ async function importCompetitiveSurvey() {
         competitorsImported++;
       }
       
-    } catch (error) {
-      console.warn('Error importing competitive survey row:', error);
+      } catch (error) {
+        console.warn(`Error importing row ${rowNum}:`, error instanceof Error ? error.message : error);
+      }
     }
+    
+    console.log(`✅ Competitive Survey: ${surveyImported} records imported | ${competitorsImported} competitors geocoded and added to map`);
+    
+    return {
+      surveyImported,
+      competitorsImported,
+      message: `Imported ${surveyImported} survey records and geocoded ${competitorsImported} competitors`
+    };
+  } catch (error) {
+    console.error('Fatal error in importCompetitiveSurvey:', error);
+    throw error;
   }
-  
-  console.log(`✅ Competitive Survey: ${surveyImported} records imported | ${competitorsImported} competitors geocoded and added to map`);
 }
 
 /**

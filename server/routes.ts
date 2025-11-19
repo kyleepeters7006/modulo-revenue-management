@@ -330,6 +330,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Test endpoint: Import only competitive survey data
+  app.post('/api/admin/import-competitive-survey-only', async (req, res) => {
+    try {
+      console.log('Importing competitive survey only (test endpoint)...');
+      const { importCompetitiveSurveyOnly } = await import('./importProductionData');
+      const result = await importCompetitiveSurveyOnly();
+      res.json(result);
+    } catch (error) {
+      console.error('Error importing competitive survey:', error);
+      res.status(500).json({ error: 'Failed to import competitive survey', details: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+  
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req, res) => {
     try {
