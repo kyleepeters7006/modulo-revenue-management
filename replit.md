@@ -4,6 +4,13 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 
 # Recent Changes (November 19, 2025)
 
+## Data Management Page Reorganization
+- **Separated upload sections**: Data Management page now has three distinct upload sections instead of single unified upload: Rent Roll Data, Inquiry Data, and Competitive Data.
+- **Template download endpoints**: Created dedicated template download endpoints (`/api/template/rent-roll`, `/api/template/inquiry`, `/api/template/competitor`) that return pre-formatted Excel templates for each data type.
+- **Upload endpoints**: Added dedicated upload endpoints (`/api/upload/inquiry`, `/api/upload/competitor`) to complement existing rent roll upload (`/api/upload/rent-roll`).
+- **Better organization**: Each section includes clear instructions, template download button, and upload button with loading states for better user experience.
+- **React best practices**: Fixed hook violations by calling useMutation directly at component top level instead of inside helper functions.
+
 ## Data Integrity Enforcement
 - **Removed all demo/seed data**: Application no longer auto-seeds demo data on startup. The `/api/seed-demo` endpoint is disabled.
 - **Production data only**: All charts and visualizations now use real Trilogy production data exclusively. When data is unavailable, empty states display "No Production Data Available" messages instead of synthetic fallback data.
