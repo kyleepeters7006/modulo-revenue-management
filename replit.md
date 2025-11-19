@@ -69,10 +69,14 @@ Preferred communication style: Simple, everyday language.
 - **Custom column mappings**: Rent roll upload now supports Trilogy's specific column names:
   - `Room_Bed` → Unit/Room Number
   - `BedTypeDesc` → Room Type (with embedded attributes)
-  - `Service1` → Service Line
-  - `BaseRate1` → Street Rate
+  - `Service1` → Service Line (with normalization)
+  - `BaseRate1` → Street Rate (also checks Base Rate, Rate, etc.)
   - `Textbox18` → Days Vacant
   - `PatientID1` → Used to determine occupancy (blank = vacant)
+- **Service line normalization**: System automatically normalizes compound service lines to standard values:
+  - "HC/TCU" → HC
+  - "AL/MC" → AL
+  - Ensures consistency with filter options (AL, HC, IL, MC, SL)
 - **Intelligent attribute parsing**: System automatically extracts attribute ratings embedded in room type field:
   - "A Vw" → View Rating: A
   - "B Sz" → Size Rating: B
@@ -84,4 +88,5 @@ Preferred communication style: Simple, everyday language.
 - **Vacancy detection**: If PatientID1 field is blank or empty, the unit is automatically marked as vacant (occupiedYN: false)
 - **Date selector for rent roll upload**: Added intelligent date selector that automatically parses dates from filenames (supports formats like 1.31.25, 01-31-2025, 2025-01-31, etc.) and pre-populates the upload date field
 - **Column name flexibility**: Upload parser now handles both capitalized and lowercase column names (e.g., 'Room Number' or 'room number')
+- **Extended field name matching**: Added multiple variations for BaseRate1 (Base Rate, Rate, etc.) to handle different CSV formats
 

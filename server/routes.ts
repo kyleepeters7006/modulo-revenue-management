@@ -3189,6 +3189,25 @@ Keep recommendations specific and quantitative when possible.`;
         };
       };
 
+      // Normalize service line to standard values (AL, HC, IL, MC, SL)
+      const normalizeServiceLine = (serviceLine: string): string => {
+        if (!serviceLine) return 'AL';
+        
+        const normalized = serviceLine.toUpperCase().trim();
+        
+        // Map compound service lines to primary service line
+        if (normalized.includes('HC') || normalized.includes('TCU')) return 'HC';
+        if (normalized.includes('AL') && normalized.includes('MC')) return 'AL';
+        if (normalized === 'AL' || normalized === 'ASSISTED LIVING') return 'AL';
+        if (normalized === 'HC' || normalized === 'HEALTH CENTER' || normalized === 'SKILLED NURSING') return 'HC';
+        if (normalized === 'IL' || normalized === 'INDEPENDENT LIVING') return 'IL';
+        if (normalized === 'MC' || normalized === 'MEMORY CARE') return 'MC';
+        if (normalized === 'SL' || normalized === 'SUPPORTIVE LIVING') return 'SL';
+        
+        // Default to original value if no match
+        return normalized;
+      };
+
       // Process and store data
       const processedRecords: any[] = [];
 
@@ -3202,6 +3221,10 @@ Keep recommendations specific and quantitative when possible.`;
         // Get patient ID to determine vacancy
         const patientId = getRowValue(row, 'PatientID1', 'PatientID', 'patientId', 'patient_id');
         const isOccupied = patientId ? (patientId.toString().trim() !== '') : false;
+        
+        // Get and normalize service line
+        const rawServiceLine = getRowValue(row, 'Service1', 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL';
+        const normalizedServiceLine = normalizeServiceLine(rawServiceLine);
 
         const rentRollEntry = {
           uploadMonth: uploadMonth,
@@ -3209,7 +3232,7 @@ Keep recommendations specific and quantitative when possible.`;
           location: getRowValue(row, 'Location', 'location') || '',
           roomNumber: getRowValue(row, 'Room_Bed', 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
           roomType: cleanRoomType,
-          serviceLine: getRowValue(row, 'Service1', 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL',
+          serviceLine: normalizedServiceLine,
           occupiedYN: isOccupied,
           daysVacant: parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0,
           preferredLocation: getRowValue(row, 'Preferred Location', 'preferred location') || null,
@@ -3222,7 +3245,7 @@ Keep recommendations specific and quantitative when possible.`;
           viewRating: viewRating,
           renovationRating: renovationRating,
           amenityRating: amenityRating,
-          streetRate: parseFloat(getRowValue(row, 'BaseRate1', 'Street Rate', 'street rate', 'StreetRate', 'streetRate')) || 0,
+          streetRate: parseFloat(getRowValue(row, 'BaseRate1', 'Base Rate', 'base rate', 'Street Rate', 'street rate', 'StreetRate', 'streetRate', 'Rate', 'rate')) || 0,
           inHouseRate: parseFloat(getRowValue(row, 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate')) || 0,
           discountToStreetRate: parseFloat(getRowValue(row, 'Discount to Street Rate', 'discount to street rate')) || 0,
           careLevel: getRowValue(row, 'Care Level', 'care level') || null,
