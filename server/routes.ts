@@ -3107,6 +3107,7 @@ Keep recommendations specific and quantitative when possible.`;
           location: row.location || '',
           roomNumber: row['room number'] || '',
           roomType: row['room type'] || '',
+          serviceLine: row['service line'] || 'AL', // Required field, default to AL
           occupiedYN: (row['occupied Y/N'] || '').toLowerCase() === 'y',
           daysVacant: parseInt(row['days vacant']) || 0,
           preferredLocation: row['preferred location'] || null,
@@ -3138,6 +3139,7 @@ Keep recommendations specific and quantitative when possible.`;
       await storage.createUploadHistory({
         uploadMonth: currentMonth,
         fileName: req.file.originalname,
+        uploadType: 'rent_roll',
         totalRecords: processedRecords.length
       });
 
@@ -3471,72 +3473,6 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Upload rent roll data endpoint
-  app.post("/api/upload/rent-roll", upload.single("file"), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No file uploaded" });
-      }
-
-      const csvText = req.file.buffer.toString();
-      const results = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-      
-      if (results.errors.length > 0) {
-        return res.status(400).json({ error: "CSV parsing failed", details: results.errors });
-      }
-
-      const currentMonth = new Date().toISOString().substring(0, 7);
-      let processedRows = 0;
-
-      // Process and validate each row
-      for (const row of results.data as any[]) {
-        try {
-          const rentRollData = {
-            uploadMonth: currentMonth,
-            date: new Date().toISOString().split('T')[0],
-            location: row.Location || row.location || "Main Building",
-            roomNumber: row.RoomNumber || row.room_number || `${Math.floor(Math.random() * 999) + 100}`,
-            roomType: row.RoomType || row.room_type || "Studio",
-            occupiedYN: row.OccupiedYN === 'Y' || row.OccupiedYN === 'Yes' || Math.random() > 0.3,
-            daysVacant: parseInt(row.DaysVacant) || (Math.random() > 0.7 ? Math.floor(Math.random() * 120) : 0),
-            preferredLocation: row.PreferredLocation || null,
-            size: row.Size || row.size || "Studio",
-            view: row.View || (Math.random() > 0.6 ? ["Garden View", "Courtyard View", "Street View"][Math.floor(Math.random() * 3)] : null),
-            renovated: row.Renovated === 'Y' || Math.random() > 0.8,
-            otherPremiumFeature: row.OtherPremiumFeature || null,
-            streetRate: parseFloat(row.StreetRate) || (3500 + Math.random() * 2000),
-            inHouseRate: parseFloat(row.InHouseRate) || (3200 + Math.random() * 1800),
-            discountToStreetRate: parseFloat(row.DiscountToStreetRate) || (Math.random() * 300),
-            careLevel: row.CareLevel || (Math.random() > 0.5 ? ["Independent", "Assisted", "Memory Care"][Math.floor(Math.random() * 3)] : null),
-            careRate: parseFloat(row.CareRate) || (Math.random() > 0.5 ? 800 + Math.random() * 1200 : null),
-            rentAndCareRate: parseFloat(row.RentAndCareRate) || null,
-            competitorRate: parseFloat(row.CompetitorRate) || (3400 + Math.random() * 2100),
-            competitorAvgCareRate: parseFloat(row.CompetitorAvgCareRate) || (900 + Math.random() * 1100),
-            competitorFinalRate: parseFloat(row.CompetitorFinalRate) || null,
-            moduloSuggestedRate: null,
-            aiSuggestedRate: null,
-            promotionAllowance: parseFloat(row.PromotionAllowance) || (Math.random() * 200)
-          };
-          
-          await storage.createRentRollData(rentRollData);
-          processedRows++;
-        } catch (error) {
-          console.warn(`Skipping invalid row: ${error}`);
-        }
-      }
-
-      // Generate rate card summary after upload
-      await storage.generateRateCard(currentMonth);
-
-      res.json({ 
-        recordsProcessed: processedRows,
-        uploadMonth: currentMonth
-      });
-    } catch (error) {
-      console.error('Upload error:', error);
-      res.status(500).json({ error: "Upload failed" });
-    }
-  });
 
   // Rate card endpoint - shows summary and unit-level view
   app.get("/api/rate-card", async (req, res) => {
