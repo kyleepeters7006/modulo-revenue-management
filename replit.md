@@ -62,3 +62,26 @@ Preferred communication style: Simple, everyday language.
 - **@hookform/resolvers**: Validation integration.
 - **zod**: Schema validation.
 - **drizzle-zod**: Drizzle ORM and Zod integration.
+
+# Recent Changes (November 19, 2025)
+
+## Trilogy-Specific Column Mapping and Attribute Parsing
+- **Custom column mappings**: Rent roll upload now supports Trilogy's specific column names:
+  - `Room_Bed` → Unit/Room Number
+  - `BedTypeDesc` → Room Type (with embedded attributes)
+  - `Service1` → Service Line
+  - `BaseRate1` → Street Rate
+  - `Textbox18` → Days Vacant
+  - `PatientID1` → Used to determine occupancy (blank = vacant)
+- **Intelligent attribute parsing**: System automatically extracts attribute ratings embedded in room type field:
+  - "A Vw" → View Rating: A
+  - "B Sz" → Size Rating: B
+  - "A loc" → Location Rating: A
+  - "C Reno" → Renovation Rating: C
+  - "B Amen" → Amenity Rating: B
+  - Supports ratings A-F with case-insensitive matching
+- **Clean room type extraction**: After extracting attributes, the system stores a clean room type (e.g., "Studio A Vw B Sz" becomes "Studio" with viewRating: A and sizeRating: B)
+- **Vacancy detection**: If PatientID1 field is blank or empty, the unit is automatically marked as vacant (occupiedYN: false)
+- **Date selector for rent roll upload**: Added intelligent date selector that automatically parses dates from filenames (supports formats like 1.31.25, 01-31-2025, 2025-01-31, etc.) and pre-populates the upload date field
+- **Column name flexibility**: Upload parser now handles both capitalized and lowercase column names (e.g., 'Room Number' or 'room number')
+
