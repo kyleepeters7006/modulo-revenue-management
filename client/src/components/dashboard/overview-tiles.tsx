@@ -27,8 +27,12 @@ interface OverviewData {
   }[];
   currentAnnualRevenue: number;
   potentialAnnualRevenue: number;
-  totalUnits: number;
+  totalUnits: number;  // Total portfolio units
+  unitsWithData: number;  // Units with rent roll data
+  totalLocations: number;  // Total campuses in portfolio
+  locationsWithData: number;  // Campuses with rent roll data
   occupiedUnits: number;
+  mostRecentMonth?: string;  // Month of rent roll data
 }
 
 export default function OverviewTiles() {
@@ -60,15 +64,15 @@ export default function OverviewTiles() {
     {
       title: "Total Units",
       value: overviewData.totalUnits.toLocaleString(),
-      subtitle: `${overviewData.occupiedUnits.toLocaleString()} occupied`,
+      subtitle: `${overviewData.totalLocations} campuses • ${overviewData.locationsWithData} with data (${overviewData.mostRecentMonth || 'N/A'})`,
       icon: Home,
       color: "blue",
       testId: "metric-total-units"
     },
     {
       title: "Overall Occupancy",
-      value: `${((overviewData.occupiedUnits / overviewData.totalUnits) * 100).toFixed(1)}%`,
-      subtitle: `${overviewData.occupiedUnits.toLocaleString()}/${overviewData.totalUnits.toLocaleString()} units`,
+      value: `${overviewData.unitsWithData > 0 ? ((overviewData.occupiedUnits / overviewData.unitsWithData) * 100).toFixed(1) : '0.0'}%`,
+      subtitle: `${overviewData.occupiedUnits.toLocaleString()}/${overviewData.unitsWithData.toLocaleString()} units`,
       icon: Users,
       color: "emerald", 
       testId: "metric-overall-occupancy"

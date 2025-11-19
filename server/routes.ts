@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { rentRollData } from "@shared/schema";
+import { rentRollData, locations } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -2962,8 +2962,22 @@ Keep recommendations specific and quantitative when possible.`;
         };
       });
 
-      const totalUnits = allRentRollData.length;
+      // Get portfolio-wide statistics from locations table
+      const portfolioStats = await db
+        .select({
+          totalLocations: sql<number>`COUNT(*)::int`,
+          totalUnits: sql<number>`COALESCE(SUM(${locations.totalUnits}), 0)::int`
+        })
+        .from(locations);
+      
+      const portfolioTotalUnits = portfolioStats[0]?.totalUnits || 0;
+      const portfolioTotalLocations = portfolioStats[0]?.totalLocations || 0;
+      
+      // Units with rent roll data uploaded
+      const unitsWithData = allRentRollData.length;
+      const locationsWithData = uniqueCampuses;
       const occupiedUnits = allRentRollData.filter(u => u.occupiedYN).length;
+      
       const currentAnnualRevenue = allRentRollData.reduce((sum, u) => {
         if (u.occupiedYN) {
           const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
@@ -2983,8 +2997,12 @@ Keep recommendations specific and quantitative when possible.`;
         occupancyByServiceLine,
         currentAnnualRevenue,
         potentialAnnualRevenue,
-        totalUnits,
-        occupiedUnits
+        totalUnits: portfolioTotalUnits,  // Total across entire portfolio
+        unitsWithData,  // Units that have rent roll data
+        totalLocations: portfolioTotalLocations,  // Total campuses in portfolio
+        locationsWithData,  // Campuses with rent roll data
+        occupiedUnits,
+        mostRecentMonth  // Include the month for context
       });
 
     } catch (error) {
