@@ -3274,24 +3274,17 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log('DEBUG Modulo Generate - Received month:', month, 'Using targetMonth:', targetMonth, 'serviceLine:', serviceLine);
       
-      // Get current weights for calculation with defaults
+      // Get global default weights for fallback
       const defaultWeights = {
         occupancyPressure: 25,
         daysVacantDecay: 20,
         roomAttributes: 25,
         seasonality: 10,
         competitorRates: 10,
-        stockMarket: 10
+        stockMarket: 10,
+        enableWeights: true
       };
-      const weights = await storage.getLatestWeights() || defaultWeights;
-      
-      // Check if Modulo algorithm is enabled
-      const weightsEnabled = weights?.enableWeights !== false; // Default to true
-      
-      // DEBUG: Log weights object to diagnose enable_weights issue
-      console.log('DEBUG weights object:', JSON.stringify(weights));
-      console.log('DEBUG weightsEnabled:', weightsEnabled);
-      console.log('DEBUG weights.enableWeights:', weights?.enableWeights);
+      const globalWeights = await storage.getCurrentWeights() || defaultWeights;
       
       // Get guardrails for smart adjustments
       const guardrailsData = await storage.getCurrentGuardrails();
@@ -3306,6 +3299,67 @@ Keep recommendations specific and quantitative when possible.`;
       // Get all units for the month - always process ALL units regardless of filters
       // This ensures pricing is generated for the entire portfolio
       const units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // Pre-fetch all weights for unique location+serviceLine combinations AND location-only to optimize
+      const uniqueCombinations = new Set<string>();
+      const uniqueLocations = new Set<string>();
+      units.forEach(unit => {
+        if (unit.locationId) {
+          uniqueLocations.add(unit.locationId);
+          if (unit.serviceLine) {
+            const key = `${unit.locationId}|${unit.serviceLine}`;
+            uniqueCombinations.add(key);
+          }
+        }
+      });
+      
+      // Build weights cache with 3-tier fallback: specific → location → global
+      const weightsCache = new Map<string, any>();
+      const locationWeightsCache = new Map<string, any>();
+      
+      // First, cache location-level weights (serviceLine = NULL)
+      for (const locationId of uniqueLocations) {
+        const locationWeights = await storage.getWeightsByFilter(locationId, null);
+        if (locationWeights) {
+          locationWeightsCache.set(locationId, locationWeights);
+        }
+      }
+      
+      // Then, cache location+serviceLine-specific weights
+      for (const combo of uniqueCombinations) {
+        const [locationId, serviceLine] = combo.split('|');
+        if (locationId && serviceLine) {
+          const specificWeights = await storage.getWeightsByFilter(locationId, serviceLine);
+          if (specificWeights) {
+            weightsCache.set(combo, specificWeights);
+          }
+        }
+      }
+      
+      // Helper function to get weights for a specific unit with 3-tier fallback
+      const getWeightsForUnit = (unit: any) => {
+        if (!unit.locationId) return globalWeights;
+        
+        // Try location+serviceLine specific first
+        if (unit.serviceLine) {
+          const specificKey = `${unit.locationId}|${unit.serviceLine}`;
+          const specificWeights = weightsCache.get(specificKey);
+          if (specificWeights) return specificWeights;
+        }
+        
+        // Fallback to location-level weights
+        const locationWeights = locationWeightsCache.get(unit.locationId);
+        if (locationWeights) return locationWeights;
+        
+        // Final fallback to global
+        return globalWeights;
+      };
+      
+      // Check if Modulo algorithm is globally enabled (can be overridden per location/service line)
+      const weightsEnabled = globalWeights?.enableWeights !== false; // Default to true
+      
+      console.log('DEBUG Global weights enabled:', weightsEnabled);
+      console.log('DEBUG Weights cache size:', weightsCache.size);
       
       console.log(`Generating Modulo for ${units.length} units (Weights ${weightsEnabled ? 'ENABLED' : 'DISABLED'})`);
       
@@ -3376,8 +3430,12 @@ Keep recommendations specific and quantitative when possible.`;
           console.log('DEBUG HC unit:', unit.id, 'baseRate:', baseRate, 'serviceLine:', unit.serviceLine);
         }
         
-        // Only run Modulo algorithm if weights are enabled
-        if (weightsEnabled) {
+        // Get unit-specific weights to check if enabled for this specific unit
+        const unitWeights = getWeightsForUnit(unit);
+        const unitWeightsEnabled = unitWeights?.enableWeights !== false; // Default to true
+        
+        // Only run Modulo algorithm if weights are enabled for this unit
+        if (unitWeightsEnabled && !manualRuleApplied) {
           // Prepare inputs for sophisticated algorithm
           // Use service-line-specific occupancy instead of campus-level occupancy
           const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
@@ -3460,14 +3518,15 @@ Keep recommendations specific and quantitative when possible.`;
             serviceLine: unit.serviceLine  // Pass service line for market positioning targets
           };
           
+          // Use the unitWeights already fetched above
           const moduloWeights = {
-            occupancy: weights?.occupancyPressure || 25,
-            daysVacant: weights?.daysVacantDecay || 15,
-            attributes: weights?.roomAttributes || 20,
-            seasonality: weights?.seasonality || 5,
-            competitors: weights?.competitorRates || 10,
-            market: weights?.stockMarket || 5,
-            demand: weights?.inquiryTourVolume || 20
+            occupancy: unitWeights?.occupancyPressure || 25,
+            daysVacant: unitWeights?.daysVacantDecay || 15,
+            attributes: unitWeights?.roomAttributes || 20,
+            seasonality: unitWeights?.seasonality || 5,
+            competitors: unitWeights?.competitorRates || 10,
+            market: unitWeights?.stockMarket || 5,
+            demand: unitWeights?.inquiryTourVolume || 20
           };
           
           const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
@@ -3503,7 +3562,7 @@ Keep recommendations specific and quantitative when possible.`;
         } else if (!manualRuleApplied) {
           // Weights disabled AND no manual rule - start with base rate
           if (isDebugUnit) {
-            console.log('DEBUG hit ELSE block - manualRuleApplied:', manualRuleApplied, 'weightsEnabled:', weightsEnabled);
+            console.log('DEBUG hit ELSE block - manualRuleApplied:', manualRuleApplied, 'unitWeightsEnabled:', unitWeightsEnabled);
           }
           calculationDetails = {
             baseRate,

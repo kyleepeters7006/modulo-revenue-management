@@ -23,6 +23,14 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 - **Fixed location linking**: Updated `syncLocations` function to populate `rent_roll_data.location_id` foreign key, enabling floor plan generation to find units by location.
 - **Working floor plan system**: All campuses now auto-generate with grid-based unit layouts when using bulk generation. Units display as colored polygons (red=occupied, green=available) with room number labels.
 
+## Hierarchical Pricing Weight Storage
+- **Schema enhancement**: Added `locationId` and `serviceLine` columns to `pricing_weights` table for granular weight control.
+- **3-tier fallback system**: Weights resolve in order: (1) location+serviceLine specific → (2) location-level (serviceLine=NULL) → (3) global defaults.
+- **Unified filter controls**: Pricing Controls page now has same Region/Division/Location/Service Line filters as Rate Card, with localStorage persistence across pages.
+- **"Apply to All Service Lines" option**: Checkbox allows saving location-level weights that apply across all service lines at once (stored with serviceLine=NULL).
+- **Per-unit enable/disable**: Each location and service line can independently enable/disable the Modulo algorithm via the `enableWeights` flag.
+- **Optimized algorithm**: Modulo pricing pre-caches all weights before processing units to avoid N+1 queries. Uses `getWeightsForUnit()` helper for clean 3-tier fallback.
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -50,7 +58,8 @@ Preferred communication style: Simple, everyday language.
 - **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`.
 
 ## Core Features Architecture
-- **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions. Includes premium positioning strategy (AL: +25%, IL: +10%, HC/AL-MC: +20%, others: +18%) and service-line-specific occupancy and benchmark data. Uses adjusted competitor rates that account for care level 2 differences and medication management fees.
+- **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions. Includes premium positioning strategy (AL: +25%, IL: +10%, HC/AL-MC: +20%, others: +18%) and service-line-specific occupancy and benchmark data. Uses adjusted competitor rates that account for care level 2 differences and medication management fees. Supports hierarchical pricing weights at Location + Service Line level with 3-tier fallback (specific → location → global).
+- **Hierarchical Pricing Weights**: Weights stored and queried at Location + Service Line granularity. Pricing Controls page allows filtering by Region/Division/Location/Service Line with "Apply to All Service Lines" override. Algorithm uses pre-cached weights to avoid N+1 queries and respects per-unit `enableWeights` flags.
 - **Competitor Adjustment Service**: (`server/services/competitorAdjustments.ts`) Calculates market-accurate competitor rates by adjusting for care level 2 rate differences and adding medication management fees. Ensures apples-to-apples comparisons across facilities with different pricing structures.
 - **AI-Powered Floor Plan System**: Integration with OpenAI Vision API for automatic room detection and mapping on floor plans, including an admin interface for auto-mapping.
 - **Interactive Floor Plan Booking System**: Drag-and-drop unit assignment, automatic polygon detection, visual feedback, and interactive tooltips with booking dialogs.
