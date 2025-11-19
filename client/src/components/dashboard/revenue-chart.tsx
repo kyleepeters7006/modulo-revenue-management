@@ -10,73 +10,38 @@ export default function RevenueChart() {
     queryKey: ["/api/series", timeRange],
   });
 
-  // Generate demo data if API returns empty data
-  const generateDemoData = (months: number) => {
-    const data = [];
-    const now = new Date();
-    let baseRevenue = 850000;
-    let baseSP500 = 5800; // More realistic current S&P 500 level
-    let baseIndustry = 4200; // Industry basket starts slightly lower
-    
-    // S&P 500 historical average annual return is ~10%, which is ~0.8% monthly
-    // More realistic monthly variations: mostly positive with occasional negative months
-    const sp500MonthlyReturns = [
-      0.012, 0.008, -0.015, 0.025, 0.005, 0.018, // Typical mix of returns
-      0.003, -0.008, 0.022, 0.009, 0.015, 0.011, // Including some volatility
-      0.007, 0.019, -0.012, 0.013, 0.006, 0.021, // But trending upward overall
-      0.004, 0.016, 0.009, -0.005, 0.014, 0.008  // Long-term positive bias
-    ];
-    
-    for (let i = months - 1; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      
-      // Add some realistic growth patterns
-      const revenueGrowth = 1 + (Math.random() * 0.06 - 0.02); // -2% to +4% monthly
-      
-      // Use historical S&P 500 pattern with slight randomness
-      const sp500BaseReturn = sp500MonthlyReturns[i % sp500MonthlyReturns.length];
-      const sp500Growth = 1 + (sp500BaseReturn + (Math.random() * 0.008 - 0.004)); // Small variance around historical pattern
-      
-      const industryGrowth = 1 + (Math.random() * 0.07 - 0.025); // Senior housing slightly more volatile
-      
-      baseRevenue *= revenueGrowth;
-      baseSP500 *= sp500Growth;
-      baseIndustry *= industryGrowth;
-      
-      data.push({
-        month: monthLabel,
-        revenue: Math.round(baseRevenue),
-        sp500: Math.round(baseSP500),
-        industry: Math.round(baseIndustry)
-      });
-    }
-    return data;
-  };
-
-  const rawData = ((seriesData as any)?.labels && (seriesData as any)?.revenue && (seriesData as any)?.sp500 && (seriesData as any)?.industry) 
+  // Check if we have real API data (labels and arrays exist)
+  const hasApiData = (seriesData as any)?.labels && Array.isArray((seriesData as any)?.revenue) && Array.isArray((seriesData as any)?.sp500);
+  
+  // Only use real API data - no demo data fallback
+  const rawData = hasApiData
     ? (seriesData as any).labels.map((label: string, index: number) => ({
         month: label,
         revenue: (seriesData as any).revenue[index],
         sp500: (seriesData as any).sp500[index],
-        industry: (seriesData as any).industry[index]
+        industry: (seriesData as any).industry?.[index]
       }))
-    : generateDemoData(timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24);
+    : [];
 
+  // Check if we have any real Trilogy revenue data (not all nulls)
+  // Only check revenue, not sp500/industry, since those can be mock/API data
+  const hasRealData = rawData.length > 0 && rawData.some((d: any) => d.revenue != null);
+  
   const chartData = rawData.map((item: any, index: number) => {
-    const startingRevenue = rawData[0]?.revenue || 1;
-    const startingSP500 = rawData[0]?.sp500 || 1;
-    const startingIndustry = rawData[0]?.industry || 1;
+    // Find first non-null values as baseline for growth calculations
+    const firstRevenue = rawData.find((d: any) => d.revenue != null)?.revenue;
+    const firstSP500 = rawData.find((d: any) => d.sp500 != null)?.sp500;
+    const firstIndustry = rawData.find((d: any) => d.industry != null)?.industry;
     
     return {
       ...item,
-      // Calculate percentage growth from period start
-      revenueGrowth: ((item.revenue - startingRevenue) / startingRevenue * 100),
-      sp500Growth: ((item.sp500 - startingSP500) / startingSP500 * 100),
-      industryGrowth: ((item.industry - startingIndustry) / startingIndustry * 100),
-      monthlyRevenueChange: index > 0 ? ((item.revenue - rawData[index - 1].revenue) / rawData[index - 1].revenue * 100) : 0,
-      monthlySP500Change: index > 0 ? ((item.sp500 - rawData[index - 1].sp500) / rawData[index - 1].sp500 * 100) : 0,
-      monthlyIndustryChange: index > 0 ? ((item.industry - rawData[index - 1].industry) / rawData[index - 1].industry * 100) : 0,
+      // Calculate percentage growth from period start - handle nulls, no defaults
+      revenueGrowth: (item.revenue != null && firstRevenue != null) ? ((item.revenue - firstRevenue) / firstRevenue * 100) : null,
+      sp500Growth: (item.sp500 != null && firstSP500 != null) ? ((item.sp500 - firstSP500) / firstSP500 * 100) : null,
+      industryGrowth: (item.industry != null && firstIndustry != null) ? ((item.industry - firstIndustry) / firstIndustry * 100) : null,
+      monthlyRevenueChange: (index > 0 && item.revenue != null && rawData[index - 1].revenue != null) ? ((item.revenue - rawData[index - 1].revenue) / rawData[index - 1].revenue * 100) : null,
+      monthlySP500Change: (index > 0 && item.sp500 != null && rawData[index - 1].sp500 != null) ? ((item.sp500 - rawData[index - 1].sp500) / rawData[index - 1].sp500 * 100) : null,
+      monthlyIndustryChange: (index > 0 && item.industry != null && rawData[index - 1].industry != null) ? ((item.industry - rawData[index - 1].industry) / rawData[index - 1].industry * 100) : null,
     };
   });
 
@@ -258,8 +223,20 @@ export default function RevenueChart() {
       </div>
       
       <div className="h-64 sm:h-72 lg:h-80 relative w-full overflow-hidden">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart 
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-[var(--dashboard-muted)]" data-testid="text-chart-loading">Loading revenue data...</p>
+          </div>
+        ) : !hasRealData ? (
+          <div className="flex flex-col items-center justify-center h-full">
+            <p className="text-[var(--dashboard-muted)] text-lg font-medium mb-2" data-testid="text-chart-no-data">No Production Data Available</p>
+            <p className="text-[var(--dashboard-muted)] text-sm" data-testid="text-chart-no-data-help">
+              Revenue data will appear once rent roll records are imported for this time period.
+            </p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart 
             data={chartData}
             margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
           >
@@ -375,6 +352,7 @@ export default function RevenueChart() {
             />
           </LineChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

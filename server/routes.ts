@@ -21,7 +21,7 @@ import {
   insertCompetitorSchema,
   insertGuardrailsSchema
 } from "@shared/schema";
-import { demoCompetitors, demoRentRoll } from "./seed-data";
+// Demo data imports removed - using production data only
 import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
 import { calculateModuloPrice } from "./moduloPricingAlgorithm";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
@@ -169,13 +169,7 @@ async function checkAndInitializeDatabase() {
     
     // Only initialize if database is completely empty
     if (unitCount === 0) {
-      console.log('Database is empty. Seeding with Trilogy portfolio data...');
-      
-      // Use the Trilogy seed script
-      const { seedTrilogyRentRoll } = await import('./seedTrilogyRentRoll');
-      await seedTrilogyRentRoll();
-      
-      console.log('Database initialization complete with Trilogy portfolio data');
+      console.log('⚠️  Database is empty. Please import production data via POST /api/admin/import-production-data');
     }
     
     // Sync locations from rent roll data (always run to keep locations in sync)
@@ -1050,25 +1044,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get real historical dates and S&P 500 values
       const sortedDates = Object.keys(realSP500Data).sort();
-      const useRealData = sortedDates.length > months;
+      const useRealSP500Data = sortedDates.length > months;
       
-      let baseRevenue = 850000; // Starting revenue
-      let baseIndustry = 4200;  // Starting industry basket value
+      // Calculate REAL revenue from rent roll data
+      // Group rent roll data by month and calculate total revenue
+      const revenueByMonth: Record<string, number> = {};
+      
+      rentRollData.forEach((unit: any) => {
+        // Use upload month or current month
+        const monthKey = unit.uploadMonth || '2025-01';
+        const monthlyRevenue = (unit.inHouseRate || unit.streetRate || 0);
+        
+        if (!revenueByMonth[monthKey]) {
+          revenueByMonth[monthKey] = 0;
+        }
+        revenueByMonth[monthKey] += monthlyRevenue;
+      });
+      
+      // Convert monthly revenue to annual (multiply by 12)
+      Object.keys(revenueByMonth).forEach(month => {
+        revenueByMonth[month] = revenueByMonth[month] * 12;
+      });
       
       for (let i = 0; i < months; i++) {
         const date = new Date();
         date.setMonth(date.getMonth() - months + 1 + i);
-        const dateStr = date.toISOString().split('T')[0];
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         labels.push(date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
         
-        // Revenue growth (based on rent roll data if available)
-        const revenueGrowthRate = 0.015 + (Math.random() * 0.02 - 0.01);
-        baseRevenue *= (1 + revenueGrowthRate);
-        revenue.push(Math.round(baseRevenue));
+        // Use REAL revenue if available for this month, otherwise null
+        const realRevenue = revenueByMonth[monthKey];
+        revenue.push(realRevenue ? Math.round(realRevenue) : null);
         
-        // S&P 500: Use REAL data if available, otherwise fallback
-        if (useRealData) {
-          // Find closest date in real data
+        // S&P 500: Use REAL data if available
+        if (useRealSP500Data) {
           const closestDate = sortedDates.reduce((prev, curr) => {
             const prevDiff = Math.abs(new Date(prev).getTime() - date.getTime());
             const currDiff = Math.abs(new Date(curr).getTime() - date.getTime());
@@ -1078,14 +1087,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Fallback to realistic pattern if API unavailable
           const baseSP500 = 5800;
-          const avgMonthlyReturn = 0.008; // ~10% annual
+          const avgMonthlyReturn = 0.008;
           sp500.push(Math.round(baseSP500 * Math.pow(1 + avgMonthlyReturn, i)));
         }
         
-        // Industry growth (senior housing average)
-        const industryGrowthRate = 0.010 + (Math.random() * 0.035 - 0.02);
-        baseIndustry *= (1 + industryGrowthRate);
-        industry.push(Math.round(baseIndustry));
+        // Industry: Use null for now (no real industry data available)
+        // This will show as a gap in the chart, indicating missing data
+        industry.push(null);
       }
 
       res.json({ 
@@ -1629,25 +1637,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       let rentRollData = await storage.getRentRollData();
       
-      // If no rent roll data exists, load demo data
+      // If no rent roll data exists, return error
       if (rentRollData.length === 0) {
-        // Add demo rent roll data for "Sunset Manor"
-        for (const unit of demoRentRoll) {
-          await storage.createRentRollData({
-            unitId: unit.unitId,
-            occupiedYN: unit.occupiedYN,
-            baseRent: unit.baseRent,
-            careFee: unit.careFee || null,
-            roomType: unit.roomType,
-            competitorBenchmarkRate: unit.competitorBenchmarkRate,
-            competitorAvgCareRate: null,
-            daysVacant: unit.daysVacant,
-            attributes: unit.attributes
-          });
-        }
-        
-        // Reload the data
-        rentRollData = await storage.getRentRollData();
+        return res.status(404).json({ error: "No rent roll data available. Please import production data." });
       }
       
       const weights = await storage.getCurrentWeights();
@@ -2471,8 +2463,10 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Seed demo data endpoint
-  app.post("/api/seed-demo", async (req, res) => {
+  // Seed demo data endpoint - DISABLED (using production data only)
+  app.post("/api/seed-demo-DISABLED", async (req, res) => {
+    return res.status(410).json({ error: "Demo seed endpoint disabled. Use production data import instead." });
+    /* OLD DEMO CODE:
     try {
       // Clear existing data
       await storage.clearRentRollData();
@@ -2640,13 +2634,14 @@ Keep recommendations specific and quantitative when possible.`;
       res.json({ 
         ok: true, 
         message: "Demo data seeded successfully",
-        competitors: allLocations.length * 3, // Updated to reflect actual competitor count
-        units: demoRentRoll.length
+        competitors: allLocations.length * 3,
+        units: 0
       });
     } catch (error) {
       console.error("Seed error:", error);
       res.status(500).json({ error: "Failed to seed demo data" });
     }
+    */
   });
 
   // Template download endpoint - exports current portfolio data as template
@@ -3312,19 +3307,51 @@ Keep recommendations specific and quantitative when possible.`;
           
           const monthIndex = new Date(targetMonth).getMonth() + 1;
           
-          // Use service-line-specific competitor median or fallback to nearby rates
+          // Use service-line-specific competitor median with care level 2 and medication management adjustments
           const serviceLineMedian = serviceLineMedians[unit.serviceLine];
           let competitorPrices: number[];
           
-          if (serviceLineMedian && serviceLineMedian > 0) {
-            // Use service-line-specific median as the primary competitor benchmark
-            competitorPrices = [serviceLineMedian];
-          } else if (unit.competitorRate && unit.competitorRate > 0) {
-            // Fallback to unit's specific competitor rate
-            competitorPrices = [unit.competitorRate];
-          } else {
-            // Final fallback: assume competitors are within ±5% of base rate for this service line
-            competitorPrices = [baseRate * 0.95, baseRate * 1.05];
+          // Try to get adjusted competitor rate using top competitor by weight
+          try {
+            const topCompetitor = await storage.getTopCompetitorByWeight(unit.campus, unit.serviceLine);
+            const trilogyCareLevel2Rate = await storage.getTrilogyCareLevel2Rate(unit.campus, unit.serviceLine);
+            
+            if (topCompetitor && topCompetitor.streetRate) {
+              const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
+              const adjustmentResult = calculateAdjustedCompetitorRate({
+                competitorBaseRate: topCompetitor.streetRate,
+                competitorCareLevel2Rate: topCompetitor.careLevel2Rate,
+                competitorMedicationManagementFee: topCompetitor.medicationManagementFee,
+                trilogyCareLevel2Rate: trilogyCareLevel2Rate
+              });
+              
+              // Use adjusted rate for fairer comparison
+              competitorPrices = [adjustmentResult.adjustedRate];
+              
+              // Store adjustment details for transparency
+              if (isDebugUnit) {
+                console.log('Competitor adjustment:', adjustmentResult);
+              }
+            } else if (serviceLineMedian && serviceLineMedian > 0) {
+              // Fallback to service-line median without adjustment
+              competitorPrices = [serviceLineMedian];
+            } else if (unit.competitorRate && unit.competitorRate > 0) {
+              // Fallback to unit's specific competitor rate
+              competitorPrices = [unit.competitorRate];
+            } else {
+              // Final fallback: assume competitors are within ±5% of base rate
+              competitorPrices = [baseRate * 0.95, baseRate * 1.05];
+            }
+          } catch (error) {
+            // If adjustment fails, use standard logic
+            console.error('Competitor adjustment failed:', error);
+            if (serviceLineMedian && serviceLineMedian > 0) {
+              competitorPrices = [serviceLineMedian];
+            } else if (unit.competitorRate && unit.competitorRate > 0) {
+              competitorPrices = [unit.competitorRate];
+            } else {
+              competitorPrices = [baseRate * 0.95, baseRate * 1.05];
+            }
           }
           
           // Fetch real Enquire data for demand signals

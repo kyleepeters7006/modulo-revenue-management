@@ -136,6 +136,8 @@ export interface IStorage {
   createOrUpdateCompetitor(data: InsertCompetitor): Promise<Competitor>;
   clearCompetitors(): Promise<void>;
   clearCompetitorsByLocation(location: string): Promise<void>;
+  getTopCompetitorByWeight(location: string, serviceLine?: string): Promise<Competitor | undefined>;
+  getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null>;
   
   // Portfolio Competitors
   getPortfolioCompetitors(): Promise<PortfolioCompetitor[]>;
@@ -671,6 +673,81 @@ export class DatabaseStorage implements IStorage {
 
   async clearCompetitorsByLocation(location: string): Promise<void> {
     await db.delete(competitors).where(eq(competitors.location, location));
+  }
+
+  async getTopCompetitorByWeight(location: string, serviceLine?: string): Promise<Competitor | undefined> {
+    const locationCompetitors = await db.select()
+      .from(competitors)
+      .where(eq(competitors.location, location));
+    
+    if (locationCompetitors.length === 0) {
+      return undefined;
+    }
+    
+    // Map service line to facility types for filtering
+    const servicLineToFacilityType: Record<string, string[]> = {
+      'AL': ['Assisted Living', 'Senior Living'],
+      'AL/MC': ['Memory Care', 'Alzheimers Care'],
+      'HC': ['Skilled Nursing', 'Nursing Home'],
+      'IL': ['Independent Living', 'Senior Living'],
+      'SL': ['Skilled Nursing', 'Senior Living']
+    };
+    
+    let filteredCompetitors = locationCompetitors;
+    
+    // If service line provided, try to filter by matching facility type
+    if (serviceLine && servicLineToFacilityType[serviceLine]) {
+      const matchingTypes = servicLineToFacilityType[serviceLine];
+      const matchedByType = locationCompetitors.filter(c => {
+        const attrs = c.attributes as any;
+        return attrs?.facility_type && matchingTypes.some(type => 
+          attrs.facility_type.toLowerCase().includes(type.toLowerCase())
+        );
+      });
+      
+      // Use filtered list if we found matches, otherwise fall back to all
+      if (matchedByType.length > 0) {
+        filteredCompetitors = matchedByType;
+      }
+    }
+    
+    const validCompetitors = filteredCompetitors.filter(
+      c => c.weight != null && c.streetRate != null
+    );
+    
+    if (validCompetitors.length === 0) {
+      return filteredCompetitors.find(c => c.streetRate != null) || filteredCompetitors[0];
+    }
+    
+    return validCompetitors.sort((a, b) => (b.weight || 0) - (a.weight || 0))[0];
+  }
+
+  async getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null> {
+    const result = await db.select({
+      careRate: rentRollData.careRate
+    })
+      .from(rentRollData)
+      .where(
+        and(
+          eq(rentRollData.location, location),
+          eq(rentRollData.serviceLine, serviceLine),
+          sql`${rentRollData.careLevel} = 2 OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%'`
+        )
+      )
+      .limit(10);
+    
+    if (result.length === 0) {
+      return null;
+    }
+    
+    const validRates = result.map(r => r.careRate).filter((rate): rate is number => rate != null);
+    
+    if (validRates.length === 0) {
+      return null;
+    }
+    
+    const avgRate = validRates.reduce((sum, rate) => sum + rate, 0) / validRates.length;
+    return avgRate;
   }
 
   // Targets and Trends operations
