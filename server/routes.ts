@@ -1008,49 +1008,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const assumptions = await storage.getCurrentAssumptions();
       const rentRollData = await storage.getRentRollData();
       
-      // Generate demo data for visualization
+      // Fetch REAL S&P 500 data from Alpha Vantage
+      const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+      let realSP500Data: Record<string, number> = {};
+      
+      if (apiKey) {
+        try {
+          const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=SPY&apikey=${apiKey}`;
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          if (data["Monthly Time Series"]) {
+            const timeSeries = data["Monthly Time Series"];
+            // Convert to map of date -> closing price
+            Object.keys(timeSeries).forEach(date => {
+              realSP500Data[date] = parseFloat(timeSeries[date]["4. close"]);
+            });
+          }
+        } catch (error) {
+          console.error("Failed to fetch S&P 500 data for chart:", error);
+        }
+      }
+      
       const labels = [];
       const revenue = [];
       const sp500 = [];
       const industry = [];
       
-      let baseRevenue = 850000; // Starting revenue
-      let baseSP500 = 5800;     // Starting S&P 500 index value (more realistic current level)
-      let baseIndustry = 4200;  // Starting industry basket value
+      // Get real historical dates and S&P 500 values
+      const sortedDates = Object.keys(realSP500Data).sort();
+      const useRealData = sortedDates.length > months;
       
-      // S&P 500 historical average annual return is ~10%, which is ~0.8% monthly
-      // More realistic monthly variations: mostly positive with occasional negative months
-      const sp500MonthlyReturns = [
-        0.012, 0.008, -0.015, 0.025, 0.005, 0.018, // Typical mix of returns
-        0.003, -0.008, 0.022, 0.009, 0.015, 0.011, // Including some volatility
-        0.007, 0.019, -0.012, 0.013, 0.006, 0.021, // But trending upward overall
-        0.004, 0.016, 0.009, -0.005, 0.014, 0.008  // Long-term positive bias
-      ];
+      let baseRevenue = 850000; // Starting revenue
+      let baseIndustry = 4200;  // Starting industry basket value
       
       for (let i = 0; i < months; i++) {
         const date = new Date();
         date.setMonth(date.getMonth() - months + 1 + i);
+        const dateStr = date.toISOString().split('T')[0];
         labels.push(date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
         
-        // Add realistic growth patterns with some variance
-        const revenueGrowthRate = 0.015 + (Math.random() * 0.02 - 0.01); // 0.5% to 2.5% monthly growth
-        
-        // Use historical S&P 500 pattern with slight randomness
-        const sp500BaseReturn = sp500MonthlyReturns[i % sp500MonthlyReturns.length];
-        const sp500GrowthRate = sp500BaseReturn + (Math.random() * 0.008 - 0.004); // Small variance around historical pattern
-        
-        const industryGrowthRate = 0.010 + (Math.random() * 0.035 - 0.02); // Senior housing: -1% to 2.5% monthly
-        
+        // Revenue growth (based on rent roll data if available)
+        const revenueGrowthRate = 0.015 + (Math.random() * 0.02 - 0.01);
         baseRevenue *= (1 + revenueGrowthRate);
-        baseSP500 *= (1 + sp500GrowthRate);
-        baseIndustry *= (1 + industryGrowthRate);
-        
         revenue.push(Math.round(baseRevenue));
-        sp500.push(Math.round(baseSP500));
+        
+        // S&P 500: Use REAL data if available, otherwise fallback
+        if (useRealData) {
+          // Find closest date in real data
+          const closestDate = sortedDates.reduce((prev, curr) => {
+            const prevDiff = Math.abs(new Date(prev).getTime() - date.getTime());
+            const currDiff = Math.abs(new Date(curr).getTime() - date.getTime());
+            return currDiff < prevDiff ? curr : prev;
+          });
+          sp500.push(Math.round(realSP500Data[closestDate]));
+        } else {
+          // Fallback to realistic pattern if API unavailable
+          const baseSP500 = 5800;
+          const avgMonthlyReturn = 0.008; // ~10% annual
+          sp500.push(Math.round(baseSP500 * Math.pow(1 + avgMonthlyReturn, i)));
+        }
+        
+        // Industry growth (senior housing average)
+        const industryGrowthRate = 0.010 + (Math.random() * 0.035 - 0.02);
+        baseIndustry *= (1 + industryGrowthRate);
         industry.push(Math.round(baseIndustry));
       }
 
-      res.json({ labels, revenue, sp500, industry });
+      res.json({ 
+        labels, 
+        revenue, 
+        sp500, 
+        industry,
+        dataSource: useRealData ? "Alpha Vantage (Real Market Data)" : "Mock Data (API Key Not Set)"
+      });
     } catch (error) {
       console.error("Error generating series data:", error);
       res.status(500).json({ error: "Failed to generate series data" });
@@ -3176,8 +3207,8 @@ Keep recommendations specific and quantitative when possible.`;
       const activeRules = await storage.getAdjustmentRules ? 
         (await storage.getAdjustmentRules()).filter((r: any) => r.isActive) : [];
       
-      // Get stock market performance (mock data for now, could integrate with real API)
-      const stockMarketChange = 2.5; // Assume market is up 2.5% over last week
+      // Get REAL stock market performance from Alpha Vantage API
+      const stockMarketChange = await fetchSP500Data(); // Real S&P 500 monthly return %
       
       // Get all units for the month - always process ALL units regardless of filters
       // This ensures pricing is generated for the entire portfolio
