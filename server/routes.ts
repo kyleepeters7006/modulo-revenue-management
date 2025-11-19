@@ -3105,33 +3105,43 @@ Keep recommendations specific and quantitative when possible.`;
         return res.status(400).json({ error: 'No data found in file' });
       }
 
+      // Helper function to get value from row with case-insensitive column matching
+      const getRowValue = (row: any, ...columnNames: string[]): any => {
+        for (const colName of columnNames) {
+          if (row[colName] !== undefined && row[colName] !== null && row[colName] !== '') {
+            return row[colName];
+          }
+        }
+        return '';
+      };
+
       // Process and store data
       const processedRecords: any[] = [];
 
       for (const row of jsonData) {
         const rentRollEntry = {
           uploadMonth: uploadMonth,
-          date: row.date || uploadDate,
-          location: row.location || '',
-          roomNumber: row['room number'] || '',
-          roomType: row['room type'] || '',
-          serviceLine: row['service line'] || 'AL', // Required field, default to AL
-          occupiedYN: (row['occupied Y/N'] || '').toLowerCase() === 'y',
-          daysVacant: parseInt(row['days vacant']) || 0,
-          preferredLocation: row['preferred location'] || null,
-          size: row.size || '',
-          view: row.view || null,
-          renovated: (row.renovated || '').toLowerCase() === 'yes',
-          otherPremiumFeature: row['other premium feature'] || null,
-          streetRate: parseFloat(row['street rate']) || 0,
-          inHouseRate: parseFloat(row['in-house rate']) || 0,
-          discountToStreetRate: parseFloat(row['discount to street rate']) || 0,
-          careLevel: row['care level'] || null,
-          careRate: parseFloat(row['care rate']) || 0,
-          rentAndCareRate: parseFloat(row['rent and care rate']) || 0,
-          competitorRate: parseFloat(row['competitor rate']) || 0,
-          competitorAvgCareRate: parseFloat(row['competitor average care rate']) || 0,
-          competitorFinalRate: parseFloat(row['competitor final rate']) || 0,
+          date: getRowValue(row, 'Date', 'date') || uploadDate,
+          location: getRowValue(row, 'Location', 'location') || '',
+          roomNumber: getRowValue(row, 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
+          roomType: getRowValue(row, 'Room Type', 'room type', 'RoomType', 'roomType') || '',
+          serviceLine: getRowValue(row, 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL',
+          occupiedYN: (getRowValue(row, 'Occupied Y/N', 'occupied Y/N', 'Occupied YN', 'occupied YN') || '').toString().toLowerCase() === 'y',
+          daysVacant: parseInt(getRowValue(row, 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0,
+          preferredLocation: getRowValue(row, 'Preferred Location', 'preferred location') || null,
+          size: getRowValue(row, 'Size', 'size') || '',
+          view: getRowValue(row, 'View', 'view') || null,
+          renovated: (getRowValue(row, 'Renovated', 'renovated') || '').toString().toLowerCase() === 'y' || (getRowValue(row, 'Renovated', 'renovated') || '').toString().toLowerCase() === 'yes',
+          otherPremiumFeature: getRowValue(row, 'Other Premium Feature', 'other premium feature') || null,
+          streetRate: parseFloat(getRowValue(row, 'Street Rate', 'street rate', 'StreetRate', 'streetRate')) || 0,
+          inHouseRate: parseFloat(getRowValue(row, 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate')) || 0,
+          discountToStreetRate: parseFloat(getRowValue(row, 'Discount to Street Rate', 'discount to street rate')) || 0,
+          careLevel: getRowValue(row, 'Care Level', 'care level') || null,
+          careRate: parseFloat(getRowValue(row, 'Care Rate', 'care rate')) || 0,
+          rentAndCareRate: parseFloat(getRowValue(row, 'Rent and Care Rate', 'rent and care rate')) || 0,
+          competitorRate: parseFloat(getRowValue(row, 'Competitor Rate', 'competitor rate')) || 0,
+          competitorAvgCareRate: parseFloat(getRowValue(row, 'Competitor Average Care Rate', 'competitor average care rate')) || 0,
+          competitorFinalRate: parseFloat(getRowValue(row, 'Competitor Final Rate', 'competitor final rate')) || 0,
           moduloSuggestedRate: null,
           aiSuggestedRate: null,
           promotionAllowance: 0
