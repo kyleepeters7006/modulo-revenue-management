@@ -73,7 +73,7 @@ import {
   type InsertLocationMapping
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 
 // Initialize OpenAI if API key is available
@@ -126,6 +126,10 @@ export interface IStorage {
   updatePricingWeights(data: any): Promise<void>;
   getCurrentWeights(): Promise<PricingWeights | undefined>;
   createOrUpdateWeights(data: InsertPricingWeights): Promise<PricingWeights>;
+  getWeightsByFilter(locationId?: string | null, serviceLine?: string | null): Promise<PricingWeights | undefined>;
+  createOrUpdateWeightsByFilter(data: InsertPricingWeights, locationId?: string | null, serviceLine?: string | null): Promise<PricingWeights>;
+  getAllWeightsGrouped(): Promise<PricingWeights[]>;
+  bulkCreateOrUpdateWeights(weightsList: Array<InsertPricingWeights & { locationId?: string | null; serviceLine?: string | null }>): Promise<PricingWeights[]>;
   
   // Competitors
   getCompetitors(): Promise<Competitor[]>;
@@ -626,6 +630,62 @@ export class DatabaseStorage implements IStorage {
     await db.delete(pricingWeights);
     const [weights] = await db.insert(pricingWeights).values(data).returning();
     return weights;
+  }
+
+  async getWeightsByFilter(locationId?: string | null, serviceLine?: string | null): Promise<PricingWeights | undefined> {
+    let query = db.select().from(pricingWeights);
+    
+    if (locationId === undefined && serviceLine === undefined) {
+      query = query.where(and(isNull(pricingWeights.locationId), isNull(pricingWeights.serviceLine)));
+    } else if (locationId && !serviceLine) {
+      query = query.where(and(eq(pricingWeights.locationId, locationId), isNull(pricingWeights.serviceLine)));
+    } else if (locationId && serviceLine) {
+      query = query.where(and(eq(pricingWeights.locationId, locationId), eq(pricingWeights.serviceLine, serviceLine)));
+    } else {
+      query = query.where(and(isNull(pricingWeights.locationId), isNull(pricingWeights.serviceLine)));
+    }
+    
+    const [weights] = await query.limit(1);
+    return weights;
+  }
+
+  async createOrUpdateWeightsByFilter(data: InsertPricingWeights, locationId?: string | null, serviceLine?: string | null): Promise<PricingWeights> {
+    const weightData = {
+      ...data,
+      locationId: locationId || null,
+      serviceLine: serviceLine || null,
+    };
+    
+    let deleteQuery = db.delete(pricingWeights);
+    
+    if (locationId === undefined && serviceLine === undefined) {
+      deleteQuery = deleteQuery.where(and(isNull(pricingWeights.locationId), isNull(pricingWeights.serviceLine)));
+    } else if (locationId && !serviceLine) {
+      deleteQuery = deleteQuery.where(and(eq(pricingWeights.locationId, locationId), isNull(pricingWeights.serviceLine)));
+    } else if (locationId && serviceLine) {
+      deleteQuery = deleteQuery.where(and(eq(pricingWeights.locationId, locationId), eq(pricingWeights.serviceLine, serviceLine)));
+    } else {
+      deleteQuery = deleteQuery.where(and(isNull(pricingWeights.locationId), isNull(pricingWeights.serviceLine)));
+    }
+    
+    await deleteQuery;
+    const [weights] = await db.insert(pricingWeights).values(weightData).returning();
+    return weights;
+  }
+
+  async getAllWeightsGrouped(): Promise<PricingWeights[]> {
+    return await db.select().from(pricingWeights);
+  }
+
+  async bulkCreateOrUpdateWeights(weightsList: Array<InsertPricingWeights & { locationId?: string | null; serviceLine?: string | null }>): Promise<PricingWeights[]> {
+    const results: PricingWeights[] = [];
+    
+    for (const weightData of weightsList) {
+      const result = await this.createOrUpdateWeightsByFilter(weightData, weightData.locationId, weightData.serviceLine);
+      results.push(result);
+    }
+    
+    return results;
   }
 
   // Competitors
