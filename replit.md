@@ -55,10 +55,11 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 ## Room Attributes & Pricing Page (NEW)
 - **New dedicated page**: Created `/room-attributes` page accessible via main navigation with Layers icon. Consolidates all attribute-based pricing configuration and analysis in one location.
 - **Attribute Management reorganization**: Moved AttributeManagement component from Pricing Controls to Room Attributes page for better information architecture. Pricing Controls now focuses solely on algorithm weights, smart adjustments, and guardrails.
-- **Base Pricing by Room Type**: Displays aggregated statistics by room type showing unit counts, average street rates, average attributed prices, and calculated price lift percentages. Helps identify which room types benefit most from attribute-based pricing.
+- **Base Pricing by Room Type**: Displays aggregated statistics by room type showing unit counts, average street rates, average attributed prices, and calculated price lift percentages. Helps identify which room types benefit most from attribute-based pricing. **Section moved to top of page for better visibility** (November 19, 2025).
 - **Unit-Level Attributed Pricing**: Detailed table showing individual units with their A/B/C attribute ratings (size, view, renovation, location, amenity), current street rate, calculated attributed price, and difference. Includes Location and Service Line filters for focused analysis.
 - **Attributed Price Calculation**: Uses multiplicative adjustment formula: `attributedPrice = streetRate × (1 + sizeAdj%) × (1 + viewAdj%) × (1 + renoAdj%) × (1 + locAdj%) × (1 + amenAdj%)` where adjustments come from A/B/C ratings in attribute_ratings table.
 - **Data mapping**: Correctly uses `streetRate` field from rent_roll_data schema as base pricing input (not deprecated `currentRate` field). Displays up to 100 units in filtered view for performance.
+- **Critical API endpoint fix** (November 19, 2025): Added missing `/api/rent-roll` GET endpoint that returns all rent roll data. This endpoint was being called by the frontend but didn't exist in the backend routes, causing room types (Studios, 1 Bedrooms, 2 Bedrooms, etc.) to not display in the Base Pricing by Room Type section.
 - **E2E tested**: Page loads correctly, displays production data, filtering works, and calculations are accurate. Architect review confirmed clean integration with existing codebase.
 
 # User Preferences

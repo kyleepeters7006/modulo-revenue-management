@@ -6000,6 +6000,17 @@ Respond in JSON format:
     }
   });
 
+  // Get all rent roll data
+  app.get("/api/rent-roll", async (req, res) => {
+    try {
+      const rentRollData = await storage.getRentRollData();
+      res.json(rentRollData);
+    } catch (error) {
+      console.error('Error fetching rent roll data:', error);
+      res.status(500).json({ error: "Failed to fetch rent roll data" });
+    }
+  });
+
   // Get all rent roll data for a location
   app.get("/api/rent-roll-data/location/:locationId", async (req, res) => {
     try {
