@@ -3115,25 +3115,114 @@ Keep recommendations specific and quantitative when possible.`;
         return '';
       };
 
+      // Function to parse attributes from room type field
+      // Examples: "A Vw" → viewRating: A, "B Sz" → sizeRating: B, "A loc" → locationRating: A
+      const parseAttributes = (roomTypeString: string): {
+        cleanRoomType: string;
+        viewRating: string | null;
+        sizeRating: string | null;
+        locationRating: string | null;
+        renovationRating: string | null;
+        amenityRating: string | null;
+      } => {
+        if (!roomTypeString) {
+          return {
+            cleanRoomType: '',
+            viewRating: null,
+            sizeRating: null,
+            locationRating: null,
+            renovationRating: null,
+            amenityRating: null
+          };
+        }
+
+        let cleanType = roomTypeString;
+        let viewRating = null;
+        let sizeRating = null;
+        let locationRating = null;
+        let renovationRating = null;
+        let amenityRating = null;
+
+        // Pattern: Letter + space + attribute code (e.g., "A Vw", "B Sz", "A loc")
+        // Extract view rating (Vw)
+        const viewMatch = roomTypeString.match(/([A-F])\s*Vw/i);
+        if (viewMatch) {
+          viewRating = viewMatch[1].toUpperCase();
+          cleanType = cleanType.replace(/[A-F]\s*Vw/gi, '').trim();
+        }
+
+        // Extract size rating (Sz)
+        const sizeMatch = roomTypeString.match(/([A-F])\s*Sz/i);
+        if (sizeMatch) {
+          sizeRating = sizeMatch[1].toUpperCase();
+          cleanType = cleanType.replace(/[A-F]\s*Sz/gi, '').trim();
+        }
+
+        // Extract location rating (loc)
+        const locationMatch = roomTypeString.match(/([A-F])\s*loc/i);
+        if (locationMatch) {
+          locationRating = locationMatch[1].toUpperCase();
+          cleanType = cleanType.replace(/[A-F]\s*loc/gi, '').trim();
+        }
+
+        // Extract renovation rating (Reno)
+        const renovationMatch = roomTypeString.match(/([A-F])\s*Reno/i);
+        if (renovationMatch) {
+          renovationRating = renovationMatch[1].toUpperCase();
+          cleanType = cleanType.replace(/[A-F]\s*Reno/gi, '').trim();
+        }
+
+        // Extract amenity rating (Amen)
+        const amenityMatch = roomTypeString.match(/([A-F])\s*Amen/i);
+        if (amenityMatch) {
+          amenityRating = amenityMatch[1].toUpperCase();
+          cleanType = cleanType.replace(/[A-F]\s*Amen/gi, '').trim();
+        }
+
+        return {
+          cleanRoomType: cleanType.trim(),
+          viewRating,
+          sizeRating,
+          locationRating,
+          renovationRating,
+          amenityRating
+        };
+      };
+
       // Process and store data
       const processedRecords: any[] = [];
 
       for (const row of jsonData) {
+        // Get raw room type with attributes
+        const rawRoomType = getRowValue(row, 'BedTypeDesc', 'Room Type', 'room type', 'RoomType', 'roomType') || '';
+        
+        // Parse attributes from room type
+        const { cleanRoomType, viewRating, sizeRating, locationRating, renovationRating, amenityRating } = parseAttributes(rawRoomType);
+
+        // Get patient ID to determine vacancy
+        const patientId = getRowValue(row, 'PatientID1', 'PatientID', 'patientId', 'patient_id');
+        const isOccupied = patientId && patientId.toString().trim() !== '';
+
         const rentRollEntry = {
           uploadMonth: uploadMonth,
           date: getRowValue(row, 'Date', 'date') || uploadDate,
           location: getRowValue(row, 'Location', 'location') || '',
-          roomNumber: getRowValue(row, 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
-          roomType: getRowValue(row, 'Room Type', 'room type', 'RoomType', 'roomType') || '',
-          serviceLine: getRowValue(row, 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL',
-          occupiedYN: (getRowValue(row, 'Occupied Y/N', 'occupied Y/N', 'Occupied YN', 'occupied YN') || '').toString().toLowerCase() === 'y',
-          daysVacant: parseInt(getRowValue(row, 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0,
+          roomNumber: getRowValue(row, 'Room_Bed', 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
+          roomType: cleanRoomType,
+          serviceLine: getRowValue(row, 'Service1', 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL',
+          occupiedYN: isOccupied,
+          daysVacant: parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0,
           preferredLocation: getRowValue(row, 'Preferred Location', 'preferred location') || null,
           size: getRowValue(row, 'Size', 'size') || '',
           view: getRowValue(row, 'View', 'view') || null,
           renovated: (getRowValue(row, 'Renovated', 'renovated') || '').toString().toLowerCase() === 'y' || (getRowValue(row, 'Renovated', 'renovated') || '').toString().toLowerCase() === 'yes',
           otherPremiumFeature: getRowValue(row, 'Other Premium Feature', 'other premium feature') || null,
-          streetRate: parseFloat(getRowValue(row, 'Street Rate', 'street rate', 'StreetRate', 'streetRate')) || 0,
+          locationRating: locationRating,
+          sizeRating: sizeRating,
+          viewRating: viewRating,
+          renovationRating: renovationRating,
+          amenityRating: amenityRating,
+          streetRate: parseFloat(getRowValue(row, 'BaseRate1', 'Street Rate', 'street rate', 'StreetRate', 'streetRate')) || 0,
           inHouseRate: parseFloat(getRowValue(row, 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate')) || 0,
           discountToStreetRate: parseFloat(getRowValue(row, 'Discount to Street Rate', 'discount to street rate')) || 0,
           careLevel: getRowValue(row, 'Care Level', 'care level') || null,
