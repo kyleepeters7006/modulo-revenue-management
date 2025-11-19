@@ -588,6 +588,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Rent Roll template download endpoint
+  app.get("/api/template/rent-roll", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+      
+      const rentRollTemplate = [
+        {
+          Date: '2024-01-31',
+          Region: 'East',
+          Division: 'Mid-Atlantic',
+          Location: 'Louisville East',
+          'Room Number': '101',
+          'Room Type': 'Studio',
+          'Service Line': 'AL',
+          'Occupied Y/N': 'Y',
+          'Days Vacant': 0,
+          'Preferred Location': 'Y',
+          Size: 'Studio',
+          View: 'Garden View',
+          Renovated: 'Y',
+          'Other Premium Feature': '',
+          'Location Rating': 'A',
+          'Size Rating': 'B',
+          'View Rating': 'A',
+          'Renovation Rating': 'A',
+          'Amenity Rating': 'B',
+          'Street Rate': 3500,
+          'In-House Rate': 3200,
+          'Discount to Street Rate': 300,
+          'Care Level': 'Level 1',
+          'Care Rate': 500,
+          'Rent and Care Rate': 3700
+        }
+      ];
+      
+      const sheet = xlsx.utils.json_to_sheet(rentRollTemplate);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Rent Roll');
+      
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="rent_roll_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating rent roll template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
+  // Inquiry Data template download endpoint
+  app.get("/api/template/inquiry", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+      
+      const inquiryTemplate = [
+        {
+          Date: '2024-01-31',
+          Region: 'East',
+          Division: 'Mid-Atlantic',
+          Location: 'Louisville East',
+          'Service Line': 'AL',
+          'Lead Source': 'Website',
+          'Inquiry Count': 15,
+          'Tour Count': 8,
+          'Conversion Count': 3,
+          'Conversion Rate': 37.5,
+          'Days to Tour': 5,
+          'Days to Move-In': 21
+        }
+      ];
+      
+      const sheet = xlsx.utils.json_to_sheet(inquiryTemplate);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Inquiry Data');
+      
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="inquiry_data_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating inquiry template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
+  // Competitive Data template download endpoint
+  app.get("/api/template/competitor", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+      
+      const competitorTemplate = [
+        {
+          'Competitor Name': 'Sunrise of Example',
+          'Facility Type': 'AL',
+          'Room Type': 'Studio',
+          'Base Rate': 3600,
+          'Care Level 1': 400,
+          'Care Level 2': 800,
+          'Medication Management Fee': 150,
+          'Address': '123 Main St',
+          'City': 'Louisville',
+          'State': 'KY',
+          'Zip': '40202',
+          'Latitude': 38.2527,
+          'Longitude': -85.7585
+        }
+      ];
+      
+      const sheet = xlsx.utils.json_to_sheet(competitorTemplate);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Competitor Data');
+      
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="competitive_data_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating competitor template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
   // Unified upload endpoint
   app.post("/api/upload/unified", upload.single("file"), async (req, res) => {
     try {
