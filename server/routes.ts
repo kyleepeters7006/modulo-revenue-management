@@ -3105,6 +3105,13 @@ Keep recommendations specific and quantitative when possible.`;
         return res.status(400).json({ error: 'No data found in file' });
       }
 
+      // Debug: Log the column headers from the first row
+      if (jsonData.length > 0) {
+        const columnHeaders = Object.keys(jsonData[0]);
+        console.log('CSV Column Headers:', columnHeaders);
+        console.log('First row sample:', jsonData[0]);
+      }
+
       // Helper function to get value from row with case-insensitive column matching
       const getRowValue = (row: any, ...columnNames: string[]): any => {
         for (const colName of columnNames) {
