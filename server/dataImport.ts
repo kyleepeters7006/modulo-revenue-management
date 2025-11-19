@@ -354,6 +354,186 @@ function parseBoolean(value: any): boolean {
   return false;
 }
 
+export async function importMatrixCareRentRollCSV(
+  fileBuffer: Buffer,
+  uploadMonth: string,
+  fileName: string
+): Promise<ImportStats> {
+  const stats: ImportStats = {
+    totalRecords: 0,
+    successfulImports: 0,
+    failedImports: 0,
+    mappedRecords: 0,
+    unmappedRecords: 0,
+    errors: [],
+  };
+
+  // Helper function to parse BedTypeDesc (e.g., "Studio;A Vw;A Loc;B Sz")
+  const parseBedTypeDesc = (bedTypeDesc: string) => {
+    const parts = (bedTypeDesc || '').split(';').map(p => p.trim());
+    let size = '';
+    let viewRating = null;
+    let locationRating = null;
+    let sizeRating = null;
+    let view = null;
+
+    for (const part of parts) {
+      if (part.includes('Studio') || part.includes('Bedroom')) {
+        size = part;
+      } else if (part.includes(' Vw')) {
+        viewRating = part.charAt(0); // Extract A, B, or C
+        if (part.includes('A Vw')) view = 'Garden View';
+        else if (part.includes('B Vw')) view = 'Courtyard View';
+        else if (part.includes('C Vw')) view = 'Street View';
+      } else if (part.includes(' Loc')) {
+        locationRating = part.charAt(0); // Extract A, B, or C
+      } else if (part.includes(' Sz')) {
+        sizeRating = part.charAt(0); // Extract A, B, or C
+      }
+    }
+
+    return { size, view, viewRating, locationRating, sizeRating };
+  };
+
+  // Helper function to clean currency strings (e.g., "$329 " -> 329)
+  const parseCurrency = (value: any): number => {
+    if (!value) return 0;
+    const cleaned = String(value).replace(/[\$,\s]/g, '');
+    return parseFloat(cleaned) || 0;
+  };
+
+  // Helper function to map Service1 to service line
+  const mapServiceLine = (service1: string): string => {
+    const svc = (service1 || '').toUpperCase();
+    if (svc.includes('HC')) return 'HC';
+    if (svc.includes('AL')) return 'AL';
+    if (svc.includes('IL')) return 'IL';
+    if (svc.includes('MC')) return 'AL/MC';
+    if (svc.includes('SL')) return 'SL';
+    return svc || 'AL'; // Default to AL if unknown
+  };
+
+  return new Promise((resolve) => {
+    const fileContent = fileBuffer.toString('utf-8');
+
+    Papa.parse(fileContent, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results: Papa.ParseResult<any>) => {
+        stats.totalRecords = results.data.length;
+
+        try {
+          await db.transaction(async (tx) => {
+            // Clear existing data for this month
+            await tx.delete(rentRollHistory).where(eq(rentRollHistory.uploadMonth, uploadMonth));
+
+            // Get all locations for mapping
+            const allLocations = await tx.select().from(locations);
+            const locationMap = new Map(allLocations.map(loc => [loc.name.toLowerCase(), loc.id]));
+
+            // Track duplicates using location + serviceLine + roomNumber
+            const seenUnits = new Set<string>();
+
+            for (const row of results.data as any[]) {
+              try {
+                // Extract core fields
+                const locationName = (row['location'] || '').trim();
+                const locationId = locationMap.get(locationName.toLowerCase());
+                const serviceLine = mapServiceLine(row['Service1']);
+                const roomBed = row['Room_Bed'] || '';
+                const roomNumber = roomBed.split('/')[0] || roomBed; // "101/A" -> "101"
+                
+                // Check for duplicates
+                const unitKey = `${locationId || locationName}|${serviceLine}|${roomNumber}`;
+                if (seenUnits.has(unitKey)) {
+                  console.log(`Skipping duplicate: ${unitKey}`);
+                  continue; // Skip duplicate
+                }
+                seenUnits.add(unitKey);
+
+                // Determine occupancy
+                const patientId = row['PatientID1'] || '';
+                const bedSpecialization = row['BedSpecialization1'] || '';
+                const isOccupied = patientId && patientId.trim() !== '' && bedSpecialization !== 'Available';
+
+                // Parse BedTypeDesc
+                const { size, view, viewRating, locationRating, sizeRating } = parseBedTypeDesc(row['BedTypeDesc']);
+
+                // Parse rates
+                const roomRate = parseCurrency(row['Room_Rate']);
+                const locRate = parseCurrency(row['LOC_Rate']);
+                const finalRate = parseCurrency(row['FinalRate']);
+                const billedRate = parseCurrency(row['BilledRate']);
+
+                const record: InsertRentRollHistory = {
+                  uploadMonth,
+                  date: uploadMonth,
+                  location: locationName,
+                  locationId: locationId || null,
+                  roomNumber,
+                  roomType: size || 'Studio',
+                  serviceLine,
+                  occupiedYN: isOccupied,
+                  daysVacant: isOccupied ? 0 : 30, // Default to 30 days if vacant
+                  preferredLocation: locationRating === 'A' ? 'Yes' : null,
+                  size: size || 'Studio',
+                  view,
+                  renovated: false, // Not available in MatrixCare export
+                  otherPremiumFeature: row['BedSpecialization1'] || null,
+                  locationRating,
+                  sizeRating,
+                  viewRating,
+                  renovationRating: null,
+                  amenityRating: null,
+                  streetRate: roomRate,
+                  inHouseRate: billedRate || roomRate,
+                  discountToStreetRate: null,
+                  careLevel: row['LevelOfCare1'] || row['ActualLevel1'] || null,
+                  careRate: locRate,
+                  rentAndCareRate: finalRate || (roomRate + locRate),
+                  competitorRate: null,
+                  competitorAvgCareRate: null,
+                  competitorFinalRate: null,
+                  residentId: patientId || null,
+                  residentName: null, // Not available in this export
+                  moveInDate: row['MoveInDate'] || null,
+                  moveOutDate: row['MoveOutDate'] || null,
+                  payorType: row['PayerName'] || row['DisplayPayer'] || null,
+                  admissionStatus: null,
+                  levelOfCare: row['LevelOfCare1'] || null,
+                  medicaidRate: null,
+                  medicareRate: null,
+                  assessmentDate: null,
+                  marketingSource: null,
+                };
+
+                await tx.insert(rentRollHistory).values(record);
+                stats.successfulImports++;
+                if (locationId) {
+                  stats.mappedRecords++;
+                } else {
+                  stats.unmappedRecords++;
+                }
+              } catch (error: any) {
+                stats.failedImports++;
+                stats.errors.push(`Row ${stats.successfulImports + stats.failedImports}: ${error.message}`);
+              }
+            }
+          });
+        } catch (txError: any) {
+          stats.errors.push(`Transaction error: ${txError.message}`);
+        }
+
+        resolve(stats);
+      },
+      error: (error: Error) => {
+        stats.errors.push(`CSV parsing error: ${error.message}`);
+        resolve(stats);
+      },
+    });
+  });
+}
+
 export async function syncHistoryToCurrentRentRoll(uploadMonth: string): Promise<{ synced: number }> {
   return await db.transaction(async (tx) => {
     const historyRecords = await tx

@@ -5734,14 +5734,19 @@ Respond in JSON format:
       
       const { 
         importRentRollCSV,
+        importMatrixCareRentRollCSV,
         syncHistoryToCurrentRentRoll
       } = await import('./dataImport');
       
-      const importStats = await importRentRollCSV(
-        req.file.buffer,
-        uploadMonth,
-        req.file.originalname
-      );
+      // Auto-detect MatrixCare format by checking for Room_Bed column
+      const sampleText = req.file.buffer.toString('utf-8', 0, 500);
+      const isMatrixCare = sampleText.includes('Room_Bed') || sampleText.includes('Service1');
+      
+      console.log(`Importing rent roll for ${uploadMonth}, MatrixCare format: ${isMatrixCare}`);
+      
+      const importStats = isMatrixCare 
+        ? await importMatrixCareRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname)
+        : await importRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname);
       
       // If this is the most recent month, sync to current rent roll
       const currentMonth = new Date().toISOString().slice(0, 7);
@@ -5788,6 +5793,77 @@ Respond in JSON format:
     } catch (error) {
       console.error('Error importing Enquire data:', error);
       res.status(500).json({ error: "Failed to import Enquire data" });
+    }
+  });
+  
+  app.post("/api/import/batch-rent-rolls", async (req, res) => {
+    try {
+      const assetsDir = path.join(__dirname, '..', 'attached_assets');
+      
+      const fileMonthMapping: Record<string, string> = {
+        'THS_Pricing_RentRoll 1.31.25_1763249338678.csv': '2025-01',
+        'THS_Pricing_RentRoll 2.25.25_1763249338678.csv': '2025-02',
+        'THS_Pricing_RentRoll 3.31.25_1763249338677.csv': '2025-03',
+        'THS_Pricing_RentRoll 4.30.25_1763249338679.csv': '2025-04',
+        'THS_Pricing_RentRoll 5.31.25_1763249338679.csv': '2025-05',
+        'THS_Pricing_RentRoll 6.30.25_1763249338680.csv': '2025-06',
+        'THS_Pricing_RentRoll 7.31.25_1763249338680.csv': '2025-07',
+        'THS_Pricing_RentRoll 8.31.25_1763249338680.csv': '2025-08',
+        'THS_Pricing_RentRoll 9.30.25_1763249338681.csv': '2025-09',
+        'THS_Pricing_RentRoll 10.31.25_1763249338681.csv': '2025-10',
+        'THS_Pricing_RentRoll 11.15.25_1763249338681.csv': '2025-11',
+      };
+      
+      const { importMatrixCareRentRollCSV, syncHistoryToCurrentRentRoll } = await import('./dataImport');
+      
+      const results: any[] = [];
+      let totalImported = 0;
+      
+      for (const [filename, uploadMonth] of Object.entries(fileMonthMapping)) {
+        const filePath = path.join(assetsDir, filename);
+        
+        if (!fs.existsSync(filePath)) {
+          console.log(`File not found: ${filename}`);
+          continue;
+        }
+        
+        try {
+          const fileBuffer = fs.readFileSync(filePath);
+          const stats = await importMatrixCareRentRollCSV(fileBuffer, uploadMonth, filename);
+          
+          // Sync to current rent roll table for the latest month
+          const currentMonth = new Date().toISOString().slice(0, 7);
+          if (uploadMonth === currentMonth) {
+            const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth);
+            stats.syncedRecords = syncResult.synced;
+          }
+          
+          totalImported += stats.successfulImports;
+          results.push({
+            month: uploadMonth,
+            filename,
+            ...stats
+          });
+          
+        } catch (error: any) {
+          console.error(`Error importing ${filename}:`, error);
+          results.push({
+            month: uploadMonth,
+            filename,
+            error: error.message
+          });
+        }
+      }
+      
+      res.json({
+        success: true,
+        totalImported,
+        monthsProcessed: results.length,
+        results
+      });
+    } catch (error) {
+      console.error('Error in batch import:', error);
+      res.status(500).json({ error: "Failed to batch import rent rolls" });
     }
   });
   
