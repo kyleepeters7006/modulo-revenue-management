@@ -749,10 +749,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing weights CRUD
+  app.get("/api/weights", async (req, res) => {
+    try {
+      const locationId = req.query.locationId as string | undefined;
+      const serviceLine = req.query.serviceLine as string | undefined;
+      
+      let weights;
+      if (locationId || serviceLine) {
+        weights = await storage.getWeightsByFilter(locationId, serviceLine);
+      } else {
+        weights = await storage.getPricingWeights();
+      }
+      
+      if (!weights) {
+        weights = await storage.getPricingWeights();
+      }
+      
+      if (!weights) {
+        return res.status(404).json({ error: "No weights found" });
+      }
+      
+      res.json({
+        ok: true,
+        weights: {
+          id: weights.id,
+          location_id: weights.locationId,
+          service_line: weights.serviceLine,
+          enable_weights: weights.enableWeights,
+          occupancy_pressure: weights.occupancyPressure,
+          days_vacant_decay: weights.daysVacantDecay,
+          room_attributes: weights.roomAttributes,
+          seasonality: weights.seasonality,
+          competitor_rates: weights.competitorRates,
+          stock_market: weights.stockMarket,
+          inquiry_tour_volume: weights.inquiryTourVolume || 0
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching weights:", error);
+      res.status(500).json({ error: "Failed to fetch weights" });
+    }
+  });
+
   app.post("/api/weights", async (req, res) => {
     try {
-      // Transform the incoming data to match the schema field names
+      const locationId = req.body.location_id || req.query.locationId as string | undefined;
+      const serviceLine = req.body.service_line || req.query.serviceLine as string | undefined;
+      const applyToAllServiceLines = req.body.apply_to_all_service_lines === true;
+      
       const transformedData = {
+        enableWeights: req.body.enable_weights !== undefined ? req.body.enable_weights : true,
         occupancyPressure: req.body.occupancy_pressure,
         daysVacantDecay: req.body.days_vacant_decay,
         roomAttributes: req.body.room_attributes,
@@ -762,7 +808,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         inquiryTourVolume: req.body.inquiry_tour_volume || 0,
       };
       
-      // Validate that weights total 100
       const total = transformedData.occupancyPressure + transformedData.daysVacantDecay + 
                     transformedData.roomAttributes + transformedData.seasonality + 
                     transformedData.competitorRates + transformedData.stockMarket + 
@@ -773,13 +818,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const validatedData = insertPricingWeightsSchema.parse(transformedData);
-      const weights = await storage.createOrUpdateWeights(validatedData);
       
-      // Return the weights in the same format as /api/status for consistency
+      if (applyToAllServiceLines && locationId) {
+        const serviceLines = ['AL', 'HC', 'IL', 'AL/MC', 'HC/MC', 'SL'];
+        const weightsList = serviceLines.map(sl => ({
+          ...validatedData,
+          locationId,
+          serviceLine: sl
+        }));
+        
+        await storage.bulkCreateOrUpdateWeights(weightsList);
+        
+        return res.json({ 
+          ok: true, 
+          message: `Weights saved for all service lines at location ${locationId}`,
+          count: serviceLines.length
+        });
+      }
+      
+      const weights = await storage.createOrUpdateWeightsByFilter(validatedData, locationId, serviceLine);
+      
       res.json({ 
         ok: true, 
         weights: {
           id: weights.id,
+          location_id: weights.locationId,
+          service_line: weights.serviceLine,
+          enable_weights: weights.enableWeights,
           occupancy_pressure: weights.occupancyPressure,
           days_vacant_decay: weights.daysVacantDecay,
           room_attributes: weights.roomAttributes,

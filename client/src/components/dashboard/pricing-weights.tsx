@@ -179,17 +179,29 @@ const weightDetails: Record<string, {
   }
 };
 
-export default function PricingWeights() {
+interface PricingWeightsProps {
+  locationId?: string;
+  serviceLine?: string;
+}
+
+export default function PricingWeights({ locationId, serviceLine }: PricingWeightsProps = {}) {
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [enableWeights, setEnableWeights] = useState<boolean>(true);
   const [selectedWeightKey, setSelectedWeightKey] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [applyToAllServiceLines, setApplyToAllServiceLines] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: status } = useQuery({
-    queryKey: ["/api/status"],
+  const queryParams = new URLSearchParams();
+  if (locationId) queryParams.append('locationId', locationId);
+  if (serviceLine) queryParams.append('serviceLine', serviceLine);
+  const queryString = queryParams.toString();
+
+  const { data: weightsResponse } = useQuery({
+    queryKey: ["/api/weights", locationId, serviceLine],
+    enabled: true,
   });
 
   // Calculate total weight
@@ -215,8 +227,8 @@ export default function PricingWeights() {
   };
 
   useEffect(() => {
-    if (status && typeof status === 'object' && 'weights' in status && status.weights) {
-      const apiWeights = status.weights as any;
+    if (weightsResponse && typeof weightsResponse === 'object' && 'weights' in weightsResponse && weightsResponse.weights) {
+      const apiWeights = weightsResponse.weights as any;
       
       // Load enableWeights flag
       setEnableWeights(apiWeights.enable_weights !== false); // Default to true if not present
@@ -253,11 +265,11 @@ export default function PricingWeights() {
       });
       setWeights(defaultWeights);
     }
-  }, [status]);
+  }, [weightsResponse]);
 
   const saveWeightsMutation = useMutation({
     mutationFn: async (weightsData: Record<string, number>) => {
-      const payload = {
+      const payload: any = {
         enable_weights: enableWeights,
         occupancy_pressure: weightsData.occupancyPressure,
         days_vacant_decay: weightsData.daysVacantDecay,
@@ -267,15 +279,33 @@ export default function PricingWeights() {
         stock_market: weightsData.stockMarket,
         inquiry_tour_volume: weightsData.inquiryTourVolume,
       };
+      
+      if (locationId) {
+        payload.location_id = locationId;
+      }
+      if (serviceLine) {
+        payload.service_line = serviceLine;
+      }
+      if (applyToAllServiceLines && locationId && !serviceLine) {
+        payload.apply_to_all_service_lines = true;
+      }
+      
       return apiRequest('/api/weights', 'POST', payload);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/weights'] });
       queryClient.invalidateQueries({ queryKey: ['/api/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       setHasChanges(false);
       setIsSaving(false);
+      toast({
+        title: "Weights Saved",
+        description: applyToAllServiceLines && locationId && !serviceLine 
+          ? "Weights have been applied to all service lines for this location" 
+          : "Weights have been saved successfully",
+      });
     },
     onError: (error) => {
       setIsSaving(false);
@@ -394,12 +424,19 @@ export default function PricingWeights() {
           <Settings className="w-5 h-5 text-[var(--trilogy-navy)]" />
         </div>
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">
-            Pricing Algorithm Weights
-          </h3>
-          <p className="text-sm text-[var(--dashboard-muted)]">
-            Adjust factors influencing dynamic pricing decisions
-          </p>
+          <div>
+            <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">
+              Pricing Algorithm Weights
+              {locationId && (
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {serviceLine || "All Service Lines"}
+                </Badge>
+              )}
+            </h3>
+            <p className="text-sm text-[var(--dashboard-muted)]">
+              Adjust factors influencing dynamic pricing decisions
+            </p>
+          </div>
         </div>
         <div className={`px-3 py-1 rounded-lg text-sm font-bold ${
           isValid 
@@ -409,6 +446,30 @@ export default function PricingWeights() {
           Total: {totalWeight}%
         </div>
       </div>
+      
+      {locationId && !serviceLine && (
+        <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+          <div className="flex items-center space-x-3">
+            <Switch
+              id="apply-all-service-lines"
+              checked={applyToAllServiceLines}
+              onCheckedChange={setApplyToAllServiceLines}
+              data-testid="switch-apply-all-service-lines"
+            />
+            <div>
+              <label 
+                htmlFor="apply-all-service-lines" 
+                className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
+              >
+                Apply to All Service Lines
+              </label>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Save these weights to all service lines (AL, HC, IL, AL/MC, HC/MC, SL) at this location
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       {!isValid && (
         <div className="flex items-center space-x-2 p-3 mb-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
