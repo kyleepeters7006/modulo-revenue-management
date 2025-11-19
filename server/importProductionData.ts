@@ -1,10 +1,11 @@
 import { db } from "./db";
-import { rentRollData, locations, competitiveSurveyData, enquireData, locationMappings, unitPolygons } from "../shared/schema";
+import { rentRollData, locations, competitiveSurveyData, enquireData, locationMappings, unitPolygons, competitors } from "../shared/schema";
 import { sql, eq, and } from "drizzle-orm";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
 import { readFileSync } from "fs";
 import path from "path";
+import { geocodeAddress, findNearestLocation } from "./geocoding";
 
 /**
  * Import all production Trilogy data from attached_assets
@@ -186,7 +187,7 @@ async function importRentRolls() {
 }
 
 /**
- * Import competitive survey Excel data
+ * Import competitive survey Excel data and populate competitors table
  */
 async function importCompetitiveSurvey() {
   const filename = 'Competitive Survey Data Table_1763249402347.xlsx';
@@ -198,15 +199,25 @@ async function importCompetitiveSurvey() {
   const sheet = workbook.Sheets[sheetName];
   const data = xlsx.utils.sheet_to_json(sheet);
   
-  let imported = 0;
+  // Get all Trilogy locations for distance calculations
+  const trilogyLocations = await db.select().from(locations);
+  console.log(`Found ${trilogyLocations.length} Trilogy locations for mapping`);
+  
+  let surveyImported = 0;
+  let competitorsImported = 0;
   
   for (const row of data as any[]) {
     try {
+      const keyStatsLocation = row['KeyStats Location'] || row['Location'] || 'Unknown';
+      const competitorName = row['Competitor Name'] || row['Name'] || 'Unknown';
+      const competitorAddress = row['Address'] || row['Competitor Address'] || null;
+      
+      // Import to competitive_survey_data table
       await db.insert(competitiveSurveyData).values({
-        surveyMonth: '2025-11', // Default month
-        keyStatsLocation: row['KeyStats Location'] || row['Location'] || 'Unknown',
-        competitorName: row['Competitor Name'] || row['Name'] || 'Unknown',
-        competitorAddress: row['Address'] || null,
+        surveyMonth: '2025-11',
+        keyStatsLocation,
+        competitorName,
+        competitorAddress,
         distanceMiles: row['Distance (miles)'] ? parseFloat(row['Distance (miles)']) : null,
         competitorType: row['Type'] || row['Service Line'] || null,
         roomType: row['Room Type'] || null,
@@ -231,14 +242,63 @@ async function importCompetitiveSurvey() {
         amenities: row['Amenities'] || null,
         notes: row['Notes'] || null
       });
+      surveyImported++;
       
-      imported++;
+      // Geocode address and populate competitors table
+      const coords = await geocodeAddress(competitorAddress);
+      if (coords) {
+        // Find nearest Trilogy location
+        const nearestLocation = findNearestLocation(
+          coords.lat,
+          coords.lng,
+          trilogyLocations.filter(loc => loc.lat && loc.lng).map(loc => ({
+            name: loc.name,
+            lat: loc.lat!,
+            lng: loc.lng!
+          }))
+        );
+        
+        // Calculate rating based on rates
+        const avgRate = row['Monthly Rate Avg'] ? parseFloat(row['Monthly Rate Avg']) : null;
+        let rating = 'B'; // Default
+        if (avgRate) {
+          if (avgRate < 3500) rating = 'C';
+          else if (avgRate > 4500) rating = 'A';
+        }
+        
+        // Insert into competitors table for map display
+        await db.insert(competitors).values({
+          name: competitorName,
+          location: keyStatsLocation,
+          lat: coords.lat,
+          lng: coords.lng,
+          address: competitorAddress,
+          roomType: row['Room Type'] || null,
+          streetRate: avgRate,
+          avgCareRate: row['Care Fees Avg'] ? parseFloat(row['Care Fees Avg']) : null,
+          rating,
+          rates: {
+            studio: row['Studio Rate'] ? parseFloat(row['Studio Rate']) : null,
+            oneBedroom: row['1BR Rate'] ? parseFloat(row['1BR Rate']) : null,
+            twoBedroom: row['2BR Rate'] ? parseFloat(row['2BR Rate']) : null
+          },
+          attributes: {
+            units: row['Total Units'] ? parseInt(row['Total Units']) : null,
+            occupancy: row['Occupancy Rate'] ? parseFloat(row['Occupancy Rate']) : null,
+            yearBuilt: row['Year Built'] ? parseInt(row['Year Built']) : null,
+            nearestTrilogyLocation: nearestLocation?.name,
+            distanceToNearest: nearestLocation?.distance
+          }
+        });
+        competitorsImported++;
+      }
+      
     } catch (error) {
-      console.warn('Skipping competitive survey row:', error);
+      console.warn('Error importing competitive survey row:', error);
     }
   }
   
-  console.log(`Imported ${imported} competitive survey records`);
+  console.log(`✅ Competitive Survey: ${surveyImported} records imported | ${competitorsImported} competitors geocoded and added to map`);
 }
 
 /**

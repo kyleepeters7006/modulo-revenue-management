@@ -207,6 +207,7 @@ export function CompetitorMap({
         lat: currentLocation.lat,
         lng: currentLocation.lng,
         rates: { "Studio": 3175, "One Bedroom": 4200, "Two Bedroom": 5100, "Memory Care": 4800 },
+        avgRate: 3800,
         avgCareRate: 775,
         address: currentLocation.address
       };
@@ -405,6 +406,27 @@ export function CompetitorMap({
                   <span style="font-size: 16px; font-weight: 600; color: ${comparisonColor};">${comparisonText}</span>
                 </div>
               </div>
+              
+              ${competitor.attributes?.nearestTrilogyLocation ? `
+              <!-- Nearest Trilogy Location -->
+              <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border-left: 3px solid #0ea5e9; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                    <polyline points="9 22 9 12 15 12 15 22"/>
+                  </svg>
+                  <span style="font-size: 11px; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Nearest Trilogy Location</span>
+                </div>
+                <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">${competitor.attributes.nearestTrilogyLocation}</p>
+                <p style="margin: 4px 0 0 0; font-size: 12px; color: #0369a1;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline; vertical-align: text-top; margin-right: 4px;">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  ${competitor.attributes.distanceToNearest?.toFixed(1)} miles away
+                </p>
+              </div>
+              ` : ''}
               
               <!-- Action Links -->
               <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
