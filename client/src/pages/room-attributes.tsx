@@ -116,6 +116,17 @@ export default function RoomAttributes() {
     return true;
   });
 
+  // Debug: Log filtering results
+  console.log('Room Attributes Filtering:', {
+    selectedLocation,
+    selectedServiceLine,
+    totalUnits: rentRollData.length,
+    filteredUnits: filteredUnits.length,
+    sampleUnit: filteredUnits[0],
+    uniqueLocations: Array.from(new Set(rentRollData.map(u => u.location))).slice(0, 10),
+    roomTypesInFiltered: Array.from(new Set(filteredUnits.map(u => u.roomType))).slice(0, 10)
+  });
+
   // Get unique room types from filtered data
   const filteredRoomTypes = Array.from(new Set(filteredUnits.map(unit => unit.roomType))).filter(Boolean).sort();
 
