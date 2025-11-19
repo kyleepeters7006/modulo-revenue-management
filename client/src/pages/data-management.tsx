@@ -58,20 +58,10 @@ export default function DataManagement() {
     }
   };
 
-  const createUploadMutation = (
-    type: 'rent-roll' | 'inquiry' | 'competitor',
-    setLoading: (loading: boolean) => void,
-    fileInputRef: React.RefObject<HTMLInputElement>
-  ) => useMutation({
+  const rentRollMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      setLoading(true);
-      const endpoints = {
-        'rent-roll': '/api/upload/rent-roll',
-        'inquiry': '/api/upload/inquiry',
-        'competitor': '/api/upload/competitor'
-      };
-      
-      const response = await fetch(endpoints[type], {
+      setIsUploadingRentRoll(true);
+      const response = await fetch('/api/upload/rent-roll', {
         method: 'POST',
         body: formData,
       });
@@ -84,17 +74,11 @@ export default function DataManagement() {
       return response.json();
     },
     onSuccess: (data) => {
-      const messages = {
-        'rent-roll': `Processed ${data.recordsProcessed || 0} rent roll records.`,
-        'inquiry': `Processed ${data.recordsProcessed || 0} inquiry records.`,
-        'competitor': `Processed ${data.recordsProcessed || 0} competitor records.`
-      };
-      
       toast({
         title: "Upload Successful",
-        description: messages[type],
+        description: `Processed ${data.recordsProcessed || 0} rent roll records.`,
       });
-      setUploadHistory(prev => [{ ...data, type, timestamp: new Date() }, ...prev.slice(0, 9)]);
+      setUploadHistory(prev => [{ ...data, type: 'rent-roll', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
     },
     onError: (error: Error) => {
@@ -105,16 +89,88 @@ export default function DataManagement() {
       });
     },
     onSettled: () => {
-      setLoading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      setIsUploadingRentRoll(false);
+      if (rentRollFileInputRef.current) {
+        rentRollFileInputRef.current.value = '';
       }
     },
   });
 
-  const rentRollMutation = createUploadMutation('rent-roll', setIsUploadingRentRoll, rentRollFileInputRef);
-  const inquiryMutation = createUploadMutation('inquiry', setIsUploadingInquiry, inquiryFileInputRef);
-  const competitorMutation = createUploadMutation('competitor', setIsUploadingCompetitor, competitorFileInputRef);
+  const inquiryMutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      setIsUploadingInquiry(true);
+      const response = await fetch('/api/upload/inquiry', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Upload failed');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Upload Successful",
+        description: `Processed ${data.recordsProcessed || 0} inquiry records.`,
+      });
+      setUploadHistory(prev => [{ ...data, type: 'inquiry', timestamp: new Date() }, ...prev.slice(0, 9)]);
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsUploadingInquiry(false);
+      if (inquiryFileInputRef.current) {
+        inquiryFileInputRef.current.value = '';
+      }
+    },
+  });
+
+  const competitorMutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      setIsUploadingCompetitor(true);
+      const response = await fetch('/api/upload/competitor', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Upload failed');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Upload Successful",
+        description: `Processed ${data.recordsProcessed || 0} competitor records.`,
+      });
+      setUploadHistory(prev => [{ ...data, type: 'competitor', timestamp: new Date() }, ...prev.slice(0, 9)]);
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsUploadingCompetitor(false);
+      if (competitorFileInputRef.current) {
+        competitorFileInputRef.current.value = '';
+      }
+    },
+  });
 
   const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor') => (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
