@@ -16,6 +16,13 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 - **Medication management**: Competitor rates include medication management fees (Trilogy doesn't charge separately).
 - **Integration**: Adjusted competitor rates are used in the pricing algorithm for more accurate market positioning.
 
+## Floor Plan Admin Improvements
+- **Clarified auto-generation options**: Renamed confusing "Auto-Map with AI" button to "Generate Grid Layout" to distinguish it from actual AI Vision detection (Step 1 tab).
+- **Bulk generation added**: New "Quick Setup - All Campuses" card at top of admin page allows generating grid layouts for all 6 campuses at once (619 units total).
+- **Default floor plan image**: Created default 1024x768 grid floor plan image for campuses without custom images.
+- **Fixed location linking**: Updated `syncLocations` function to populate `rent_roll_data.location_id` foreign key, enabling floor plan generation to find units by location.
+- **Working floor plan system**: All campuses now auto-generate with grid-based unit layouts when using bulk generation. Units display as colored polygons (red=occupied, green=available) with room number labels.
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
