@@ -8,6 +8,7 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 - **Removed all demo/seed data**: Application no longer auto-seeds demo data on startup. The `/api/seed-demo` endpoint is disabled.
 - **Production data only**: All charts and visualizations now use real Trilogy production data exclusively. When data is unavailable, empty states display "No Production Data Available" messages instead of synthetic fallback data.
 - **Revenue Chart**: Updated to aggregate real rent_roll_data; shows helpful empty state when revenue data is missing.
+- **Overview Tiles Fix**: Updated Total Units tile to display actual rent roll data counts (`unitsWithData`: 619 units, `locationsWithData`: 6 campuses) instead of portfolio totals (54,171 units, 174 campuses). This ensures the dashboard shows only production data currently loaded in the system.
 
 ## Competitor Adjustment System
 - **Enhanced competitor schema**: Added `careLevel2Rate` and `medicationManagementFee` fields to competitors table for accurate rate comparisons.

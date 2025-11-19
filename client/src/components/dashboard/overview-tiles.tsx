@@ -63,8 +63,8 @@ export default function OverviewTiles() {
   const tiles = [
     {
       title: "Total Units",
-      value: overviewData.totalUnits.toLocaleString(),
-      subtitle: `${overviewData.totalLocations} campuses • ${overviewData.locationsWithData} with data (${overviewData.mostRecentMonth || 'N/A'})`,
+      value: overviewData.unitsWithData.toLocaleString(),
+      subtitle: `${overviewData.locationsWithData} campuses with data (${overviewData.mostRecentMonth || 'N/A'})`,
       icon: Home,
       color: "blue",
       testId: "metric-total-units"
