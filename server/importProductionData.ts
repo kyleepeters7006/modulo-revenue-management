@@ -89,7 +89,7 @@ async function importRentRolls() {
         if (!row.location) continue;
         
         // Map MatrixCare fields to our schema
-        const isOccupied = row.PatientID1 && row.PatientID1.trim() !== '';
+        const isOccupied = Boolean(row.PatientID1 && row.PatientID1.trim());
         const serviceLine = mapServiceLine(row.Service1);
         const roomType = mapRoomType(row.BedTypeDesc);
         const payerType = row.DisplayPayer || row.PayerName || 'Unknown';

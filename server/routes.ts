@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { rentRollData } from "@shared/schema";
+import { sql } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
@@ -2792,19 +2795,32 @@ Keep recommendations specific and quantitative when possible.`;
   app.get("/api/overview", async (req, res) => {
     try {
       const serviceLineFilter = req.query.serviceLine as string;
-      const allRentRollData = await storage.getRentRollData();
+      
+      // Get the most recent month's data only
+      const mostRecentMonthResult = await db
+        .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
+        .from(rentRollData);
+      const mostRecentMonth = mostRecentMonthResult[0]?.month || '2025-11';
+      
+      // Filter to most recent month only
+      const allRentRollData = await db
+        .select()
+        .from(rentRollData)
+        .where(sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`);
       
       // Filter by service line if specified
-      const rentRollData = serviceLineFilter && serviceLineFilter !== 'All' 
+      const rentRollDataFiltered = serviceLineFilter && serviceLineFilter !== 'All' 
         ? allRentRollData.filter((unit: any) => unit.serviceLine === serviceLineFilter)
         : allRentRollData;
       
-      // Always use real data - never return demo data
+      // Get unique campus count
+      const uniqueCampuses = new Set(allRentRollData.map(u => u.location)).size;
+      
       // Log the actual portfolio size for monitoring
-      console.log(`Trilogy Portfolio: ${allRentRollData.length} total units across 31 campuses`);
+      console.log(`Trilogy Portfolio (${mostRecentMonth}): ${allRentRollData.length} total units across ${uniqueCampuses} campuses`);
 
       // Calculate room type statistics for filtered data
-      const roomTypeStats = rentRollData.reduce((acc: any, unit: any) => {
+      const roomTypeStats = rentRollDataFiltered.reduce((acc: any, unit: any) => {
         if (!acc[unit.roomType]) {
           acc[unit.roomType] = { occupied: 0, total: 0 };
         }
@@ -2816,7 +2832,7 @@ Keep recommendations specific and quantitative when possible.`;
       }, {});
 
       const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
-        const roomTypeUnits = rentRollData.filter(u => u.roomType === roomType);
+        const roomTypeUnits = rentRollDataFiltered.filter(u => u.roomType === roomType);
         const avgRate = roomTypeUnits.length > 0 ? 
           roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
         const avgCompetitorRate = roomTypeUnits.length > 0 ? 
@@ -2907,9 +2923,9 @@ Keep recommendations specific and quantitative when possible.`;
         };
       });
 
-      const totalUnits = rentRollData.length;
-      const occupiedUnits = rentRollData.filter(u => u.occupiedYN).length;
-      const currentAnnualRevenue = rentRollData.reduce((sum, u) => {
+      const totalUnits = allRentRollData.length;
+      const occupiedUnits = allRentRollData.filter(u => u.occupiedYN).length;
+      const currentAnnualRevenue = allRentRollData.reduce((sum, u) => {
         if (u.occupiedYN) {
           const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
           const careRate = u.careRate || u.careFee || 0;
@@ -2917,7 +2933,7 @@ Keep recommendations specific and quantitative when possible.`;
         }
         return sum;
       }, 0);
-      const potentialAnnualRevenue = rentRollData.reduce((sum, u) => {
+      const potentialAnnualRevenue = allRentRollData.reduce((sum, u) => {
         const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
         const careRate = u.careRate || u.careFee || 0;
         return sum + (baseRent + careRate) * 12;
