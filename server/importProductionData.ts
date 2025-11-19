@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { rentRollData, locations, competitiveSurveyData, enquireData, locationMappings, unitPolygons } from "../shared/schema";
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
 import { readFileSync } from "fs";
@@ -81,18 +81,40 @@ async function importRentRolls() {
     });
     
     let imported = 0;
+    let skipped = 0;
+    let duplicates = 0;
     const rows = parsed.data as any[];
     
     for (const row of rows) {
       try {
         // Skip if no location
-        if (!row.location) continue;
+        if (!row.location) {
+          skipped++;
+          continue;
+        }
         
         // Map MatrixCare fields to our schema
         const isOccupied = Boolean(row.PatientID1 && row.PatientID1.trim());
         const serviceLine = mapServiceLine(row.Service1);
         const roomType = mapRoomType(row.BedTypeDesc);
         const payerType = row.DisplayPayer || row.PayerName || 'Unknown';
+        const roomNumber = row.Room_Bed || 'Unknown';
+        const locationName = row.location.trim();
+        
+        // **DUPLICATE CHECK**: Check if this unit already exists in this month
+        const existing = await db.select().from(rentRollData).where(
+          and(
+            eq(rentRollData.uploadMonth, uploadMonth),
+            eq(rentRollData.location, locationName),
+            eq(rentRollData.serviceLine, serviceLine),
+            eq(rentRollData.roomNumber, roomNumber)
+          )
+        ).limit(1);
+        
+        if (existing.length > 0) {
+          duplicates++;
+          continue; // Skip duplicate
+        }
         
         // Parse rates
         const finalRate = parseFloat(row.FinalRate?.replace(/[$,]/g, '') || '0');
@@ -107,8 +129,8 @@ async function importRentRolls() {
         await db.insert(rentRollData).values({
           uploadMonth,
           date: extractDate(filename),
-          location: row.location.trim(),
-          roomNumber: row.Room_Bed || 'Unknown',
+          location: locationName,
+          roomNumber,
           roomType,
           serviceLine,
           occupiedYN: isOccupied,
@@ -154,11 +176,12 @@ async function importRentRolls() {
         
         imported++;
       } catch (error) {
-        console.warn(`Skipping row in ${filename}:`, error);
+        console.warn(`Error processing row in ${filename}:`, error);
+        skipped++;
       }
     }
     
-    console.log(`Imported ${imported} units from ${filename}`);
+    console.log(`✅ ${filename}: Imported ${imported} units | Skipped ${duplicates} duplicates | Errors ${skipped}`);
   }
 }
 
