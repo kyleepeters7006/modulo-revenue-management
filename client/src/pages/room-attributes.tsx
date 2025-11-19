@@ -109,9 +109,19 @@ export default function RoomAttributes() {
     return Math.round(price * 100) / 100; // Round to 2 decimal places
   };
 
-  // Group units by room type and calculate average attributed price
-  const roomTypePricing = roomTypes.map(roomType => {
-    const unitsOfType = rentRollData.filter(unit => unit.roomType === roomType);
+  // Filter units based on selections (used for both room type pricing and unit-level table)
+  const filteredUnits = rentRollData.filter(unit => {
+    if (selectedServiceLine !== "All" && unit.serviceLine !== selectedServiceLine) return false;
+    if (selectedLocation !== "All" && unit.location !== selectedLocation) return false;
+    return true;
+  });
+
+  // Get unique room types from filtered data
+  const filteredRoomTypes = Array.from(new Set(filteredUnits.map(unit => unit.roomType))).filter(Boolean).sort();
+
+  // Group units by room type and calculate average attributed price (using filtered data)
+  const roomTypePricing = filteredRoomTypes.map(roomType => {
+    const unitsOfType = filteredUnits.filter(unit => unit.roomType === roomType);
     const avgBasePrice = unitsOfType.reduce((sum, u) => sum + (u.streetRate || 0), 0) / unitsOfType.length || 0;
     const avgAttributedPrice = unitsOfType.reduce((sum, u) => sum + calculateAttributedPrice(u), 0) / unitsOfType.length || 0;
     
@@ -124,13 +134,6 @@ export default function RoomAttributes() {
     };
   });
 
-  // Filter units based on selections
-  const filteredUnits = rentRollData.filter(unit => {
-    if (selectedServiceLine !== "All" && unit.serviceLine !== selectedServiceLine) return false;
-    if (selectedLocation !== "All" && unit.location !== selectedLocation) return false;
-    return true;
-  });
-
   return (
     <div className="min-h-screen bg-[var(--dashboard-background)]">
       <Navigation />
@@ -138,12 +141,37 @@ export default function RoomAttributes() {
       <div className="container mx-auto px-4 py-6 sm:px-6 lg:px-8 max-w-[1920px]">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 text-[var(--trilogy-dark-blue)]">
-            Room Attributes & Pricing
-          </h1>
-          <p className="text-[var(--dashboard-text-secondary)]">
-            Configure attribute ratings and manage base pricing by room type with attributed pricing calculations
-          </p>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h1 className="text-4xl font-bold mb-2 text-[var(--trilogy-dark-blue)]">
+                Room Attributes & Pricing
+              </h1>
+              <p className="text-[var(--dashboard-text-secondary)]">
+                Configure attribute ratings and manage base pricing by room type with attributed pricing calculations
+              </p>
+            </div>
+            
+            {/* Campus Selector */}
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium whitespace-nowrap">Campus:</Label>
+              <Select 
+                value={selectedLocation} 
+                onValueChange={setSelectedLocation}
+              >
+                <SelectTrigger className="w-[280px]" data-testid="select-campus">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Campuses</SelectItem>
+                  {Array.isArray(locations) && locations.map((loc: any) => (
+                    <SelectItem key={loc.id} value={loc.name || loc.id}>
+                      {loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -155,7 +183,9 @@ export default function RoomAttributes() {
                 <span>Base Pricing by Room Type</span>
               </CardTitle>
               <CardDescription>
-                View average pricing and attribute lift across all room types
+                {selectedLocation === "All" 
+                  ? "View average pricing and attribute lift across all room types for all campuses"
+                  : `View average pricing and attribute lift across all room types for ${selectedLocation}`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -214,47 +244,27 @@ export default function RoomAttributes() {
                   <Layers className="h-5 w-5" />
                   <span>Unit-Level Attributed Pricing</span>
                 </div>
-                <div className="flex gap-4">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm font-normal">Location:</Label>
-                    <Select 
-                      value={selectedLocation} 
-                      onValueChange={setSelectedLocation}
-                    >
-                      <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="All">All Locations</SelectItem>
-                        {Array.isArray(locations) && locations.map((loc: any) => (
-                          <SelectItem key={loc.id} value={loc.name || loc.id}>
-                            {loc.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm font-normal">Service Line:</Label>
-                    <Select 
-                      value={selectedServiceLine} 
-                      onValueChange={setSelectedServiceLine}
-                    >
-                      <SelectTrigger className="w-[180px]" data-testid="select-serviceline-filter">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="All">All Service Lines</SelectItem>
-                        {serviceLines.map(sl => (
-                          <SelectItem key={sl} value={sl}>{sl}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm font-normal">Service Line:</Label>
+                  <Select 
+                    value={selectedServiceLine} 
+                    onValueChange={setSelectedServiceLine}
+                  >
+                    <SelectTrigger className="w-[180px]" data-testid="select-serviceline-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All Service Lines</SelectItem>
+                      {serviceLines.map(sl => (
+                        <SelectItem key={sl} value={sl}>{sl}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardTitle>
               <CardDescription>
                 View individual units with their attribute ratings and calculated attributed prices
+                {selectedLocation !== "All" && ` for ${selectedLocation}`}
               </CardDescription>
             </CardHeader>
             <CardContent>
