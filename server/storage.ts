@@ -731,7 +731,7 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(rentRollData.location, location),
           eq(rentRollData.serviceLine, serviceLine),
-          sql`${rentRollData.careLevel} = 2 OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%'`
+          sql`${rentRollData.careLevel} = '2' OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%'`
         )
       )
       .limit(10);
