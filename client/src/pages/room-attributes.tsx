@@ -147,9 +147,6 @@ export default function RoomAttributes() {
         </div>
 
         <div className="space-y-6">
-          {/* Attribute Management Section */}
-          <AttributeManagement />
-
           {/* Base Pricing by Room Type */}
           <Card>
             <CardHeader>
@@ -205,6 +202,9 @@ export default function RoomAttributes() {
               </Table>
             </CardContent>
           </Card>
+
+          {/* Attribute Management Section */}
+          <AttributeManagement />
 
           {/* Unit-Level Detail */}
           <Card>
