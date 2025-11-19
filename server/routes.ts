@@ -3075,6 +3075,15 @@ Keep recommendations specific and quantitative when possible.`;
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
+      // Get upload date from request body (format: YYYY-MM-DD)
+      const uploadDate = req.body.uploadDate;
+      if (!uploadDate) {
+        return res.status(400).json({ error: 'Upload date is required' });
+      }
+
+      // Extract year-month from upload date (YYYY-MM format)
+      const uploadMonth = uploadDate.substring(0, 7);
+
       const buffer = req.file.buffer;
       let jsonData: any[] = [];
 
@@ -3097,13 +3106,12 @@ Keep recommendations specific and quantitative when possible.`;
       }
 
       // Process and store data
-      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM format
       const processedRecords: any[] = [];
 
       for (const row of jsonData) {
         const rentRollEntry = {
-          uploadMonth: currentMonth,
-          date: row.date || new Date().toISOString().split('T')[0],
+          uploadMonth: uploadMonth,
+          date: row.date || uploadDate,
           location: row.location || '',
           roomNumber: row['room number'] || '',
           roomType: row['room type'] || '',
@@ -3146,19 +3154,20 @@ Keep recommendations specific and quantitative when possible.`;
       
       // Track upload history
       await storage.createUploadHistory({
-        uploadMonth: currentMonth,
+        uploadMonth: uploadMonth,
         fileName: req.file.originalname,
         uploadType: 'rent_roll',
         totalRecords: processedRecords.length
       });
 
       // Generate rate card summary
-      await storage.generateRateCard(currentMonth);
+      await storage.generateRateCard(uploadMonth);
 
       res.json({
         message: 'Upload successful',
         recordsProcessed: processedRecords.length,
-        uploadMonth: currentMonth
+        uploadMonth: uploadMonth,
+        uploadDate: uploadDate
       });
 
     } catch (error) {

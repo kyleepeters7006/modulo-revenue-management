@@ -1,6 +1,8 @@
 import Navigation from "@/components/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -13,6 +15,8 @@ export default function DataManagement() {
   const [isUploadingRentRoll, setIsUploadingRentRoll] = useState(false);
   const [isUploadingInquiry, setIsUploadingInquiry] = useState(false);
   const [isUploadingCompetitor, setIsUploadingCompetitor] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadDate, setUploadDate] = useState<string>('');
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
@@ -172,6 +176,86 @@ export default function DataManagement() {
     },
   });
 
+  // Parse date from filename (e.g., "RentRoll_1.31.25.csv" -> "2025-01-31")
+  const parseDateFromFilename = (filename: string): string => {
+    // Try various date patterns
+    const patterns = [
+      /(\d{1,2})\.(\d{1,2})\.(\d{2,4})/,  // 1.31.25 or 01.31.2025
+      /(\d{1,2})-(\d{1,2})-(\d{2,4})/,    // 1-31-25 or 01-31-2025
+      /(\d{4})-(\d{1,2})-(\d{1,2})/,      // 2025-01-31
+      /(\d{4})(\d{2})(\d{2})/             // 20250131
+    ];
+    
+    for (const pattern of patterns) {
+      const match = filename.match(pattern);
+      if (match) {
+        let year, month, day;
+        
+        if (pattern === patterns[2]) {
+          // YYYY-MM-DD format
+          [, year, month, day] = match;
+        } else if (pattern === patterns[3]) {
+          // YYYYMMDD format
+          [, year, month, day] = match;
+        } else {
+          // MM.DD.YY or MM-DD-YY format
+          [, month, day, year] = match;
+          
+          // Convert 2-digit year to 4-digit
+          if (year.length === 2) {
+            const yearNum = parseInt(year);
+            year = yearNum < 50 ? `20${year}` : `19${year}`;
+          }
+        }
+        
+        // Pad month and day with leading zeros if needed
+        month = month.padStart(2, '0');
+        day = day.padStart(2, '0');
+        
+        return `${year}-${month}-${day}`;
+      }
+    }
+    
+    // Default to current month if no date found
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setSelectedFile(file);
+    
+    // Parse date from filename and pre-populate
+    const parsedDate = parseDateFromFilename(file.name);
+    setUploadDate(parsedDate);
+  };
+
+  const handleConfirmUpload = () => {
+    if (!selectedFile || !uploadDate) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a file and upload date.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('uploadDate', uploadDate);
+    
+    rentRollMutation.mutate(formData);
+    
+    // Reset
+    setSelectedFile(null);
+    setUploadDate('');
+  };
+
   const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor') => (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -219,33 +303,84 @@ export default function DataManagement() {
                 </AlertDescription>
               </Alert>
 
-              <div className="flex flex-col space-y-3">
-                <Button
-                  onClick={() => handleDownloadTemplate('rent-roll')}
-                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-                  data-testid="button-download-rent-roll-template"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Rent Roll Template
-                </Button>
-                
-                <Button
-                  onClick={() => rentRollFileInputRef.current?.click()}
-                  disabled={isUploadingRentRoll}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
-                  data-testid="button-upload-rent-roll"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {isUploadingRentRoll ? 'Processing...' : 'Upload Rent Roll Data'}
-                </Button>
-              </div>
+              {!selectedFile ? (
+                <div className="flex flex-col space-y-3">
+                  <Button
+                    onClick={() => handleDownloadTemplate('rent-roll')}
+                    className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                    data-testid="button-download-rent-roll-template"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Rent Roll Template
+                  </Button>
+                  
+                  <Button
+                    onClick={() => rentRollFileInputRef.current?.click()}
+                    disabled={isUploadingRentRoll}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
+                    data-testid="button-select-rent-roll-file"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Select Rent Roll File
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm font-medium text-blue-900 mb-1">Selected File:</p>
+                    <p className="text-sm text-blue-700">{selectedFile.name}</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="upload-date" className="text-sm font-medium">
+                      Upload Date (YYYY-MM-DD)
+                    </Label>
+                    <Input
+                      id="upload-date"
+                      type="date"
+                      value={uploadDate}
+                      onChange={(e) => setUploadDate(e.target.value)}
+                      className="w-full"
+                      data-testid="input-upload-date"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Date auto-detected from filename. You can change it if needed.
+                    </p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleConfirmUpload}
+                      disabled={isUploadingRentRoll || !uploadDate}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                      data-testid="button-confirm-upload"
+                    >
+                      {isUploadingRentRoll ? 'Processing...' : 'Confirm Upload'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setUploadDate('');
+                        if (rentRollFileInputRef.current) {
+                          rentRollFileInputRef.current.value = '';
+                        }
+                      }}
+                      variant="outline"
+                      disabled={isUploadingRentRoll}
+                      data-testid="button-cancel-upload"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
               
               <input
                 ref={rentRollFileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 className="hidden"
-                onChange={handleFileUpload('rent-roll')}
+                onChange={handleFileSelect}
                 data-testid="input-rent-roll-file"
               />
             </CardContent>
