@@ -6011,6 +6011,23 @@ Respond in JSON format:
     }
   });
 
+  // Get available upload months
+  app.get("/api/rent-roll/available-months", async (req, res) => {
+    try {
+      const result = await db
+        .selectDistinct({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(sql`${rentRollData.uploadMonth} IS NOT NULL`)
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`);
+      
+      const months = result.map(r => r.uploadMonth).filter(Boolean);
+      res.json(months);
+    } catch (error) {
+      console.error('Error fetching available months:', error);
+      res.status(500).json({ error: "Failed to fetch available months" });
+    }
+  });
+
   // Get all rent roll data for a location
   app.get("/api/rent-roll-data/location/:locationId", async (req, res) => {
     try {

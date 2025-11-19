@@ -66,6 +66,11 @@ export default function RateCardTable({
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  // Fetch available upload months
+  const { data: availableMonths = [] } = useQuery<string[]>({
+    queryKey: ['/api/rent-roll/available-months'],
+  });
+
   const { data: rateCardData, isLoading } = useQuery({
     queryKey: ['/api/rate-card', selectedMonth, selectedRegions, selectedDivisions, selectedLocations],
     queryFn: async () => {
@@ -355,6 +360,13 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
     });
   }
 
+  // Format month string for display (e.g., "2025-11" -> "November 2025")
+  const formatMonth = (monthStr: string): string => {
+    const [year, month] = monthStr.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
   // Render sort icon for column headers
   const SortIcon = ({ column }: { column: string }) => {
     if (sortColumn !== column) {
@@ -374,32 +386,24 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           <CardTitle className="flex items-center justify-between">
             <span>Rate Card & Pricing</span>
             <div className="flex items-center space-x-4">
-              <Select value={selectedMonth || rateCardData?.month || ''} onValueChange={setSelectedMonth}>
+              <Select 
+                value={selectedMonth || rateCardData?.month || ''} 
+                onValueChange={setSelectedMonth}
+                data-testid="select-upload-month"
+              >
                 <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Loading..." />
+                  <SelectValue placeholder="Select month..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {[
-                    { month: '2024-10', display: 'October 2024' },
-                    { month: '2024-11', display: 'November 2024' },
-                    { month: '2024-12', display: 'December 2024' },
-                    { month: '2025-01', display: 'January 2025' },
-                    { month: '2025-02', display: 'February 2025' },
-                    { month: '2025-03', display: 'March 2025' },
-                    { month: '2025-04', display: 'April 2025' },
-                    { month: '2025-05', display: 'May 2025' },
-                    { month: '2025-06', display: 'June 2025' },
-                    { month: '2025-07', display: 'July 2025' },
-                    { month: '2025-08', display: 'August 2025' },
-                    { month: '2025-09', display: 'September 2025' },
-                    { month: '2025-10', display: 'October 2025' },
-                    { month: '2025-11', display: 'November 2025' },
-                    { month: '2025-12', display: 'December 2025' },
-                  ].map(({ month, display }) => (
-                    <SelectItem key={month} value={month}>
-                      {display}
-                    </SelectItem>
-                  ))}
+                  {availableMonths.length === 0 ? (
+                    <SelectItem value="" disabled>No data uploaded</SelectItem>
+                  ) : (
+                    availableMonths.map((month) => (
+                      <SelectItem key={month} value={month}>
+                        {formatMonth(month)}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>

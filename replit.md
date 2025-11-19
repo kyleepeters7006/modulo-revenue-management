@@ -4,6 +4,11 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 
 # Recent Changes (November 19, 2025)
 
+## Rate Card Month Selector Fix
+- **Dynamic month selector**: Rate Card page month dropdown now only shows months for which rent roll data has actually been uploaded, instead of showing all months from October 2024 to December 2025.
+- **New API endpoint**: Added `/api/rent-roll/available-months` endpoint that queries the database for distinct upload months with actual data.
+- **Better UX**: Users can only select from months with real data (currently January 2025 and November 2025), preventing confusion from empty month selections.
+
 ## Data Management Page Reorganization
 - **Separated upload sections**: Data Management page now has three distinct upload sections instead of single unified upload: Rent Roll Data, Inquiry Data, and Competitive Data.
 - **Template download endpoints**: Created dedicated template download endpoints (`/api/template/rent-roll`, `/api/template/inquiry`, `/api/template/competitor`) that return pre-formatted Excel templates for each data type.
