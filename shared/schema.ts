@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   index,
+  uniqueIndex,
   jsonb,
   pgTable,
   timestamp,
@@ -238,7 +239,9 @@ export const adjustmentRanges = pgTable("adjustment_ranges", {
   marketMax: real("market_max").notNull().default(0.05), // +5% bull market
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  uniqueScope: uniqueIndex("adjustment_ranges_unique_scope").on(table.locationId, table.serviceLine)
+}));
 
 // Dynamic pricing guardrails
 // Supports 3-tier hierarchical configuration: location+serviceLine specific → location-level → global defaults
@@ -252,7 +255,9 @@ export const guardrails = pgTable("guardrails", {
   seasonalAdjustments: jsonb("seasonal_adjustments"),
   competitorVarianceLimit: real("competitor_variance_limit").default(0.10), // 10% variance from competitor rates
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  uniqueScope: uniqueIndex("guardrails_unique_scope").on(table.locationId, table.serviceLine)
+}));
 
 // Attribute ratings configuration - A/B/C values for each attribute type
 export const attributeRatings = pgTable("attribute_ratings", {
@@ -427,7 +432,9 @@ export const adjustmentRules = pgTable("adjustment_rules", {
   actualAnnualImpact: real("actual_annual_impact"), // Tracked actual impact over time
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  uniqueScope: uniqueIndex("adjustment_rules_unique_scope").on(table.name, table.locationId, table.serviceLine)
+}));
 
 // Adjustment rule execution log
 export const adjustmentRuleLog = pgTable("adjustment_rule_log", {
