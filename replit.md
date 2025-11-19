@@ -31,6 +31,17 @@ This project, "Modulo," is a revenue management dashboard for real estate/senior
 - **Per-unit enable/disable**: Each location and service line can independently enable/disable the Modulo algorithm via the `enableWeights` flag.
 - **Optimized algorithm**: Modulo pricing pre-caches all weights before processing units to avoid N+1 queries. Uses `getWeightsForUnit()` helper for clean 3-tier fallback.
 
+## Hierarchical Pricing Configuration Storage (All Sections)
+- **Extended to all pricing controls**: Hierarchical storage now applies to Adjustment Ranges, Guardrails, and Smart Adjustment Rules in addition to Pricing Weights.
+- **Schema updates**: Added `locationId` and `serviceLine` columns (nullable) to `adjustmentRanges`, `guardrails`, and `adjustmentRules` tables.
+- **Database migration**: Successfully pushed schema changes to production database with `npm run db:push --force`.
+- **3-tier fallback in API**: All GET endpoints use explicit SQL queries with tier-by-tier fallback logic: (1) WHERE locationId=X AND serviceLine=Y → (2) WHERE locationId=X AND serviceLine IS NULL → (3) WHERE locationId IS NULL AND serviceLine IS NULL.
+- **Mutation handling**: PUT/POST endpoints explicitly exclude auto-generated fields (id, createdAt, updatedAt) from payloads to prevent timestamp serialization errors.
+- **Scope resolution**: Frontend mutations send `locationId: locationId || null` and `serviceLine: serviceLine || null` to ensure backend understands scope intent (not just absence of parameter).
+- **Cache invalidation**: Broad query key invalidation used to ensure all scope variations refresh after mutations.
+- **React hooks ordering**: Fixed bug where `saveMutation` was used before definition; now properly ordered with dependencies in autosave useEffect.
+- **Autosave functionality**: AdjustmentRanges component includes 2-second debounced autosave with "Unsaved Changes" indicator and loading states.
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

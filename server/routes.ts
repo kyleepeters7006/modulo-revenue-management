@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { rentRollData, locations, enquireData } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules } from "@shared/schema";
 import { sql, and, eq, gte, lt, or } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -870,46 +870,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { locationId, serviceLine } = req.query;
       
-      // 3-tier fallback: specific → location → global
-      const conditions = [];
-      if (locationId && serviceLine) {
-        conditions.push(and(
-          eq(adjustmentRanges.locationId, locationId as string),
-          eq(adjustmentRanges.serviceLine, serviceLine as string)
-        ));
-      }
-      if (locationId) {
-        conditions.push(and(
-          eq(adjustmentRanges.locationId, locationId as string),
-          sql`${adjustmentRanges.serviceLine} IS NULL`
-        ));
-      }
-      conditions.push(and(
-        sql`${adjustmentRanges.locationId} IS NULL`,
-        sql`${adjustmentRanges.serviceLine} IS NULL`
-      ));
-      
-      const allRanges = await db.select().from(adjustmentRanges);
-      
-      // Find best match using fallback logic
+      // 3-tier fallback: specific → location-only → global
       let ranges;
-      for (const condition of conditions) {
-        const match = allRanges.find(r => {
-          if (locationId && serviceLine && r.locationId === locationId && r.serviceLine === serviceLine) return true;
-          if (locationId && !serviceLine && r.locationId === locationId && !r.serviceLine) return true;
-          if (!locationId && !serviceLine && !r.locationId && !r.serviceLine) return true;
-          return false;
-        });
-        if (match) {
-          ranges = match;
-          break;
-        }
+      
+      // Try location + serviceLine specific
+      if (locationId && serviceLine) {
+        [ranges] = await db.select().from(adjustmentRanges)
+          .where(and(
+            eq(adjustmentRanges.locationId, locationId as string),
+            eq(adjustmentRanges.serviceLine, serviceLine as string)
+          ))
+          .limit(1);
+      }
+      
+      // Fall back to location-only (serviceLine=NULL)
+      if (!ranges && locationId) {
+        [ranges] = await db.select().from(adjustmentRanges)
+          .where(and(
+            eq(adjustmentRanges.locationId, locationId as string),
+            sql`${adjustmentRanges.serviceLine} IS NULL`
+          ))
+          .limit(1);
+      }
+      
+      // Fall back to global default (both NULL)
+      if (!ranges) {
+        [ranges] = await db.select().from(adjustmentRanges)
+          .where(and(
+            sql`${adjustmentRanges.locationId} IS NULL`,
+            sql`${adjustmentRanges.serviceLine} IS NULL`
+          ))
+          .limit(1);
       }
       
       if (ranges) {
         res.json(ranges);
       } else {
-        // Return default ranges if none exist
+        // Return default ranges if none exist in database
         const defaultRanges = {
           occupancyMin: -0.10,
           occupancyMax: 0.05,
@@ -934,32 +931,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/adjustment-ranges", async (req, res) => {
     try {
-      const { locationId, serviceLine, ...rangeData } = req.body;
+      const { locationId, serviceLine, id, createdAt, updatedAt, ...rangeData } = req.body;
       
       // Delete existing entry for this scope
-      const deleteConditions = [];
       if (locationId && serviceLine) {
-        deleteConditions.push(and(
+        await db.delete(adjustmentRanges).where(and(
           eq(adjustmentRanges.locationId, locationId),
           eq(adjustmentRanges.serviceLine, serviceLine)
         ));
       } else if (locationId) {
-        deleteConditions.push(and(
+        await db.delete(adjustmentRanges).where(and(
           eq(adjustmentRanges.locationId, locationId),
           sql`${adjustmentRanges.serviceLine} IS NULL`
         ));
       } else {
-        deleteConditions.push(and(
+        await db.delete(adjustmentRanges).where(and(
           sql`${adjustmentRanges.locationId} IS NULL`,
           sql`${adjustmentRanges.serviceLine} IS NULL`
         ));
       }
       
-      for (const condition of deleteConditions) {
-        await db.delete(adjustmentRanges).where(condition);
-      }
-      
-      // Insert new values
+      // Insert new values (timestamps are auto-generated)
       const [newRanges] = await db.insert(adjustmentRanges).values({
         locationId: locationId || null,
         serviceLine: serviceLine || null,
@@ -1768,21 +1760,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { locationId, serviceLine } = req.query;
       
-      // 3-tier fallback: specific → location → global
-      const allGuardrails = await db.select().from(guardrails);
-      
+      // 3-tier fallback: specific → location-only → global
       let guardrail;
-      // Try location + service line specific
+      
+      // Try location + serviceLine specific
       if (locationId && serviceLine) {
-        guardrail = allGuardrails.find(g => g.locationId === locationId && g.serviceLine === serviceLine);
+        [guardrail] = await db.select().from(guardrails)
+          .where(and(
+            eq(guardrails.locationId, locationId as string),
+            eq(guardrails.serviceLine, serviceLine as string)
+          ))
+          .limit(1);
       }
-      // Fall back to location-level
+      
+      // Fall back to location-only (serviceLine=NULL)
       if (!guardrail && locationId) {
-        guardrail = allGuardrails.find(g => g.locationId === locationId && !g.serviceLine);
+        [guardrail] = await db.select().from(guardrails)
+          .where(and(
+            eq(guardrails.locationId, locationId as string),
+            sql`${guardrails.serviceLine} IS NULL`
+          ))
+          .limit(1);
       }
-      // Fall back to global
+      
+      // Fall back to global default (both NULL)
       if (!guardrail) {
-        guardrail = allGuardrails.find(g => !g.locationId && !g.serviceLine);
+        [guardrail] = await db.select().from(guardrails)
+          .where(and(
+            sql`${guardrails.locationId} IS NULL`,
+            sql`${guardrails.serviceLine} IS NULL`
+          ))
+          .limit(1);
       }
       
       res.json(guardrail || {});
@@ -1794,10 +1802,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/guardrails", async (req, res) => {
     try {
-      const { locationId, serviceLine, ...guardrailData } = req.body;
+      const { locationId, serviceLine, id, createdAt, ...guardrailData } = req.body;
       
       // Delete existing entry for this scope
-      const deleteConditions = [];
       if (locationId && serviceLine) {
         await db.delete(guardrails).where(and(
           eq(guardrails.locationId, locationId),
@@ -1815,7 +1822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ));
       }
       
-      // Insert new values
+      // Insert new values (createdAt is auto-generated)
       const [newGuardrail] = await db.insert(guardrails).values({
         locationId: locationId || null,
         serviceLine: serviceLine || null,

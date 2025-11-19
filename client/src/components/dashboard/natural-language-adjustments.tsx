@@ -43,7 +43,12 @@ const exampleRules = [
   "If a unit sells, increase nearby units by 3%",
 ];
 
-export function NaturalLanguageAdjustments() {
+interface NaturalLanguageAdjustmentsProps {
+  locationId?: string;
+  serviceLine?: string;
+}
+
+export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalLanguageAdjustmentsProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -56,11 +61,17 @@ export function NaturalLanguageAdjustments() {
   // Fetch existing rules on mount
   useEffect(() => {
     fetchRules();
-  }, []);
+  }, [locationId, serviceLine]);
   
   const fetchRules = async () => {
     try {
-      const response = await fetch('/api/adjustment-rules');
+      const queryParams = new URLSearchParams();
+      if (locationId) queryParams.set('locationId', locationId);
+      if (serviceLine) queryParams.set('serviceLine', serviceLine);
+      const queryString = queryParams.toString();
+      const url = `/api/adjustment-rules${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         setRules(data);
@@ -173,7 +184,9 @@ export function NaturalLanguageAdjustments() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           description: transcript,
-          preview: previewMode 
+          preview: previewMode,
+          locationId: locationId || null,
+          serviceLine: serviceLine || null
         }),
       });
 

@@ -21,14 +21,29 @@ const defaultGuardrails = {
   }
 };
 
-export default function GuardrailsEditor() {
+interface GuardrailsEditorProps {
+  locationId?: string;
+  serviceLine?: string;
+}
+
+export default function GuardrailsEditor({ locationId, serviceLine }: GuardrailsEditorProps) {
   const [formData, setFormData] = useState(defaultGuardrails);
   const [saveStatus, setSaveStatus] = useState("Configuration ready to save...");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const queryParams = new URLSearchParams();
+  if (locationId) queryParams.set('locationId', locationId);
+  if (serviceLine) queryParams.set('serviceLine', serviceLine);
+  const queryString = queryParams.toString();
+
   const { data: guardrails } = useQuery({
-    queryKey: ["/api/guardrails"],
+    queryKey: ["/api/guardrails", locationId, serviceLine],
+    queryFn: async () => {
+      const url = `/api/guardrails${queryString ? `?${queryString}` : ''}`;
+      const res = await fetch(url);
+      return res.json();
+    },
   });
 
   useEffect(() => {
@@ -41,7 +56,11 @@ export default function GuardrailsEditor() {
 
   const saveGuardrailsMutation = useMutation({
     mutationFn: async (config: any) => {
-      return apiRequest('/api/guardrails', 'POST', config);
+      return apiRequest('/api/guardrails', 'POST', { 
+        ...config, 
+        locationId: locationId || null, 
+        serviceLine: serviceLine || null 
+      });
     },
     onSuccess: () => {
       setSaveStatus("Guardrails saved successfully");

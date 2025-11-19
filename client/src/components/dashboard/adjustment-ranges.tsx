@@ -39,47 +39,56 @@ const defaultRanges: AdjustmentRange = {
   marketMax: 0.05,
 };
 
-export default function AdjustmentRanges() {
+interface AdjustmentRangesProps {
+  locationId?: string;
+  serviceLine?: string;
+}
+
+export default function AdjustmentRanges({ locationId, serviceLine }: AdjustmentRangesProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [ranges, setRanges] = useState<AdjustmentRange>(defaultRanges);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  const queryParams = new URLSearchParams();
+  if (locationId) queryParams.set('locationId', locationId);
+  if (serviceLine) queryParams.set('serviceLine', serviceLine);
+  const queryString = queryParams.toString();
+
   const { data: savedRanges, isLoading } = useQuery<AdjustmentRange>({
-    queryKey: ['/api/adjustment-ranges'],
+    queryKey: ['/api/adjustment-ranges', locationId, serviceLine],
+    queryFn: async () => {
+      const url = `/api/adjustment-ranges${queryString ? `?${queryString}` : ''}`;
+      const res = await fetch(url);
+      return res.json();
+    },
   });
 
-  useEffect(() => {
-    if (savedRanges) {
-      setRanges(savedRanges);
-    }
-  }, [savedRanges]);
-
-  // Auto-save with debounce
-  useEffect(() => {
-    if (!hasChanges) return;
-    
-    const timeoutId = setTimeout(() => {
-      setIsSaving(true);
-      saveMutation.mutate(ranges);
-    }, 2000); // 2 second debounce
-
-    return () => clearTimeout(timeoutId);
-  }, [ranges, hasChanges]);
-
-  const saveMutation = useMutation({
+  const { mutate: saveRanges, isPending: isSavingMutation } = useMutation({
     mutationFn: async (data: AdjustmentRange) => {
-      await apiRequest('/api/adjustment-ranges', 'PUT', data);
+      console.log('Saving adjustment ranges:', { locationId, serviceLine, data });
+      await apiRequest('/api/adjustment-ranges', 'PUT', { 
+        ...data, 
+        locationId: locationId || null, 
+        serviceLine: serviceLine || null 
+      });
     },
     onSuccess: () => {
+      console.log('Adjustment ranges saved successfully');
+      // Invalidate all related cache keys
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-ranges'] });
       queryClient.invalidateQueries({ queryKey: ['/api/calculation'] });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
       setHasChanges(false);
       setIsSaving(false);
+      toast({
+        title: "Saved",
+        description: "Adjustment ranges updated successfully",
+      });
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Error saving adjustment ranges:', error);
       setIsSaving(false);
       toast({
         title: "Error",
@@ -88,6 +97,26 @@ export default function AdjustmentRanges() {
       });
     },
   });
+
+  useEffect(() => {
+    if (savedRanges && !hasChanges) {
+      setRanges(savedRanges);
+    }
+  }, [savedRanges, hasChanges]);
+
+  // Auto-save with debounce
+  useEffect(() => {
+    if (!hasChanges) return;
+    
+    console.log('Auto-save triggered, waiting 2s...', { ranges, locationId, serviceLine });
+    const timeoutId = setTimeout(() => {
+      console.log('Auto-save executing...');
+      setIsSaving(true);
+      saveRanges(ranges);
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [ranges, hasChanges, locationId, serviceLine, saveRanges]);
 
   const handleRangeChange = (factor: string, type: 'Min' | 'Max', value: string) => {
     const key = `${factor}${type}` as keyof AdjustmentRange;
@@ -258,20 +287,20 @@ export default function AdjustmentRanges() {
           <Button
             variant="outline"
             onClick={handleReset}
-            disabled={saveMutation.isPending}
+            disabled={isSavingMutation}
             data-testid="button-reset-ranges"
           >
             <RotateCcw className="w-4 h-4 mr-2" />
             Reset to Defaults
           </Button>
           <Button
-            onClick={() => saveMutation.mutate(ranges)}
-            disabled={!hasChanges || saveMutation.isPending}
+            onClick={() => saveRanges(ranges)}
+            disabled={!hasChanges || isSavingMutation}
             className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
             data-testid="button-save-ranges"
           >
             <Save className="w-4 h-4 mr-2" />
-            {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
+            {isSavingMutation ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
 
