@@ -38,27 +38,37 @@ export async function syncLocationsFromRentRoll() {
       );
       const unitCount = unitCountResult.rows[0]?.count || 0;
       
+      let locationId: string;
+      
       if (existing.length === 0) {
         // Create new location
-        await db.insert(locations).values({
+        const [newLocation] = await db.insert(locations).values({
           name: locationName,
           region: null,
           division: null,
           totalUnits: unitCount
-        });
+        }).returning();
+        locationId = newLocation.id;
         created++;
         console.log(`Created location: ${locationName} (${unitCount} units)`);
       } else {
         // Update unit count
+        locationId = existing[0].id;
         await db
           .update(locations)
           .set({ 
             totalUnits: unitCount,
             updatedAt: new Date()
           })
-          .where(eq(locations.id, existing[0].id));
+          .where(eq(locations.id, locationId));
         updated++;
       }
+      
+      // Update rent_roll_data to link to this location
+      await db
+        .update(rentRollData)
+        .set({ locationId })
+        .where(eq(rentRollData.location, locationName));
     }
     
     console.log(`Location sync complete: ${created} created, ${updated} updated`);

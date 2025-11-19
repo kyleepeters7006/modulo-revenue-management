@@ -9,7 +9,7 @@ export async function autoGenerateFloorPlanForCampus(campusId: string) {
     const units = await db
       .select()
       .from(rentRollData)
-      .where(eq(rentRollData.campus, campusId));
+      .where(eq(rentRollData.locationId, campusId));
 
     if (units.length === 0) {
       console.log(`No units found for campus ${campusId}`);
