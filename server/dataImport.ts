@@ -443,8 +443,9 @@ export async function importMatrixCareRentRollCSV(
                 const roomBed = row['Room_Bed'] || '';
                 const roomNumber = roomBed.split('/')[0] || roomBed; // "101/A" -> "101"
                 
-                // Check for duplicates
-                const unitKey = `${locationId || locationName}|${serviceLine}|${roomNumber}`;
+                // Check for duplicates - use locationName as fallback to prevent cross-campus collisions
+                const locationKey = locationId || locationName || 'unknown';
+                const unitKey = `${locationKey}|${serviceLine}|${roomNumber}`;
                 if (seenUnits.has(unitKey)) {
                   console.log(`Skipping duplicate: ${unitKey}`);
                   continue; // Skip duplicate

@@ -12,7 +12,13 @@ import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import express from "express";
 import path from "path";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import * as fs from 'fs';
 import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageParser";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import OpenAI from "openai";
 import { 
   insertRentRollDataSchema, 
