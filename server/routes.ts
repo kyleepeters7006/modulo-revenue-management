@@ -3132,8 +3132,17 @@ Keep recommendations specific and quantitative when possible.`;
         processedRecords.push(rentRollEntry);
       }
 
-      // Store in database
-      await storage.bulkInsertRentRollData(processedRecords);
+      // Log for debugging
+      console.log(`Processing ${processedRecords.length} records for upload`);
+      console.log('Sample record:', processedRecords[0]);
+      
+      // Store in database in batches to avoid stack overflow
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < processedRecords.length; i += BATCH_SIZE) {
+        const batch = processedRecords.slice(i, i + BATCH_SIZE);
+        console.log(`Inserting batch ${i / BATCH_SIZE + 1}: ${batch.length} records`);
+        await storage.bulkInsertRentRollData(batch);
+      }
       
       // Track upload history
       await storage.createUploadHistory({
