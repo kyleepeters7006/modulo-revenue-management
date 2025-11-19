@@ -10,20 +10,36 @@ import PricingStrategyDocumentation from "@/components/pricing-strategy-document
 
 export default function DataManagement() {
   const [uploadHistory, setUploadHistory] = useState<any[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingRentRoll, setIsUploadingRentRoll] = useState(false);
+  const [isUploadingInquiry, setIsUploadingInquiry] = useState(false);
+  const [isUploadingCompetitor, setIsUploadingCompetitor] = useState(false);
+  const rentRollFileInputRef = useRef<HTMLInputElement>(null);
+  const inquiryFileInputRef = useRef<HTMLInputElement>(null);
+  const competitorFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const handleDownloadTemplate = async () => {
+  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor') => {
     try {
-      const response = await fetch('/api/template/unified');
+      const endpoints = {
+        'rent-roll': '/api/template/rent-roll',
+        'inquiry': '/api/template/inquiry',
+        'competitor': '/api/template/competitor'
+      };
+      
+      const filenames = {
+        'rent-roll': 'rent_roll_template.xlsx',
+        'inquiry': 'inquiry_data_template.xlsx',
+        'competitor': 'competitive_data_template.xlsx'
+      };
+      
+      const response = await fetch(endpoints[type]);
       const blob = await response.blob();
       
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'portfolio_template.xlsx';
+      a.download = filenames[type];
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -31,7 +47,7 @@ export default function DataManagement() {
       
       toast({
         title: "Template Downloaded",
-        description: "Portfolio template has been downloaded successfully.",
+        description: `${type.replace('-', ' ')} template has been downloaded successfully.`,
       });
     } catch (error) {
       toast({
@@ -42,10 +58,20 @@ export default function DataManagement() {
     }
   };
 
-  const uploadMutation = useMutation({
+  const createUploadMutation = (
+    type: 'rent-roll' | 'inquiry' | 'competitor',
+    setLoading: (loading: boolean) => void,
+    fileInputRef: React.RefObject<HTMLInputElement>
+  ) => useMutation({
     mutationFn: async (formData: FormData) => {
-      setIsUploading(true);
-      const response = await fetch('/api/upload/unified', {
+      setLoading(true);
+      const endpoints = {
+        'rent-roll': '/api/upload/rent-roll',
+        'inquiry': '/api/upload/inquiry',
+        'competitor': '/api/upload/competitor'
+      };
+      
+      const response = await fetch(endpoints[type], {
         method: 'POST',
         body: formData,
       });
@@ -58,11 +84,17 @@ export default function DataManagement() {
       return response.json();
     },
     onSuccess: (data) => {
+      const messages = {
+        'rent-roll': `Processed ${data.recordsProcessed || 0} rent roll records.`,
+        'inquiry': `Processed ${data.recordsProcessed || 0} inquiry records.`,
+        'competitor': `Processed ${data.recordsProcessed || 0} competitor records.`
+      };
+      
       toast({
         title: "Upload Successful",
-        description: `Processed ${data.rentRollRecords} rent roll records, ${data.competitorRecords} competitor records, and ${data.targetsRecords} targets & trends records.`,
+        description: messages[type],
       });
-      setUploadHistory(prev => [data, ...prev.slice(0, 4)]);
+      setUploadHistory(prev => [{ ...data, type, timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
     },
     onError: (error: Error) => {
@@ -73,21 +105,31 @@ export default function DataManagement() {
       });
     },
     onSettled: () => {
-      setIsUploading(false);
+      setLoading(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     },
   });
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const rentRollMutation = createUploadMutation('rent-roll', setIsUploadingRentRoll, rentRollFileInputRef);
+  const inquiryMutation = createUploadMutation('inquiry', setIsUploadingInquiry, inquiryFileInputRef);
+  const competitorMutation = createUploadMutation('competitor', setIsUploadingCompetitor, competitorFileInputRef);
+
+  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor') => (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
     const formData = new FormData();
     formData.append('file', file);
     
-    uploadMutation.mutate(formData);
+    const mutations = {
+      'rent-roll': rentRollMutation,
+      'inquiry': inquiryMutation,
+      'competitor': competitorMutation
+    };
+    
+    mutations[type].mutate(formData);
   };
 
   return (
@@ -100,55 +142,151 @@ export default function DataManagement() {
             Data Management
           </h1>
           <p className="text-gray-600" data-testid="text-page-subtitle">
-            Portfolio data upload in a single comprehensive template
+            Upload rent roll, inquiry, and competitive data to power your revenue management dashboard
           </p>
         </div>
 
         <div className="space-y-6">
-          {/* Upload Card */}
+          {/* Rent Roll Upload */}
           <Card>
             <CardHeader>
-              <CardTitle>Portfolio Upload</CardTitle>
+              <CardTitle>Rent Roll Data Upload</CardTitle>
               <CardDescription>
-                Upload all portfolio data in a single comprehensive Excel template
+                Upload monthly rent roll data including occupancy, rates, and unit details
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
                 <FileSpreadsheet className="h-4 w-4" />
                 <AlertDescription>
-                  The template contains all portfolio data in a single comprehensive sheet including unit-level occupancy, pricing data, competitor information, and performance metrics.
+                  Upload rent roll data containing unit-level occupancy status, room types, service lines, street rates, care rates, and resident information.
                 </AlertDescription>
               </Alert>
 
               <div className="flex flex-col space-y-3">
                 <Button
-                  onClick={handleDownloadTemplate}
+                  onClick={() => handleDownloadTemplate('rent-roll')}
                   className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-                  data-testid="button-download-template"
+                  data-testid="button-download-rent-roll-template"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  Download Template
+                  Download Rent Roll Template
                 </Button>
                 
                 <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
+                  onClick={() => rentRollFileInputRef.current?.click()}
+                  disabled={isUploadingRentRoll}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
-                  data-testid="button-upload"
+                  data-testid="button-upload-rent-roll"
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  {isUploading ? 'Processing...' : 'Upload Portfolio Data'}
+                  {isUploadingRentRoll ? 'Processing...' : 'Upload Rent Roll Data'}
                 </Button>
               </div>
               
               <input
-                ref={fileInputRef}
+                ref={rentRollFileInputRef}
                 type="file"
-                accept=".xlsx,.xls"
+                accept=".xlsx,.xls,.csv"
                 className="hidden"
-                onChange={handleFileUpload}
-                data-testid="input-file"
+                onChange={handleFileUpload('rent-roll')}
+                data-testid="input-rent-roll-file"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Inquiry Data Upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Inquiry Data Upload</CardTitle>
+              <CardDescription>
+                Upload inquiry and tour data to track lead sources and conversion metrics
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="h-4 w-4" />
+                <AlertDescription>
+                  Upload inquiry data including lead sources, tour dates, inquiry counts, conversion rates, and marketing channel performance.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col space-y-3">
+                <Button
+                  onClick={() => handleDownloadTemplate('inquiry')}
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                  data-testid="button-download-inquiry-template"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Inquiry Template
+                </Button>
+                
+                <Button
+                  onClick={() => inquiryFileInputRef.current?.click()}
+                  disabled={isUploadingInquiry}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
+                  data-testid="button-upload-inquiry"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {isUploadingInquiry ? 'Processing...' : 'Upload Inquiry Data'}
+                </Button>
+              </div>
+              
+              <input
+                ref={inquiryFileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={handleFileUpload('inquiry')}
+                data-testid="input-inquiry-file"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Competitive Data Upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Competitive Data Upload</CardTitle>
+              <CardDescription>
+                Upload competitor pricing and market analysis data
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="h-4 w-4" />
+                <AlertDescription>
+                  Upload competitor data including facility names, room types, service lines, base rates, care rates, and location information for market benchmarking.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col space-y-3">
+                <Button
+                  onClick={() => handleDownloadTemplate('competitor')}
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                  data-testid="button-download-competitor-template"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Competitor Template
+                </Button>
+                
+                <Button
+                  onClick={() => competitorFileInputRef.current?.click()}
+                  disabled={isUploadingCompetitor}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
+                  data-testid="button-upload-competitor"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {isUploadingCompetitor ? 'Processing...' : 'Upload Competitor Data'}
+                </Button>
+              </div>
+              
+              <input
+                ref={competitorFileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={handleFileUpload('competitor')}
+                data-testid="input-competitor-file"
               />
             </CardContent>
           </Card>
@@ -469,26 +607,33 @@ export default function DataManagement() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {uploadHistory.map((upload, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="h-5 w-5 text-green-600" />
-                          <p className="font-medium text-green-900">
-                            Upload completed successfully
+                  {uploadHistory.map((upload, index) => {
+                    const typeLabels = {
+                      'rent-roll': 'Rent Roll',
+                      'inquiry': 'Inquiry Data',
+                      'competitor': 'Competitive Data'
+                    };
+                    
+                    return (
+                      <div key={index} className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                            <p className="font-medium text-green-900">
+                              {typeLabels[upload.type as keyof typeof typeLabels] || 'Data'} Upload Successful
+                            </p>
+                          </div>
+                          <div className="text-sm text-green-700 ml-7">
+                            <span>{upload.recordsProcessed || 0} records processed</span>
+                            {upload.uploadMonth && <span className="ml-4">Month: {upload.uploadMonth}</span>}
+                          </div>
+                          <p className="text-xs text-green-600 ml-7">
+                            {new Date(upload.timestamp).toLocaleString()}
                           </p>
                         </div>
-                        <div className="grid grid-cols-3 gap-4 text-sm text-green-700 ml-7">
-                          <span>Rent Roll: {upload.rentRollRecords} records</span>
-                          <span>Competitors: {upload.competitorRecords} records</span>
-                          <span>Targets: {upload.targetsRecords} records</span>
-                        </div>
-                        <p className="text-xs text-green-600 ml-7">
-                          {new Date(upload.timestamp).toLocaleString()}
-                        </p>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
