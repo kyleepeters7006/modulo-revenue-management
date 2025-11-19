@@ -164,14 +164,14 @@ export default function AttributeManagement() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-6">
+        <div className="space-y-3">
           <p className="text-sm text-gray-600">
             Configure A/B/C ratings for each unit attribute. These percentages adjust the base pricing.
           </p>
 
           {Object.entries(groupedRatings).map(([attributeType, ratings]) => (
             <div key={attributeType}>
-              <h3 className="font-medium text-lg capitalize mb-3">
+              <h3 className="font-medium text-lg capitalize mb-2">
                 {attributeType} Ratings
               </h3>
               <Table>
