@@ -3201,7 +3201,7 @@ Keep recommendations specific and quantitative when possible.`;
 
         // Get patient ID to determine vacancy
         const patientId = getRowValue(row, 'PatientID1', 'PatientID', 'patientId', 'patient_id');
-        const isOccupied = patientId && patientId.toString().trim() !== '';
+        const isOccupied = patientId ? (patientId.toString().trim() !== '') : false;
 
         const rentRollEntry = {
           uploadMonth: uploadMonth,
