@@ -27,6 +27,7 @@ import { calculateModuloPrice } from "./moduloPricingAlgorithm";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
+import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -1053,7 +1054,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       rentRollData.forEach((unit: any) => {
         // Use upload month or current month
         const monthKey = unit.uploadMonth || '2025-01';
-        const monthlyRevenue = (unit.inHouseRate || unit.streetRate || 0);
+        // Calculate revenue: street_rate + care_rate for occupied units only
+        const monthlyRevenue = unit.occupiedYN ? ((unit.streetRate || 0) + (unit.careRate || 0)) : 0;
         
         if (!revenueByMonth[monthKey]) {
           revenueByMonth[monthKey] = 0;
@@ -1101,7 +1103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         revenue, 
         sp500, 
         industry,
-        dataSource: useRealData ? "Alpha Vantage (Real Market Data)" : "Mock Data (API Key Not Set)"
+        dataSource: useRealSP500Data ? "Alpha Vantage (Real Market Data)" : "Mock Data (API Key Not Set)"
       });
     } catch (error) {
       console.error("Error generating series data:", error);
@@ -3923,6 +3925,57 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Error reverting pricing changes:', error);
       res.status(500).json({ error: 'Failed to revert pricing changes' });
+    }
+  });
+
+  // Calculate and populate competitor rates
+  app.post("/api/competitor-rates/calculate", async (req, res) => {
+    try {
+      const rentRollUnits = await storage.getRentRollData();
+      let updatedCount = 0;
+      let noCompetitorCount = 0;
+      
+      // Process each rent roll unit
+      for (const unit of rentRollUnits) {
+        // Use existing storage function to get top competitor (handles facility type mapping)
+        const topCompetitor = await storage.getTopCompetitorByWeight(unit.location || unit.campus, unit.serviceLine);
+        
+        if (!topCompetitor || !topCompetitor.streetRate) {
+          noCompetitorCount++;
+          continue; // No valid competitor found
+        }
+        
+        // Get Trilogy's care level 2 rate for this location/service line
+        const trilogyCareLevel2Rate = await storage.getTrilogyCareLevel2Rate(
+          unit.location || unit.campus, 
+          unit.serviceLine
+        );
+        
+        // Calculate adjusted competitor rate
+        const adjustmentResult = calculateAdjustedCompetitorRate({
+          competitorBaseRate: topCompetitor.streetRate,
+          competitorCareLevel2Rate: topCompetitor.careLevel2Rate,
+          competitorMedicationManagementFee: topCompetitor.medicationManagementFee,
+          trilogyCareLevel2Rate: trilogyCareLevel2Rate || 0
+        });
+        
+        // Update rent roll data with adjusted competitor rate
+        await storage.updateRentRollData(unit.id, {
+          competitorRate: Math.round(adjustmentResult.adjustedRate)
+        });
+        
+        updatedCount++;
+      }
+      
+      res.json({ 
+        success: true, 
+        updatedCount,
+        noCompetitorCount,
+        totalUnits: rentRollUnits.length
+      });
+    } catch (error) {
+      console.error('Error calculating competitor rates:', error);
+      res.status(500).json({ error: 'Failed to calculate competitor rates' });
     }
   });
 
