@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Settings, Wand2, Loader2 } from "lucide-react";
+import { ArrowLeft, Settings, Wand2, Loader2, Zap } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import FloorPlanImageUpload from "@/components/floor-plans/admin/FloorPlanImageUpload";
 import PolygonEditor from "@/components/floor-plans/admin/PolygonEditor";
 
@@ -44,7 +46,7 @@ export default function FloorPlansAdminPage() {
   const locations = locationsData?.locations || [];
   const campusMap = campusMaps[0];
 
-  // Auto-map mutation
+  // Auto-map mutation for single campus
   const autoMapMutation = useMutation({
     mutationFn: async (campusId: string) => {
       const response = await fetch(`/api/campus-maps/${campusId}/auto-map`, {
@@ -60,9 +62,9 @@ export default function FloorPlansAdminPage() {
     },
     onSuccess: (data) => {
       toast({
-        title: "Auto-Mapping Complete",
+        title: "Grid Generation Complete",
         description: data.stats ? 
-          `Detected ${data.stats.detected} rooms, matched ${data.stats.matched} units` : 
+          `Created ${data.stats.created} unit mappings` : 
           data.message,
       });
       
@@ -72,7 +74,31 @@ export default function FloorPlansAdminPage() {
     },
     onError: (error: any) => {
       toast({
-        title: "Auto-Mapping Failed",
+        title: "Grid Generation Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Bulk generate for all campuses
+  const bulkGenerateMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/campus-maps/auto-generate-all', 'POST');
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Bulk Generation Complete",
+        description: data.message || `Generated floor plans for all campuses`,
+      });
+      
+      // Refresh all data
+      queryClient.invalidateQueries({ queryKey: ['/api/campus-maps'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/unit-polygons'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Bulk Generation Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -123,6 +149,43 @@ export default function FloorPlansAdminPage() {
 
       {/* Main Content */}
       <div className="flex-1 max-w-screen-2xl mx-auto w-full px-8 py-6">
+        {/* Bulk Actions Section */}
+        <Card className="mb-6 border-blue-200 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-blue-600" />
+              Quick Setup - All Campuses
+            </CardTitle>
+            <CardDescription>
+              Generate grid-based floor plan layouts for all {locations.length} campuses at once. Each campus will get a default floor plan with units automatically arranged in a grid pattern.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button 
+              onClick={() => bulkGenerateMutation.mutate()}
+              disabled={bulkGenerateMutation.isPending || locations.length === 0}
+              size="lg"
+              className="w-full sm:w-auto"
+              data-testid="button-bulk-generate"
+            >
+              {bulkGenerateMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating for all campuses...
+                </>
+              ) : (
+                <>
+                  <Zap className="mr-2 h-4 w-4" />
+                  Generate Grid Layouts for All Campuses
+                </>
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground mt-3">
+              This creates a simple grid layout for quick setup. You can later customize individual campuses with AI detection or manual drawing.
+            </p>
+          </CardContent>
+        </Card>
+
         {!selectedCampus ? (
           <div className="flex items-center justify-center h-96">
             <div className="text-center">
@@ -197,24 +260,24 @@ export default function FloorPlansAdminPage() {
                     <div>
                       <h2 className="text-2xl font-semibold">Map Units to Rooms</h2>
                       <p className="text-sm text-slate-600 mt-1">
-                        Use AI to automatically detect rooms or manually draw polygons
+                        Use AI detection (Step 1 tab below) or create a simple grid layout
                       </p>
                     </div>
                     <Button 
                       onClick={() => autoMapMutation.mutate(selectedCampus)}
                       disabled={autoMapMutation.isPending}
-                      variant="default"
-                      data-testid="button-auto-map"
+                      variant="outline"
+                      data-testid="button-generate-grid"
                     >
                       {autoMapMutation.isPending ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Detecting Rooms...
+                          Generating Grid...
                         </>
                       ) : (
                         <>
                           <Wand2 className="mr-2 h-4 w-4" />
-                          Auto-Map with AI
+                          Generate Grid Layout
                         </>
                       )}
                     </Button>
