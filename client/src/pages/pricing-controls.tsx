@@ -6,7 +6,6 @@ import PricingWeights from "@/components/dashboard/pricing-weights";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
 import AdjustmentRanges from "@/components/dashboard/adjustment-ranges";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
-import AttributeManagement from "@/components/attribute-management";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -317,7 +316,6 @@ export default function PricingControls() {
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
-          <AttributeManagement />
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ import Overview from "@/pages/overview";
 import DataManagement from "@/pages/data-management";
 import RateCard from "@/pages/rate-card";
 import PricingControls from "@/pages/pricing-controls";
+import RoomAttributes from "@/pages/room-attributes";
 import CompetitorAnalysis from "@/pages/competitor-analysis";
 import AIInsights from "@/pages/ai-insights";
 import PortfolioManager from "@/pages/PortfolioManager";
@@ -29,6 +30,7 @@ function Router() {
       <Route path="/data-management" component={DataManagement} />
       <Route path="/rate-card" component={RateCard} />
       <Route path="/pricing-controls" component={PricingControls} />
+      <Route path="/room-attributes" component={RoomAttributes} />
       <Route path="/competitor-analysis" component={CompetitorAnalysis} />
       <Route path="/ai-insights" component={AIInsights} />
       <Route path="/floor-plans" component={FloorPlans} />

@@ -14,7 +14,8 @@ import {
   Menu,
   X,
   ScatterChart,
-  LayoutTemplate
+  LayoutTemplate,
+  Layers
 } from "lucide-react";
 
 const menuItems = [
@@ -22,6 +23,7 @@ const menuItems = [
   { path: "/analytics", label: "Pricing Analytics", icon: ScatterChart },
   { path: "/rate-card", label: "Rate Card", icon: CreditCard },
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
+  { path: "/room-attributes", label: "Room Attributes", icon: Layers },
   { path: "/competitor-analysis", label: "Competitors", icon: Map },
   { path: "/ai-insights", label: "AI Insights", icon: Brain },
   { path: "/floor-plans", label: "Floor Plans", icon: LayoutTemplate },
