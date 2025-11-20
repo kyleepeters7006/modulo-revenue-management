@@ -3271,6 +3271,11 @@ Keep recommendations specific and quantitative when possible.`;
         const rawServiceLine = getRowValue(row, 'Service1', 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL';
         const normalizedServiceLine = normalizeServiceLine(rawServiceLine);
 
+        // Parse competitor fields
+        const competitorRateValue = getRowValue(row, 'Competitive Rate', 'competitive rate', 'Competitor Rate', 'competitor rate', 'CompetitiveRate', 'CompetitorRate');
+        const competitorAvgCareRateValue = getRowValue(row, 'Competitive Average Care Rate', 'competitive average care rate', 'Competitor Average Care Rate', 'competitor average care rate', 'Competitive Avg Care Rate', 'CompetitiveAvgCareRate');
+        const competitorFinalRateValue = getRowValue(row, 'Competitive Final Rate', 'competitive final rate', 'Competitor Final Rate', 'competitor final rate', 'CompetitiveFinalRate', 'CompetitorFinalRate');
+
         const rentRollEntry = {
           uploadMonth: uploadMonth,
           date: getRowValue(row, 'Date', 'date') || uploadDate,
@@ -3296,9 +3301,9 @@ Keep recommendations specific and quantitative when possible.`;
           careLevel: getRowValue(row, 'Care Level', 'care level') || null,
           careRate: parseFloat(getRowValue(row, 'Care Rate', 'care rate')) || 0,
           rentAndCareRate: parseFloat(getRowValue(row, 'Rent and Care Rate', 'rent and care rate')) || 0,
-          competitorRate: parseFloat(getRowValue(row, 'Competitor Rate', 'competitor rate')) || 0,
-          competitorAvgCareRate: parseFloat(getRowValue(row, 'Competitor Average Care Rate', 'competitor average care rate')) || 0,
-          competitorFinalRate: parseFloat(getRowValue(row, 'Competitor Final Rate', 'competitor final rate')) || 0,
+          competitorRate: parseFloat(competitorRateValue) || 0,
+          competitorAvgCareRate: parseFloat(competitorAvgCareRateValue) || 0,
+          competitorFinalRate: parseFloat(competitorFinalRateValue) || 0,
           moduloSuggestedRate: null,
           aiSuggestedRate: null,
           promotionAllowance: 0,
@@ -3323,6 +3328,21 @@ Keep recommendations specific and quantitative when possible.`;
       // Log for debugging
       console.log(`Processing ${processedRecords.length} records for upload month: ${uploadMonth}`);
       console.log('Sample record:', processedRecords[0]);
+      
+      // Validate competitor fields were found
+      const recordsWithCompRates = processedRecords.filter(r => r.competitorRate > 0).length;
+      const recordsWithCompAvgCare = processedRecords.filter(r => r.competitorAvgCareRate > 0).length;
+      const recordsWithCompFinal = processedRecords.filter(r => r.competitorFinalRate > 0).length;
+      
+      console.log('=== COMPETITOR FIELD VALIDATION ===');
+      console.log(`Records with competitorRate > 0: ${recordsWithCompRates}/${processedRecords.length}`);
+      console.log(`Records with competitorAvgCareRate > 0: ${recordsWithCompAvgCare}/${processedRecords.length}`);
+      console.log(`Records with competitorFinalRate > 0: ${recordsWithCompFinal}/${processedRecords.length}`);
+      
+      if (recordsWithCompRates === 0) {
+        console.warn('⚠️ WARNING: No competitor rate data found in CSV. Check column names!');
+      }
+      console.log('===================================');
       
       // Delete existing data for this upload month and insert new data
       // This prevents duplicates when re-uploading the same month

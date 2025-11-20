@@ -63,6 +63,41 @@ Preferred communication style: Simple, everyday language.
 - **zod**: Schema validation.
 - **drizzle-zod**: Drizzle ORM and Zod integration.
 
+# Recent Changes (November 20, 2025)
+
+## Critical Bug Fixes - Rent Roll Upload Parser
+
+### Unicode-Safe Column Name Matching
+- **Root Cause**: Excel-generated CSV files contain invisible Unicode characters (U+00A0 non-breaking spaces, etc.) in column headers that prevented exact string matching
+- **Fix**: Implemented robust column normalization that:
+  - Strips all Unicode whitespace characters (U+00A0, U+2000-U+200B, U+202F, U+205F, U+3000)
+  - Removes punctuation and collapses whitespace
+  - Handles case-insensitive matching
+  - Uses two-pass matching: exact match first (fast), then normalized matching (robust)
+- **Impact**: BaseRate1, competitor fields, and other CSV columns now parse correctly regardless of hidden characters
+
+### Duplicate Data Prevention
+- **Root Cause**: Upload route was appending data instead of replacing existing records for the same upload_month
+- **Fix**: Changed to use `storage.uploadRentRollData()` which deletes existing month data before inserting
+- **Impact**: Re-uploading a month now replaces old data instead of creating 15x duplicates (was 416K units, should be ~14K)
+
+### Competitor Rate Field Mapping
+- **Root Cause**: CSV columns use "Competitive" not "Competitor" (e.g., "Competitive Rate" vs "Competitor Rate")
+- **Fix**: Added comprehensive column name variations:
+  - competitorRate: 'Competitive Rate', 'competitive rate', 'Competitor Rate', 'competitor rate', 'CompetitiveRate', 'CompetitorRate'
+  - competitorAvgCareRate: 'Competitive Average Care Rate', 'Competitive Avg Care Rate', etc.
+  - competitorFinalRate: 'Competitive Final Rate', etc.
+- **Validation**: Added debug logging to count records with competitor data and warn if none found
+- **Impact**: Competitor rates should now populate from CSV instead of defaulting to $0
+
+### Enhanced Debug Logging
+- CSV header mapping now logs:
+  - Original column headers
+  - Normalized versions for troubleshooting
+  - Sample of first row data
+  - Competitor field validation counts
+  - Warnings when expected fields are missing
+
 # Recent Changes (November 19, 2025)
 
 ## Trilogy-Specific Column Mapping and Attribute Parsing
