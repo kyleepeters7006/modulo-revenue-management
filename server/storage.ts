@@ -78,6 +78,8 @@ import {
 import { db } from "./db";
 import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import OpenAI from "openai";
+import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
+import type { PricingInputs } from "./moduloPricingAlgorithm";
 
 // Initialize OpenAI if API key is available
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
@@ -171,7 +173,7 @@ export interface IStorage {
   
   // Pricing suggestions
   generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]>;
-  generateAIPricingSuggestions(units: any[]): Promise<any[]>;
+  generateAIPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]>;
   acceptPricingSuggestions(unitIds: string[], suggestionType: string): Promise<number>;
   
   // Clear all data
@@ -983,160 +985,100 @@ export class DatabaseStorage implements IStorage {
 
   // Pricing suggestions
   async generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]> {
+    await ensureCacheInitialized();
+    
     const updatedUnits = [];
     
-    // Get adjustment ranges, using same defaults as real-time calculation
-    const ranges = await this.getAdjustmentRanges();
-    const occupancyMin = ranges?.occupancyMin ?? -0.10;
-    const occupancyMax = ranges?.occupancyMax ?? 0.05;
-    const vacancyMin = ranges?.vacancyMin ?? -0.15;
-    const vacancyMax = ranges?.vacancyMax ?? 0.00;
-    const attributesMin = ranges?.attributesMin ?? -0.05;
-    const attributesMax = ranges?.attributesMax ?? 0.10;
-    const seasonalityMin = ranges?.seasonalityMin ?? -0.05;
-    const seasonalityMax = ranges?.seasonalityMax ?? 0.10;
-    const competitorMin = ranges?.competitorMin ?? -0.10;
-    const competitorMax = ranges?.competitorMax ?? 0.10;
-    const marketMin = ranges?.marketMin ?? -0.05;
-    const marketMax = ranges?.marketMax ?? 0.05;
+    const occupiedCount = units.filter(u => u.occupiedYN).length;
+    const actualOccupancyRate = units.length > 0 ? occupiedCount / units.length : 0.85;
     
-    // Calculate actual occupancy rate
-    const actualOccupancyRate = units.filter(u => u.occupiedYN).length / units.length;
+    const currentMonth = new Date().getMonth() + 1;
+    const marketReturn = 0.023;
+    
+    const locationInquiries = await this.getInquiryMetricsByMonth(units[0]?.uploadMonth || new Date().toISOString().slice(0, 7));
+    const demandCurrent = locationInquiries.length > 0 ? locationInquiries[0].inquiries || 50 : 50;
+    const demandHistory = [45, 52, 48, 55, 50, 47];
     
     for (const unit of units) {
-      const streetRate = unit.streetRate;
+      const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [];
       
-      // Use the same conditional logic as the real-time calculation endpoint
+      const pricingInputs: PricingInputs = {
+        occupancy: actualOccupancyRate,
+        daysVacant: unit.daysVacant || 0,
+        monthIndex: currentMonth,
+        competitorPrices,
+        marketReturn,
+        demandCurrent,
+        demandHistory,
+        serviceLine: unit.serviceLine
+      };
       
-      // 1. Occupancy Pressure - only adjust if occupancy is outside target range (85-95%)
-      let occupancyAdjustment = 0;
-      if (weights.occupancyPressure > 0) {
-        if (actualOccupancyRate < 0.85) {
-          // Low occupancy - apply downward pressure
-          const severity = Math.min((0.85 - actualOccupancyRate) / 0.15, 1);
-          occupancyAdjustment = occupancyMin * severity * (weights.occupancyPressure / 100);
-        } else if (actualOccupancyRate > 0.95) {
-          // High occupancy - apply upward pressure
-          const severity = Math.min((actualOccupancyRate - 0.95) / 0.05, 1);
-          occupancyAdjustment = occupancyMax * severity * (weights.occupancyPressure / 100);
-        }
-      }
+      const calculationDetails = await calculateAttributedPrice(unit, weights, pricingInputs, guardrails);
       
-      // 2. Days Vacant - only apply to vacant units with days vacant > 30
-      let vacancyAdjustment = 0;
-      if (weights.daysVacantDecay > 0 && !unit.occupiedYN && unit.daysVacant > 30) {
-        const severity = Math.min(unit.daysVacant / 90, 1);
-        vacancyAdjustment = vacancyMin * severity * (weights.daysVacantDecay / 100);
-      }
-      
-      // 3. Competitor Rates - only apply if competitor rate exists and differs significantly
-      let competitorAdjustment = 0;
-      if (weights.competitorRates > 0 && unit.competitorRate) {
-        const competitorRate = unit.competitorRate;
-        const priceDifference = (streetRate - competitorRate) / competitorRate;
-        
-        if (Math.abs(priceDifference) > 0.05) {
-          const severity = Math.min(Math.abs(priceDifference) / 0.20, 1);
-          const direction = priceDifference > 0 ? -1 : 1;
-          const range = direction > 0 ? competitorMax : competitorMin;
-          competitorAdjustment = range * severity * (weights.competitorRates / 100);
-        }
-      }
-      
-      // 5. Seasonality - apply based on current month
-      let seasonalAdjustment = 0;
-      if (weights.seasonality > 0) {
-        const currentMonth = new Date().getMonth();
-        const isPeakSeason = (currentMonth >= 2 && currentMonth <= 4) || (currentMonth >= 8 && currentMonth <= 10);
-        
-        if (isPeakSeason) {
-          seasonalAdjustment = seasonalityMax * 0.8 * (weights.seasonality / 100);
-        } else {
-          seasonalAdjustment = seasonalityMin * 0.5 * (weights.seasonality / 100);
-        }
-      }
-      
-      // 6. Market Conditions
-      let marketAdjustment = 0;
-      if (weights.stockMarket > 0) {
-        marketAdjustment = marketMax * 0.3 * (weights.stockMarket / 100);
-      }
-      
-      // Calculate total adjustment
-      const totalAdjustment = occupancyAdjustment + vacancyAdjustment + 
-                             seasonalAdjustment + competitorAdjustment + marketAdjustment;
-      
-      // Apply the adjustment to get the recommended rate
-      const suggestedRate = Math.round(streetRate * (1 + totalAdjustment));
+      // Issue 2 fix: Store all rate values for complete audit trail
+      // - finalPrice (after guardrails) -> moduloSuggestedRate field
+      // - All rates (finalPrice, attributedRate, moduloRate, baseRate) -> calculation details JSON
+      const suggestedRate = calculationDetails.finalPrice;
+      const calculationDetailsJson = JSON.stringify(calculationDetails);
 
-      // Update unit
       await db.update(rentRollData)
-        .set({ moduloSuggestedRate: suggestedRate })
+        .set({ 
+          moduloSuggestedRate: suggestedRate,
+          moduloCalculationDetails: calculationDetailsJson
+        })
         .where(eq(rentRollData.id, unit.id));
 
-      updatedUnits.push({...unit, moduloSuggestedRate: suggestedRate});
+      updatedUnits.push({...unit, moduloSuggestedRate: suggestedRate, moduloCalculationDetails: calculationDetailsJson});
     }
 
     return updatedUnits;
   }
 
-  async generateAIPricingSuggestions(units: any[]): Promise<any[]> {
-    if (!openai) {
-      throw new Error('OpenAI API key not configured');
-    }
-
+  async generateAIPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]> {
+    await ensureCacheInitialized();
+    
     const updatedUnits = [];
-
-    // Process in batches of 5 units
-    for (let i = 0; i < units.length; i += 5) {
-      const batch = units.slice(i, i + 5);
+    
+    const occupiedCount = units.filter(u => u.occupiedYN).length;
+    const actualOccupancyRate = units.length > 0 ? occupiedCount / units.length : 0.85;
+    
+    const currentMonth = new Date().getMonth() + 1;
+    const marketReturn = 0.023;
+    
+    const locationInquiries = await this.getInquiryMetricsByMonth(units[0]?.uploadMonth || new Date().toISOString().slice(0, 7));
+    const demandCurrent = locationInquiries.length > 0 ? locationInquiries[0].inquiries || 50 : 50;
+    const demandHistory = [45, 52, 48, 55, 50, 47];
+    
+    for (const unit of units) {
+      const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [];
       
-      const prompt = `As a senior living pricing expert, analyze these units and suggest optimal monthly rent rates. Consider:
-- Current market rates and occupancy
-- Unit attributes (size, view, renovation status, amenities)
-- Competitor pricing
-- Market conditions
+      const pricingInputs: PricingInputs = {
+        occupancy: actualOccupancyRate,
+        daysVacant: unit.daysVacant || 0,
+        monthIndex: currentMonth,
+        competitorPrices,
+        marketReturn,
+        demandCurrent,
+        demandHistory,
+        serviceLine: unit.serviceLine
+      };
+      
+      const calculationDetails = await calculateAttributedPrice(unit, weights, pricingInputs, guardrails);
+      
+      // Issue 2 fix: Store all rate values for complete audit trail
+      // - finalPrice (after guardrails) -> aiSuggestedRate field
+      // - All rates (finalPrice, attributedRate, moduloRate, baseRate) -> calculation details JSON
+      const suggestedRate = calculationDetails.finalPrice;
+      const calculationDetailsJson = JSON.stringify(calculationDetails);
 
-Units to analyze:
-${batch.map(unit => `
-Unit ${unit.roomNumber} (${unit.roomType}):
-- Current rate: $${unit.streetRate}
-- Occupied: ${unit.occupiedYN ? 'Yes' : 'No'}
-- Days vacant: ${unit.daysVacant}
-- Size: ${unit.size}
-- View: ${unit.view || 'Standard'}
-- Renovated: ${unit.renovated ? 'Yes' : 'No'}
-- Premium features: ${unit.otherPremiumFeature || 'None'}
-- Competitor rate: $${unit.competitorRate || 'N/A'}
-`).join('')}
+      await db.update(rentRollData)
+        .set({ 
+          aiSuggestedRate: suggestedRate,
+          aiCalculationDetails: calculationDetailsJson
+        })
+        .where(eq(rentRollData.id, unit.id));
 
-Respond with JSON format: {"suggestions": [{"roomNumber": "101", "suggestedRate": 3250, "reasoning": "brief explanation"}, ...]}`;
-
-      try {
-        const response = await openai.chat.completions.create({
-          model: "gpt-4",
-          messages: [{ role: "user", content: prompt }],
-          response_format: { type: "json_object" },
-          temperature: 0.3
-        });
-
-        const result = JSON.parse(response.choices[0].message.content || '{"suggestions": []}');
-        
-        // Update database with AI suggestions
-        for (const suggestion of result.suggestions) {
-          const unit = batch.find(u => u.roomNumber === suggestion.roomNumber);
-          if (unit) {
-            await db.update(rentRollData)
-              .set({ aiSuggestedRate: suggestion.suggestedRate })
-              .where(eq(rentRollData.id, unit.id));
-            
-            updatedUnits.push({...unit, aiSuggestedRate: suggestion.suggestedRate});
-          }
-        }
-      } catch (error) {
-        console.error('AI pricing error for batch:', error);
-        // Continue with next batch even if one fails
-      }
+      updatedUnits.push({...unit, aiSuggestedRate: suggestedRate, aiCalculationDetails: calculationDetailsJson});
     }
 
     return updatedUnits;

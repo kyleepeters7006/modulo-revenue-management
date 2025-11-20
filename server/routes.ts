@@ -34,6 +34,8 @@ import { getSentenceExplanation, generateOverallExplanation } from "./sentenceEx
 import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
+import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
+import type { PricingInputs } from "./moduloPricingAlgorithm";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -3354,6 +3356,11 @@ Keep recommendations specific and quantitative when possible.`;
       // Generate rate card summary
       await storage.generateRateCard(uploadMonth);
 
+      // Issue 1 fix: Invalidate cache for the uploaded month to force refresh
+      // This ensures attribute pricing base rates are recalculated when same month is re-imported
+      await invalidateCache(uploadMonth);
+      console.log(`Attribute pricing cache invalidated for month: ${uploadMonth}`);
+
       res.json({
         message: 'Upload successful',
         recordsProcessed: processedRecords.length,
@@ -3823,6 +3830,8 @@ Keep recommendations specific and quantitative when possible.`;
       // Default to October 2025 which has the data, instead of current month
       const targetMonth = month || '2025-10';
       
+      await ensureCacheInitialized(targetMonth);
+      
       console.log('DEBUG Modulo Generate - Received month:', month, 'Using targetMonth:', targetMonth, 'serviceLine:', serviceLine);
       
       // Get global default weights for fallback
@@ -3991,13 +4000,6 @@ Keep recommendations specific and quantitative when possible.`;
           const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
           const daysVacant = unit.daysVacant || 0;
           
-          // Calculate attribute score based on unit features
-          let attrScore = 0.5; // Start at midpoint
-          if (unit.view) attrScore += 0.1;
-          if (unit.renovated) attrScore += 0.15;
-          if (unit.roomType === 'Private') attrScore += 0.1;
-          attrScore = Math.min(1.0, attrScore);
-          
           const monthIndex = new Date(targetMonth).getMonth() + 1;
           
           // Use service-line-specific competitor median with care level 2 and medication management adjustments
@@ -4052,60 +4054,57 @@ Keep recommendations specific and quantitative when possible.`;
           let currentDemand = 0;
           let historicalMonths = [];
           
-          const demandHistory = historicalMonths.length > 0 ? historicalMonths : [10, 12, 15, 13, 14, 11]; // Fallback if no history
-          const demandCurrent = currentDemand > 0 ? currentDemand : 12; // Fallback if no current data
+          const demandHistory = historicalMonths.length > 0 ? historicalMonths : [10, 12, 15, 13, 14, 11];
+          const demandCurrent = currentDemand > 0 ? currentDemand : 12;
           
-          // Use the sophisticated algorithm
-          const moduloInputs = {
+          // Use the pricing orchestrator with attribute-based pricing
+          const pricingInputs: PricingInputs = {
             occupancy: serviceLineOcc,
             daysVacant,
-            attrScore,
             monthIndex,
             competitorPrices,
-            marketReturn: stockMarketChange / 100, // Convert percentage to decimal
+            marketReturn: stockMarketChange / 100,
             demandCurrent,
             demandHistory,
-            serviceLine: unit.serviceLine  // Pass service line for market positioning targets
+            serviceLine: unit.serviceLine
           };
           
-          // Use the unitWeights already fetched above
-          const moduloWeights = {
-            occupancy: unitWeights?.occupancyPressure || 25,
-            daysVacant: unitWeights?.daysVacantDecay || 15,
-            seasonality: unitWeights?.seasonality || 5,
-            competitors: unitWeights?.competitorRates || 10,
-            market: unitWeights?.stockMarket || 5,
-            demand: unitWeights?.inquiryTourVolume || 20
-          };
+          // Use the unitWeights already fetched from database (Issue 1 fix: no manual construction)
+          if (!unitWeights) {
+            console.warn(`No weights found for unit ${unit.id}, skipping`);
+            continue;
+          }
           
-          const result = calculateModuloPrice(baseRate, moduloWeights, moduloInputs);
-          suggestion = result.finalPrice;
+          const orchestratorResult = await calculateAttributedPrice(unit, unitWeights, pricingInputs, guardrailsData || undefined);
+          suggestion = orchestratorResult.finalPrice;
           
-          // Build calculation details with both formulas and sentence explanations
-          const adjustments = result.adjustments?.map((adj: any) => ({
-            ...adj,
-            formula: adj.calculation, // This comes from getCalculationString in the algorithm
-            description: getSentenceExplanation(adj.factor.toLowerCase(), moduloInputs, adj)
-          })) || [];
-          
+          // Build calculation details with attribute breakdown (Issue 2: all rates preserved)
           calculationDetails = {
-            baseRate,
-            adjustments,
+            baseRate: orchestratorResult.baseRate,
+            baseRateSource: orchestratorResult.baseRateSource,
+            attributedRate: orchestratorResult.attributedRate,
+            attributeBreakdown: orchestratorResult.attributeBreakdown,
+            adjustments: orchestratorResult.moduloDetails.adjustments?.map((adj: any) => ({
+              ...adj,
+              formula: adj.calculation,
+              description: getSentenceExplanation(adj.factor.toLowerCase(), pricingInputs, adj)
+            })) || [],
             weights: {
-              occupancyPressure: moduloWeights.occupancy,
-              daysVacantDecay: moduloWeights.daysVacant,
-              seasonality: moduloWeights.seasonality,
-              competitorRates: moduloWeights.competitors,
-              stockMarket: moduloWeights.market,
-              inquiryTourVolume: moduloWeights.demand
+              occupancyPressure: unitWeights.occupancyPressure,
+              daysVacantDecay: unitWeights.daysVacantDecay,
+              seasonality: unitWeights.seasonality,
+              competitorRates: unitWeights.competitorRates,
+              stockMarket: unitWeights.stockMarket,
+              inquiryTourVolume: unitWeights.inquiryTourVolume
             },
-            totalAdjustment: result.totalAdjustment,
-            finalRate: result.finalPrice,
+            totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
+            finalRate: orchestratorResult.finalPrice,
+            moduloRate: orchestratorResult.moduloRate,
             appliedRules: [] as string[],
-            signals: result.signals,
-            blendedSignal: result.blendedSignal,
-            explanation: generateOverallExplanation(result, moduloInputs),
-            guardrailsApplied: [] as string[]
+            signals: orchestratorResult.moduloDetails.signals,
+            blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
+            explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
+            guardrailsApplied: orchestratorResult.guardrailsApplied
           };
         } else if (!manualRuleApplied) {
           // Weights disabled AND no manual rule - start with base rate
@@ -4124,74 +4123,6 @@ Keep recommendations specific and quantitative when possible.`;
           };
         }
         // If manualRuleApplied is true, calculationDetails was already set above, so don't overwrite it
-        
-        
-        // Apply guardrails (smart adjustments) - only if no manual rule was applied
-        const guardrailsApplied: string[] = [];
-        if (!manualRuleApplied && guardrailsData) {
-          const originalSuggestion = suggestion;
-          
-          // Debug logging for HC unit
-          if (unit.streetRate === 11460) {
-            console.log('DEBUG HC-305 Before guardrails:', {
-              streetRate: unit.streetRate,
-              suggestion: suggestion,
-              guardrails: guardrailsData
-            });
-          }
-          
-          // Min rate decrease limit
-          if (guardrailsData.minRateDecrease) {
-            const minRate = unit.streetRate * (1 - guardrailsData.minRateDecrease);
-            if (suggestion < minRate) {
-              const oldSuggestion = suggestion;
-              suggestion = minRate;
-              guardrailsApplied.push(`Minimum rate decrease limit applied (${(guardrailsData.minRateDecrease * 100).toFixed(1)}%)`);
-              
-              if (unit.streetRate === 11460) {
-                console.log('DEBUG HC-305 Min rate applied:', {
-                  oldSuggestion,
-                  minRate,
-                  newSuggestion: suggestion
-                });
-              }
-            }
-          }
-          
-          // Max rate increase limit
-          if (guardrailsData.maxRateIncrease) {
-            const maxRate = unit.streetRate * (1 + guardrailsData.maxRateIncrease);
-            if (suggestion > maxRate) {
-              suggestion = maxRate;
-              guardrailsApplied.push(`Maximum rate increase limit applied (${(guardrailsData.maxRateIncrease * 100).toFixed(1)}%)`);
-            }
-          }
-          
-          // Competitor variance limits
-          if (guardrailsData.competitorVarianceLimit && unit.competitorRate) {
-            const maxVariance = unit.competitorRate * guardrailsData.competitorVarianceLimit;
-            const minCompetitorRate = unit.competitorRate - maxVariance;
-            const maxCompetitorRate = unit.competitorRate + maxVariance;
-            
-            if (suggestion < minCompetitorRate) {
-              suggestion = minCompetitorRate;
-              guardrailsApplied.push(`Competitor variance floor applied (${(guardrailsData.competitorVarianceLimit * 100).toFixed(1)}%)`);
-            }
-            
-            if (suggestion > maxCompetitorRate) {
-              suggestion = maxCompetitorRate;
-              guardrailsApplied.push(`Competitor variance ceiling applied (${(guardrailsData.competitorVarianceLimit * 100).toFixed(1)}%)`);
-            }
-          }
-          
-          // Update finalRate to reflect guardrail-adjusted value
-          calculationDetails.finalRate = suggestion;
-        }
-        
-        // Store guardrails in calculation details
-        if (guardrailsApplied.length > 0) {
-          calculationDetails.guardrailsApplied = guardrailsApplied;
-        }
         
         // Ensure suggestions are different from street rates (minimum 1% change) - only if no manual rule
         if (!manualRuleApplied) {
@@ -4271,6 +4202,8 @@ Keep recommendations specific and quantitative when possible.`;
       const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
       
+      await ensureCacheInitialized(targetMonth);
+      
       // Get all units for the month
       let units = await storage.getRentRollDataByMonth(targetMonth);
       
@@ -4321,21 +4254,15 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log('AI calculation - Service line occupancy rates:', serviceLineOccupancy);
       
+      // Get guardrails for AI pricing
+      const guardrailsData = await storage.getCurrentGuardrails();
+      
       // Generate AI suggestions using sophisticated algorithm with more aggressive parameters
       for (const unit of units) {
-        const baseRate = unit.streetRate;
-        
-        // Calculate attribute score for this unit
-        let attrScore = 0.5;
-        if (unit.view) attrScore += 0.1;
-        if (unit.renovated) attrScore += 0.15;
-        if (unit.roomType === 'Private') attrScore += 0.1;
-        attrScore = Math.min(1.0, attrScore);
-        
         const monthIndex = new Date().getMonth() + 1;
         const competitorPrices = unit.competitorRate ? 
           [unit.competitorRate] : 
-          [baseRate * 0.95, baseRate * 1.05];
+          [unit.streetRate * 0.95, unit.streetRate * 1.05];
         
         // AI sees more volatile demand patterns
         const demandHistory = [15, 20, 30, 18, 35, 22, 28, 16];
@@ -4344,56 +4271,57 @@ Keep recommendations specific and quantitative when possible.`;
         // Use service-line-specific occupancy instead of campus-level
         const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
         
-        const aiInputs = {
+        const pricingInputs: PricingInputs = {
           occupancy: serviceLineOcc,
           daysVacant: unit.daysVacant || 0,
-          attrScore,
           monthIndex,
           competitorPrices,
-          marketReturn: 0.03, // AI more optimistic
+          marketReturn: 0.03,
           demandCurrent,
           demandHistory,
-          serviceLine: unit.serviceLine  // Pass service line for market positioning targets
+          serviceLine: unit.serviceLine
         };
         
-        // Convert weights to algorithm format
-        const algorithmWeights = {
-          occupancy: weights.occupancyPressure || 30,
-          daysVacant: weights.daysVacantDecay || 25,
-          seasonality: weights.seasonality || 5,
-          competitors: weights.competitorRates || 10,
-          market: weights.stockMarket || 5,
-          demand: weights.inquiryTourVolume || 10
-        };
+        // Get appropriate weights for AI pricing from database (Issue 1 fix: use actual DB weights)
+        const pricingWeights = await storage.getWeightsByFilter(unit.locationId, unit.serviceLine) || 
+                                await storage.getWeightsByFilter(unit.locationId, null) || 
+                                await storage.getPricingWeights();
         
-        // Calculate using sophisticated algorithm
-        const result = calculateModuloPrice(baseRate, algorithmWeights, aiInputs);
-        const aiSuggestion = result.finalPrice;
+        if (!pricingWeights) {
+          console.warn(`No weights found for AI pricing of unit ${unit.id}, skipping`);
+          continue;
+        }
         
-        // Build adjustments with both formulas and sentence explanations
-        const adjustments = result.adjustments?.map((adj: any) => ({
-          ...adj,
-          formula: adj.calculation, // This comes from getCalculationString in the algorithm
-          description: getSentenceExplanation(adj.factor.toLowerCase(), aiInputs, adj)
-        })) || [];
+        // Use the pricing orchestrator with attribute-based pricing
+        const orchestratorResult = await calculateAttributedPrice(unit, pricingWeights, pricingInputs, guardrailsData || undefined);
+        const aiSuggestion = orchestratorResult.finalPrice;
         
-        // Store calculation details for the popup
+        // Store calculation details with attribute breakdown (Issue 2: all rates preserved)
         const aiCalculationDetails = {
-          baseRate,
-          adjustments,
+          baseRate: orchestratorResult.baseRate,
+          baseRateSource: orchestratorResult.baseRateSource,
+          attributedRate: orchestratorResult.attributedRate,
+          attributeBreakdown: orchestratorResult.attributeBreakdown,
+          adjustments: orchestratorResult.moduloDetails.adjustments?.map((adj: any) => ({
+            ...adj,
+            formula: adj.calculation,
+            description: getSentenceExplanation(adj.factor.toLowerCase(), pricingInputs, adj)
+          })) || [],
           weights: {
-            occupancyPressure: algorithmWeights.occupancy,
-            daysVacantDecay: algorithmWeights.daysVacant,
-            seasonality: algorithmWeights.seasonality,
-            competitorRates: algorithmWeights.competitors,
-            stockMarket: algorithmWeights.market,
-            inquiryTourVolume: algorithmWeights.demand
+            occupancyPressure: pricingWeights.occupancyPressure,
+            daysVacantDecay: pricingWeights.daysVacantDecay,
+            seasonality: pricingWeights.seasonality,
+            competitorRates: pricingWeights.competitorRates,
+            stockMarket: pricingWeights.stockMarket,
+            inquiryTourVolume: pricingWeights.inquiryTourVolume
           },
-          totalAdjustment: result.totalAdjustment,
-          finalRate: aiSuggestion,
-          signals: result.signals,
-          blendedSignal: result.blendedSignal,
-          explanation: generateOverallExplanation(result, aiInputs)
+          totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
+          finalRate: orchestratorResult.finalPrice,
+          moduloRate: orchestratorResult.moduloRate,
+          signals: orchestratorResult.moduloDetails.signals,
+          blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
+          explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
+          guardrailsApplied: orchestratorResult.guardrailsApplied
         };
         
         // Add to bulk update array
