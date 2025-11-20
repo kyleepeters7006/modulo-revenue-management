@@ -10,13 +10,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 const weightConfigs = [
-  { key: "occupancyPressure", label: "Occupancy Pressure", default: 25 },
-  { key: "daysVacantDecay", label: "Days Vacant Decay", default: 15 },
-  { key: "roomAttributes", label: "Room Attributes", default: 20 },
+  { key: "occupancyPressure", label: "Occupancy Pressure", default: 44 },
+  { key: "daysVacantDecay", label: "Days Vacant Decay", default: 10 },
   { key: "seasonality", label: "Seasonality", default: 10 },
-  { key: "competitorRates", label: "Competitor Rates", default: 10 },
+  { key: "competitorRates", label: "Competitor Rates", default: 12 },
   { key: "stockMarket", label: "Stock Market", default: 10 },
-  { key: "inquiryTourVolume", label: "Inquiry & Tour Volume", default: 10 },
+  { key: "inquiryTourVolume", label: "Inquiry & Tour Volume", default: 14 },
 ];
 
 const weightDetails: Record<string, {
@@ -73,26 +72,6 @@ const weightDetails: Record<string, {
         "Signal normalized = -0.93",
         "Weighted (15% weight) = -13.95% × 0.15 = -2.3%",
         "Dollar Impact = $5,000 × -2.3% = -$115"
-      ]
-    }
-  },
-  roomAttributes: {
-    title: "Room Attributes",
-    description: "Premium or discount pricing based on room features like view, floor level, proximity to amenities.",
-    calculation: "Adjustment = Σ(Attribute Value × Attribute Weight) × Overall Weight",
-    dataSource: "Room attributes from rent_roll_data (view, floor, amenities columns)",
-    example: {
-      scenario: "Premium corner unit with city view",
-      baseRate: 5000,
-      adjustment: 400,
-      finalRate: 5400,
-      calculationSteps: [
-        "View Premium = 5%",
-        "Renovated Premium = 8%",
-        "Total Attribute Bonus = 5% + 8% = 13%",
-        "Weighted Bonus = 13% × 20% weight = 2.6%",
-        "But example shows 8% for demonstration",
-        "Dollar Impact = $5,000 × 8% = $400"
       ]
     }
   },

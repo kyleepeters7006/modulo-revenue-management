@@ -1029,22 +1029,7 @@ export class DatabaseStorage implements IStorage {
         vacancyAdjustment = vacancyMin * severity * (weights.daysVacantDecay / 100);
       }
       
-      // 3. Room Attributes - only apply if unit has premium attributes
-      let attributeAdjustment = 0;
-      if (weights.roomAttributes > 0) {
-        let attributeScore = 0;
-        if (unit.view) attributeScore += 0.3;
-        if (unit.renovated) attributeScore += 0.4;
-        if (unit.otherPremiumFeature) attributeScore += 0.3;
-        
-        if (attributeScore > 0) {
-          const direction = attributeScore > 0.5 ? 1 : -0.5;
-          const range = direction > 0 ? attributesMax : attributesMin;
-          attributeAdjustment = range * attributeScore * (weights.roomAttributes / 100);
-        }
-      }
-      
-      // 4. Competitor Rates - only apply if competitor rate exists and differs significantly
+      // 3. Competitor Rates - only apply if competitor rate exists and differs significantly
       let competitorAdjustment = 0;
       if (weights.competitorRates > 0 && unit.competitorRate) {
         const competitorRate = unit.competitorRate;
@@ -1078,7 +1063,7 @@ export class DatabaseStorage implements IStorage {
       }
       
       // Calculate total adjustment
-      const totalAdjustment = occupancyAdjustment + vacancyAdjustment + attributeAdjustment + 
+      const totalAdjustment = occupancyAdjustment + vacancyAdjustment + 
                              seasonalAdjustment + competitorAdjustment + marketAdjustment;
       
       // Apply the adjustment to get the recommended rate

@@ -178,7 +178,6 @@ export const pricingWeights = pgTable("pricing_weights", {
   enableWeights: boolean("enable_weights").notNull().default(true),
   occupancyPressure: integer("occupancy_pressure").notNull(),
   daysVacantDecay: integer("days_vacant_decay").notNull(),
-  roomAttributes: integer("room_attributes").notNull(),
   seasonality: integer("seasonality").notNull(),
   competitorRates: integer("competitor_rates").notNull(),
   stockMarket: integer("stock_market").notNull(),
