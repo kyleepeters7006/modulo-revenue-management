@@ -63,6 +63,22 @@ Preferred communication style: Simple, everyday language.
 - **zod**: Schema validation.
 - **drizzle-zod**: Drizzle ORM and Zod integration.
 
+# Recent Changes (November 20-21, 2025)
+
+## B Bed Filtering for Senior Housing Service Lines
+- **Implementation Date**: November 21, 2025
+- **Business Rule**: For senior housing service lines (AL, IL, SL, AL/MC), only A beds should be shown on Rate Card
+- **Technical Changes**:
+  - Modified `/api/rate-card` endpoint to filter out B beds (rooms ending with "/B") for senior housing
+  - Updated `generateRateCard()` to exclude B beds when calculating service line summaries
+  - Modified `generateModuloPricingSuggestions()` and `generateAIPricingSuggestions()` to calculate occupancy based on units (not beds) for senior housing
+  - Occupancy calculations for senior housing now correctly use unit-based metrics by excluding B beds
+- **Impact**: 
+  - More accurate occupancy reporting for senior housing (unit-based vs bed-based)
+  - Rate Card only displays A beds for senior housing service lines
+  - HC (Health Center) service line still shows both A and B beds as required
+  - Pricing algorithms now use correct unit-based occupancy for senior housing
+
 # Recent Changes (November 20, 2025)
 
 ## AttributePricingService Integration - COMPLETE ✅

@@ -3779,6 +3779,20 @@ Keep recommendations specific and quantitative when possible.`;
       if (selectedLocations.length > 0) {
         unitLevelData = unitLevelData.filter(unit => selectedLocations.includes(unit.location));
       }
+      
+      // Filter out B beds for senior housing service lines (AL, IL, SL)
+      const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+      unitLevelData = unitLevelData.filter(unit => {
+        // If this is a senior housing service line, exclude B beds
+        if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
+          const roomNumber = unit.roomNumber || '';
+          // Exclude if room number ends with /B or just B (e.g., "501/B" or "501B")
+          if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+            return false; // Exclude this unit
+          }
+        }
+        return true; // Include all other units
+      });
 
       // NOTE: Modulo rates are already calculated and stored in the database
       // We should NOT recalculate them here as it overrides the correct values
@@ -3891,7 +3905,21 @@ Keep recommendations specific and quantitative when possible.`;
       
       // Get all units for the month - always process ALL units regardless of filters
       // This ensures pricing is generated for the entire portfolio
-      const units = await storage.getRentRollDataByMonth(targetMonth);
+      let units = await storage.getRentRollDataByMonth(targetMonth);
+      
+      // Filter out B beds for senior housing service lines when calculating occupancy
+      // This is important for accurate occupancy-based pricing calculations
+      const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+      const allUnitsForOccupancy = units.filter(unit => {
+        // For senior housing service lines, exclude B beds from occupancy calculation
+        if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
+          const roomNumber = unit.roomNumber || '';
+          if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+            return false; // Exclude B beds
+          }
+        }
+        return true; // Include all other units
+      });
       
       // Pre-fetch all weights for unique location+serviceLine combinations AND location-only to optimize
       const uniqueCombinations = new Set<string>();

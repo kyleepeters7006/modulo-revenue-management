@@ -454,9 +454,22 @@ export class DatabaseStorage implements IStorage {
     // Get rent roll data for the month
     const units = await this.getRentRollDataByMonth(uploadMonth);
     
+    // Define senior housing service lines
+    const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+    
     // Group by service line and calculate averages
     const serviceLineStats = units.reduce((acc: any, unit: any) => {
       const serviceLine = unit.serviceLine || 'AL'; // Default to AL if not specified
+      
+      // For senior housing, skip B beds (roomNumber ending with /B or B)
+      if (seniorHousingServiceLines.includes(serviceLine)) {
+        const roomNumber = unit.roomNumber || '';
+        // Skip if room number ends with /B or just B (e.g., "501/B" or "501B")
+        if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+          return acc; // Skip this unit
+        }
+      }
+      
       if (!acc[serviceLine]) {
         acc[serviceLine] = {
           streetRates: [],
@@ -1015,8 +1028,21 @@ export class DatabaseStorage implements IStorage {
     
     const updatedUnits = [];
     
-    const occupiedCount = units.filter(u => u.occupiedYN).length;
-    const actualOccupancyRate = units.length > 0 ? occupiedCount / units.length : 0.85;
+    // Filter units for occupancy calculation - exclude B beds for senior housing
+    const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+    const unitsForOccupancy = units.filter(unit => {
+      if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
+        const roomNumber = unit.roomNumber || '';
+        if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+          return false; // Exclude B beds from occupancy calculation
+        }
+      }
+      return true;
+    });
+    
+    // Calculate occupancy rate as a ratio (using filtered units for senior housing)
+    const occupiedCount = unitsForOccupancy.filter(u => u.occupiedYN).length;
+    const actualOccupancyRate = unitsForOccupancy.length > 0 ? occupiedCount / unitsForOccupancy.length : 0.85;
     
     const currentMonth = new Date().getMonth() + 1;
     const marketReturn = 0.023;
@@ -1065,8 +1091,21 @@ export class DatabaseStorage implements IStorage {
     
     const updatedUnits = [];
     
-    const occupiedCount = units.filter(u => u.occupiedYN).length;
-    const actualOccupancyRate = units.length > 0 ? occupiedCount / units.length : 0.85;
+    // Filter units for occupancy calculation - exclude B beds for senior housing
+    const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+    const unitsForOccupancy = units.filter(unit => {
+      if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
+        const roomNumber = unit.roomNumber || '';
+        if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+          return false; // Exclude B beds from occupancy calculation
+        }
+      }
+      return true;
+    });
+    
+    // Calculate occupancy rate as a ratio (using filtered units for senior housing)
+    const occupiedCount = unitsForOccupancy.filter(u => u.occupiedYN).length;
+    const actualOccupancyRate = unitsForOccupancy.length > 0 ? occupiedCount / unitsForOccupancy.length : 0.85;
     
     const currentMonth = new Date().getMonth() + 1;
     const marketReturn = 0.023;
