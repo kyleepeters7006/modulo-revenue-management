@@ -190,8 +190,8 @@ export const competitors = pgTable("competitors", {
   name: text("name").notNull(),
   location: text("location"), // Which portfolio location this competitor is for
   locationId: varchar("location_id").references(() => locations.id),
-  lat: real("lat").notNull(),
-  lng: real("lng").notNull(),
+  lat: real("lat"), // Made nullable to support uploads without geocoding
+  lng: real("lng"), // Made nullable to support uploads without geocoding
   rates: jsonb("rates"),
   avgCareRate: real("avg_care_rate"),
   streetRate: real("street_rate"),

@@ -3520,20 +3520,23 @@ Keep recommendations specific and quantitative when possible.`;
       const processedRecords: any[] = [];
 
       for (const row of jsonData) {
+        // Parse lat/lng as null if not provided or 0
+        const lat = parseFloat(row.Latitude || row.latitude);
+        const lng = parseFloat(row.Longitude || row.longitude);
+        
         const competitorEntry = {
           name: row['Competitor Name'] || row.name || row.competitorName || '',
-          facilityType: row['Facility Type'] || row.facilityType || row['facility type'] || '',
+          location: row.Location || row.location || '', // Trilogy location this competitor is for
           roomType: row['Room Type'] || row.roomType || row['room type'] || '',
-          baseRate: parseFloat(row['Base Rate'] || row.baseRate || row['base rate']) || 0,
-          careLevel1Rate: parseFloat(row['Care Level 1'] || row.careLevel1 || row['care level 1']) || 0,
-          careLevel2Rate: parseFloat(row['Care Level 2'] || row.careLevel2 || row['care level 2']) || 0,
-          medicationManagementFee: parseFloat(row['Medication Management Fee'] || row.medicationManagementFee || row['medication management fee']) || 0,
+          streetRate: parseFloat(row['Base Rate'] || row.baseRate || row['base rate'] || row['Street Rate'] || row.streetRate) || 0,
+          careLevel2Rate: parseFloat(row['Care Level 2'] || row.careLevel2 || row['care level 2']) || null,
+          medicationManagementFee: parseFloat(row['Medication Management Fee'] || row.medicationManagementFee || row['medication management fee']) || null,
           address: row.Address || row.address || '',
-          city: row.City || row.city || '',
-          state: row.State || row.state || '',
-          zip: row.Zip || row.zip || '',
-          latitude: parseFloat(row.Latitude || row.latitude) || 0,
-          longitude: parseFloat(row.Longitude || row.longitude) || 0
+          lat: !isNaN(lat) && lat !== 0 ? lat : null,
+          lng: !isNaN(lng) && lng !== 0 ? lng : null,
+          rank: parseInt(row.Rank || row.rank) || null,
+          weight: parseFloat(row.Weight || row.weight) || null,
+          rating: row.Rating || row.rating || null,
         };
 
         processedRecords.push(competitorEntry);
