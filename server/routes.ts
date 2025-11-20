@@ -3157,7 +3157,7 @@ Keep recommendations specific and quantitative when possible.`;
       };
 
       // Function to parse attributes from room type field
-      // Examples: "A Vw" → viewRating: A, "B Sz" → sizeRating: B, "A loc" → locationRating: A
+      // Examples: "Studio;A Vw;A Loc;B Sz" or "Studio;;;A Vw;B Sz"
       const parseAttributes = (roomTypeString: string): {
         cleanRoomType: string;
         viewRating: string | null;
@@ -3177,47 +3177,57 @@ Keep recommendations specific and quantitative when possible.`;
           };
         }
 
-        let cleanType = roomTypeString;
+        // Split by semicolon to handle format like "Studio;A Vw;A Loc;B Sz"
+        const parts = roomTypeString.split(';').map(part => part.trim()).filter(part => part);
+        
+        // First part is usually the room type (e.g., "Studio", "1 Bedroom")
+        let cleanType = parts.length > 0 ? parts[0] : '';
         let viewRating = null;
         let sizeRating = null;
         let locationRating = null;
         let renovationRating = null;
         let amenityRating = null;
 
-        // Pattern: Letter + space + attribute code (e.g., "A Vw", "B Sz", "A loc")
-        // Extract view rating (Vw)
-        const viewMatch = roomTypeString.match(/([A-F])\s*Vw/i);
-        if (viewMatch) {
-          viewRating = viewMatch[1].toUpperCase();
-          cleanType = cleanType.replace(/[A-F]\s*Vw/gi, '').trim();
-        }
+        // Process each part for attribute ratings
+        for (const part of parts) {
+          // Skip empty parts and the room type (first part)
+          if (!part || part === cleanType) continue;
 
-        // Extract size rating (Sz)
-        const sizeMatch = roomTypeString.match(/([A-F])\s*Sz/i);
-        if (sizeMatch) {
-          sizeRating = sizeMatch[1].toUpperCase();
-          cleanType = cleanType.replace(/[A-F]\s*Sz/gi, '').trim();
-        }
+          // Pattern: Letter + space/no-space + attribute code (e.g., "A Vw", "B Sz", "A loc")
+          // Extract view rating (Vw)
+          const viewMatch = part.match(/^([A-F])\s*Vw$/i);
+          if (viewMatch) {
+            viewRating = viewMatch[1].toUpperCase();
+            continue;
+          }
 
-        // Extract location rating (loc)
-        const locationMatch = roomTypeString.match(/([A-F])\s*loc/i);
-        if (locationMatch) {
-          locationRating = locationMatch[1].toUpperCase();
-          cleanType = cleanType.replace(/[A-F]\s*loc/gi, '').trim();
-        }
+          // Extract size rating (Sz)
+          const sizeMatch = part.match(/^([A-F])\s*Sz$/i);
+          if (sizeMatch) {
+            sizeRating = sizeMatch[1].toUpperCase();
+            continue;
+          }
 
-        // Extract renovation rating (Reno)
-        const renovationMatch = roomTypeString.match(/([A-F])\s*Reno/i);
-        if (renovationMatch) {
-          renovationRating = renovationMatch[1].toUpperCase();
-          cleanType = cleanType.replace(/[A-F]\s*Reno/gi, '').trim();
-        }
+          // Extract location rating (Loc)
+          const locationMatch = part.match(/^([A-F])\s*Loc$/i);
+          if (locationMatch) {
+            locationRating = locationMatch[1].toUpperCase();
+            continue;
+          }
 
-        // Extract amenity rating (Amen)
-        const amenityMatch = roomTypeString.match(/([A-F])\s*Amen/i);
-        if (amenityMatch) {
-          amenityRating = amenityMatch[1].toUpperCase();
-          cleanType = cleanType.replace(/[A-F]\s*Amen/gi, '').trim();
+          // Extract renovation rating (Reno)
+          const renovationMatch = part.match(/^([A-F])\s*Reno$/i);
+          if (renovationMatch) {
+            renovationRating = renovationMatch[1].toUpperCase();
+            continue;
+          }
+
+          // Extract amenity rating (Amen)
+          const amenityMatch = part.match(/^([A-F])\s*Amen$/i);
+          if (amenityMatch) {
+            amenityRating = amenityMatch[1].toUpperCase();
+            continue;
+          }
         }
 
         return {
@@ -3272,6 +3282,16 @@ Keep recommendations specific and quantitative when possible.`;
         const competitorAvgCareRateValue = getRowValue(row, 'Competitive Average Care Rate', 'competitive average care rate', 'Competitor Average Care Rate', 'competitor average care rate', 'Competitive Avg Care Rate', 'CompetitiveAvgCareRate');
         const competitorFinalRateValue = getRowValue(row, 'Competitive Final Rate', 'competitive final rate', 'Competitor Final Rate', 'competitor final rate', 'CompetitiveFinalRate', 'CompetitorFinalRate');
 
+        // Get BaseRate1 and handle currency formatting
+        const baseRateRaw = getRowValue(row, 'BaseRate1', 'Base Rate', 'base rate', 'Street Rate', 'street rate', 'StreetRate', 'streetRate', 'Rate', 'rate');
+        let streetRate = 0;
+        if (baseRateRaw) {
+          // Remove dollar signs, commas, and parse
+          const cleanedValue = baseRateRaw.toString().replace(/[$,]/g, '').trim();
+          const parsedRate = parseFloat(cleanedValue);
+          streetRate = isNaN(parsedRate) ? 0 : parsedRate;
+        }
+
         const rentRollEntry = {
           uploadMonth: uploadMonth,
           date: getRowValue(row, 'Date', 'date') || uploadDate,
@@ -3291,7 +3311,7 @@ Keep recommendations specific and quantitative when possible.`;
           viewRating: viewRating,
           renovationRating: renovationRating,
           amenityRating: amenityRating,
-          streetRate: parseFloat(getRowValue(row, 'BaseRate1', 'Base Rate', 'base rate', 'Street Rate', 'street rate', 'StreetRate', 'streetRate', 'Rate', 'rate')) || 0,
+          streetRate: streetRate,
           inHouseRate: parseFloat(getRowValue(row, 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate')) || 0,
           discountToStreetRate: parseFloat(getRowValue(row, 'Discount to Street Rate', 'discount to street rate')) || 0,
           careLevel: getRowValue(row, 'Care Level', 'care level') || null,
@@ -3324,6 +3344,20 @@ Keep recommendations specific and quantitative when possible.`;
       // Log for debugging
       console.log(`Processing ${processedRecords.length} records for upload month: ${uploadMonth}`);
       console.log('Sample record:', processedRecords[0]);
+      
+      // Debug street rate parsing
+      const recordsWithStreetRate = processedRecords.filter(r => r.streetRate > 0).length;
+      console.log(`=== STREET RATE VALIDATION ===`);
+      console.log(`Records with streetRate > 0: ${recordsWithStreetRate}/${processedRecords.length}`);
+      if (recordsWithStreetRate === 0) {
+        console.warn('⚠️ WARNING: No street rate data found in CSV. Check BaseRate1 column!');
+        // Log first row's BaseRate1 value for debugging
+        if (jsonData.length > 0) {
+          console.log('First row BaseRate1 raw value:', jsonData[0]['BaseRate1']);
+          console.log('Available columns in first row:', Object.keys(jsonData[0]));
+        }
+      }
+      console.log(`===================================`);
       
       // Validate competitor fields were found
       const recordsWithCompRates = processedRecords.filter(r => r.competitorRate > 0).length;
