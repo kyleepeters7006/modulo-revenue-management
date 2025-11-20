@@ -110,9 +110,18 @@ export default function RoomAttributes() {
   };
 
   // Filter units based on selections (used for both room type pricing and unit-level table)
+  // For senior housing (AL, IL, SL, AL/MC): exclude B beds (rooms ending with "/B")
+  // For HC: include both A and B beds
+  const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
   const filteredUnits = rentRollData.filter(unit => {
     if (selectedServiceLine !== "All" && unit.serviceLine !== selectedServiceLine) return false;
     if (selectedLocation !== "All" && unit.location !== selectedLocation) return false;
+    
+    // Exclude B beds for senior housing service lines
+    const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
+    const isBBed = unit.roomNumber?.endsWith('/B');
+    if (isSeniorHousing && isBBed) return false;
+    
     return true;
   });
 
