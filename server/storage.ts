@@ -401,7 +401,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async uploadRentRollData(month: string, data: any[]): Promise<void> {
-    // Clear existing data for this month
+    // Get IDs of rent_roll_data records we're about to delete
+    const recordsToDelete = await db
+      .select({ id: rentRollData.id })
+      .from(rentRollData)
+      .where(eq(rentRollData.uploadMonth, month));
+    
+    const idsToDelete = recordsToDelete.map(r => r.id);
+    
+    // First, delete any unit_polygons that reference these rent_roll_data records
+    // (to avoid foreign key constraint violations)
+    if (idsToDelete.length > 0) {
+      await db.delete(unitPolygons).where(
+        sql`${unitPolygons.rentRollDataId} IN (${sql.join(idsToDelete.map(id => sql`${id}`), sql`, `)})`
+      );
+    }
+    
+    // Now safe to delete the rent_roll_data records
     await db.delete(rentRollData).where(eq(rentRollData.uploadMonth, month));
     
     // Insert new data
