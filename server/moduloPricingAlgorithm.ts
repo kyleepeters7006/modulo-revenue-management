@@ -235,7 +235,6 @@ function signalDemand(current: number, history: number[], cfg: ModuloPricingConf
 export interface PricingInputs {
   occupancy: number;           // 0-1 (e.g., 0.85 for 85%)
   daysVacant: number;          // integer days
-  attrScore: number;           // 0-1 normalized score
   monthIndex: number;          // 1-12
   competitorPrices: number[];  // array of competitor rates
   marketReturn: number;        // e.g., 0.03 for +3%
@@ -247,7 +246,6 @@ export interface PricingInputs {
 export interface PricingWeights {
   occupancy: number;
   daysVacant: number;
-  attributes: number;
   seasonality: number;
   competitors: number;
   market: number;
@@ -284,7 +282,6 @@ export function calculateModuloPrice(
   const w = normalizeWeights({
     occupancy: weights0To100.occupancy,
     daysVacant: weights0To100.daysVacant,
-    attributes: weights0To100.attributes,
     seasonality: weights0To100.seasonality,
     competitors: weights0To100.competitors,
     market: weights0To100.market,
@@ -295,7 +292,6 @@ export function calculateModuloPrice(
   const sigs: Record<string, number> = {
     occupancy: signalOccupancy(inputs.occupancy, cfg),
     daysVacant: signalDaysVacant(inputs.daysVacant, cfg),
-    attributes: signalRoomAttributes(inputs.attrScore, cfg),
     seasonality: signalSeasonality(inputs.monthIndex, cfg),
     competitors: signalCompetitors(basePrice, inputs.competitorPrices, cfg, inputs.serviceLine),
     market: signalMarket(inputs.marketReturn, cfg),
@@ -334,8 +330,6 @@ export function calculateModuloPrice(
       adjustmentPct = signal * (signal >= 0 ? cfg.occMaxPremium : Math.abs(cfg.occMaxCut));
     } else if (key === 'daysVacant') {
       adjustmentPct = signal * Math.abs(cfg.dvMaxCut);
-    } else if (key === 'attributes') {
-      adjustmentPct = signal * cfg.attrMaxSpan;
     } else if (key === 'seasonality') {
       adjustmentPct = signal * cfg.seasonalitySpan;
     } else if (key === 'competitors') {
@@ -378,8 +372,6 @@ function getFactorDescription(factor: string, inputs: PricingInputs, adjustment:
       return `Campus at ${Math.round(inputs.occupancy * 100)}% occupancy (target: 90%)`;
     case 'daysVacant':
       return `Unit vacant for ${inputs.daysVacant} days`;
-    case 'attributes':
-      return `Room desirability score: ${(inputs.attrScore * 100).toFixed(0)}%`;
     case 'seasonality':
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return `${months[inputs.monthIndex - 1]} seasonal adjustment`;
@@ -412,8 +404,6 @@ function getCalculationString(factor: string, inputs: PricingInputs, signal: num
         return `Within ${graceDays}-day grace period → 0% adjustment`;
       }
       return `Days past grace: ${inputs.daysVacant - graceDays} → ${(adjustment * 100).toFixed(2)}%`;
-    case 'attributes':
-      return `Score ${(inputs.attrScore * 100).toFixed(0)}% vs midpoint 50% → ${(adjustment * 100).toFixed(2)}%`;
     case 'seasonality':
       return `Monthly factor → ${(adjustment * 100).toFixed(2)}%`;
     case 'competitors':
@@ -453,13 +443,6 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
         'Grace Period': '7 days',
         'Days Beyond Grace': Math.max(0, inputs.daysVacant - 7),
         'Max Decay': '-15%'
-      };
-    case 'attributes':
-      return {
-        'Desirability Score': `${(inputs.attrScore * 100).toFixed(1)}%`,
-        'Midpoint (Neutral)': '50%',
-        'Variance from Midpoint': `${((inputs.attrScore - 0.5) * 100).toFixed(1)}%`,
-        'Max Premium': '+10%'
       };
     case 'seasonality':
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -518,8 +501,6 @@ function getSignalExplanation(factor: string, signal: number, adjustment: number
       return `The campus occupancy signal (${signal.toFixed(3)}) was normalized to -1 to +1 range based on proximity to the 90% target, then scaled to a ${(adjustment * 100).toFixed(1)}% price adjustment.`;
     case 'daysVacant':
       return `The vacancy duration signal (${signal.toFixed(3)}) represents the exponential decay after the 7-day grace period, scaled to a ${(adjustment * 100).toFixed(1)}% adjustment with a -15% maximum discount.`;
-    case 'attributes':
-      return `The room quality signal (${signal.toFixed(3)}) compares the desirability score to the 50% midpoint, allowing up to ±10% adjustment for premium or basic units.`;
     case 'seasonality':
       return `The seasonal signal (${signal.toFixed(3)}) reflects typical senior housing demand patterns, with peaks in summer months and valleys in winter.`;
     case 'competitors':
