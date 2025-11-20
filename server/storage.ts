@@ -424,14 +424,20 @@ export class DatabaseStorage implements IStorage {
     // Now safe to delete the rent_roll_data records
     await db.delete(rentRollData).where(eq(rentRollData.uploadMonth, month));
     
-    // Insert new data
+    // Insert new data in batches to avoid stack overflow
     if (data.length > 0) {
       const dataWithMonth = data.map(item => ({ 
         ...item, 
         uploadMonth: month,
         roomNumber: item.roomNumber || item.unitId || 'N/A' // Ensure roomNumber is always set
       }));
-      await db.insert(rentRollData).values(dataWithMonth);
+      
+      // Process insertions in batches of 500 records
+      const insertBatchSize = 500;
+      for (let i = 0; i < dataWithMonth.length; i += insertBatchSize) {
+        const batch = dataWithMonth.slice(i, i + insertBatchSize);
+        await db.insert(rentRollData).values(batch);
+      }
     }
   }
 
