@@ -4008,9 +4008,9 @@ Keep recommendations specific and quantitative when possible.`;
       
       console.log('Service line internal medians (used as competitive benchmark):', serviceLineMedians);
       
-      // Calculate service-line-specific occupancy rates
+      // Calculate service-line-specific occupancy rates using filtered units for senior housing
       const serviceLineOccupancy: Record<string, number> = {};
-      const serviceLineStats = units.reduce((acc: any, unit: any) => {
+      const serviceLineStats = allUnitsForOccupancy.reduce((acc: any, unit: any) => {
         const sl = unit.serviceLine || 'Unknown';
         if (!acc[sl]) {
           acc[sl] = { occupied: 0, total: 0 };
@@ -4027,7 +4027,7 @@ Keep recommendations specific and quantitative when possible.`;
         serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0;
       }
       
-      console.log('Service line occupancy rates:', serviceLineOccupancy);
+      console.log('Service line occupancy rates (excluding B beds for senior housing):', serviceLineOccupancy);
       
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
@@ -4279,7 +4279,20 @@ Keep recommendations specific and quantitative when possible.`;
         units = units.filter(unit => unit.location && locations.includes(unit.location));
       }
       
-      console.log(`Generating AI suggestions for ${units.length} filtered units`);
+      // Filter out B beds for senior housing service lines when calculating occupancy
+      const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+      const allUnitsForOccupancy = units.filter(unit => {
+        // For senior housing service lines, exclude B beds from occupancy calculation
+        if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
+          const roomNumber = unit.roomNumber || '';
+          if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+            return false; // Exclude B beds
+          }
+        }
+        return true; // Include all other units
+      });
+      
+      console.log(`Generating AI suggestions for ${units.length} units (${allUnitsForOccupancy.length} for occupancy calc)`);
       
       // Collect all updates in memory first for bulk processing
       const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
