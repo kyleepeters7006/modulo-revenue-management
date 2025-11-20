@@ -3693,20 +3693,32 @@ Keep recommendations specific and quantitative when possible.`;
       // Get portfolio-wide statistics from locations table
       const portfolioStats = await db
         .select({
-          totalLocations: sql<number>`COUNT(*)::int`,
-          totalUnits: sql<number>`COALESCE(SUM(${locations.totalUnits}), 0)::int`
+          totalLocations: sql<number>`COUNT(*)::int`
         })
         .from(locations);
       
-      const portfolioTotalUnits = portfolioStats[0]?.totalUnits || 0;
       const portfolioTotalLocations = portfolioStats[0]?.totalLocations || 0;
       
-      // Units with rent roll data uploaded
-      const unitsWithData = allRentRollData.length;
-      const locationsWithData = uniqueCampuses;
-      const occupiedUnits = allRentRollData.filter(u => u.occupiedYN).length;
+      // Calculate actual units from rent roll data, excluding B beds for senior housing
+      // For AL, IL, SL, AL/MC: only count A beds (exclude rooms ending with "/B")
+      // For HC: count both A and B beds
+      const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
+      const actualUnits = allRentRollData.filter(unit => {
+        const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
+        const isBBed = unit.roomNumber.endsWith('/B');
+        
+        // For senior housing, exclude B beds. For HC, include all beds.
+        return !isSeniorHousing || !isBBed;
+      });
       
-      const currentAnnualRevenue = allRentRollData.reduce((sum, u) => {
+      const portfolioTotalUnits = actualUnits.length;
+      
+      // Units with rent roll data uploaded
+      const unitsWithData = actualUnits.length;
+      const locationsWithData = uniqueCampuses;
+      const occupiedUnits = actualUnits.filter(u => u.occupiedYN).length;
+      
+      const currentAnnualRevenue = actualUnits.reduce((sum, u) => {
         if (u.occupiedYN) {
           const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
           const careRate = u.careRate || u.careFee || 0;
@@ -3714,7 +3726,7 @@ Keep recommendations specific and quantitative when possible.`;
         }
         return sum;
       }, 0);
-      const potentialAnnualRevenue = allRentRollData.reduce((sum, u) => {
+      const potentialAnnualRevenue = actualUnits.reduce((sum, u) => {
         const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
         const careRate = u.careRate || u.careFee || 0;
         return sum + (baseRent + careRate) * 12;
