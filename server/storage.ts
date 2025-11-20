@@ -76,7 +76,7 @@ import {
   type InsertInquiryMetrics
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, inArray } from "drizzle-orm";
 import OpenAI from "openai";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
@@ -410,11 +410,15 @@ export class DatabaseStorage implements IStorage {
     const idsToDelete = recordsToDelete.map(r => r.id);
     
     // First, delete any unit_polygons that reference these rent_roll_data records
-    // (to avoid foreign key constraint violations)
+    // Process in batches to avoid stack overflow with large datasets
     if (idsToDelete.length > 0) {
-      await db.delete(unitPolygons).where(
-        sql`${unitPolygons.rentRollDataId} IN (${sql.join(idsToDelete.map(id => sql`${id}`), sql`, `)})`
-      );
+      const batchSize = 500; // Process 500 IDs at a time
+      for (let i = 0; i < idsToDelete.length; i += batchSize) {
+        const batchIds = idsToDelete.slice(i, i + batchSize);
+        await db.delete(unitPolygons).where(
+          inArray(unitPolygons.rentRollDataId, batchIds)
+        );
+      }
     }
     
     // Now safe to delete the rent_roll_data records
