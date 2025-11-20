@@ -652,13 +652,14 @@ export const insertLocationMappingsSchema = createInsertSchema(locationMappings)
 // Floor Plan Tables for Interactive Campus Maps
 export const campusMaps = pgTable("campus_maps", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  locationId: varchar("location_id").references(() => locations.id).notNull(),
+  locationId: varchar("location_id").references(() => locations.id), // Nullable for global/template floor plans
   name: text("name").notNull(),
   baseImageUrl: text("base_image_url"), // Path to photorealistic aerial/satellite base image
   svgUrl: text("svg_url"), // Path to SVG file in object storage
   svgContent: text("svg_content"), // Actual SVG markup (for inline embedding)
   width: integer("width"), // SVG viewBox width
   height: integer("height"), // SVG viewBox height
+  isTemplate: boolean("is_template").default(false), // True if this floor plan should be used for all locations
   isPublished: boolean("is_published").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

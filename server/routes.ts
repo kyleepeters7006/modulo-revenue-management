@@ -5830,9 +5830,15 @@ Respond in JSON format:
   app.get("/api/campus-maps/:locationId", async (req, res) => {
     try {
       const { locationId } = req.params;
-      const maps = await storage.getCampusMaps();
-      const filtered = locationId ? maps.filter(m => m.locationId === locationId) : maps;
-      res.json(filtered);
+      const { uploadMonth } = req.query;
+      
+      const { getFloorPlanDataForLocation } = await import('./globalFloorPlanService');
+      const result = await getFloorPlanDataForLocation(
+        locationId,
+        uploadMonth as string | undefined
+      );
+      
+      res.json(result);
     } catch (error) {
       console.error('Error fetching campus maps:', error);
       res.status(500).json({ error: "Failed to fetch campus maps" });
@@ -5896,10 +5902,10 @@ Respond in JSON format:
         return res.status(400).json({ error: "No image file provided" });
       }
 
-      const { name, locationId, width, height } = req.body;
+      const { name, locationId, width, height, isTemplate, autoDetect } = req.body;
       
-      if (!name || !locationId) {
-        return res.status(400).json({ error: "Missing required fields: name, locationId" });
+      if (!name) {
+        return res.status(400).json({ error: "Missing required field: name" });
       }
 
       const timestamp = Date.now();
@@ -5911,20 +5917,43 @@ Respond in JSON format:
       await fs.writeFile(filepath, req.file.buffer);
 
       const mapData = {
-        locationId,
+        locationId: isTemplate === 'true' || isTemplate === true ? null : locationId,
         name,
         baseImageUrl: `/${filepath}`,
         width: parseInt(width) || 1024,
         height: parseInt(height) || 683,
+        isTemplate: isTemplate === 'true' || isTemplate === true,
         isPublished: false,
       };
 
       const map = await storage.createCampusMap(mapData);
       
-      res.json(map);
+      if ((autoDetect === 'true' || autoDetect === true) && map.isTemplate) {
+        const { detectAndStoreTemplateRooms } = await import('./globalFloorPlanService');
+        const detectionResult = await detectAndStoreTemplateRooms(map.id);
+        
+        res.json({
+          map,
+          detection: detectionResult
+        });
+      } else {
+        res.json({ map });
+      }
     } catch (error) {
       console.error('Error uploading floor plan image:', error);
       res.status(500).json({ error: "Failed to upload floor plan image" });
+    }
+  });
+
+  app.post("/api/campus-maps/:id/detect-rooms", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { detectAndStoreTemplateRooms } = await import('./globalFloorPlanService');
+      const result = await detectAndStoreTemplateRooms(id);
+      res.json(result);
+    } catch (error) {
+      console.error('Error detecting rooms:', error);
+      res.status(500).json({ error: "Failed to detect rooms" });
     }
   });
 
