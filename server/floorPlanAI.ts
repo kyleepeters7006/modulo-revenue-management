@@ -191,13 +191,12 @@ export async function createPolygonsFromDetection(
 }
 
 function normalizeRoomNumber(roomNumber: string): string {
-  // Remove spaces, convert to uppercase, remove leading zeros
   let normalized = roomNumber.toString().trim().toUpperCase();
   
-  // Remove common prefixes
   normalized = normalized.replace(/^(ROOM|RM|UNIT|APT|APARTMENT)\s*/i, '');
   
-  // Remove leading zeros but preserve letters
+  normalized = normalized.replace(/[\s\/_-]/g, '');
+  
   normalized = normalized.replace(/^0+(\d)/, '$1');
   
   return normalized;

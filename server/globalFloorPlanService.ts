@@ -1,6 +1,6 @@
 import { db } from './db';
-import { campusMaps, unitPolygons, rentRollData, locations } from '@/shared/schema';
-import { eq, and, isNull, or } from 'drizzle-orm';
+import { campusMaps, unitPolygons, rentRollData, locations } from '../shared/schema';
+import { eq, and, isNull, or, desc } from 'drizzle-orm';
 import { detectRoomsWithAI } from './floorPlanAI';
 
 export async function detectAndStoreTemplateRooms(
@@ -138,16 +138,31 @@ export async function getFloorPlanDataForLocation(
     .from(unitPolygons)
     .where(eq(unitPolygons.campusMapId, campusMap.id));
 
-  let unitsQuery = db
-    .select()
-    .from(rentRollData)
-    .where(eq(rentRollData.locationId, locationId));
-
-  if (uploadMonth) {
-    unitsQuery = unitsQuery.where(eq(rentRollData.uploadMonth, uploadMonth));
+  let targetUploadMonth = uploadMonth;
+  if (!targetUploadMonth) {
+    const latestRecord = await db
+      .select({ uploadMonth: rentRollData.uploadMonth })
+      .from(rentRollData)
+      .where(eq(rentRollData.locationId, locationId))
+      .orderBy(desc(rentRollData.uploadMonth))
+      .limit(1);
+    
+    if (latestRecord[0]?.uploadMonth) {
+      targetUploadMonth = latestRecord[0].uploadMonth;
+    }
   }
 
-  const units = await unitsQuery;
+  const whereConditions = targetUploadMonth
+    ? and(
+        eq(rentRollData.locationId, locationId),
+        eq(rentRollData.uploadMonth, targetUploadMonth)
+      )
+    : eq(rentRollData.locationId, locationId);
+
+  const units = await db
+    .select()
+    .from(rentRollData)
+    .where(whereConditions);
 
   const unitsByRoom = new Map<string, typeof rentRollData.$inferSelect>();
   units.forEach(unit => {
@@ -180,7 +195,12 @@ export async function getFloorPlanDataForLocation(
 
 function normalizeRoomNumber(roomNumber: string): string {
   let normalized = roomNumber.toString().trim().toUpperCase();
+  
   normalized = normalized.replace(/^(ROOM|RM|UNIT|APT|APARTMENT)\s*/i, '');
+  
+  normalized = normalized.replace(/[\s\/_-]/g, '');
+  
   normalized = normalized.replace(/^0+(\d)/, '$1');
+  
   return normalized;
 }
