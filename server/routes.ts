@@ -3105,20 +3105,58 @@ Keep recommendations specific and quantitative when possible.`;
         return res.status(400).json({ error: 'No data found in file' });
       }
 
-      // Debug: Log the column headers from the first row
+      // Helper function to normalize column names for robust matching
+      // Handles Unicode spaces (U+00A0), extra whitespace, case differences, punctuation
+      const normalizeColumnName = (name: string): string => {
+        if (!name) return '';
+        return name
+          .toLowerCase()
+          .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ') // Replace Unicode spaces with regular space
+          .replace(/[^\w\s]/g, '') // Remove punctuation
+          .replace(/\s+/g, '') // Remove all whitespace
+          .trim();
+      };
+
+      // Create a normalized column map for efficient lookup
+      const columnMap = new Map<string, string>();
       if (jsonData.length > 0) {
-        const columnHeaders = Object.keys(jsonData[0]);
-        console.log('CSV Column Headers:', columnHeaders);
-        console.log('First row sample:', jsonData[0]);
+        const originalHeaders = Object.keys(jsonData[0]);
+        console.log('=== CSV HEADER DEBUG ===');
+        console.log('Original headers:', originalHeaders);
+        
+        // Build normalized column map
+        for (const header of originalHeaders) {
+          const normalized = normalizeColumnName(header);
+          columnMap.set(normalized, header);
+          console.log(`  "${header}" → normalized: "${normalized}"`);
+        }
+        
+        // Debug: Show sample of first row
+        console.log('First row sample (first 5 fields):');
+        originalHeaders.slice(0, 5).forEach(header => {
+          console.log(`  ${header}: ${jsonData[0][header]}`);
+        });
+        console.log('======================');
       }
 
-      // Helper function to get value from row with case-insensitive column matching
+      // Helper function to get value from row with robust column name matching
       const getRowValue = (row: any, ...columnNames: string[]): any => {
+        // Try exact match first (fast path)
         for (const colName of columnNames) {
           if (row[colName] !== undefined && row[colName] !== null && row[colName] !== '') {
             return row[colName];
           }
         }
+        
+        // Try normalized matching (handles Unicode spaces, extra whitespace, case, punctuation)
+        for (const colName of columnNames) {
+          const normalized = normalizeColumnName(colName);
+          const actualColName = columnMap.get(normalized);
+          if (actualColName && row[actualColName] !== undefined && row[actualColName] !== null && row[actualColName] !== '') {
+            return row[actualColName];
+          }
+        }
+        
         return '';
       };
 
