@@ -65,6 +65,79 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 20, 2025)
 
+## AttributePricingService Integration - COMPLETE ✅
+
+### Critical Architectural Change: Separated Attribute Pricing from Modulo Algorithm
+- **Goal**: Eliminate "double dipping" where attributes were counted twice in pricing calculations
+- **Solution**: Calculate attributed rates BEFORE Modulo algorithm, then run Modulo on attributed base rates
+- **Implementation Status**: Production-ready, architect-approved
+
+### New Pricing Pipeline Architecture
+```
+1. Unit Base Rate (from AttributePricingService with 3-tier fallback)
+   ↓
+2. Apply Attribute Multipliers (A/B/C/D/E/F ratings for location, size, view, renovation, amenity)
+   ↓
+3. Attributed Rate (base rate adjusted for unit-specific attributes)
+   ↓
+4. Modulo Algorithm (6 signals: occupancy, daysVacant, seasonality, competitors, market, demand)
+   ↓
+5. Guardrails (min/max rate limits)
+   ↓
+6. Final Price (with complete calculation transparency)
+```
+
+### Schema Changes
+- **Removed `roomAttributes` from pricing_weights table**: Attributes no longer part of Modulo weighting
+- **Redistributed weights to 6 factors**: occupancy, daysVacant, seasonality, competitors, market, demand (total=100%)
+- **Frontend updated**: Removed attribute weight slider from pricing weights UI
+
+### New Services & Modules
+- **pricingOrchestrator.ts**: Orchestrates the complete pricing pipeline with month-aware caching
+- **Enhanced AttributePricingService**: 
+  - 3-tier fallback strategy: segment cache → campus/service-line median → floor ($2500)
+  - Month-specific cache tracking to prevent stale data
+  - Automatic cache invalidation on rent roll uploads
+  - Division-by-zero protection and defensive handling
+
+### Calculation Details Enhancements
+- **Full transparency**: Every pricing calculation now includes:
+  - `baseRate`: Unit's base rate from cache
+  - `baseRateSource`: How base rate was determined (segment/campus/floor)
+  - `attributedRate`: Rate after applying attribute multipliers
+  - `attributeBreakdown`: Detailed multiplier calculations for each attribute
+  - `moduloDetails`: Breakdown of 6-signal Modulo calculation
+  - `guardrailsApplied`: Metadata about rate limits (wasAdjusted, minAllowed, maxAllowed)
+- **Unified schema**: Both Modulo and AI pricing endpoints return identical calculation structures
+
+### Backend Updates
+- **storage.ts**: Both `generateModuloPricingSuggestions()` and `generateAIPricingSuggestions()` use orchestrator
+- **routes.ts**: 
+  - `/api/pricing/generate-modulo`: Uses hierarchical weights lookup with orchestrator
+  - `/api/pricing/generate-ai`: Uses same orchestrator with consistent schema
+  - `/api/upload/rent-roll`: Invalidates attribute cache after successful upload
+- **moduloPricingAlgorithm.ts**: Removed roomAttributes signal, now operates on 6 factors only
+
+### Cache Management
+- **Month-aware caching**: Cache tracks which month's data it contains
+- **Automatic invalidation**: Rent roll uploads force cache refresh for uploaded month
+- **Prevents staleness**: Re-uploading the same month's data correctly rebuilds base rates
+
+### Testing & Validation
+- ✅ Application running successfully with no errors
+- ✅ All TypeScript/LSP errors resolved
+- ✅ Cache properly invalidates on uploads
+- ✅ Complete calculation details persisted to database
+- ✅ AI and Modulo endpoints have unified schemas
+- ✅ Architect approved: "Satisfies release criteria for attributed pricing before Modulo"
+
+### Production Readiness
+- **Status**: Ready for production deployment
+- **Monitoring**: Track cache refresh logs after rent roll uploads
+- **Next Steps**: 
+  - Add automated regression tests for cache rebuild on same-month re-imports
+  - Analytics consumers can leverage newly persisted attribute breakdown and guardrail metadata
+
 ## Critical Bug Fixes - Rent Roll Upload Parser
 
 ### Unicode-Safe Column Name Matching
