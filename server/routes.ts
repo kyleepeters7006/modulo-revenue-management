@@ -368,7 +368,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         weights: weights ? {
           occupancy_pressure: weights.occupancyPressure,
           days_vacant_decay: weights.daysVacantDecay,
-          room_attributes: weights.roomAttributes,
           seasonality: weights.seasonality,
           competitor_rates: weights.competitorRates,
           stock_market: weights.stockMarket,
@@ -906,7 +905,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           enable_weights: weights.enableWeights,
           occupancy_pressure: weights.occupancyPressure,
           days_vacant_decay: weights.daysVacantDecay,
-          room_attributes: weights.roomAttributes,
           seasonality: weights.seasonality,
           competitor_rates: weights.competitorRates,
           stock_market: weights.stockMarket,
@@ -929,7 +927,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         enableWeights: req.body.enable_weights !== undefined ? req.body.enable_weights : true,
         occupancyPressure: req.body.occupancy_pressure,
         daysVacantDecay: req.body.days_vacant_decay,
-        roomAttributes: req.body.room_attributes,
         seasonality: req.body.seasonality,
         competitorRates: req.body.competitor_rates,
         stockMarket: req.body.stock_market,
@@ -937,7 +934,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const total = transformedData.occupancyPressure + transformedData.daysVacantDecay + 
-                    transformedData.roomAttributes + transformedData.seasonality + 
+                    transformedData.seasonality + 
                     transformedData.competitorRates + transformedData.stockMarket + 
                     transformedData.inquiryTourVolume;
       
@@ -975,7 +972,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           enable_weights: weights.enableWeights,
           occupancy_pressure: weights.occupancyPressure,
           days_vacant_decay: weights.daysVacantDecay,
-          room_attributes: weights.roomAttributes,
           seasonality: weights.seasonality,
           competitor_rates: weights.competitorRates,
           stock_market: weights.stockMarket,
@@ -1110,7 +1106,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({
           occupancyPressure: 20,
           daysVacantDecay: 20,
-          roomAttributes: 15,
           competitorRates: 15,
           seasonality: 15,
           stockMarket: 15
@@ -2898,7 +2893,6 @@ Keep recommendations specific and quantitative when possible.`;
       await storage.createOrUpdateWeights({
         occupancyPressure: 25, // 25%
         daysVacantDecay: 20,   // 20%
-        roomAttributes: 15,    // 15%
         seasonality: 10,       // 10%
         competitorRates: 20,   // 20%
         stockMarket: 10        // 10%
@@ -3835,7 +3829,6 @@ Keep recommendations specific and quantitative when possible.`;
       const defaultWeights = {
         occupancyPressure: 25,
         daysVacantDecay: 20,
-        roomAttributes: 25,
         seasonality: 10,
         competitorRates: 10,
         stockMarket: 10,
@@ -4079,7 +4072,6 @@ Keep recommendations specific and quantitative when possible.`;
           const moduloWeights = {
             occupancy: unitWeights?.occupancyPressure || 25,
             daysVacant: unitWeights?.daysVacantDecay || 15,
-            attributes: unitWeights?.roomAttributes || 20,
             seasonality: unitWeights?.seasonality || 5,
             competitors: unitWeights?.competitorRates || 10,
             market: unitWeights?.stockMarket || 5,
@@ -4102,7 +4094,6 @@ Keep recommendations specific and quantitative when possible.`;
             weights: {
               occupancyPressure: moduloWeights.occupancy,
               daysVacantDecay: moduloWeights.daysVacant,
-              roomAttributes: moduloWeights.attributes,
               seasonality: moduloWeights.seasonality,
               competitorRates: moduloWeights.competitors,
               stockMarket: moduloWeights.market,
@@ -4302,7 +4293,6 @@ Keep recommendations specific and quantitative when possible.`;
       const weights = await storage.getAiPricingWeights() || {
         occupancyPressure: 30,
         daysVacantDecay: 25,
-        roomAttributes: 15,
         competitorRates: 10,
         seasonality: 5,
         stockMarket: 5,
@@ -4370,7 +4360,6 @@ Keep recommendations specific and quantitative when possible.`;
         const algorithmWeights = {
           occupancy: weights.occupancyPressure || 30,
           daysVacant: weights.daysVacantDecay || 25,
-          attributes: weights.roomAttributes || 15,
           seasonality: weights.seasonality || 5,
           competitors: weights.competitorRates || 10,
           market: weights.stockMarket || 5,
@@ -4395,7 +4384,6 @@ Keep recommendations specific and quantitative when possible.`;
           weights: {
             occupancyPressure: algorithmWeights.occupancy,
             daysVacantDecay: algorithmWeights.daysVacant,
-            roomAttributes: algorithmWeights.attributes,
             seasonality: algorithmWeights.seasonality,
             competitorRates: algorithmWeights.competitors,
             stockMarket: algorithmWeights.market,
@@ -4932,7 +4920,6 @@ Keep recommendations specific and quantitative when possible.`;
       const aiWeights = await storage.getAiPricingWeights() || {
         occupancyPressure: 30,
         daysVacantDecay: 25,
-        roomAttributes: 15,
         competitorRates: 10,
         seasonality: 5,
         stockMarket: 5,
@@ -5000,7 +4987,6 @@ Keep recommendations specific and quantitative when possible.`;
       const algorithmWeights = {
         occupancy: aiWeights.occupancyPressure || 30,
         daysVacant: aiWeights.daysVacantDecay || 25,
-        attributes: aiWeights.roomAttributes || 15,
         seasonality: aiWeights.seasonality || 5,
         competitors: aiWeights.competitorRates || 10,
         market: aiWeights.stockMarket || 5,
@@ -5029,7 +5015,6 @@ Keep recommendations specific and quantitative when possible.`;
           weights: {
             occupancyPressure: algorithmWeights.occupancy,
             daysVacantDecay: algorithmWeights.daysVacant,
-            roomAttributes: algorithmWeights.attributes,
             seasonality: algorithmWeights.seasonality,
             competitorRates: algorithmWeights.competitors,
             stockMarket: algorithmWeights.market,
@@ -5217,7 +5202,6 @@ Keep recommendations specific and quantitative when possible.`;
         weights = await storage.createOrUpdateWeights({
           occupancyPressure: 25,
           daysVacantDecay: 20,
-          roomAttributes: 20,
           seasonality: 15,
           competitorRates: 10,
           stockMarket: 10
@@ -5266,7 +5250,6 @@ Keep recommendations specific and quantitative when possible.`;
       // Get weight percentages (0-100)
       const occupancyWeight = weights?.occupancyPressure ?? 25;
       const vacancyWeight = weights?.daysVacantDecay ?? 20;
-      const attributeWeight = weights?.roomAttributes ?? 25;
       const seasonalWeight = weights?.seasonality ?? 10;
       const competitorWeight = weights?.competitorRates ?? 10;
       const marketWeight = weights?.stockMarket ?? 10;
