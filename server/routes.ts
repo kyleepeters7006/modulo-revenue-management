@@ -3321,16 +3321,13 @@ Keep recommendations specific and quantitative when possible.`;
       }
 
       // Log for debugging
-      console.log(`Processing ${processedRecords.length} records for upload`);
+      console.log(`Processing ${processedRecords.length} records for upload month: ${uploadMonth}`);
       console.log('Sample record:', processedRecords[0]);
       
-      // Store in database in batches to avoid stack overflow
-      const BATCH_SIZE = 100;
-      for (let i = 0; i < processedRecords.length; i += BATCH_SIZE) {
-        const batch = processedRecords.slice(i, i + BATCH_SIZE);
-        console.log(`Inserting batch ${i / BATCH_SIZE + 1}: ${batch.length} records`);
-        await storage.bulkInsertRentRollData(batch);
-      }
+      // Delete existing data for this upload month and insert new data
+      // This prevents duplicates when re-uploading the same month
+      console.log(`Deleting existing records for ${uploadMonth}...`);
+      await storage.uploadRentRollData(uploadMonth, processedRecords);
       
       // Track upload history
       await storage.createUploadHistory({
