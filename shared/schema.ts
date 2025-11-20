@@ -736,6 +736,30 @@ export const insertPricingHistorySchema = createInsertSchema(pricingHistory).omi
   createdAt: true,
 });
 
+export const inquiryMetrics = pgTable("inquiry_metrics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  uploadMonth: text("upload_month").notNull(),
+  date: text("date").notNull(),
+  region: text("region"),
+  division: text("division"),
+  location: text("location").notNull(),
+  locationId: varchar("location_id").references(() => locations.id),
+  serviceLine: text("service_line"),
+  leadSource: text("lead_source"),
+  inquiryCount: integer("inquiry_count").default(0),
+  tourCount: integer("tour_count").default(0),
+  conversionCount: integer("conversion_count").default(0),
+  conversionRate: real("conversion_rate").default(0),
+  daysToTour: integer("days_to_tour").default(0),
+  daysToMoveIn: integer("days_to_move_in").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInquiryMetricsSchema = createInsertSchema(inquiryMetrics).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -787,3 +811,5 @@ export type LocationMapping = typeof locationMappings.$inferSelect;
 export type InsertLocationMapping = z.infer<typeof insertLocationMappingsSchema>;
 export type CompetitiveSurveyData = typeof competitiveSurveyData.$inferSelect;
 export type InsertCompetitiveSurveyData = z.infer<typeof insertCompetitiveSurveyDataSchema>;
+export type InquiryMetrics = typeof inquiryMetrics.$inferSelect;
+export type InsertInquiryMetrics = z.infer<typeof insertInquiryMetricsSchema>;

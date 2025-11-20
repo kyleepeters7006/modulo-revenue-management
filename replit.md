@@ -98,6 +98,17 @@ Preferred communication style: Simple, everyday language.
   - Competitor field validation counts
   - Warnings when expected fields are missing
 
+### Inquiry Data Persistence Fix
+- **Root Cause**: The `/api/upload/inquiry` route was only logging inquiry data to console, never saving it to the database
+- **Impact**: All inquiry data uploaded via Data Management page (HC and Senior Housing datasets) were lost
+- **Fix**: Created new `inquiry_metrics` table and implemented full data persistence:
+  - Added `inquiry_metrics` table schema to store aggregated inquiry data by location, service line, and lead source
+  - Fields include: inquiryCount, tourCount, conversionCount, conversionRate, daysToTour, daysToMoveIn
+  - Implemented `storage.bulkInsertInquiryMetrics()` to save inquiry data (replaces existing month data to prevent duplicates)
+  - Implemented `storage.getInquiryMetricsByMonth()` to retrieve inquiry metrics by month
+  - Updated `/api/upload/inquiry` route to call storage methods and track upload history
+- **Status**: Inquiry data now persists to database. Users must re-upload HC and Senior Housing inquiry datasets to restore lost data.
+
 # Recent Changes (November 19, 2025)
 
 ## Trilogy-Specific Column Mapping and Attribute Parsing

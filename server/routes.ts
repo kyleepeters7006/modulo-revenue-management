@@ -3425,8 +3425,21 @@ Keep recommendations specific and quantitative when possible.`;
         processedRecords.push(inquiryEntry);
       }
 
-      // Note: Actual storage would be implemented via storage.bulkInsertInquiryData() when schema is ready
       console.log('Inquiry data processed:', processedRecords.length, 'records');
+
+      const validatedRecords = processedRecords.map(record => {
+        const { insertInquiryMetricsSchema } = require('@shared/schema');
+        return insertInquiryMetricsSchema.parse(record);
+      });
+
+      await storage.bulkInsertInquiryMetrics(currentMonth, validatedRecords);
+
+      await storage.createUploadHistory({
+        uploadMonth: currentMonth,
+        fileName: req.file.originalname,
+        uploadType: 'inquiry_metrics',
+        totalRecords: processedRecords.length
+      });
 
       res.json({
         message: 'Upload successful',

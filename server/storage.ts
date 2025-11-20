@@ -25,6 +25,7 @@ import {
   enquireData,
   locationMappings,
   competitiveSurveyData,
+  inquiryMetrics,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -70,7 +71,9 @@ import {
   type PricingHistory,
   type InsertPricingHistory,
   type LocationMapping,
-  type InsertLocationMapping
+  type InsertLocationMapping,
+  type InquiryMetrics,
+  type InsertInquiryMetrics
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, isNull } from "drizzle-orm";
@@ -114,6 +117,10 @@ export interface IStorage {
   
   // Upload history
   createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory>;
+  
+  // Inquiry metrics
+  bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[]): Promise<void>;
+  getInquiryMetricsByMonth(uploadMonth: string): Promise<InquiryMetrics[]>;
   
   // Assumptions
   getAssumptions(): Promise<Assumptions[]>;
@@ -586,6 +593,18 @@ export class DatabaseStorage implements IStorage {
   async createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory> {
     const [history] = await db.insert(uploadHistory).values(data).returning();
     return history;
+  }
+
+  // Inquiry metrics
+  async bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[]): Promise<void> {
+    await db.delete(inquiryMetrics).where(eq(inquiryMetrics.uploadMonth, uploadMonth));
+    if (data.length > 0) {
+      await db.insert(inquiryMetrics).values(data);
+    }
+  }
+
+  async getInquiryMetricsByMonth(uploadMonth: string): Promise<InquiryMetrics[]> {
+    return await db.select().from(inquiryMetrics).where(eq(inquiryMetrics.uploadMonth, uploadMonth));
   }
 
   // Assumptions
