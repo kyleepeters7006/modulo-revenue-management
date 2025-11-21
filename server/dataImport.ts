@@ -247,8 +247,14 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     // Log the column names from the first row for debugging
     if (data.length > 0) {
       const columns = Object.keys(data[0]);
-      console.log('Competitive survey file columns:', columns);
-      console.log('Sample first row:', data[0]);
+      console.log('Competitive survey file columns (total:', columns.length, '):', columns);
+      console.log('Sample first row keys:', Object.keys(data[0]));
+      
+      // Log a few sample rows to see the data
+      console.log('Sample rows (first 3):');
+      data.slice(0, 3).forEach((row, idx) => {
+        console.log(`Row ${idx}:`, JSON.stringify(row, null, 2));
+      });
     }
 
     await db.transaction(async (tx) => {
