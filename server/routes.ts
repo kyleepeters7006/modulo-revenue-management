@@ -1315,7 +1315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Use upload month or current month
         const monthKey = unit.uploadMonth || '2025-01';
         // Calculate revenue: street_rate + care_rate for occupied units only
-        const monthlyRevenue = unit.occupiedYN ? ((unit.streetRate || 0) + (unit.careRate || 0)) : 0;
+        const monthlyRevenue = unit.occupiedYn ? ((unit.streetRate || 0) + (unit.careRate || 0)) : 0;
         
         if (!revenueByMonth[monthKey]) {
           revenueByMonth[monthKey] = 0;
