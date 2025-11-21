@@ -201,6 +201,7 @@ export const competitors = pgTable("competitors", {
   rank: integer("rank"),
   weight: real("weight"),
   rating: text("rating"), // A, B, or C
+  serviceLines: text("service_lines").array(), // Service lines offered: HC, HC/MC, AL, AL/MC, IL, SL
   careLevel2Rate: real("care_level_2_rate"), // Care level 2 rate for comparison with Trilogy
   medicationManagementFee: real("medication_management_fee"), // Med management fee (Trilogy doesn't charge)
   createdAt: timestamp("created_at").defaultNow(),

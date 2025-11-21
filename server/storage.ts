@@ -76,7 +76,7 @@ import {
   type InsertInquiryMetrics
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, isNull, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import OpenAI from "openai";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
@@ -143,6 +143,12 @@ export interface IStorage {
   // Competitors
   getCompetitors(): Promise<Competitor[]>;
   getCompetitorsByLocation(location: string): Promise<Competitor[]>;
+  getCompetitorsWithFilters(filters: {
+    regions?: string[];
+    divisions?: string[];
+    locations?: string[];
+    serviceLines?: string[];
+  }): Promise<Competitor[]>;
   createCompetitor(data: InsertCompetitor): Promise<Competitor>;
   updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor>;
   deleteCompetitor(id: string): Promise<void>;
@@ -770,6 +776,85 @@ export class DatabaseStorage implements IStorage {
     return await db.select()
       .from(competitors)
       .where(eq(competitors.location, location));
+  }
+
+  async getCompetitorsWithFilters(filters: {
+    regions?: string[];
+    divisions?: string[];
+    locations?: string[];
+    serviceLines?: string[];
+  }): Promise<Competitor[]> {
+    // Build query with all filters
+    let query = db.select().from(competitors);
+    const conditions: any[] = [];
+    
+    // If locations are specified, filter by location names
+    if (filters.locations && filters.locations.length > 0) {
+      // Get location IDs for the specified location names
+      const locationRecords = await db.select()
+        .from(locations)
+        .where(inArray(locations.name, filters.locations));
+      
+      const locationIds = locationRecords.map(loc => loc.id);
+      
+      if (locationIds.length > 0) {
+        conditions.push(
+          or(
+            inArray(competitors.locationId, locationIds),
+            inArray(competitors.location, filters.locations) // Fallback for old data
+          )
+        );
+      }
+    }
+    
+    // If regions are specified, filter by regions
+    if (filters.regions && filters.regions.length > 0) {
+      const locationRecords = await db.select()
+        .from(locations)
+        .where(inArray(locations.region, filters.regions));
+      
+      const locationIds = locationRecords.map(loc => loc.id);
+      
+      if (locationIds.length > 0) {
+        conditions.push(inArray(competitors.locationId, locationIds));
+      }
+    }
+    
+    // If divisions are specified, filter by divisions
+    if (filters.divisions && filters.divisions.length > 0) {
+      const locationRecords = await db.select()
+        .from(locations)
+        .where(inArray(locations.division, filters.divisions));
+      
+      const locationIds = locationRecords.map(loc => loc.id);
+      
+      if (locationIds.length > 0) {
+        conditions.push(inArray(competitors.locationId, locationIds));
+      }
+    }
+    
+    // Apply all conditions
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    
+    // Get all competitors matching the location filters
+    const results = await query;
+    
+    // If service lines are specified, filter in-memory using OR/ANY logic
+    if (filters.serviceLines && filters.serviceLines.length > 0) {
+      return results.filter((competitor: any) => {
+        if (!competitor.serviceLines || competitor.serviceLines.length === 0) {
+          return false; // Exclude competitors without service lines when filter is active
+        }
+        // Check if the competitor has ANY of the selected service lines
+        return competitor.serviceLines.some((line: string) => 
+          filters.serviceLines!.includes(line)
+        );
+      });
+    }
+    
+    return results;
   }
 
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {

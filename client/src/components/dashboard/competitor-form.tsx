@@ -24,6 +24,7 @@ const competitorFormSchema = z.object({
   rank: z.number().optional(),
   weight: z.number().optional(),
   rating: z.enum(["A", "B", "C"]).optional(),
+  serviceLines: z.array(z.string()).optional(),
   rates: z.object({
     studio: z.number().optional(),
     oneBedroom: z.number().optional(),
@@ -45,12 +46,14 @@ interface CompetitorFormProps {
   selectedRegions?: string[];
   selectedDivisions?: string[];
   selectedLocations?: string[];
+  selectedServiceLines?: string[];
 }
 
 export default function CompetitorForm({ 
   selectedRegions = [], 
   selectedDivisions = [], 
-  selectedLocations = [] 
+  selectedLocations = [],
+  selectedServiceLines = []
 }: CompetitorFormProps = {}) {
   try {
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,10 +66,11 @@ export default function CompetitorForm({
     if (selectedRegions.length > 0) queryParams.append('regions', selectedRegions.join(','));
     if (selectedDivisions.length > 0) queryParams.append('divisions', selectedDivisions.join(','));
     if (selectedLocations.length > 0) queryParams.append('locations', selectedLocations.join(','));
+    if (selectedServiceLines.length > 0) queryParams.append('serviceLines', selectedServiceLines.join(','));
     const queryString = queryParams.toString();
 
     const { data: competitors, isLoading } = useQuery({
-      queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations],
+      queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations, selectedServiceLines],
       queryFn: async () => {
         const response = await fetch(`/api/competitors${queryString ? '?' + queryString : ''}`);
         if (!response.ok) throw new Error('Failed to fetch competitors');
@@ -359,6 +363,38 @@ export default function CompetitorForm({
                         <SelectItem value="C">C - Average</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  {/* Service Lines */}
+                  <div className="col-span-2">
+                    <Label>Service Lines Offered</Label>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {['HC', 'HC/MC', 'AL', 'AL/MC', 'IL', 'SL'].map((serviceLine) => {
+                        const currentServiceLines = form.watch('serviceLines') || [];
+                        const isChecked = currentServiceLines.includes(serviceLine);
+                        
+                        return (
+                          <label
+                            key={serviceLine}
+                            className="flex items-center gap-2 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const newServiceLines = e.target.checked
+                                  ? [...currentServiceLines, serviceLine]
+                                  : currentServiceLines.filter(sl => sl !== serviceLine);
+                                form.setValue('serviceLines', newServiceLines);
+                              }}
+                              className="rounded border-gray-300 text-primary focus:ring-primary"
+                              data-testid={`checkbox-service-line-${serviceLine.replace('/', '-')}`}
+                            />
+                            <span className="text-sm font-medium">{serviceLine}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* Room Rates */}

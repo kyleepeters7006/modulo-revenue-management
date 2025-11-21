@@ -1,0 +1,3783 @@
+{
+  "id": "e5486713-9355-4ba9-827b-6f2e2351498d",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.adjustment_ranges": {
+      "name": "adjustment_ranges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occupancy_min": {
+          "name": "occupancy_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": -0.1
+        },
+        "occupancy_max": {
+          "name": "occupancy_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0.05
+        },
+        "vacancy_min": {
+          "name": "vacancy_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": -0.15
+        },
+        "vacancy_max": {
+          "name": "vacancy_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "attributes_min": {
+          "name": "attributes_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": -0.05
+        },
+        "attributes_max": {
+          "name": "attributes_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0.1
+        },
+        "seasonality_min": {
+          "name": "seasonality_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": -0.05
+        },
+        "seasonality_max": {
+          "name": "seasonality_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0.1
+        },
+        "competitor_min": {
+          "name": "competitor_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": -0.1
+        },
+        "competitor_max": {
+          "name": "competitor_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0.1
+        },
+        "market_min": {
+          "name": "market_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": -0.05
+        },
+        "market_max": {
+          "name": "market_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0.05
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "adjustment_ranges_unique_scope": {
+          "name": "adjustment_ranges_unique_scope",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "service_line",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "adjustment_ranges_location_id_locations_id_fk": {
+          "name": "adjustment_ranges_location_id_locations_id_fk",
+          "tableFrom": "adjustment_ranges",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.adjustment_rule_log": {
+      "name": "adjustment_rule_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "rule_id": {
+          "name": "rule_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "executed_at": {
+          "name": "executed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "affected_units": {
+          "name": "affected_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adjustment_type": {
+          "name": "adjustment_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adjustment_amount": {
+          "name": "adjustment_amount",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_value": {
+          "name": "before_value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_value": {
+          "name": "after_value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monthly_impact": {
+          "name": "monthly_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "annual_impact": {
+          "name": "annual_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "volume_adjusted_annual_impact": {
+          "name": "volume_adjusted_annual_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "impact_summary": {
+          "name": "impact_summary",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "adjustment_rule_log_rule_id_adjustment_rules_id_fk": {
+          "name": "adjustment_rule_log_rule_id_adjustment_rules_id_fk",
+          "tableFrom": "adjustment_rule_log",
+          "tableTo": "adjustment_rules",
+          "columnsFrom": [
+            "rule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.adjustment_rules": {
+      "name": "adjustment_rules",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": true
+        },
+        "priority": {
+          "name": "priority",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_executed": {
+          "name": "last_executed",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_count": {
+          "name": "execution_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "monthly_impact": {
+          "name": "monthly_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "annual_impact": {
+          "name": "annual_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "volume_adjusted_annual_impact": {
+          "name": "volume_adjusted_annual_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "actual_annual_impact": {
+          "name": "actual_annual_impact",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "adjustment_rules_unique_scope": {
+          "name": "adjustment_rules_unique_scope",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "service_line",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "adjustment_rules_location_id_locations_id_fk": {
+          "name": "adjustment_rules_location_id_locations_id_fk",
+          "tableFrom": "adjustment_rules",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ai_adjustment_ranges": {
+      "name": "ai_adjustment_ranges",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "occupancy_min": {
+          "name": "occupancy_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": -0.15
+        },
+        "occupancy_max": {
+          "name": "occupancy_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.15
+        },
+        "vacancy_min": {
+          "name": "vacancy_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": -0.3
+        },
+        "vacancy_max": {
+          "name": "vacancy_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "attributes_min": {
+          "name": "attributes_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "attributes_max": {
+          "name": "attributes_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.2
+        },
+        "competitor_min": {
+          "name": "competitor_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": -0.15
+        },
+        "competitor_max": {
+          "name": "competitor_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.15
+        },
+        "seasonal_min": {
+          "name": "seasonal_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": -0.08
+        },
+        "seasonal_max": {
+          "name": "seasonal_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.08
+        },
+        "market_min": {
+          "name": "market_min",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "market_max": {
+          "name": "market_max",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.05
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ai_pricing_weights": {
+      "name": "ai_pricing_weights",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "occupancy_pressure": {
+          "name": "occupancy_pressure",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 20
+        },
+        "days_vacant_decay": {
+          "name": "days_vacant_decay",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 20
+        },
+        "room_attributes": {
+          "name": "room_attributes",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 15
+        },
+        "competitor_rates": {
+          "name": "competitor_rates",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 15
+        },
+        "seasonality": {
+          "name": "seasonality",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 15
+        },
+        "stock_market": {
+          "name": "stock_market",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 15
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.assumptions": {
+      "name": "assumptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "start_period": {
+          "name": "start_period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "months": {
+          "name": "months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revenue_monthly_growth_pct": {
+          "name": "revenue_monthly_growth_pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sp500_monthly_return_pct": {
+          "name": "sp500_monthly_return_pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_occupancy": {
+          "name": "target_occupancy",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.attribute_ratings": {
+      "name": "attribute_ratings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "attribute_type": {
+          "name": "attribute_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rating_level": {
+          "name": "rating_level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "adjustment_percent": {
+          "name": "adjustment_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.campus_maps": {
+      "name": "campus_maps",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_image_url": {
+          "name": "base_image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "svg_url": {
+          "name": "svg_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "svg_content": {
+          "name": "svg_content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_template": {
+          "name": "is_template",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "is_published": {
+          "name": "is_published",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "campus_maps_location_id_locations_id_fk": {
+          "name": "campus_maps_location_id_locations_id_fk",
+          "tableFrom": "campus_maps",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.competitive_survey_data": {
+      "name": "competitive_survey_data",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "survey_month": {
+          "name": "survey_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "keystats_location": {
+          "name": "keystats_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "competitor_name": {
+          "name": "competitor_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "competitor_address": {
+          "name": "competitor_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "distance_miles": {
+          "name": "distance_miles",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_type": {
+          "name": "competitor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_type": {
+          "name": "room_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "square_footage": {
+          "name": "square_footage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monthly_rate_low": {
+          "name": "monthly_rate_low",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monthly_rate_high": {
+          "name": "monthly_rate_high",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monthly_rate_avg": {
+          "name": "monthly_rate_avg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_fees_low": {
+          "name": "care_fees_low",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_fees_high": {
+          "name": "care_fees_high",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_fees_avg": {
+          "name": "care_fees_avg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_monthly_low": {
+          "name": "total_monthly_low",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_monthly_high": {
+          "name": "total_monthly_high",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_monthly_avg": {
+          "name": "total_monthly_avg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "community_fee": {
+          "name": "community_fee",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pet_fee": {
+          "name": "pet_fee",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "other_fees": {
+          "name": "other_fees",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "incentives": {
+          "name": "incentives",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_units": {
+          "name": "total_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occupancy_rate": {
+          "name": "occupancy_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "year_built": {
+          "name": "year_built",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_renovation": {
+          "name": "last_renovation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amenities": {
+          "name": "amenities",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.competitors": {
+      "name": "competitors",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lat": {
+          "name": "lat",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lng": {
+          "name": "lng",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rates": {
+          "name": "rates",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avg_care_rate": {
+          "name": "avg_care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "street_rate": {
+          "name": "street_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_type": {
+          "name": "room_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attributes": {
+          "name": "attributes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rank": {
+          "name": "rank",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weight": {
+          "name": "weight",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rating": {
+          "name": "rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_lines": {
+          "name": "service_lines",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_level_2_rate": {
+          "name": "care_level_2_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "medication_management_fee": {
+          "name": "medication_management_fee",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "competitors_location_id_locations_id_fk": {
+          "name": "competitors_location_id_locations_id_fk",
+          "tableFrom": "competitors",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.enquire_data": {
+      "name": "enquire_data",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "data_source": {
+          "name": "data_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enquire_location": {
+          "name": "enquire_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mapped_location_id": {
+          "name": "mapped_location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mapped_service_line": {
+          "name": "mapped_service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inquiry_id": {
+          "name": "inquiry_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inquiry_date": {
+          "name": "inquiry_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tour_date": {
+          "name": "tour_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "move_in_date": {
+          "name": "move_in_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lead_source": {
+          "name": "lead_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lead_status": {
+          "name": "lead_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prospect_name": {
+          "name": "prospect_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_needs": {
+          "name": "care_needs",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budget_range": {
+          "name": "budget_range",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "desired_move_in_date": {
+          "name": "desired_move_in_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_type_preference": {
+          "name": "room_type_preference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_data": {
+          "name": "raw_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "enquire_data_mapped_location_id_locations_id_fk": {
+          "name": "enquire_data_mapped_location_id_locations_id_fk",
+          "tableFrom": "enquire_data",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "mapped_location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.floor_plans": {
+      "name": "floor_plans",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bedrooms": {
+          "name": "bedrooms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bathrooms": {
+          "name": "bathrooms",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sqft": {
+          "name": "sqft",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amenities": {
+          "name": "amenities",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "floor_plans_location_id_locations_id_fk": {
+          "name": "floor_plans_location_id_locations_id_fk",
+          "tableFrom": "floor_plans",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.guardrails": {
+      "name": "guardrails",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "min_rate_decrease": {
+          "name": "min_rate_decrease",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.05
+        },
+        "max_rate_increase": {
+          "name": "max_rate_increase",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.15
+        },
+        "occupancy_thresholds": {
+          "name": "occupancy_thresholds",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "seasonal_adjustments": {
+          "name": "seasonal_adjustments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_variance_limit": {
+          "name": "competitor_variance_limit",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0.1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "guardrails_unique_scope": {
+          "name": "guardrails_unique_scope",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "service_line",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "guardrails_location_id_locations_id_fk": {
+          "name": "guardrails_location_id_locations_id_fk",
+          "tableFrom": "guardrails",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.inquiry_metrics": {
+      "name": "inquiry_metrics",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "upload_month": {
+          "name": "upload_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "division": {
+          "name": "division",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lead_source": {
+          "name": "lead_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inquiry_count": {
+          "name": "inquiry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "tour_count": {
+          "name": "tour_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "conversion_count": {
+          "name": "conversion_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "conversion_rate": {
+          "name": "conversion_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "days_to_tour": {
+          "name": "days_to_tour",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "days_to_move_in": {
+          "name": "days_to_move_in",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "inquiry_metrics_location_id_locations_id_fk": {
+          "name": "inquiry_metrics_location_id_locations_id_fk",
+          "tableFrom": "inquiry_metrics",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.location_mappings": {
+      "name": "location_mappings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_location": {
+          "name": "source_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_location_id": {
+          "name": "target_location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "default_service_line": {
+          "name": "default_service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 1
+        },
+        "is_manual_mapping": {
+          "name": "is_manual_mapping",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "mapped_by": {
+          "name": "mapped_by",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "location_mappings_target_location_id_locations_id_fk": {
+          "name": "location_mappings_target_location_id_locations_id_fk",
+          "tableFrom": "location_mappings",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "target_location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "location_mappings_mapped_by_users_id_fk": {
+          "name": "location_mappings_mapped_by_users_id_fk",
+          "tableFrom": "location_mappings",
+          "tableTo": "users",
+          "columnsFrom": [
+            "mapped_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.locations": {
+      "name": "locations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "matrixcare_name_hc": {
+          "name": "matrixcare_name_hc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "matrixcare_name_al": {
+          "name": "matrixcare_name_al",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "matrixcare_name_il": {
+          "name": "matrixcare_name_il",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_facility_id_hc": {
+          "name": "customer_facility_id_hc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_facility_id_al": {
+          "name": "customer_facility_id_al",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_facility_id_il": {
+          "name": "customer_facility_id_il",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_code": {
+          "name": "location_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "division": {
+          "name": "division",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "zip_code": {
+          "name": "zip_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lat": {
+          "name": "lat",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lng": {
+          "name": "lng",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_units": {
+          "name": "total_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "locations_name_unique": {
+          "name": "locations_name_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.portfolio_competitors": {
+      "name": "portfolio_competitors",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "portfolio_name": {
+          "name": "portfolio_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "locations": {
+          "name": "locations",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avg_portfolio_rate": {
+          "name": "avg_portfolio_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_units": {
+          "name": "total_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "market_share": {
+          "name": "market_share",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pricing_history": {
+      "name": "pricing_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "action_type": {
+          "name": "action_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "units_affected": {
+          "name": "units_affected",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changes_snapshot": {
+          "name": "changes_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "pricing_history_user_id_users_id_fk": {
+          "name": "pricing_history_user_id_users_id_fk",
+          "tableFrom": "pricing_history",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pricing_weights": {
+      "name": "pricing_weights",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enable_weights": {
+          "name": "enable_weights",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "occupancy_pressure": {
+          "name": "occupancy_pressure",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "days_vacant_decay": {
+          "name": "days_vacant_decay",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seasonality": {
+          "name": "seasonality",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "competitor_rates": {
+          "name": "competitor_rates",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stock_market": {
+          "name": "stock_market",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "inquiry_tour_volume": {
+          "name": "inquiry_tour_volume",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "pricing_weights_location_id_locations_id_fk": {
+          "name": "pricing_weights_location_id_locations_id_fk",
+          "tableFrom": "pricing_weights",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rate_card": {
+      "name": "rate_card",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "upload_month": {
+          "name": "upload_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_type": {
+          "name": "room_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "average_street_rate": {
+          "name": "average_street_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "average_modulo_rate": {
+          "name": "average_modulo_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "average_ai_rate": {
+          "name": "average_ai_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occupancy_count": {
+          "name": "occupancy_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_units": {
+          "name": "total_units",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rate_card_location_id_locations_id_fk": {
+          "name": "rate_card_location_id_locations_id_fk",
+          "tableFrom": "rate_card",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rent_roll_data": {
+      "name": "rent_roll_data",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "upload_month": {
+          "name": "upload_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_number": {
+          "name": "room_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "room_type": {
+          "name": "room_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occupied_yn": {
+          "name": "occupied_yn",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "days_vacant": {
+          "name": "days_vacant",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "preferred_location": {
+          "name": "preferred_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size": {
+          "name": "size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "view": {
+          "name": "view",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "renovated": {
+          "name": "renovated",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "other_premium_feature": {
+          "name": "other_premium_feature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_rating": {
+          "name": "location_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size_rating": {
+          "name": "size_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "view_rating": {
+          "name": "view_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "renovation_rating": {
+          "name": "renovation_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amenity_rating": {
+          "name": "amenity_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "street_rate": {
+          "name": "street_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "in_house_rate": {
+          "name": "in_house_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discount_to_street_rate": {
+          "name": "discount_to_street_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_level": {
+          "name": "care_level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_rate": {
+          "name": "care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rent_and_care_rate": {
+          "name": "rent_and_care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_rate": {
+          "name": "competitor_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_avg_care_rate": {
+          "name": "competitor_avg_care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_final_rate": {
+          "name": "competitor_final_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "modulo_suggested_rate": {
+          "name": "modulo_suggested_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "modulo_calculation_details": {
+          "name": "modulo_calculation_details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_suggested_rate": {
+          "name": "ai_suggested_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_calculation_details": {
+          "name": "ai_calculation_details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "promotion_allowance": {
+          "name": "promotion_allowance",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resident_id": {
+          "name": "resident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resident_name": {
+          "name": "resident_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "move_in_date": {
+          "name": "move_in_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "move_out_date": {
+          "name": "move_out_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payor_type": {
+          "name": "payor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "admission_status": {
+          "name": "admission_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "level_of_care": {
+          "name": "level_of_care",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "medicaid_rate": {
+          "name": "medicaid_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "medicare_rate": {
+          "name": "medicare_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assessment_date": {
+          "name": "assessment_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "marketing_source": {
+          "name": "marketing_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inquiry_count": {
+          "name": "inquiry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "tour_count": {
+          "name": "tour_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rent_roll_data_location_id_locations_id_fk": {
+          "name": "rent_roll_data_location_id_locations_id_fk",
+          "tableFrom": "rent_roll_data",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rent_roll_history": {
+      "name": "rent_roll_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "upload_month": {
+          "name": "upload_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_number": {
+          "name": "room_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "room_type": {
+          "name": "room_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occupied_yn": {
+          "name": "occupied_yn",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "days_vacant": {
+          "name": "days_vacant",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "preferred_location": {
+          "name": "preferred_location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size": {
+          "name": "size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "view": {
+          "name": "view",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "renovated": {
+          "name": "renovated",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "other_premium_feature": {
+          "name": "other_premium_feature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_rating": {
+          "name": "location_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "size_rating": {
+          "name": "size_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "view_rating": {
+          "name": "view_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "renovation_rating": {
+          "name": "renovation_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amenity_rating": {
+          "name": "amenity_rating",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "street_rate": {
+          "name": "street_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "in_house_rate": {
+          "name": "in_house_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discount_to_street_rate": {
+          "name": "discount_to_street_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_level": {
+          "name": "care_level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "care_rate": {
+          "name": "care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rent_and_care_rate": {
+          "name": "rent_and_care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_rate": {
+          "name": "competitor_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_avg_care_rate": {
+          "name": "competitor_avg_care_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "competitor_final_rate": {
+          "name": "competitor_final_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resident_id": {
+          "name": "resident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resident_name": {
+          "name": "resident_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "move_in_date": {
+          "name": "move_in_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "move_out_date": {
+          "name": "move_out_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payor_type": {
+          "name": "payor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "admission_status": {
+          "name": "admission_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "level_of_care": {
+          "name": "level_of_care",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "medicaid_rate": {
+          "name": "medicaid_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "medicare_rate": {
+          "name": "medicare_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assessment_date": {
+          "name": "assessment_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "marketing_source": {
+          "name": "marketing_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rent_roll_history_location_id_locations_id_fk": {
+          "name": "rent_roll_history_location_id_locations_id_fk",
+          "tableFrom": "rent_roll_history",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sessions": {
+      "name": "sessions",
+      "schema": "",
+      "columns": {
+        "sid": {
+          "name": "sid",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "sess": {
+          "name": "sess",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expire": {
+          "name": "expire",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "IDX_session_expire": {
+          "name": "IDX_session_expire",
+          "columns": [
+            {
+              "expression": "expire",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.special_rates": {
+      "name": "special_rates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "facility_name": {
+          "name": "facility_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resident_id": {
+          "name": "resident_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resident_name": {
+          "name": "resident_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "begin_date": {
+          "name": "begin_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payer_name": {
+          "name": "payer_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proration": {
+          "name": "proration",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "spcl_rate": {
+          "name": "spcl_rate",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pct": {
+          "name": "pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monthly": {
+          "name": "monthly",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hosp_hold": {
+          "name": "hosp_hold",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hosp_hold_amount": {
+          "name": "hosp_hold_amount",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hosp_pct": {
+          "name": "hosp_pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hosp_hold_monthly": {
+          "name": "hosp_hold_monthly",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ther_lv": {
+          "name": "ther_lv",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ther_lv_hold_amount": {
+          "name": "ther_lv_hold_amount",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ther_lv_pct": {
+          "name": "ther_lv_pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ther_lv_hold_monthly": {
+          "name": "ther_lv_hold_monthly",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effective_date": {
+          "name": "effective_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.stock_market_cache": {
+      "name": "stock_market_cache",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data_type": {
+          "name": "data_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.street_rates": {
+      "name": "street_rates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "facility_name": {
+          "name": "facility_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "facility_customer_id": {
+          "name": "facility_customer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bed_type_description": {
+          "name": "bed_type_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "level_of_care": {
+          "name": "level_of_care",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_charge_description": {
+          "name": "room_charge_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_price_begin_date": {
+          "name": "base_price_begin_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_price": {
+          "name": "base_price",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_price_charge_by": {
+          "name": "base_price_charge_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payer_begin_date": {
+          "name": "payer_begin_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payer_name": {
+          "name": "payer_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payer_charge_by": {
+          "name": "payer_charge_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proration": {
+          "name": "proration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revenue_code": {
+          "name": "revenue_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "allowable_charge": {
+          "name": "allowable_charge",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "allowable_percent": {
+          "name": "allowable_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hosp_bed_hold_rate": {
+          "name": "hosp_bed_hold_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hosp_bed_hold_percent": {
+          "name": "hosp_bed_hold_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ther_bed_hold_rate": {
+          "name": "ther_bed_hold_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ther_bed_hold_percent": {
+          "name": "ther_bed_hold_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revenue_account": {
+          "name": "revenue_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contractual_account": {
+          "name": "contractual_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "copay_contractual_account": {
+          "name": "copay_contractual_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effective_date": {
+          "name": "effective_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.targets_and_trends": {
+      "name": "targets_and_trends",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "month": {
+          "name": "month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "division": {
+          "name": "division",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "campus": {
+          "name": "campus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_line": {
+          "name": "service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "budgeted_occupancy": {
+          "name": "budgeted_occupancy",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budgeted_rate": {
+          "name": "budgeted_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_rate_adjustment": {
+          "name": "room_rate_adjustment",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "room_rate_adjustment_note": {
+          "name": "room_rate_adjustment_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "budgeted_revpor": {
+          "name": "budgeted_revpor",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "community_fee_collection": {
+          "name": "community_fee_collection",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inquiries": {
+          "name": "inquiries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tours": {
+          "name": "tours",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "move_ins": {
+          "name": "move_ins",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversion_rate": {
+          "name": "conversion_rate",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avg_days_to_move_in": {
+          "name": "avg_days_to_move_in",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "targets_and_trends_location_id_locations_id_fk": {
+          "name": "targets_and_trends_location_id_locations_id_fk",
+          "tableFrom": "targets_and_trends",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.unit_polygons": {
+      "name": "unit_polygons",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "campus_map_id": {
+          "name": "campus_map_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rent_roll_data_id": {
+          "name": "rent_roll_data_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "floor_plan_id": {
+          "name": "floor_plan_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "polygon_coordinates": {
+          "name": "polygon_coordinates",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "normalized_coordinates": {
+          "name": "normalized_coordinates",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_room_number": {
+          "name": "display_room_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_service_line": {
+          "name": "default_service_line",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "section_name": {
+          "name": "section_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fill_color": {
+          "name": "fill_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'#4CAF50'"
+        },
+        "stroke_color": {
+          "name": "stroke_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'#2E7D32'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "unit_polygons_campus_map_id_campus_maps_id_fk": {
+          "name": "unit_polygons_campus_map_id_campus_maps_id_fk",
+          "tableFrom": "unit_polygons",
+          "tableTo": "campus_maps",
+          "columnsFrom": [
+            "campus_map_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "unit_polygons_rent_roll_data_id_rent_roll_data_id_fk": {
+          "name": "unit_polygons_rent_roll_data_id_rent_roll_data_id_fk",
+          "tableFrom": "unit_polygons",
+          "tableTo": "rent_roll_data",
+          "columnsFrom": [
+            "rent_roll_data_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "unit_polygons_floor_plan_id_floor_plans_id_fk": {
+          "name": "unit_polygons_floor_plan_id_floor_plans_id_fk",
+          "tableFrom": "unit_polygons",
+          "tableTo": "floor_plans",
+          "columnsFrom": [
+            "floor_plan_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.upload_history": {
+      "name": "upload_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "upload_month": {
+          "name": "upload_month",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "upload_type": {
+          "name": "upload_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_records": {
+          "name": "total_records",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "upload_history_location_id_locations_id_fk": {
+          "name": "upload_history_location_id_locations_id_fk",
+          "tableFrom": "upload_history",
+          "tableTo": "locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_image_url": {
+          "name": "profile_image_url",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

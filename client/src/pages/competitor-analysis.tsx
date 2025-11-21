@@ -34,6 +34,7 @@ export default function CompetitorAnalysis() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations || ['Sunrise Valley Senior Living']);
+  const [selectedServiceLines, setSelectedServiceLines] = useState<string[]>(savedFilters?.serviceLines || []);
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -41,10 +42,11 @@ export default function CompetitorAnalysis() {
       serviceLine: "All", // Default service line for competitor page
       regions: selectedRegions,
       divisions: selectedDivisions,
-      locations: selectedLocations
+      locations: selectedLocations,
+      serviceLines: selectedServiceLines
     };
     saveCompetitorFiltersToStorage(filters);
-  }, [selectedRegions, selectedDivisions, selectedLocations]);
+  }, [selectedRegions, selectedDivisions, selectedLocations, selectedServiceLines]);
 
   // Fetch locations data for filters
   const { data: locationsData } = useQuery({
@@ -55,6 +57,9 @@ export default function CompetitorAnalysis() {
   const regions = locationsData?.regions || [];
   const divisions = locationsData?.divisions || [];
   const locations = locationsData?.locations?.map((loc: any) => loc.name) || [];
+  
+  // Define service line options
+  const serviceLineOptions = ['HC', 'HC/MC', 'AL', 'AL/MC', 'IL', 'SL'];
 
   // Helper functions for multi-select
   const toggleSelection = (value: string, currentSelection: string[], setter: (values: string[]) => void) => {
@@ -88,7 +93,7 @@ export default function CompetitorAnalysis() {
           
           {/* Filters */}
           <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Region Multi-Select */}
               <div>
                 <h3 className="text-sm font-medium text-gray-900 mb-2">Regions:</h3>
@@ -268,6 +273,66 @@ export default function CompetitorAnalysis() {
                   </PopoverContent>
                 </Popover>
               </div>
+
+              {/* Service Lines Multi-Select */}
+              <div>
+                <h3 className="text-sm font-medium text-gray-900 mb-2">Service Lines:</h3>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between"
+                      data-testid="select-service-lines"
+                    >
+                      <span className="truncate">
+                        {selectedServiceLines.length === 0
+                          ? "All Service Lines"
+                          : selectedServiceLines.length === 1
+                          ? selectedServiceLines[0]
+                          : `${selectedServiceLines.length} service lines selected`}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <div className="p-4 space-y-2">
+                      {selectedServiceLines.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {selectedServiceLines.map((serviceLine) => (
+                            <Badge key={serviceLine} variant="secondary" className="text-xs">
+                              {serviceLine}
+                              <X
+                                className="h-3 w-3 ml-1 cursor-pointer"
+                                onClick={() => removeSelection(serviceLine, selectedServiceLines, setSelectedServiceLines)}
+                              />
+                            </Badge>
+                          ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => clearAllSelection(setSelectedServiceLines)}
+                          >
+                            Clear All
+                          </Button>
+                        </div>
+                      )}
+                      {serviceLineOptions.map((serviceLine) => (
+                        <div key={serviceLine} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`service-line-${serviceLine}`}
+                            checked={selectedServiceLines.includes(serviceLine)}
+                            onCheckedChange={() => toggleSelection(serviceLine, selectedServiceLines, setSelectedServiceLines)}
+                          />
+                          <label htmlFor={`service-line-${serviceLine}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            {serviceLine}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
           </div>
         </div>
@@ -278,11 +343,13 @@ export default function CompetitorAnalysis() {
             selectedRegions={selectedRegions}
             selectedDivisions={selectedDivisions}
             selectedLocations={selectedLocations}
+            selectedServiceLines={selectedServiceLines}
           />
           <CompetitorForm 
             selectedRegions={selectedRegions}
             selectedDivisions={selectedDivisions}
             selectedLocations={selectedLocations}
+            selectedServiceLines={selectedServiceLines}
           />
         </div>
         
@@ -293,6 +360,7 @@ export default function CompetitorAnalysis() {
               selectedRegions={selectedRegions}
               selectedDivisions={selectedDivisions}
               selectedLocations={selectedLocations}
+              selectedServiceLines={selectedServiceLines}
             />
           </div>
           <div className="lg:col-span-1">
@@ -300,6 +368,7 @@ export default function CompetitorAnalysis() {
               selectedRegions={selectedRegions}
               selectedDivisions={selectedDivisions}
               selectedLocations={selectedLocations}
+              selectedServiceLines={selectedServiceLines}
             />
           </div>
         </div>

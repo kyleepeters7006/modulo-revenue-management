@@ -13,12 +13,14 @@ interface CompetitorMapProps {
   selectedRegions?: string[];
   selectedDivisions?: string[];
   selectedLocations?: string[];
+  selectedServiceLines?: string[];
 }
 
 export function CompetitorMap({ 
   selectedRegions = [], 
   selectedDivisions = [], 
-  selectedLocations = [] 
+  selectedLocations = [],
+  selectedServiceLines = []
 }: CompetitorMapProps = {}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -28,10 +30,11 @@ export function CompetitorMap({
   if (selectedRegions.length > 0) queryParams.append('regions', selectedRegions.join(','));
   if (selectedDivisions.length > 0) queryParams.append('divisions', selectedDivisions.join(','));
   if (selectedLocations.length > 0) queryParams.append('locations', selectedLocations.join(','));
+  if (selectedServiceLines.length > 0) queryParams.append('serviceLines', selectedServiceLines.join(','));
   const queryString = queryParams.toString();
   
   const { data: competitors, isLoading } = useQuery({
-    queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations],
+    queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations, selectedServiceLines],
     queryFn: async () => {
       const response = await fetch(`/api/competitors${queryString ? '?' + queryString : ''}`);
       if (!response.ok) throw new Error('Failed to fetch competitors');

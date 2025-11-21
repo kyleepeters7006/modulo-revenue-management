@@ -1377,60 +1377,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Competitors CRUD
   app.get("/api/competitors", async (req, res) => {
     try {
-      const { regions, divisions, locations } = req.query;
+      const { regions, divisions, locations, serviceLines } = req.query;
       
-      // Get all competitors
-      let allCompetitors = await storage.getCompetitors();
+      // Build filters object
+      const filters: {
+        regions?: string[];
+        divisions?: string[];
+        locations?: string[];
+        serviceLines?: string[];
+      } = {};
       
-      // Get locations for filtering
+      // Parse filters from query params
+      if (regions && regions !== '') {
+        filters.regions = (regions as string).split(',');
+      }
+      if (divisions && divisions !== '') {
+        filters.divisions = (divisions as string).split(',');
+      }
+      if (locations && locations !== '') {
+        filters.locations = (locations as string).split(',');
+      }
+      if (serviceLines && serviceLines !== '') {
+        filters.serviceLines = (serviceLines as string).split(',');
+      }
+      
+      // Get filtered competitors using the new method
+      const hasFilters = !!(filters.regions?.length || filters.divisions?.length || 
+                           filters.locations?.length || filters.serviceLines?.length);
+      
+      let allCompetitors = hasFilters 
+        ? await storage.getCompetitorsWithFilters(filters)
+        : await storage.getCompetitors();
+      
+      // Get locations for metadata
       const locationData = await storage.getLocations();
-      
-      // Create a map of location IDs to names for quick lookup
       const locationIdToName = new Map<string, string>();
       locationData.forEach(loc => {
         locationIdToName.set(loc.id, loc.name);
       });
-      
-      // Filter by location criteria - only filter if explicit filters are provided and not empty
-      const hasFilters = (locations && locations !== '') || (divisions && divisions !== '') || (regions && regions !== '');
-      if (hasFilters) {
-        const selectedLocations = new Set<string>();
-        
-        if (locations) {
-          const locList = (locations as string).split(',');
-          locList.forEach(loc => selectedLocations.add(loc));
-        }
-        
-        if (divisions) {
-          const divList = (divisions as string).split(',');
-          locationData
-            .filter(loc => divList.includes(loc.division))
-            .forEach(loc => selectedLocations.add(loc.name));
-        }
-        
-        if (regions) {
-          const regList = (regions as string).split(',');
-          locationData
-            .filter(loc => regList.includes(loc.region))
-            .forEach(loc => selectedLocations.add(loc.name));
-        }
-        
-        // Filter competitors by selected locations
-        allCompetitors = allCompetitors.filter(comp => {
-          // Check if competitor location matches any selected location exactly
-          return Array.from(selectedLocations).some(loc => {
-            // Check both location field and location_id field
-            if (comp.location === loc) {
-              return true;
-            }
-            // Also check if location_id maps to the location name
-            if (comp.locationId && locationIdToName.get(comp.locationId) === loc) {
-              return true;
-            }
-            return false;
-          });
-        });
-      }
       
       // Group competitors by location and get top 3 per location
       const competitorsByLocation = new Map<string, any[]>();
