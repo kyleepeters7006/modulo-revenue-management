@@ -14,6 +14,7 @@ import {
   type InsertCompetitiveSurveyData,
 } from '@shared/schema';
 import { eq, and, sql, inArray } from 'drizzle-orm';
+import { normalizeRoomType } from '@shared/roomTypes';
 
 export interface ImportStats {
   totalRecords: number;
@@ -65,7 +66,7 @@ export async function importRentRollCSV(
                   location: locationName,
                   locationId: locationId || null,
                   roomNumber: row['Room Number'] || row['room_number'] || '',
-                  roomType: row['Room Type'] || row['room_type'] || '',
+                  roomType: normalizeRoomType(row['Room Type'] || row['room_type'] || ''),
                   serviceLine: row['Service Line'] || row['service_line'] || '',
                   occupiedYN: parseBoolean(row['Occupied Y/N'] || row['occupied_yn']),
                   daysVacant: parseInt(row['Days Vacant'] || row['days_vacant']) || 0,

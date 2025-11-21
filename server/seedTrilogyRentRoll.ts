@@ -1,34 +1,35 @@
 import { db } from "./db";
 import { locations, rentRollData, unitPolygons } from "@shared/schema";
 import { sql } from "drizzle-orm";
+import { normalizeRoomType, STANDARD_ROOM_TYPES } from "@shared/roomTypes";
 
-// Room type distributions by service line
+// Room type distributions by service line - using standardized room types
 const roomTypesByServiceLine: Record<string, Array<{ type: string, baseRate: number, weight: number }>> = {
   'AL': [
-    { type: 'Studio', baseRate: 3200, weight: 0.3 },
-    { type: 'One Bedroom', baseRate: 3800, weight: 0.5 },
-    { type: 'Two Bedroom', baseRate: 4500, weight: 0.2 }
+    { type: STANDARD_ROOM_TYPES.STUDIO, baseRate: 3200, weight: 0.3 },
+    { type: STANDARD_ROOM_TYPES.ONE_BEDROOM, baseRate: 3800, weight: 0.5 },
+    { type: STANDARD_ROOM_TYPES.TWO_BEDROOM, baseRate: 4500, weight: 0.2 }
   ],
   'AL/MC': [
-    { type: 'Studio', baseRate: 4200, weight: 0.4 },
-    { type: 'One Bedroom', baseRate: 4800, weight: 0.5 },
-    { type: 'Companion', baseRate: 3800, weight: 0.1 }
+    { type: STANDARD_ROOM_TYPES.STUDIO, baseRate: 4200, weight: 0.4 },
+    { type: STANDARD_ROOM_TYPES.ONE_BEDROOM, baseRate: 4800, weight: 0.5 },
+    { type: STANDARD_ROOM_TYPES.COMPANION, baseRate: 3800, weight: 0.1 }
   ],
   'HC': [
-    { type: 'Private', baseRate: 350, weight: 0.3 },  // Daily rates for HC
-    { type: 'Semi-Private', baseRate: 280, weight: 0.7 }
+    { type: STANDARD_ROOM_TYPES.STUDIO, baseRate: 350, weight: 0.3 },  // Daily rates for HC (Private -> Studio)
+    { type: STANDARD_ROOM_TYPES.COMPANION, baseRate: 280, weight: 0.7 }  // Semi-Private -> Companion
   ],
   'HC/MC': [
-    { type: 'Private', baseRate: 380, weight: 0.4 },  // Daily rates for HC/MC
-    { type: 'Semi-Private', baseRate: 310, weight: 0.6 }
+    { type: STANDARD_ROOM_TYPES.STUDIO_DLX, baseRate: 380, weight: 0.4 },  // Private deluxe for HC/MC
+    { type: STANDARD_ROOM_TYPES.COMPANION, baseRate: 310, weight: 0.6 }  // Semi-Private -> Companion
   ],
   'SL': [
-    { type: 'One Bedroom', baseRate: 2800, weight: 0.6 },
-    { type: 'Two Bedroom', baseRate: 3500, weight: 0.4 }
+    { type: STANDARD_ROOM_TYPES.ONE_BEDROOM, baseRate: 2800, weight: 0.6 },
+    { type: STANDARD_ROOM_TYPES.TWO_BEDROOM, baseRate: 3500, weight: 0.4 }
   ],
   'VIL': [
-    { type: 'One Bedroom', baseRate: 2800, weight: 0.6 },
-    { type: 'Two Bedroom', baseRate: 3500, weight: 0.4 }
+    { type: STANDARD_ROOM_TYPES.ONE_BEDROOM, baseRate: 2800, weight: 0.6 },
+    { type: STANDARD_ROOM_TYPES.TWO_BEDROOM, baseRate: 3500, weight: 0.4 }
   ]
 };
 

@@ -6,6 +6,7 @@ import xlsx from "xlsx";
 import { readFileSync } from "fs";
 import path from "path";
 import { geocodeAddress, findNearestLocation } from "./geocoding";
+import { normalizeRoomType } from "@shared/roomTypes";
 
 /**
  * Import all production Trilogy data from attached_assets
@@ -97,7 +98,7 @@ async function importRentRolls() {
         // Map MatrixCare fields to our schema
         const isOccupied = Boolean(row.PatientID1 && row.PatientID1.trim());
         const serviceLine = mapServiceLine(row.Service1);
-        const roomType = mapRoomType(row.BedTypeDesc);
+        const roomType = normalizeRoomType(row.BedTypeDesc);
         const payerType = row.DisplayPayer || row.PayerName || 'Unknown';
         const roomNumber = row.Room_Bed || 'Unknown';
         const locationName = row.location.trim();

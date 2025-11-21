@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { backfillRoomTypes } from "./backfillRoomTypes";
 
 const app = express();
 app.use(express.json());
@@ -38,6 +39,22 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+
+  // Run room type normalization backfill asynchronously in background
+  // This won't block server startup
+  setTimeout(async () => {
+    try {
+      log("Starting room type normalization backfill (background task)...");
+      const result = await backfillRoomTypes();
+      if (result.success) {
+        log(`Room type backfill completed: ${result.totalUpdated} types updated in ${result.duration}ms`);
+      } else {
+        log(`Room type backfill had errors: ${result.totalErrors} errors in ${result.duration}ms`);
+      }
+    } catch (error) {
+      log(`Room type backfill error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, 5000); // Start backfill 5 seconds after server starts
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
