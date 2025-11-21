@@ -2389,13 +2389,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { region, division, serviceLine } = req.query;
       
-      // Get all required data
+      // Get all required data - use most recent month (2025-11)
+      const currentMonth = '2025-11';  // Fixed to November 2025 which has data
       const [rentRollData, campusData, competitors, pricingWeights] = await Promise.all([
-        storage.getRentRollData(),
+        storage.getRentRollDataByMonth(currentMonth),  // Only get current month data
         storage.getAllCampuses(),
         storage.getCompetitors(),
         storage.getPricingWeights()
       ]);
+      
+      console.log(`Analytics: Processing ${rentRollData.length} units for ${currentMonth}`);
 
       // Filter rent roll data by service line first if needed
       let filteredRentRollData = rentRollData;
@@ -2405,9 +2408,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Group rent roll data by campus
       const campusMetrics = new Map();
+      let debugTotalUnits = 0;
+      let debugFilteredUnits = 0;
+      let debugBBedsSkipped = 0;
       
       filteredRentRollData.forEach((unit: any) => {
         const campusId = unit.location || 'Unknown';
+        debugTotalUnits++;
+        
+        // Filter out B-beds for senior housing service lines (AL, MC, IL)
+        // Only count A-beds (room numbers NOT ending with /B)
+        // Note: Drizzle ORM camelCases the field names
+        const roomNum = unit.roomNumber || unit.room_number || '';
+        const isABed = !roomNum || !roomNum.endsWith('/B');
+        const isHC = unit.serviceLine === 'HC';
+        
+        // Skip B-beds for non-HC service lines
+        if (!isHC && !isABed) {
+          debugBBedsSkipped++;
+          return; // Skip this unit
+        }
+        debugFilteredUnits++;
+        
         if (!campusMetrics.has(campusId)) {
           campusMetrics.set(campusId, {
             campusId,
@@ -2427,12 +2449,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         campus.totalUnits++;
         if (unit.occupiedYN) {
           campus.occupiedUnits++;
-          // Use camelCase field names (Drizzle converts from snake_case)
-          campus.totalRent += unit.inHouseRate || unit.streetRate || 0;
+          // Use streetRate consistently for calculations, fallback to inHouseRate
+          const rate = unit.streetRate || unit.inHouseRate || 0;
+          campus.totalRent += rate;
         } else {
           campus.vacantUnits++;
         }
       });
+      
+      console.log(`Analytics Debug: Total=${debugTotalUnits}, Filtered=${debugFilteredUnits}, B-beds skipped=${debugBBedsSkipped}`);
 
       // Calculate portfolio-wide medians by room type as fallback when competitor data is missing
       const portfolioMediansByRoomType = new Map<string, number>();
@@ -2628,6 +2653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           serviceLine: primaryServiceLine,
           avgRate: Math.round(avgRate),
           occupancy,
+          occupiedUnits: metrics.occupiedUnits,  // Add occupied units for weighted avg
           competitorAvgRate: Math.round(competitorAvgRate),
           pricePosition,
           revenueImpact,
@@ -2639,18 +2665,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       });
 
-      // Calculate portfolio summary
+      // Calculate portfolio summary with proper weighted averages
+      const totalOccupiedUnits = campusesData.reduce((sum, c) => sum + (c.occupiedUnits || 0), 0);
+      const totalRentRevenue = campusesData.reduce((sum, c) => 
+        sum + (c.avgRate * (c.occupiedUnits || 0)), 0);
+      const totalUnits = campusesData.reduce((sum, c) => sum + c.unitsCount, 0);
+      
       const summary = {
-        avgPortfolioRate: campusesData.length > 0
-          ? campusesData.reduce((sum, c) => sum + c.avgRate, 0) / campusesData.length
+        avgPortfolioRate: totalOccupiedUnits > 0 
+          ? Math.round(totalRentRevenue / totalOccupiedUnits)
           : 0,
-        avgOccupancy: campusesData.length > 0
-          ? campusesData.reduce((sum, c) => sum + c.occupancy, 0) / campusesData.length
+        avgOccupancy: totalUnits > 0
+          ? campusesData.reduce((sum, c) => sum + (c.occupiedUnits || 0), 0) / totalUnits
           : 0,
         avgPricePosition: campusesData.length > 0
           ? campusesData.reduce((sum, c) => sum + c.pricePosition, 0) / campusesData.length
           : 0,
-        totalRevenueOpportunity: campusesData.reduce((sum, c) => sum + c.revenueImpact, 0)
+        totalRevenueOpportunity: campusesData.reduce((sum, c) => sum + c.revenueImpact, 0),
+        totalOccupiedUnits,  // Add for dialog display
+        totalRentRevenue: Math.round(totalRentRevenue * 30)  // Monthly revenue
       };
 
       res.json({

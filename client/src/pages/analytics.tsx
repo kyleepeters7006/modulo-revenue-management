@@ -216,22 +216,19 @@ export function Analytics() {
 
     switch (selectedMetric) {
       case 'avgRate':
-        const totalOccupiedUnits = campuses.reduce((sum: number, c: any) => 
-          sum + (c.occupiedUnits || 0), 0);
-        const totalRent = campuses.reduce((sum: number, c: any) => 
-          sum + (c.avgRate * (c.occupiedUnits || 0)), 0);
+        // Use the pre-calculated values from the backend summary
         return {
           title: 'Portfolio Average Rate Calculation',
-          formula: 'Total Rent Revenue ÷ Total Occupied Units',
+          formula: 'Total Daily Rent Revenue ÷ Total Occupied Units',
           steps: [
-            { label: 'Total occupied units across all campuses', value: totalOccupiedUnits.toLocaleString() },
-            { label: 'Total rent revenue (sum of all occupied units × their rates)', value: `$${Math.round(totalRent).toLocaleString()}` },
-            { label: 'Portfolio average rate', value: `$${Math.round(summary.avgPortfolioRate).toLocaleString()}`, highlight: true },
+            { label: 'Total occupied units across all campuses', value: (summary.totalOccupiedUnits || 0).toLocaleString() },
+            { label: 'Total monthly rent revenue', value: `$${((summary.totalRentRevenue || 0)).toLocaleString()}` },
+            { label: 'Portfolio average daily rate', value: `$${Math.round(summary.avgPortfolioRate).toLocaleString()}`, highlight: true },
           ],
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,
-            value: `$${Math.round(c.avgRate).toLocaleString()}`,
-            detail: `${c.occupiedUnits} occupied units`
+            value: `$${Math.round(c.avgRate).toLocaleString()}/day`,
+            detail: `${(c.occupiedUnits || 0).toLocaleString()} occupied units`
           }))
         };
 
