@@ -5850,6 +5850,24 @@ Respond in JSON format:
         uploadMonth as string | undefined
       );
       
+      // If no floor plan exists, auto-generate a demo floor plan
+      if (!result.campusMap) {
+        const { generateOrGetDemoFloorPlan } = await import('./demoFloorPlanService');
+        try {
+          const demoFloorPlan = await generateOrGetDemoFloorPlan(locationId);
+          if (demoFloorPlan) {
+            // Fetch the newly created demo floor plan data
+            const updatedResult = await getFloorPlanDataForLocation(
+              locationId,
+              uploadMonth as string | undefined
+            );
+            return res.json(updatedResult);
+          }
+        } catch (demoError) {
+          console.log('Could not generate demo floor plan:', demoError);
+        }
+      }
+      
       res.json(result);
     } catch (error) {
       console.error('Error fetching campus maps:', error);

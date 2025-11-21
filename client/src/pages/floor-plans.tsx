@@ -292,11 +292,24 @@ export default function FloorPlansPage() {
 
 // Campus Map View Component
 function CampusMapView({ campusId }: { campusId: string }) {
-  const { data: campusMaps = [] } = useQuery({
+  const { data: result, isLoading } = useQuery({
     queryKey: [`/api/campus-maps/${campusId}`],
   });
 
-  const campusMap = campusMaps[0];
+  const campusMap = result?.campusMap;
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-slate-100">
+        <div className="text-center">
+          <div className="animate-spin">
+            <Map className="h-12 w-12 text-slate-400 mx-auto" />
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">Loading floor plan...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!campusMap) {
     return (
