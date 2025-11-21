@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
 import AICalculationDialog from "./ai-calculation-dialog";
+import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
 
 interface RateCardTableProps {
   selectedServiceLine?: string;
@@ -537,15 +538,15 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                     <TableCell className="font-medium">{row.serviceLine}</TableCell>
                     <TableCell>
                       <Badge variant={row.occupancyCount / row.totalUnits > 0.85 ? "default" : "secondary"}>
-                        {row.occupancyCount.toLocaleString()}/{row.totalUnits.toLocaleString()} <span className="text-base font-bold">({Math.round(row.occupancyCount / row.totalUnits * 100)}%)</span>
+                        {formatNumber(row.occupancyCount)}/{formatNumber(row.totalUnits)} <span className="text-base font-bold">({formatPercentage(row.occupancyCount / row.totalUnits)})</span>
                       </Badge>
                     </TableCell>
-                    <TableCell>${Math.round(row.averageStreetRate || 0).toLocaleString()}</TableCell>
+                    <TableCell>{formatCurrency(Math.round(row.averageStreetRate || 0))}</TableCell>
                     <TableCell>
-                      {row.averageModuloRate ? `$${Math.round(row.averageModuloRate).toLocaleString()}` : '-'}
+                      {row.averageModuloRate ? formatCurrency(Math.round(row.averageModuloRate)) : '-'}
                     </TableCell>
                     <TableCell>
-                      {row.averageAiRate ? `$${Math.round(row.averageAiRate).toLocaleString()}` : '-'}
+                      {row.averageAiRate ? formatCurrency(Math.round(row.averageAiRate)) : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -671,7 +672,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
                         </Badge>
                       </TableCell>
-                      <TableCell>${Math.round(unit.streetRate || 0).toLocaleString()}</TableCell>
+                      <TableCell>{formatCurrency(Math.round(unit.streetRate || 0))}</TableCell>
                       <TableCell>
                         {(() => {
                           try {
@@ -717,7 +718,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                   type="button"
                                   data-testid={`tooltip-modulo-${unit.roomNumber}`}
                                 >
-                                  <span>${Math.round(unit.moduloSuggestedRate).toLocaleString()}</span>
+                                  <span>{formatCurrency(Math.round(unit.moduloSuggestedRate))}</span>
                                   {(() => {
                                     try {
                                       const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
@@ -745,7 +746,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 const changePercent = Math.round((change / unit.streetRate) * 100);
                                 return (
                                   <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {change > 0 ? '+' : ''}${change.toLocaleString()} ({change > 0 ? '+' : ''}{changePercent}%)
+                                    {change > 0 ? '+' : ''}{formatCurrency(change)} ({change > 0 ? '+' : ''}{changePercent}%)
                                   </span>
                                 );
                               })()}
@@ -781,7 +782,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 }}
                                 data-testid={`tooltip-ai-${unit.roomNumber}`}
                               >
-                                <span>${Math.round(unit.aiSuggestedRate).toLocaleString()}</span>
+                                <span>{formatCurrency(Math.round(unit.aiSuggestedRate))}</span>
                                 <Info className="h-3 w-3" />
                               </button>
                               {(() => {
@@ -789,7 +790,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 const changePercent = Math.round((change / unit.streetRate) * 100);
                                 return (
                                   <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {change > 0 ? '+' : ''}${change.toLocaleString()} ({change > 0 ? '+' : ''}{changePercent}%)
+                                    {change > 0 ? '+' : ''}{formatCurrency(change)} ({change > 0 ? '+' : ''}{changePercent}%)
                                   </span>
                                 );
                               })()}
@@ -809,7 +810,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        ${Math.round(unit.competitorRate || 0).toLocaleString()}
+                        {formatCurrency(Math.round(unit.competitorRate || 0))}
                       </TableCell>
                       <TableCell>
                         {editingUnit === unit.id ? (

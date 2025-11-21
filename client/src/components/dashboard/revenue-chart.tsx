@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts";
 import { Button } from "@/components/ui/button";
+import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
 
 export default function RevenueChart() {
   const [timeRange, setTimeRange] = useState<'1M' | '3M' | '12M' | '24M'>('12M');
@@ -70,13 +71,13 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">Revenue Growth</span>
                 <span className={`text-sm font-semibold ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.revenueGrowth >= 0 ? '+' : ''}{Math.round(data.revenueGrowth)}%
+                  {data.revenueGrowth >= 0 ? '+' : ''}{formatPercentage(data.revenueGrowth / 100)}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Revenue Value</span>
                 <span className="text-xs font-medium text-[var(--trilogy-teal-light)]">
-                  ${revenueData?.payload?.revenue?.toLocaleString('en-US')}
+                  {formatCurrency(revenueData?.payload?.revenue)}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -98,7 +99,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">S&P 500 Value</span>
                 <span className="text-xs font-medium text-[var(--trilogy-turquoise)]">
-                  ${sp500Data?.payload?.sp500?.toLocaleString()}
+                  {formatCurrency(sp500Data?.payload?.sp500)}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">
@@ -120,7 +121,7 @@ export default function RevenueChart() {
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-[var(--dashboard-muted)]">Industry Value</span>
                 <span className="text-xs font-medium text-orange-400">
-                  ${industryData?.payload?.industry?.toLocaleString()}
+                  {formatCurrency(industryData?.payload?.industry)}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-1">

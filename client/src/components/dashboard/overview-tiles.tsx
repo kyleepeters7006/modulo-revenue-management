@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { DollarSign, Home, Users, TrendingUp, Info } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
 
 interface OverviewData {
   occupancyByRoomType: {
@@ -63,23 +64,23 @@ export default function OverviewTiles() {
   const tiles = [
     {
       title: "Total Units",
-      value: overviewData.unitsWithData.toLocaleString(),
-      subtitle: `${overviewData.locationsWithData} campuses with data (${overviewData.mostRecentMonth || 'N/A'})`,
+      value: formatNumber(overviewData.unitsWithData),
+      subtitle: `${formatNumber(overviewData.locationsWithData)} campuses with data (${overviewData.mostRecentMonth || 'N/A'})`,
       icon: Home,
       color: "blue",
       testId: "metric-total-units"
     },
     {
       title: "Overall Occupancy",
-      value: `${overviewData.unitsWithData > 0 ? ((overviewData.occupiedUnits / overviewData.unitsWithData) * 100).toFixed(1) : '0.0'}%`,
-      subtitle: `${overviewData.occupiedUnits.toLocaleString()}/${overviewData.unitsWithData.toLocaleString()} units`,
+      value: formatPercentage(overviewData.unitsWithData > 0 ? (overviewData.occupiedUnits / overviewData.unitsWithData) : 0),
+      subtitle: `${formatNumber(overviewData.occupiedUnits)}/${formatNumber(overviewData.unitsWithData)} units`,
       icon: Users,
       color: "emerald", 
       testId: "metric-overall-occupancy"
     },
     {
       title: "Current Annual Revenue", 
-      value: `$${(overviewData.currentAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`,
+      value: `$${formatNumber(Math.round(overviewData.currentAnnualRevenue / 1000000))}M`,
       subtitle: "Based on current occupancy",
       icon: DollarSign,
       color: "amber",
@@ -87,7 +88,7 @@ export default function OverviewTiles() {
     },
     {
       title: "Potential Annual Revenue",
-      value: `$${(overviewData.potentialAnnualRevenue / 1000000).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`, 
+      value: `$${formatNumber(Math.round(overviewData.potentialAnnualRevenue / 1000000))}M`, 
       subtitle: "At full occupancy",
       icon: TrendingUp,
       color: "purple",
@@ -116,7 +117,7 @@ export default function OverviewTiles() {
     const currentMonthlyRevenue = avgRate * occupied;
     const potentialMonthlyRevenue = moduloRate * targetOccupancy;
     
-    const calculation = `Current Monthly Revenue:\n$${Math.round(avgRate).toLocaleString()} × ${occupied} units = $${Math.round(currentMonthlyRevenue).toLocaleString()}\n\nPotential at 95% Occupancy:\n$${Math.round(moduloRate).toLocaleString()} × ${targetOccupancy} units = $${Math.round(potentialMonthlyRevenue).toLocaleString()}\n\nMonthly Remainder:\n$${Math.round(potentialMonthlyRevenue).toLocaleString()} - $${Math.round(currentMonthlyRevenue).toLocaleString()} = $${Math.round(remainder).toLocaleString()}`;
+    const calculation = `Current Monthly Revenue:\n${formatCurrency(Math.round(avgRate))} × ${formatNumber(occupied)} units = ${formatCurrency(Math.round(currentMonthlyRevenue))}\n\nPotential at 95% Occupancy:\n${formatCurrency(Math.round(moduloRate))} × ${formatNumber(targetOccupancy)} units = ${formatCurrency(Math.round(potentialMonthlyRevenue))}\n\nMonthly Remainder:\n${formatCurrency(Math.round(potentialMonthlyRevenue))} - ${formatCurrency(Math.round(currentMonthlyRevenue))} = ${formatCurrency(Math.round(remainder))}`;
     
     const handleClick = () => {
       setDialogContent({ type, calculation });
@@ -133,7 +134,7 @@ export default function OverviewTiles() {
           <Info className="w-3 h-3 text-[var(--dashboard-muted)] flex-shrink-0" />
         </div>
         <div className="font-medium text-[var(--trilogy-success)] text-sm">
-          ${Math.round(remainder).toLocaleString()}
+          {formatCurrency(Math.round(remainder))}
         </div>
       </div>
     );
@@ -192,11 +193,11 @@ export default function OverviewTiles() {
                     {serviceLine.serviceLine}
                   </h4>
                   <span className="text-sm font-bold text-[var(--trilogy-teal)]">
-                    {serviceLine.occupancyRate.toFixed(1)}%
+                    {formatPercentage(serviceLine.occupancyRate / 100)}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--dashboard-muted)] mb-2">
-                  {serviceLine.occupied.toLocaleString()} / {serviceLine.total.toLocaleString()} units
+                  {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
                 </div>
                 <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
                   <div 
@@ -209,11 +210,11 @@ export default function OverviewTiles() {
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
-                    <span className="font-medium">${Math.round(serviceLine.avgRate || 0).toLocaleString()}</span>
+                    <span className="font-medium">{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
-                    <span className="font-medium">${Math.round(serviceLine.avgCompetitorRate || 0).toLocaleString()}</span>
+                    <span className="font-medium">{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
                   </div>
                   {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
                 </div>
@@ -242,11 +243,11 @@ export default function OverviewTiles() {
                     {roomType.roomType}
                   </h4>
                   <span className="text-sm font-bold text-[var(--trilogy-blue)]">
-                    {roomType.occupancyRate.toFixed(1)}%
+                    {formatPercentage(roomType.occupancyRate / 100)}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--dashboard-muted)] mb-2">
-                  {roomType.occupied.toLocaleString()} / {roomType.total.toLocaleString()} units
+                  {formatNumber(roomType.occupied)} / {formatNumber(roomType.total)} units
                 </div>
                 <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
                   <div 
@@ -259,11 +260,11 @@ export default function OverviewTiles() {
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
-                    <span className="font-medium">${Math.round(roomType.avgRate || 0).toLocaleString()}</span>
+                    <span className="font-medium">{formatCurrency(Math.round(roomType.avgRate || 0))}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
-                    <span className="font-medium">${Math.round(roomType.avgCompetitorRate || 0).toLocaleString()}</span>
+                    <span className="font-medium">{formatCurrency(Math.round(roomType.avgCompetitorRate || 0))}</span>
                   </div>
                   {renderRemainderWithDialog(roomType, roomType.roomType)}
                 </div>

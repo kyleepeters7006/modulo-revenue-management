@@ -1,4 +1,5 @@
 import { DollarSign, Home, TrendingUp, BarChart3 } from "lucide-react";
+import { formatCurrency, formatPercentage } from "@/lib/formatters";
 
 interface MetricsOverviewProps {
   data?: {
@@ -11,14 +12,14 @@ export default function MetricsOverview({ data }: MetricsOverviewProps) {
   const metrics = [
     {
       title: "Starting Revenue",
-      value: data?.starting_revenue ? `$${data.starting_revenue.toLocaleString()}` : "$0",
+      value: formatCurrency(data?.starting_revenue || 0),
       icon: DollarSign,
       color: "emerald",
       testId: "metric-revenue"
     },
     {
       title: "Occupancy Rate", 
-      value: data?.occupancy ? `${(data.occupancy * 100).toFixed(1)}%` : "0.0%",
+      value: formatPercentage(data?.occupancy || 0),
       icon: Home,
       color: "blue",
       testId: "metric-occupancy"
