@@ -1313,9 +1313,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       rentRollData.forEach((unit: any) => {
         // Use upload month or current month
-        const monthKey = unit.uploadMonth || '2025-01';
+        const monthKey = unit.upload_month || '2025-01';
         // Calculate revenue: street_rate + care_rate for occupied units only
-        const monthlyRevenue = unit.occupiedYn ? ((unit.streetRate || 0) + (unit.careRate || 0)) : 0;
+        const monthlyRevenue = unit.occupied_yn ? ((unit.street_rate || 0) + (unit.care_rate || 0)) : 0;
         
         if (!revenueByMonth[monthKey]) {
           revenueByMonth[monthKey] = 0;
@@ -1327,6 +1327,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       Object.keys(revenueByMonth).forEach(month => {
         revenueByMonth[month] = revenueByMonth[month] * 12;
       });
+      
+      // Debug logging to see what data we have  
+      console.log('Total rent roll units:', rentRollData.length);
+      if (rentRollData[0]) {
+        console.log('First unit all keys:', Object.keys(rentRollData[0]).slice(0, 10));
+        console.log('First unit sample:', JSON.stringify({
+          uploadMonth: rentRollData[0].uploadMonth,
+          occupiedYn: rentRollData[0].occupiedYn,
+          streetRate: rentRollData[0].streetRate,
+          careRate: rentRollData[0].careRate
+        }));
+      }
+      console.log('Revenue by month keys:', Object.keys(revenueByMonth));
+      console.log('Sample revenue values:', Object.values(revenueByMonth).slice(0, 3));
       
       for (let i = 0; i < months; i++) {
         const date = new Date();
