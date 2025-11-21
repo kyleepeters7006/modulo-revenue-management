@@ -45,9 +45,12 @@ export default function FloorPlansPage() {
   // Filter units based on selected filters
   const filteredUnits = rentRollData.filter((unit: any) => {
     if (bedroomsFilter !== "any") {
-      const unitBedrooms = unit.size.includes('Studio') ? '0' : 
-                          unit.size.includes('1BR') ? '1' :
-                          unit.size.includes('2BR') ? '2' : '0';
+      const size = unit.size || '';
+      const unitBedrooms = 
+        size.includes('Companion') ? '0' :
+        size.includes('Studio') ? '0' : 
+        size.includes('One Bedroom') ? '1' :
+        size.includes('Two Bedroom') ? '2' : '0';
       if (unitBedrooms !== bedroomsFilter) return false;
     }
     if (floorPlanFilter !== "any") {
@@ -179,7 +182,7 @@ export default function FloorPlansPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="any">Any</SelectItem>
-                    {Array.from(new Set(rentRollData.map((u: any) => u.size))).map((size: any) => (
+                    {Array.from(new Set(rentRollData.map((u: any) => u.size).filter(Boolean))).map((size: any) => (
                       <SelectItem key={size} value={size}>{size}</SelectItem>
                     ))}
                   </SelectContent>
@@ -188,7 +191,7 @@ export default function FloorPlansPage() {
 
               <div>
                 <label className="block text-xs uppercase mb-2 font-medium">Square Footage</label>
-                <Select value="any">
+                <Select value="any" disabled>
                   <SelectTrigger className="bg-white text-slate-900" data-testid="filter-sqft">
                     <SelectValue />
                   </SelectTrigger>
@@ -200,7 +203,7 @@ export default function FloorPlansPage() {
 
               <div>
                 <label className="block text-xs uppercase mb-2 font-medium">Care Level</label>
-                <Select value="any">
+                <Select value="any" disabled>
                   <SelectTrigger className="bg-white text-slate-900" data-testid="filter-care-level">
                     <SelectValue />
                   </SelectTrigger>
