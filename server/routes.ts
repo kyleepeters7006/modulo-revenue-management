@@ -1382,6 +1382,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get locations for filtering
       const locationData = await storage.getLocations();
       
+      // Create a map of location IDs to names for quick lookup
+      const locationIdToName = new Map<string, string>();
+      locationData.forEach(loc => {
+        locationIdToName.set(loc.id, loc.name);
+      });
+      
       // Filter by location criteria - only filter if explicit filters are provided and not empty
       const hasFilters = (locations && locations !== '') || (divisions && divisions !== '') || (regions && regions !== '');
       if (hasFilters) {
@@ -1410,8 +1416,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allCompetitors = allCompetitors.filter(comp => {
           // Check if competitor location matches any selected location exactly
           return Array.from(selectedLocations).some(loc => {
-            const compLocation = comp.location || '';
-            return compLocation === loc; // Exact match only
+            // Check both location field and location_id field
+            if (comp.location === loc) {
+              return true;
+            }
+            // Also check if location_id maps to the location name
+            if (comp.locationId && locationIdToName.get(comp.locationId) === loc) {
+              return true;
+            }
+            return false;
           });
         });
       }
@@ -1419,7 +1432,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Group competitors by location and get top 3 per location
       const competitorsByLocation = new Map<string, any[]>();
       allCompetitors.forEach(comp => {
-        const loc = comp.location || 'Unknown';
+        // Get location name from either location field or location_id mapping
+        const loc = comp.location || (comp.locationId ? locationIdToName.get(comp.locationId) : null) || 'Unknown';
         if (!competitorsByLocation.has(loc)) {
           competitorsByLocation.set(loc, []);
         }

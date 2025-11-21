@@ -754,7 +754,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCompetitorsByLocation(location: string): Promise<Competitor[]> {
-    return await db.select().from(competitors).where(eq(competitors.location, location));
+    // First try to find the location by name
+    const [locationRecord] = await db.select()
+      .from(locations)
+      .where(eq(locations.name, location));
+    
+    if (locationRecord) {
+      // Query by location_id
+      return await db.select()
+        .from(competitors)
+        .where(eq(competitors.locationId, locationRecord.id));
+    }
+    
+    // Fallback to old location field for backward compatibility
+    return await db.select()
+      .from(competitors)
+      .where(eq(competitors.location, location));
   }
 
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {
@@ -792,13 +807,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async clearCompetitorsByLocation(location: string): Promise<void> {
-    await db.delete(competitors).where(eq(competitors.location, location));
+    // First try to find the location by name
+    const [locationRecord] = await db.select()
+      .from(locations)
+      .where(eq(locations.name, location));
+    
+    if (locationRecord) {
+      // Delete by location_id
+      await db.delete(competitors).where(eq(competitors.locationId, locationRecord.id));
+    } else {
+      // Fallback to old location field for backward compatibility
+      await db.delete(competitors).where(eq(competitors.location, location));
+    }
   }
 
   async getTopCompetitorByWeight(location: string, serviceLine?: string): Promise<Competitor | undefined> {
-    const locationCompetitors = await db.select()
-      .from(competitors)
-      .where(eq(competitors.location, location));
+    // First try to find the location by name
+    const [locationRecord] = await db.select()
+      .from(locations)
+      .where(eq(locations.name, location));
+    
+    const locationCompetitors = locationRecord
+      ? await db.select()
+          .from(competitors)
+          .where(eq(competitors.locationId, locationRecord.id))
+      : await db.select()
+          .from(competitors)
+          .where(eq(competitors.location, location));
     
     if (locationCompetitors.length === 0) {
       return undefined;
