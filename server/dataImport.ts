@@ -243,58 +243,155 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     const data: any[] = XLSX.utils.sheet_to_json(worksheet);
 
     stats.totalRecords = data.length;
-    
-    // Log the column names from the first row for debugging
-    if (data.length > 0) {
-      const columns = Object.keys(data[0]);
-      console.log('Competitive survey file columns (total:', columns.length, '):', columns);
-      console.log('Sample first row keys:', Object.keys(data[0]));
-      
-      // Log a few sample rows to see the data
-      console.log('Sample rows (first 3):');
-      data.slice(0, 3).forEach((row, idx) => {
-        console.log(`Row ${idx}:`, JSON.stringify(row, null, 2));
-      });
-    }
 
     await db.transaction(async (tx) => {
       await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
 
       for (const row of data) {
-      try {
-        const record: InsertCompetitiveSurveyData = {
-          surveyMonth,
-          keyStatsLocation: row['KeyStats Location'] || row['keystats_location'] || row['Location'] || '',
-          competitorName: row['Competitor Name'] || row['competitor_name'] || row['Name'] || '',
-          competitorAddress: row['Competitor Address'] || row['competitor_address'] || row['Address'] || null,
-          distanceMiles: parseFloat(row['Distance (Miles)'] || row['distance_miles']) || null,
-          competitorType: row['Competitor Type'] || row['competitor_type'] || row['Type'] || null,
-          roomType: row['Room Type'] || row['room_type'] || null,
-          squareFootage: parseInt(row['Square Footage'] || row['square_footage'] || row['sqft']) || null,
-          monthlyRateLow: parseFloat(row['Monthly Rate Low'] || row['monthly_rate_low']) || null,
-          monthlyRateHigh: parseFloat(row['Monthly Rate High'] || row['monthly_rate_high']) || null,
-          monthlyRateAvg: parseFloat(row['Monthly Rate Avg'] || row['monthly_rate_avg']) || null,
-          careFeesLow: parseFloat(row['Care Fees Low'] || row['care_fees_low']) || null,
-          careFeesHigh: parseFloat(row['Care Fees High'] || row['care_fees_high']) || null,
-          careFeesAvg: parseFloat(row['Care Fees Avg'] || row['care_fees_avg']) || null,
-          totalMonthlyLow: parseFloat(row['Total Monthly Low'] || row['total_monthly_low']) || null,
-          totalMonthlyHigh: parseFloat(row['Total Monthly High'] || row['total_monthly_high']) || null,
-          totalMonthlyAvg: parseFloat(row['Total Monthly Avg'] || row['total_monthly_avg']) || null,
-          communityFee: parseFloat(row['Community Fee'] || row['community_fee']) || null,
-          petFee: parseFloat(row['Pet Fee'] || row['pet_fee']) || null,
-          otherFees: parseFloat(row['Other Fees'] || row['other_fees']) || null,
-          incentives: row['Incentives'] || row['incentives'] || null,
-          totalUnits: parseInt(row['Total Units'] || row['total_units']) || null,
-          occupancyRate: parseFloat(row['Occupancy Rate'] || row['occupancy_rate']) || null,
-          yearBuilt: parseInt(row['Year Built'] || row['year_built']) || null,
-          lastRenovation: parseInt(row['Last Renovation'] || row['last_renovation']) || null,
-          amenities: row['Amenities'] || row['amenities'] || null,
-          notes: row['Notes'] || row['notes'] || null,
-        };
+        try {
+          const trilogyCampus = row['TrilogyCampusName'] || '';
+          const competitorName = row['CompetitorFacilityName'] || '';
+          const address = row['Address'] || null;
+          const latitude = row['Latitude'] || null;
+          const longitude = row['Longitude'] || null;
+          
+          // Parse driving time to estimate distance (rough conversion: 1 min ≈ 1 mile at 60mph)
+          let distanceMiles: number | null = null;
+          if (row['DrivingTime']) {
+            const timeMatch = String(row['DrivingTime']).match(/(\d+)/);
+            if (timeMatch) {
+              distanceMiles = parseInt(timeMatch[1]);
+            }
+          }
 
-          await tx.insert(competitiveSurveyData).values(record);
-          stats.successfulImports++;
-          stats.mappedRecords++;
+          // Service line definitions with their room type mappings
+          const serviceLines = [
+            {
+              type: 'IL',
+              flag: row['IL'],
+              roomTypes: [
+                { name: 'Studio', rate: row['IL_StudioRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                { name: 'One Bedroom', rate: row['IL_OneBedRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                { name: 'Two Bedroom', rate: row['IL_TwoBedRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+              ],
+              occupancy: row['IL_Occupancy'],
+              totalUnits: row['IL_TotalUnits'],
+            },
+            {
+              type: 'AL',
+              flag: row['AL'],
+              roomTypes: [
+                { name: 'Studio', rate: row['AL_StudioRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'One Bedroom', rate: row['AL_OneBedRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Two Bedroom', rate: row['AL_TwoBedRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Companion', rate: row['AL_CompanionRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+              ],
+              occupancy: row['AL_Occupancy'],
+              totalUnits: row['AL_TotalUnits'],
+            },
+            {
+              type: 'HC',
+              flag: row['HC'],
+              roomTypes: [
+                { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+              ],
+              occupancy: row['HC_Occupancy'],
+              totalUnits: row['HC_TotalUnits'],
+            },
+            {
+              type: 'SMC',
+              flag: row['SMC'],
+              roomTypes: [
+                { name: 'Studio', rate: row['SMC_PrivateRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
+                { name: 'Companion', rate: row['SMC_CompanionRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
+              ],
+              occupancy: row['SMC_Occupancy'],
+              totalUnits: row['SMC_TotalUnits'],
+            },
+            {
+              type: 'MC',
+              flag: row['MC'],
+              roomTypes: [
+                { name: 'Studio', rate: row['MC_StudioRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
+                { name: 'Companion', rate: row['MC_CompanionRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
+              ],
+              occupancy: row['MC_Occupancy'],
+              totalUnits: row['MC_TotalUnits'],
+            },
+            {
+              type: 'AL/MC',
+              flag: row['AL'] === 'True' && row['MC'] === 'True' ? 'True' : 'False',
+              roomTypes: [
+                { name: 'Studio', rate: row['AL/MC_StudioRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                { name: 'Companion', rate: row['AL/MC_CompanionRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+              ],
+              occupancy: null,
+              totalUnits: null,
+            },
+            {
+              type: 'HC/MC',
+              flag: row['HC'] === 'True' && row['MC'] === 'True' ? 'True' : 'False',
+              roomTypes: [
+                { name: 'Studio', rate: row['HC/MC_PrivateRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                { name: 'Companion', rate: row['HC/MC_CompanionRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+              ],
+              occupancy: null,
+              totalUnits: null,
+            },
+          ];
+
+          // For each service line, create rows for each room type with a rate
+          for (const serviceLine of serviceLines) {
+            if (serviceLine.flag !== 'True') continue;
+
+            for (const roomType of serviceLine.roomTypes) {
+              // Only create a row if there's a rate
+              if (!roomType.rate || parseFloat(roomType.rate) === 0) continue;
+
+              const record: InsertCompetitiveSurveyData = {
+                surveyMonth,
+                keyStatsLocation: trilogyCampus,
+                competitorName,
+                competitorAddress: address,
+                distanceMiles,
+                competitorType: serviceLine.type,
+                roomType: roomType.name,
+                squareFootage: null,
+                monthlyRateLow: null,
+                monthlyRateHigh: null,
+                monthlyRateAvg: parseFloat(roomType.rate) || null,
+                careFeesLow: null,
+                careFeesHigh: null,
+                careFeesAvg: parseFloat(roomType.careLevel) || null,
+                totalMonthlyLow: null,
+                totalMonthlyHigh: null,
+                totalMonthlyAvg: null,
+                communityFee: null,
+                petFee: null,
+                otherFees: parseFloat(roomType.otherAdj) || null,
+                incentives: null,
+                totalUnits: serviceLine.totalUnits ? parseInt(serviceLine.totalUnits) : null,
+                occupancyRate: serviceLine.occupancy ? parseFloat(serviceLine.occupancy) : null,
+                yearBuilt: row['Age'] ? parseInt(row['Age']) : null,
+                lastRenovation: null,
+                amenities: null,
+                notes: JSON.stringify({
+                  weight: roomType.weight || 0,
+                  latitude,
+                  longitude,
+                  providerId: row['ID'],
+                  providerNumber: row['Provider Number'],
+                }),
+              };
+
+              await tx.insert(competitiveSurveyData).values(record);
+              stats.successfulImports++;
+              stats.mappedRecords++;
+            }
+          }
         } catch (error: any) {
           stats.failedImports++;
           stats.errors.push(`Row ${stats.successfulImports + stats.failedImports}: ${error.message}`);
