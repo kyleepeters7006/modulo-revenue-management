@@ -819,22 +819,27 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        <CompetitorAdjustmentDialog
-                          competitorName={unit.competitorName}
-                          competitorWeight={unit.competitorWeight}
-                          competitorBaseRate={unit.competitorBaseRate}
-                          competitorCareLevel2Adjustment={unit.competitorCareLevel2Adjustment}
-                          competitorMedManagementAdjustment={unit.competitorMedManagementAdjustment}
-                          competitorAdjustmentExplanation={unit.competitorAdjustmentExplanation}
-                          adjustedRate={unit.competitorRate}
-                        >
-                          <button
-                            className="text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] hover:underline font-medium cursor-pointer transition-colors"
-                            data-testid={`button-competitor-rate-${unit.roomNumber}`}
+                        {unit.competitorRate ? (
+                          <CompetitorAdjustmentDialog
+                            competitorName={unit.competitorName}
+                            competitorWeight={unit.competitorWeight}
+                            competitorBaseRate={unit.competitorBaseRate}
+                            competitorCareLevel2Adjustment={unit.competitorCareLevel2Adjustment}
+                            competitorMedManagementAdjustment={unit.competitorMedManagementAdjustment}
+                            competitorAdjustmentExplanation={unit.competitorAdjustmentExplanation}
+                            adjustedRate={unit.competitorRate}
                           >
-                            {unit.competitorRate ? formatCurrency(Math.round(unit.competitorRate)) : '-'}
-                          </button>
-                        </CompetitorAdjustmentDialog>
+                            <Button
+                              variant="link"
+                              className="text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] p-0 h-auto font-medium"
+                              data-testid={`button-competitor-rate-${unit.roomNumber}`}
+                            >
+                              {formatCurrency(Math.round(unit.competitorRate))}
+                            </Button>
+                          </CompetitorAdjustmentDialog>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {editingUnit === unit.id ? (

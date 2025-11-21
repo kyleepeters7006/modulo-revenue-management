@@ -4013,8 +4013,8 @@ Keep recommendations specific and quantitative when possible.`;
           const trilogyCareLevel2 = trilogyCareLevel2Rates[unit.serviceLine || 'AL'] || 400;
           const adjustmentResult = calculateAdjustedCompetitorRate({
             competitorBaseRate: bestCompetitor.streetRate || 0,
-            competitorCareLevel2Rate: bestCompetitor.careLevel2Rate,
-            competitorMedicationManagementFee: bestCompetitor.medicationManagementFee,
+            competitorCareLevel2Rate: bestCompetitor.careLevel2Rate || 0,
+            competitorMedicationManagementFee: bestCompetitor.medicationManagementFee || 0,
             trilogyCareLevel2Rate: trilogyCareLevel2
           });
           
@@ -4317,9 +4317,9 @@ Keep recommendations specific and quantitative when possible.`;
               const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
               const adjustmentResult = calculateAdjustedCompetitorRate({
                 competitorBaseRate: topCompetitor.streetRate,
-                competitorCareLevel2Rate: topCompetitor.careLevel2Rate,
-                competitorMedicationManagementFee: topCompetitor.medicationManagementFee,
-                trilogyCareLevel2Rate: trilogyCareLevel2Rate
+                competitorCareLevel2Rate: topCompetitor.careLevel2Rate || 0,
+                competitorMedicationManagementFee: topCompetitor.medicationManagementFee || 0,
+                trilogyCareLevel2Rate: trilogyCareLevel2Rate || 0
               });
               
               // Use adjusted rate for fairer comparison
@@ -4817,8 +4817,8 @@ Keep recommendations specific and quantitative when possible.`;
         // Calculate adjusted competitor rate
         const adjustmentResult = calculateAdjustedCompetitorRate({
           competitorBaseRate: topCompetitor.streetRate,
-          competitorCareLevel2Rate: topCompetitor.careLevel2Rate,
-          competitorMedicationManagementFee: topCompetitor.medicationManagementFee,
+          competitorCareLevel2Rate: topCompetitor.careLevel2Rate || 0,
+          competitorMedicationManagementFee: topCompetitor.medicationManagementFee || 0,
           trilogyCareLevel2Rate: trilogyCareLevel2Rate || 0
         });
         

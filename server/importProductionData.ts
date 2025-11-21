@@ -299,6 +299,16 @@ async function importCompetitiveSurvey() {
           streetRate: avgRate,
           avgCareRate: row['Care Fees Avg'] ? parseFloat(row['Care Fees Avg']) : null,
           rating,
+          // Map care level 2 and medication management fields
+          careLevel2Rate: row['Care Level 2'] ? parseFloat(row['Care Level 2']) : 
+                         row['Care Level 2 Rate'] ? parseFloat(row['Care Level 2 Rate']) :
+                         row['Level 2 Care'] ? parseFloat(row['Level 2 Care']) : 
+                         null,
+          medicationManagementFee: row['Medication Management'] ? parseFloat(row['Medication Management']) :
+                                  row['Medication Management Fee'] ? parseFloat(row['Medication Management Fee']) :
+                                  row['Med Management'] ? parseFloat(row['Med Management']) :
+                                  row['Medication Fee'] ? parseFloat(row['Medication Fee']) :
+                                  null,
           rates: {
             studio: row['Studio Rate'] ? parseFloat(row['Studio Rate']) : null,
             oneBedroom: row['1BR Rate'] ? parseFloat(row['1BR Rate']) : null,
