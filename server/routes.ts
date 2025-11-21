@@ -1312,10 +1312,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const revenueByMonth: Record<string, number> = {};
       
       rentRollData.forEach((unit: any) => {
-        // Use upload month or current month
-        const monthKey = unit.upload_month || '2025-01';
-        // Calculate revenue: street_rate + care_rate for occupied units only
-        const monthlyRevenue = unit.occupied_yn ? ((unit.street_rate || 0) + (unit.care_rate || 0)) : 0;
+        // Use upload month or current month (handle both snake_case and camelCase)
+        const monthKey = unit.upload_month || unit.uploadMonth || '2025-01';
+        // Calculate revenue: street_rate + care_rate for occupied units only (handle both snake_case and camelCase)
+        const isOccupied = unit.occupied_yn !== undefined ? unit.occupied_yn : unit.occupiedYn;
+        const streetRate = unit.street_rate !== undefined ? unit.street_rate : (unit.streetRate || 0);
+        const careRate = unit.care_rate !== undefined ? unit.care_rate : (unit.careRate || 0);
+        const monthlyRevenue = isOccupied ? (streetRate + careRate) : 0;
         
         if (!revenueByMonth[monthKey]) {
           revenueByMonth[monthKey] = 0;
@@ -1327,20 +1330,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       Object.keys(revenueByMonth).forEach(month => {
         revenueByMonth[month] = revenueByMonth[month] * 12;
       });
-      
-      // Debug logging to see what data we have  
-      console.log('Total rent roll units:', rentRollData.length);
-      if (rentRollData[0]) {
-        console.log('First unit all keys:', Object.keys(rentRollData[0]).slice(0, 10));
-        console.log('First unit sample:', JSON.stringify({
-          uploadMonth: rentRollData[0].uploadMonth,
-          occupiedYn: rentRollData[0].occupiedYn,
-          streetRate: rentRollData[0].streetRate,
-          careRate: rentRollData[0].careRate
-        }));
-      }
-      console.log('Revenue by month keys:', Object.keys(revenueByMonth));
-      console.log('Sample revenue values:', Object.values(revenueByMonth).slice(0, 3));
       
       for (let i = 0; i < months; i++) {
         const date = new Date();
@@ -3950,6 +3939,23 @@ Keep recommendations specific and quantitative when possible.`;
         }
       }
       
+      // Fetch all competitors and create a map by location
+      const allCompetitors = await storage.getCompetitors();
+      const competitorsByLocation = new Map<string, any[]>();
+      
+      allCompetitors.forEach(comp => {
+        const locName = comp.location || '';
+        if (!competitorsByLocation.has(locName)) {
+          competitorsByLocation.set(locName, []);
+        }
+        competitorsByLocation.get(locName)?.push(comp);
+      });
+      
+      // Sort competitors by weight (highest first) for each location
+      competitorsByLocation.forEach((competitors) => {
+        competitors.sort((a, b) => (b.weight || 0) - (a.weight || 0));
+      });
+      
       // Convert single values to arrays if needed
       const selectedRegions = Array.isArray(regions) ? regions : (regions ? [regions] : []);
       const selectedDivisions = Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []);
@@ -3984,6 +3990,48 @@ Keep recommendations specific and quantitative when possible.`;
           }
         }
         return true; // Include all other units
+      });
+      
+      // Get Trilogy care level 2 rates for the location (example default values by service line)
+      const trilogyCareLevel2Rates: Record<string, number> = {
+        'AL': 400,
+        'AL/MC': 600,
+        'HC': 800,
+        'HC/MC': 900,
+        'SL': 200,
+        'VIL': 100
+      };
+      
+      // Apply competitor rate adjustments for each unit
+      unitLevelData = unitLevelData.map(unit => {
+        // Find the highest weight competitor for this location
+        const locationCompetitors = competitorsByLocation.get(unit.location) || [];
+        const bestCompetitor = locationCompetitors[0]; // Already sorted by weight
+        
+        if (bestCompetitor && bestCompetitor.streetRate) {
+          // Apply adjustments for care level and medication management
+          const trilogyCareLevel2 = trilogyCareLevel2Rates[unit.serviceLine || 'AL'] || 400;
+          const adjustmentResult = calculateAdjustedCompetitorRate({
+            competitorBaseRate: bestCompetitor.streetRate || 0,
+            competitorCareLevel2Rate: bestCompetitor.careLevel2Rate,
+            competitorMedicationManagementFee: bestCompetitor.medicationManagementFee,
+            trilogyCareLevel2Rate: trilogyCareLevel2
+          });
+          
+          // Store both the adjusted rate and adjustment details for display
+          return {
+            ...unit,
+            competitorRate: adjustmentResult.adjustedRate,
+            competitorName: bestCompetitor.name,
+            competitorWeight: bestCompetitor.weight,
+            competitorBaseRate: bestCompetitor.streetRate,
+            competitorCareLevel2Adjustment: adjustmentResult.careLevel2Adjustment,
+            competitorMedManagementAdjustment: adjustmentResult.medicationManagementAdjustment,
+            competitorAdjustmentExplanation: adjustmentResult.explanation
+          };
+        }
+        
+        return unit;
       });
 
       // NOTE: Modulo rates are already calculated and stored in the database

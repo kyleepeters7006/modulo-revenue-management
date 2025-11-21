@@ -12,6 +12,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
+import { CompetitorAdjustmentDialog } from "@/components/dashboard/competitor-adjustment-dialog";
 import { 
   Select, 
   SelectContent, 
@@ -818,7 +819,22 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        {formatCurrency(Math.round(unit.competitorRate || 0))}
+                        <CompetitorAdjustmentDialog
+                          competitorName={unit.competitorName}
+                          competitorWeight={unit.competitorWeight}
+                          competitorBaseRate={unit.competitorBaseRate}
+                          competitorCareLevel2Adjustment={unit.competitorCareLevel2Adjustment}
+                          competitorMedManagementAdjustment={unit.competitorMedManagementAdjustment}
+                          competitorAdjustmentExplanation={unit.competitorAdjustmentExplanation}
+                          adjustedRate={unit.competitorRate}
+                        >
+                          <button
+                            className="text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] hover:underline font-medium cursor-pointer transition-colors"
+                            data-testid={`button-competitor-rate-${unit.roomNumber}`}
+                          >
+                            {unit.competitorRate ? formatCurrency(Math.round(unit.competitorRate)) : '-'}
+                          </button>
+                        </CompetitorAdjustmentDialog>
                       </TableCell>
                       <TableCell>
                         {editingUnit === unit.id ? (
