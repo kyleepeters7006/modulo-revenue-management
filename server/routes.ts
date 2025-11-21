@@ -34,6 +34,7 @@ import { getSentenceExplanation, generateOverallExplanation } from "./sentenceEx
 import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
+import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 
@@ -4775,54 +4776,142 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Calculate and populate competitor rates
+  // Calculate and populate competitor rates - Enhanced version
   app.post("/api/competitor-rates/calculate", async (req, res) => {
     try {
-      const rentRollUnits = await storage.getRentRollData();
-      let updatedCount = 0;
-      let noCompetitorCount = 0;
+      const { uploadMonth } = req.body;
       
-      // Process each rent roll unit
-      for (const unit of rentRollUnits) {
-        // Use existing storage function to get top competitor (handles facility type mapping)
-        const topCompetitor = await storage.getTopCompetitorByWeight(unit.location || unit.campus, unit.serviceLine);
-        
-        if (!topCompetitor || !topCompetitor.streetRate) {
-          noCompetitorCount++;
-          continue; // No valid competitor found
-        }
-        
-        // Get Trilogy's care level 2 rate for this location/service line
-        const trilogyCareLevel2Rate = await storage.getTrilogyCareLevel2Rate(
-          unit.location || unit.campus, 
-          unit.serviceLine
-        );
-        
-        // Calculate adjusted competitor rate
-        const adjustmentResult = calculateAdjustedCompetitorRate({
-          competitorBaseRate: topCompetitor.streetRate,
-          competitorCareLevel2Rate: topCompetitor.careLevel2Rate || 0,
-          competitorMedicationManagementFee: topCompetitor.medicationManagementFee || 0,
-          trilogyCareLevel2Rate: trilogyCareLevel2Rate || 0
-        });
-        
-        // Update rent roll data with adjusted competitor rate
-        await storage.updateRentRollData(unit.id, {
-          competitorRate: Math.round(adjustmentResult.adjustedRate)
-        });
-        
-        updatedCount++;
-      }
+      // Use the comprehensive competitor rate matching service
+      const result = await processAllUnitsForCompetitorRates(uploadMonth);
       
       res.json({ 
-        success: true, 
-        updatedCount,
-        noCompetitorCount,
-        totalUnits: rentRollUnits.length
+        success: true,
+        processed: result.processed,
+        updated: result.updated,
+        errors: result.errors,
+        summary: {
+          totalUnits: result.processed,
+          updatedUnits: result.updated,
+          failedUnits: result.errors,
+          successRate: result.processed > 0 ? ((result.updated / result.processed) * 100).toFixed(2) + '%' : '0%'
+        }
       });
     } catch (error) {
       console.error('Error calculating competitor rates:', error);
       res.status(500).json({ error: 'Failed to calculate competitor rates' });
+    }
+  });
+  
+  // New endpoint: Calculate competitor rates for specific units
+  app.post("/api/pricing/calculate-competitor-rates", async (req, res) => {
+    try {
+      const { uploadMonth, location, serviceLine } = req.body;
+      
+      // Use the comprehensive competitor rate matching service
+      const result = await processAllUnitsForCompetitorRates(uploadMonth);
+      
+      // Get summary statistics
+      const summary = await getCompetitorRateSummary(uploadMonth);
+      
+      res.json({ 
+        success: true,
+        statistics: {
+          processed: result.processed,
+          updated: result.updated,
+          errors: result.errors,
+          successRate: result.processed > 0 ? ((result.updated / result.processed) * 100).toFixed(2) + '%' : '0%'
+        },
+        summary: summary,
+        message: `Successfully calculated competitor rates for ${result.updated} units out of ${result.processed} total units.`
+      });
+    } catch (error) {
+      console.error('Error calculating competitor rates:', error);
+      res.status(500).json({ error: 'Failed to calculate competitor rates' });
+    }
+  });
+  
+  // Get competitor rate summary
+  app.get("/api/competitor-rates/summary", async (req, res) => {
+    try {
+      const { uploadMonth } = req.query;
+      const summary = await getCompetitorRateSummary(uploadMonth as string);
+      
+      res.json({
+        success: true,
+        summary: summary
+      });
+    } catch (error) {
+      console.error('Error getting competitor rate summary:', error);
+      res.status(500).json({ error: 'Failed to get competitor rate summary' });
+    }
+  });
+  
+  // Test endpoint: Calculate competitor rates for a small sample
+  app.post("/api/competitor-rates/test", async (req, res) => {
+    try {
+      const { limit = 5, location } = req.body;
+      
+      // Get a small sample of units for testing
+      let units = [];
+      if (location) {
+        // Test with specific location
+        units = await db.select().from(rentRollData)
+          .where(eq(rentRollData.location, location))
+          .limit(limit);
+      } else {
+        // Test with locations that have competitors
+        const locationsWithCompetitors = ['Batesville - 120', 'Columbus - 107', 'Cynthiana - 114'];
+        units = await db.select().from(rentRollData)
+          .where(sql`${rentRollData.location} IN (${sql.join(locationsWithCompetitors.map(l => sql`${l}`), sql`,`)})`)
+          .limit(limit);
+      }
+      
+      console.log(`Testing competitor rate calculation for ${units.length} units...`);
+      
+      // Import the function from the service
+      const { calculateCompetitorRateForUnit } = await import('./services/competitorRateMatching.js');
+      
+      const results = [];
+      for (const unit of units) {
+        const result = await calculateCompetitorRateForUnit(unit);
+        
+        // Update the database if calculation was successful
+        if (result.competitorAdjustedRate !== null) {
+          await db.update(rentRollData)
+            .set({
+              competitorRate: result.competitorAdjustedRate,
+              competitorFinalRate: result.competitorAdjustedRate
+            })
+            .where(eq(rentRollData.id, unit.id));
+        }
+        
+        results.push({
+          ...result,
+          unitDetails: {
+            location: unit.location,
+            roomNumber: unit.roomNumber,
+            roomType: unit.roomType,
+            serviceLine: unit.serviceLine,
+            streetRate: unit.streetRate
+          }
+        });
+      }
+      
+      // Count successes and errors
+      const successful = results.filter(r => !r.error).length;
+      const failed = results.filter(r => r.error).length;
+      
+      res.json({
+        success: true,
+        tested: units.length,
+        successful,
+        failed,
+        results,
+        message: `Test completed: ${successful} units calculated successfully, ${failed} failed.`
+      });
+    } catch (error) {
+      console.error('Error in competitor rate test:', error);
+      res.status(500).json({ error: 'Failed to test competitor rates' });
     }
   });
 

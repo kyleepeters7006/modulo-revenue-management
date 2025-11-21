@@ -1,0 +1,22 @@
+Use the competitor rates dataset uploaded in the Data Management tab to determine the competitor rate for each Location/campus we have on the rent roll. If, for example, you want to pull the competitor rate of an AL Studio - Private at Battle Creek - 501, you will look for that rent roll location in the "TrilogyCampusName" column in the competitor data file uploaded and the competitors for that location will be in the column named "CompetitorFacilityName". You would then choose the competitor with the highest weight for the service line, in this case AL. Weight columns follow the format: [ServiceLineShortName]_Comp_Weight (e.g., AL_Comp_Weight for Assisted Living).
+For SL and VIL service lines, use the same weight column (they share one).
+Important: Some campuses do not have any competitors with weights for a service line. In those cases, select the closest competitor that has rates based on the DrivingTime column. For the competitor rates by service line, use the provided mapping table in the screenshot as a reference to infer logical groupings, not for exact matches.
+The table in the screenshot shows examples of how column names in the uploaded file relate to service lines and room type groups that we offer (e.g., AL_StudioPrivateRoomRate → AL service line, Studio group).
+Your task:
+Identify patterns in column names (prefix = service line, suffix = room type).
+Group competitor rate columns into logical room type categories (Studio, 1BR, 2BR, Companion, Private Deluxe, etc.).
+Use these inferred groupings to match our room types to competitor rates as closely as possible and show that competitor rate. The final competitor rate you show should be calculated as follows: Start with the competitor’s base rent for the mapped room type, then
+Adjust for Level 2 care and Medication Management fees:
+Columns for these follow the format: [ServiceLineShortName]_Level2 and [ServiceLineShortName]_MedicationManagement.
+If blank, assume 0.
+Adjustment formula:
+Adjusted Competitor Rate = Competitor Rent + (Competitor Level2 Care - Trilogy Level2 Care) + (Competitor Med Mgmt Fee- 0)
+(Trilogy does not charge for med mgmt).
+Example:
+
+Trilogy rate = $4000
+Competitor rate = $4000
+Trilogy Level2 = $400
+Competitor Level2 = $800
+Competitor Med Mgmt = $100
+Adjustment = $500 → Adjusted competitor rate = $4500
