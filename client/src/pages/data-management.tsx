@@ -141,7 +141,14 @@ export default function DataManagement() {
   const competitorMutation = useMutation({
     mutationFn: async (formData: FormData) => {
       setIsUploadingCompetitor(true);
-      const response = await fetch('/api/upload/competitor', {
+      
+      // Add current month as surveyMonth if not already present
+      if (!formData.has('surveyMonth')) {
+        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+        formData.append('surveyMonth', currentMonth);
+      }
+      
+      const response = await fetch('/api/import/competitive-survey', {
         method: 'POST',
         body: formData,
       });
@@ -155,11 +162,16 @@ export default function DataManagement() {
     },
     onSuccess: (data) => {
       toast({
-        title: "Upload Successful",
-        description: `Processed ${data.recordsProcessed || 0} competitor records.`,
+        title: "Competitive Survey Upload Successful",
+        description: `Processed ${data.successfulImports || 0} competitive survey records. System will recalculate competitor rates in the background.`,
       });
       setUploadHistory(prev => [{ ...data, type: 'competitor', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
+      
+      // Trigger background recalculation of competitor rates
+      fetch('/api/competitor-rates/recalculate', { method: 'POST' }).catch(err => {
+        console.warn('Failed to trigger competitor rate recalculation:', err);
+      });
     },
     onError: (error: Error) => {
       toast({

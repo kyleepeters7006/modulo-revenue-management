@@ -675,39 +675,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Competitive Data template download endpoint
+  // Competitive Survey Data template download endpoint
   app.get("/api/template/competitor", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
       
+      // Template matches the importCompetitiveSurveyExcel expected format
       const competitorTemplate = [
         {
-          'Competitor Name': 'Sunrise of Example',
-          'Facility Type': 'AL',
+          'KeyStats Location': 'Anderson - 112',
+          'Competitor Name': 'Sunrise Senior Living',
+          'Competitor Address': '123 Main Street, Louisville, KY 40202',
+          'Distance (Miles)': 2.5,
+          'Competitor Type': 'AL',
           'Room Type': 'Studio',
-          'Base Rate': 3600,
-          'Care Level 1': 400,
-          'Care Level 2': 800,
-          'Medication Management Fee': 150,
-          'Address': '123 Main St',
-          'City': 'Louisville',
-          'State': 'KY',
-          'Zip': '40202',
-          'Latitude': 38.2527,
-          'Longitude': -85.7585
+          'Square Footage': 350,
+          'Monthly Rate Low': 3200,
+          'Monthly Rate High': 3800,
+          'Monthly Rate Avg': 3500,
+          'Care Fees Low': 400,
+          'Care Fees High': 800,
+          'Care Fees Avg': 600,
+          'Total Monthly Low': 3600,
+          'Total Monthly High': 4600,
+          'Total Monthly Avg': 4100,
+          'Community Fee': 500,
+          'Pet Fee': 50,
+          'Other Fees': 0,
+          'Incentives': 'First month free',
+          'Total Units': 85,
+          'Occupancy Rate': 92.5,
+          'Year Built': 2015,
+          'Last Renovation': 2020,
+          'Amenities': 'Pool, Fitness Center, Beauty Salon',
+          'Notes': 'Competitor offers memory care in separate building'
         }
       ];
       
       const sheet = xlsx.utils.json_to_sheet(competitorTemplate);
-      xlsx.utils.book_append_sheet(workbook, sheet, 'Competitor Data');
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Competitive Survey');
       
       const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
       
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', 'attachment; filename="competitive_data_template.xlsx"');
+      res.setHeader('Content-Disposition', 'attachment; filename="competitive_survey_template.xlsx"');
       res.send(buffer);
     } catch (error) {
-      console.error("Error generating competitor template:", error);
+      console.error("Error generating competitive survey template:", error);
       res.status(500).json({ error: "Failed to generate template" });
     }
   });
