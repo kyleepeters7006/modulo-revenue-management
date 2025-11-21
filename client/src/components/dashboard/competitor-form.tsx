@@ -49,6 +49,19 @@ interface CompetitorFormProps {
   selectedServiceLines?: string[];
 }
 
+// Helper function to get full service line names
+const getServiceLineFullName = (code: string): string => {
+  const serviceLineMap: Record<string, string> = {
+    'HC': 'Health Center',
+    'HC/MC': 'Health Center/Memory Care',
+    'AL': 'Assisted Living',
+    'AL/MC': 'Assisted Living/Memory Care',
+    'SL': 'Senior Living',
+    'VIL': 'Village'
+  };
+  return serviceLineMap[code] || code;
+};
+
 export default function CompetitorForm({ 
   selectedRegions = [], 
   selectedDivisions = [], 
@@ -499,6 +512,13 @@ export default function CompetitorForm({
                           <div className="flex items-center gap-1 text-sm text-[var(--dashboard-muted)]">
                             <MapPin className="h-3 w-3 flex-shrink-0" />
                             <span className="truncate">{competitor.address}</span>
+                          </div>
+                        )}
+                        
+                        {/* Service Line Display */}
+                        {competitor.serviceLines && competitor.serviceLines.length > 0 && (
+                          <div className="text-sm text-[var(--dashboard-muted)]">
+                            Service Line: {competitor.serviceLines.map((line: string) => getServiceLineFullName(line)).join(', ')}
                           </div>
                         )}
                         
