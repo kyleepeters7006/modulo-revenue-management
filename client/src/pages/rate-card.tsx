@@ -56,7 +56,8 @@ export default function RateCard() {
     saveFiltersToStorage(filters);
   }, [selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations]);
 
-  const serviceLines = ["All", "AL", "AL/MC", "HC", "HC/MC", "IL", "SL"];
+  // Service line options - matches backend serviceLineEnum, plus "All" option
+  const serviceLines = ["All", "HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
   // Fetch locations data for filters
   const { data: locationsData } = useQuery({

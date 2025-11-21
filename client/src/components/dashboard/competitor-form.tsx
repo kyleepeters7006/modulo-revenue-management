@@ -369,7 +369,7 @@ export default function CompetitorForm({
                   <div className="col-span-2">
                     <Label>Service Lines Offered</Label>
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {['HC', 'HC/MC', 'AL', 'AL/MC', 'IL', 'SL'].map((serviceLine) => {
+                      {['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'].map((serviceLine) => {
                         const currentServiceLines = form.watch('serviceLines') || [];
                         const isChecked = currentServiceLines.includes(serviceLine);
                         

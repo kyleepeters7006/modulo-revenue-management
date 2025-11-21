@@ -58,8 +58,8 @@ export default function CompetitorAnalysis() {
   const divisions = locationsData?.divisions || [];
   const locations = locationsData?.locations?.map((loc: any) => loc.name) || [];
   
-  // Define service line options
-  const serviceLineOptions = ['HC', 'HC/MC', 'AL', 'AL/MC', 'IL', 'SL'];
+  // Define service line options - matches backend serviceLineEnum
+  const serviceLineOptions = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
 
   // Helper functions for multi-select
   const toggleSelection = (value: string, currentSelection: string[], setter: (values: string[]) => void) => {
