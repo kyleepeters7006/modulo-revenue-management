@@ -64,10 +64,10 @@ export default function RateCard() {
     queryKey: ["/api/locations"],
   });
 
-  // Extract unique regions, divisions, and locations
-  const regions = locationsData?.regions || [];
-  const divisions = locationsData?.divisions || [];
-  const locations = locationsData?.locations?.map((loc: any) => loc.name) || [];
+  // Extract unique regions, divisions, and locations - sorted alphabetically
+  const regions = (locationsData?.regions || []).sort((a, b) => a.localeCompare(b));
+  const divisions = (locationsData?.divisions || []).sort((a, b) => a.localeCompare(b));
+  const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a, b) => a.localeCompare(b));
 
   // Helper functions for multi-select
   const toggleSelection = (value: string, currentSelection: string[], setter: (values: string[]) => void) => {
