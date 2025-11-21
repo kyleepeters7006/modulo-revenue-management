@@ -16,10 +16,11 @@ interface InteractiveFloorPlanViewerProps {
 interface UnitDetails {
   roomNumber: string;
   roomType: string;
-  streetRate: number;
+  streetRate?: number;
   occupiedYN: boolean;
   daysVacant: number;
   moduloSuggestedRate?: number;
+  rentAndCareRate?: number;
   size: string;
 }
 
@@ -826,7 +827,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                   <div className="bg-slate-50 p-3 rounded">
                     <p className="text-xs text-slate-600 mb-1">Current Rate</p>
                     <p className="text-xl font-semibold text-slate-900">
-                      ${Math.round(selectedUnit.streetRate).toLocaleString()}/mo
+                      ${Math.round(selectedUnit.streetRate || selectedUnit.moduloSuggestedRate || selectedUnit.rentAndCareRate || 0).toLocaleString()}/mo
                     </p>
                   </div>
                   {selectedUnit.moduloSuggestedRate && (

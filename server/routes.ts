@@ -5844,6 +5844,8 @@ Respond in JSON format:
       const { locationId } = req.params;
       const { uploadMonth } = req.query;
       
+      console.log(`[Campus Maps API] Fetching floor plan for location ${locationId}, uploadMonth: ${uploadMonth || 'latest'}`);
+      
       const { getFloorPlanDataForLocation } = await import('./globalFloorPlanService');
       const result = await getFloorPlanDataForLocation(
         locationId,
@@ -5852,26 +5854,47 @@ Respond in JSON format:
       
       // If no floor plan exists, auto-generate a demo floor plan
       if (!result.campusMap) {
+        console.log(`[Campus Maps API] No floor plan found for location ${locationId}, attempting to generate demo floor plan...`);
         const { generateOrGetDemoFloorPlan } = await import('./demoFloorPlanService');
         try {
+          console.log(`[Demo Generation] Starting demo floor plan generation for location ${locationId}`);
           const demoFloorPlan = await generateOrGetDemoFloorPlan(locationId);
+          
           if (demoFloorPlan) {
+            console.log(`[Demo Generation] Successfully generated demo floor plan for location ${locationId}, floorPlanId: ${demoFloorPlan.id}`);
             // Fetch the newly created demo floor plan data
             const updatedResult = await getFloorPlanDataForLocation(
               locationId,
               uploadMonth as string | undefined
             );
+            console.log(`[Demo Generation] Returning updated result with ${updatedResult.stats.totalRooms} rooms`);
             return res.json(updatedResult);
+          } else {
+            console.error(`[Demo Generation] Failed to generate demo floor plan for location ${locationId} - no floor plan returned`);
+            return res.status(404).json({ 
+              error: "No floor plan available",
+              message: `No floor plan data found for location ${locationId} and demo generation failed. Please ensure rent roll data exists for this location.`
+            });
           }
         } catch (demoError) {
-          console.log('Could not generate demo floor plan:', demoError);
+          console.error('[Demo Generation] Error generating demo floor plan:', demoError);
+          console.error('Stack trace:', demoError instanceof Error ? demoError.stack : 'No stack trace available');
+          return res.status(404).json({ 
+            error: "Floor plan generation failed",
+            message: `Unable to generate floor plan for location ${locationId}. Please contact support.`
+          });
         }
       }
       
+      console.log(`[Campus Maps API] Returning floor plan data for location ${locationId} with ${result.stats.totalRooms} total rooms`);
       res.json(result);
     } catch (error) {
-      console.error('Error fetching campus maps:', error);
-      res.status(500).json({ error: "Failed to fetch campus maps" });
+      console.error('[Campus Maps API] Error fetching campus maps:', error);
+      console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+      res.status(500).json({ 
+        error: "Failed to fetch campus maps",
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
     }
   });
 

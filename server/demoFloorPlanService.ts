@@ -4,6 +4,8 @@ import { eq, desc } from 'drizzle-orm';
 
 export async function generateOrGetDemoFloorPlan(locationId: string) {
   try {
+    console.log(`[Demo Floor Plan Service] Checking for existing floor plan for location ${locationId}`);
+    
     // Check if demo floor plan already exists for this location
     const existing = await db
       .select()
@@ -14,9 +16,12 @@ export async function generateOrGetDemoFloorPlan(locationId: string) {
       .limit(1);
 
     if (existing[0]) {
+      console.log(`[Demo Floor Plan Service] Found existing floor plan for location ${locationId}, id: ${existing[0].id}`);
       return existing[0];
     }
 
+    console.log(`[Demo Floor Plan Service] No existing floor plan found, checking for rent roll data...`);
+    
     // Get rent roll data for this location to determine room layout
     const latestMonth = await db
       .select({ uploadMonth: rentRollData.uploadMonth })
@@ -27,9 +32,12 @@ export async function generateOrGetDemoFloorPlan(locationId: string) {
 
     const uploadMonth = latestMonth[0]?.uploadMonth;
     if (!uploadMonth) {
+      console.error(`[Demo Floor Plan Service] No rent roll data found for location ${locationId}`);
       return null;
     }
 
+    console.log(`[Demo Floor Plan Service] Using rent roll data from upload month ${uploadMonth}`);
+    
     const units = await db
       .select()
       .from(rentRollData)
@@ -38,9 +46,12 @@ export async function generateOrGetDemoFloorPlan(locationId: string) {
       );
 
     if (units.length === 0) {
+      console.error(`[Demo Floor Plan Service] No units found for location ${locationId}`);
       return null;
     }
 
+    console.log(`[Demo Floor Plan Service] Found ${units.length} units for location ${locationId}`);
+    
     // Get location name
     const location = await db
       .select()
@@ -49,6 +60,8 @@ export async function generateOrGetDemoFloorPlan(locationId: string) {
       .limit(1);
 
     const locationName = location[0]?.name || 'Unknown Campus';
+    
+    console.log(`[Demo Floor Plan Service] Creating demo floor plan for ${locationName}...`);
 
     // Create demo floor plan with auto-generated grid layout
     const cols = Math.ceil(Math.sqrt(units.length * 1.2));
@@ -60,64 +73,84 @@ export async function generateOrGetDemoFloorPlan(locationId: string) {
 
     // Create the SVG-based demo floor plan
     const svgContent = generateDemoSVG(cols, rows, tileWidth, tileHeight, units);
+    
+    console.log(`[Demo Floor Plan Service] Generated SVG with dimensions ${mapWidth}x${mapHeight}`);
 
-    const [floorPlan] = await db
-      .insert(campusMaps)
-      .values({
-        name: `${locationName} - Demo Floor Plan`,
-        locationId,
-        width: mapWidth,
-        height: mapHeight,
-        svgContent,
-        baseImageUrl: null,
-        isTemplate: false,
-        isPublished: true,
-        createdAt: new Date(),
-      })
-      .returning();
+    // Wrap database operations in a transaction
+    const result = await db.transaction(async (tx) => {
+      console.log(`[Demo Floor Plan Service] Starting transaction to insert floor plan and polygons`);
+      
+      const [floorPlan] = await tx
+        .insert(campusMaps)
+        .values({
+          name: `${locationName} - Demo Floor Plan`,
+          locationId,
+          width: mapWidth,
+          height: mapHeight,
+          svgContent,
+          baseImageUrl: null,
+          isTemplate: false,
+          isPublished: true,
+          createdAt: new Date(),
+        })
+        .returning();
 
-    // Create unit polygons for each room in grid layout
-    let unitIndex = 0;
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        if (unitIndex >= units.length) break;
+      console.log(`[Demo Floor Plan Service] Created floor plan with id: ${floorPlan.id}`);
 
-        const unit = units[unitIndex];
-        const x = (col * tileWidth) / mapWidth;
-        const y = (row * tileHeight) / mapHeight;
-        const w = tileWidth / mapWidth;
-        const h = tileHeight / mapHeight;
+      // Create unit polygons for each room in grid layout
+      const polygonsToInsert = [];
+      let unitIndex = 0;
+      
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          if (unitIndex >= units.length) break;
 
-        const polygonCoords = [
-          [x, y],
-          [x + w, y],
-          [x + w, y + h],
-          [x, y + h],
-        ];
+          const unit = units[unitIndex];
+          const x = (col * tileWidth) / mapWidth;
+          const y = (row * tileHeight) / mapHeight;
+          const w = tileWidth / mapWidth;
+          const h = tileHeight / mapHeight;
 
-        // Green if vacant, gray if occupied
-        const fillColor = !unit.occupiedYN ? '#22c55e' : '#9ca3af';
-        const strokeColor = !unit.occupiedYN ? '#16a34a' : '#6b7280';
+          const polygonCoords = [
+            [x, y],
+            [x + w, y],
+            [x + w, y + h],
+            [x, y + h],
+          ];
 
-        await db.insert(unitPolygons).values({
-          campusMapId: floorPlan.id,
-          rentRollDataId: unit.id,
-          polygonCoordinates: JSON.stringify(polygonCoords),
-          normalizedCoordinates: polygonCoords.map(([x, y]) => ({ x, y })),
-          displayRoomNumber: unit.roomNumber,
-          defaultServiceLine: unit.serviceLine || null,
-          fillColor,
-          strokeColor,
-          label: unit.roomNumber,
-        });
+          // Green if vacant, gray if occupied
+          const fillColor = !unit.occupiedYN ? '#22c55e' : '#9ca3af';
+          const strokeColor = !unit.occupiedYN ? '#16a34a' : '#6b7280';
 
-        unitIndex++;
+          polygonsToInsert.push({
+            campusMapId: floorPlan.id,
+            rentRollDataId: unit.id,
+            polygonCoordinates: JSON.stringify(polygonCoords),
+            normalizedCoordinates: polygonCoords.map(([x, y]) => ({ x, y })),
+            displayRoomNumber: unit.roomNumber,
+            defaultServiceLine: unit.serviceLine || null,
+            fillColor,
+            strokeColor,
+            label: unit.roomNumber,
+          });
+
+          unitIndex++;
+        }
       }
-    }
+      
+      if (polygonsToInsert.length > 0) {
+        await tx.insert(unitPolygons).values(polygonsToInsert);
+        console.log(`[Demo Floor Plan Service] Inserted ${polygonsToInsert.length} unit polygons`);
+      }
 
-    return floorPlan;
+      return floorPlan;
+    });
+
+    console.log(`[Demo Floor Plan Service] Successfully created demo floor plan for location ${locationId}`);
+    return result;
   } catch (error) {
-    console.error('Error generating demo floor plan:', error);
+    console.error('[Demo Floor Plan Service] Error generating demo floor plan:', error);
+    console.error('[Demo Floor Plan Service] Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
     throw error;
   }
 }

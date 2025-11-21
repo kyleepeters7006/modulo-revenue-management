@@ -182,9 +182,12 @@ export default function FloorPlansPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="any">Any</SelectItem>
-                    {Array.from(new Set(rentRollData.map((u: any) => u.size).filter(Boolean))).map((size: any) => (
-                      <SelectItem key={size} value={size}>{size}</SelectItem>
-                    ))}
+                    {Array.from(new Set(rentRollData
+                      .map((u: any) => u.size || 'Unknown')
+                      .filter((size: string) => size && size !== 'Unknown')))
+                      .map((size: any) => (
+                        <SelectItem key={size} value={size || 'unknown'}>{size || 'Unknown'}</SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -270,7 +273,7 @@ export default function FloorPlansPage() {
                         {unit.size}
                       </p>
                       <p className="text-sm font-medium text-[var(--trilogy-teal)]">
-                        ${unit.streetRate.toLocaleString()}/month
+                        ${(unit.streetRate || unit.moduloSuggestedRate || unit.rentAndCareRate || 0).toLocaleString()}/month
                       </p>
                       {!unit.occupiedYN && (
                         <p className="text-xs text-green-600 mt-2">Available</p>

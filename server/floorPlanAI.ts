@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { db } from './db';
-import { campusMaps, unitPolygons, rentRollData } from '@/shared/schema';
+import { campusMaps, unitPolygons, rentRollData } from '../shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
 // Initialize OpenAI client using Replit AI Integrations
