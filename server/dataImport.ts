@@ -368,6 +368,28 @@ export async function importMatrixCareRentRollCSV(
     errors: [],
   };
 
+  // Helper function to normalize room types to standardized list
+  const normalizeRoomType = (roomTypeInput: string): string => {
+    const rt = (roomTypeInput || '').toLowerCase();
+    
+    // Check for Companion
+    if (rt.includes('companion')) return 'Companion';
+    
+    // Check for Studio variations
+    if (rt.includes('studio dlx') || rt.includes('studio deluxe')) return 'Studio Dlx';
+    if (rt.includes('studio')) return 'Studio';
+    
+    // Check for bedroom variations
+    if (rt.includes('two bedroom') || rt.includes('2 bedroom') || rt.includes('2br')) return 'Two Bedroom';
+    if (rt.includes('one bedroom') || rt.includes('1 bedroom') || rt.includes('1br')) return 'One Bedroom';
+    
+    // Villa defaults to Two Bedroom if not specified otherwise
+    if (rt.includes('villa') || rt.includes('patio')) return 'Two Bedroom';
+    
+    // Default fallback
+    return 'Studio';
+  };
+
   // Helper function to parse BedTypeDesc (e.g., "Studio;A Vw;A Loc;B Sz")
   const parseBedTypeDesc = (bedTypeDesc: string) => {
     const parts = (bedTypeDesc || '').split(';').map(p => p.trim());
@@ -392,7 +414,7 @@ export async function importMatrixCareRentRollCSV(
       }
     }
 
-    return { size, view, viewRating, locationRating, sizeRating };
+    return { size: normalizeRoomType(size), view, viewRating, locationRating, sizeRating };
   };
 
   // Helper function to clean currency strings (e.g., "$329 " -> 329)
@@ -402,14 +424,16 @@ export async function importMatrixCareRentRollCSV(
     return parseFloat(cleaned) || 0;
   };
 
-  // Helper function to map Service1 to service line
+  // Helper function to map Service1 to service line (IL maps to SL per requirement)
   const mapServiceLine = (service1: string): string => {
     const svc = (service1 || '').toUpperCase();
     if (svc.includes('HC')) return 'HC';
+    if (svc.includes('AL/MC') || (svc.includes('AL') && svc.includes('MC'))) return 'AL/MC';
     if (svc.includes('AL')) return 'AL';
-    if (svc.includes('IL')) return 'IL';
+    if (svc.includes('IL')) return 'SL'; // IL maps to SL per requirement
     if (svc.includes('MC')) return 'AL/MC';
     if (svc.includes('SL')) return 'SL';
+    if (svc.includes('PATIO') || svc.includes('VILLA')) return 'Patio Homes';
     return svc || 'AL'; // Default to AL if unknown
   };
 
@@ -466,18 +490,20 @@ export async function importMatrixCareRentRollCSV(
                 const finalRate = parseCurrency(row['FinalRate']);
                 const billedRate = parseCurrency(row['BilledRate']);
 
+                const normalizedRoomType = normalizeRoomType(size);
+
                 const record: InsertRentRollHistory = {
                   uploadMonth,
                   date: uploadMonth,
                   location: locationName,
                   locationId: locationId || null,
                   roomNumber,
-                  roomType: size || 'Studio',
+                  roomType: normalizedRoomType,
                   serviceLine,
                   occupiedYN: isOccupied,
                   daysVacant: isOccupied ? 0 : 30, // Default to 30 days if vacant
                   preferredLocation: locationRating === 'A' ? 'Yes' : null,
-                  size: size || 'Studio',
+                  size: normalizedRoomType,
                   view,
                   renovated: false, // Not available in MatrixCare export
                   otherPremiumFeature: row['BedSpecialization1'] || null,
