@@ -28,7 +28,7 @@ export function formatNumber(value: number | null | undefined): string {
 /**
  * Format a number as currency with dollar sign and commas
  * @param value - The number to format as currency (or null/undefined)
- * @returns Formatted currency string (e.g., "$1,234.56") or "-" for null/undefined
+ * @returns Formatted currency string (e.g., "$1,234") or "-" for null/undefined
  */
 export function formatCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined) {
@@ -38,8 +38,8 @@ export function formatCurrency(value: number | null | undefined): string {
   return value.toLocaleString('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   });
 }
 
