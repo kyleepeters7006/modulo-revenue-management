@@ -19,7 +19,10 @@ const ROOM_TYPE_MAPPING = {
     'Studio Dlx': 'studio_deluxe',
     'One Bedroom': 'one_bedroom',
     'Two Bedroom': 'two_bedroom',
-    'Companion': 'companion'
+    'Companion': 'companion',
+    'Studio 300 SQ FT': 'studio', // Legacy room type variant
+    'Legacy Bldng - Private': 'studio', // Legacy building private rooms map to studio
+    'Private': 'studio' // Legacy private rooms map to studio
   },
   // Health Center (HC) mappings
   HC: {
@@ -27,7 +30,9 @@ const ROOM_TYPE_MAPPING = {
     'Studio Dlx': 'private_deluxe',
     'Companion': 'semi_private',
     'One Bedroom': 'private_suite',
-    'Two Bedroom': 'private_suite'
+    'Two Bedroom': 'private_suite',
+    'Private': 'private', // Direct private room type
+    'Semi-Private': 'semi_private' // Semi-private variant
   },
   // Senior Living (SL) mappings
   SL: {
@@ -43,7 +48,9 @@ const ROOM_TYPE_MAPPING = {
     'One Bedroom': 'one_bedroom',
     'Two Bedroom': 'two_bedroom',
     'Studio Dlx': 'studio_deluxe',
-    'Companion': 'studio'
+    'Companion': 'studio',
+    'Independent Living - Villa': 'two_bedroom', // Villas typically map to two_bedroom
+    'Villa': 'two_bedroom' // Direct villa type
   },
   // Memory Care variations
   'AL/MC': {
