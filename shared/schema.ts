@@ -123,6 +123,13 @@ export const rentRollData = pgTable("rent_roll_data", {
   competitorRate: real("competitor_rate"),
   competitorAvgCareRate: real("competitor_avg_care_rate"),
   competitorFinalRate: real("competitor_final_rate"),
+  // Detailed competitor rate information for dialog display
+  competitorName: text("competitor_name"),
+  competitorBaseRate: real("competitor_base_rate"),
+  competitorWeight: real("competitor_weight"),
+  competitorCareLevel2Adjustment: real("competitor_care_level2_adjustment"),
+  competitorMedManagementAdjustment: real("competitor_med_management_adjustment"),
+  competitorAdjustmentExplanation: text("competitor_adjustment_explanation"),
   moduloSuggestedRate: real("modulo_suggested_rate"),
   moduloCalculationDetails: text("modulo_calculation_details"), // JSON string of Modulo calculation breakdown
   aiSuggestedRate: real("ai_suggested_rate"),

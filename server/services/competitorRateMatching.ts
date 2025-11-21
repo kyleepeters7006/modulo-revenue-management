@@ -352,10 +352,27 @@ export async function processAllUnitsForCompetitorRates(
           console.warn(`Error for unit ${result.roomNumber}: ${result.error}`);
         } else if (result.competitorAdjustedRate !== null) {
           try {
+            // Parse adjustment details if available
+            let adjustmentData: any = {};
+            if (result.adjustmentDetails) {
+              try {
+                adjustmentData = JSON.parse(result.adjustmentDetails);
+              } catch (e) {
+                console.warn('Failed to parse adjustment details:', e);
+              }
+            }
+            
             await db.update(rentRollData)
               .set({
                 competitorRate: result.competitorAdjustedRate,
-                competitorFinalRate: result.competitorAdjustedRate
+                competitorFinalRate: result.competitorAdjustedRate,
+                // Detailed competitor information for dialog display
+                competitorName: result.competitorName || null,
+                competitorBaseRate: result.competitorBaseRate || null,
+                competitorWeight: adjustmentData.competitorWeight || null,
+                competitorCareLevel2Adjustment: adjustmentData.careLevel2Adjustment || 0,
+                competitorMedManagementAdjustment: adjustmentData.medicationManagementAdjustment || 0,
+                competitorAdjustmentExplanation: adjustmentData.explanation || null
               })
               .where(eq(rentRollData.id, result.unitId));
             
