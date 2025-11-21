@@ -37,8 +37,8 @@ const getLevelOfCareDescription = (serviceLine: string): string => {
     'AL/MC': 'BASE RATE - AL MEMORY CARE',
     'HC': 'BASE RATE - INTERMEDIATE',
     'HC/MC': 'BASE RATE - SKILLED',
-    'IL': 'BASE RATE - IL',
-    'SL': 'BASE RATE - SL'
+    'SL': 'BASE RATE - SL',
+    'VIL': 'BASE RATE - VIL'
   };
   return mapping[serviceLine] || 'BASE RATE - AL';
 };
@@ -72,9 +72,13 @@ const getPayerConfigurations = (serviceLine: string) => {
       { payerName: 'Hospice Private', payerChargeBy: 'Monthly', proration: 'Annually' },
       { payerName: 'Medicaid AL', payerChargeBy: 'Daily', proration: 'None' }
     ];
-  } else if (serviceLine === 'IL') {
+  } else if (serviceLine === 'SL') {
     return [
-      { payerName: 'Private IL', payerChargeBy: 'Monthly', proration: 'Annually' }
+      { payerName: 'Private SL', payerChargeBy: 'Monthly', proration: 'Annually' }
+    ];
+  } else if (serviceLine === 'VIL') {
+    return [
+      { payerName: 'Private VIL', payerChargeBy: 'Monthly', proration: 'Annually' }
     ];
   }
   return [{ payerName: 'Private', payerChargeBy: 'Monthly', proration: 'Annually' }];
@@ -96,8 +100,12 @@ const getRevenueAccount = (serviceLine: string, payerName: string): string => {
     if (payerName.includes('Medicaid')) return '~C03-41020';
     if (payerName.includes('Hospice')) return '~C03-41010';
   }
-  // IL accounts
-  else if (serviceLine === 'IL') {
+  // SL accounts
+  else if (serviceLine === 'SL') {
+    return '~C04-41010';
+  }
+  // VIL accounts
+  else if (serviceLine === 'VIL') {
     return '~C04-41010';
   }
   
@@ -168,9 +176,13 @@ export async function generateStreetRatesExport(selectedCampuses?: string[]): Pr
         } else if (serviceLine === 'AL' || serviceLine === 'AL/MC') {
           matrixCareName = location.matrixCareNameAL || getMatrixCareNameFromKeyStats(location.name, 'AL');
           customerId = location.customerFacilityIdAL || getCustomerFacilityId(location.name, 'AL');
-        } else if (serviceLine === 'IL') {
+        } else if (serviceLine === 'SL') {
           matrixCareName = location.matrixCareNameIL || getMatrixCareNameFromKeyStats(location.name, 'IL');
           customerId = location.customerFacilityIdIL || getCustomerFacilityId(location.name, 'IL');
+        } else if (serviceLine === 'VIL') {
+          // Village units use the AL facility name or a generic name
+          matrixCareName = location.matrixCareNameAL || getMatrixCareNameFromKeyStats(location.name, 'AL');
+          customerId = location.customerFacilityIdAL || getCustomerFacilityId(location.name, 'AL');
         }
 
         if (!matrixCareName || !customerId) continue;
@@ -184,7 +196,7 @@ export async function generateStreetRatesExport(selectedCampuses?: string[]): Pr
           for (const payer of payers) {
             // Adjust rate based on charge frequency
             let adjustedRate = avgRate;
-            if (payer.payerChargeBy === 'Daily' && (serviceLine === 'AL' || serviceLine === 'AL/MC' || serviceLine === 'IL')) {
+            if (payer.payerChargeBy === 'Daily' && (serviceLine === 'AL' || serviceLine === 'AL/MC' || serviceLine === 'SL' || serviceLine === 'VIL')) {
               adjustedRate = avgRate / 30.5; // Convert monthly to daily
             } else if (payer.payerChargeBy === 'Monthly' && (serviceLine === 'HC' || serviceLine === 'HC/MC')) {
               adjustedRate = avgRate * 30.5; // Convert daily to monthly
@@ -316,7 +328,9 @@ export async function validateStreetRatesExport(filepath: string): Promise<{
       
       if (levelOfCare.includes('AL')) serviceLines.add('AL');
       else if (levelOfCare.includes('SKILLED') || levelOfCare.includes('INTERMEDIATE')) serviceLines.add('HC');
-      else if (levelOfCare.includes('IL')) serviceLines.add('IL');
+      else if (levelOfCare.includes('IL')) serviceLines.add('SL');
+      else if (levelOfCare.includes('SL')) serviceLines.add('SL');
+      else if (levelOfCare.includes('VIL')) serviceLines.add('VIL');
       
       if (!isNaN(basePrice)) {
         totalRate += basePrice;

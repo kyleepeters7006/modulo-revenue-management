@@ -433,7 +433,8 @@ export async function importMatrixCareRentRollCSV(
     if (svc.includes('IL')) return 'SL'; // IL maps to SL per requirement
     if (svc.includes('MC')) return 'AL/MC';
     if (svc.includes('SL')) return 'SL';
-    if (svc.includes('PATIO') || svc.includes('VILLA')) return 'Patio Homes';
+    if (svc.includes('VIL') || svc.includes('VILLA') || svc.includes('VILLAGE')) return 'VIL'; // Village units
+    if (svc.includes('PATIO')) return 'Patio Homes';
     return svc || 'AL'; // Default to AL if unknown
   };
 

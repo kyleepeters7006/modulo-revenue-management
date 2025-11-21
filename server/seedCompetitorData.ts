@@ -70,7 +70,8 @@ const serviceLineRates: Record<string, { min: number, max: number }> = {
   'AL/MC': { min: 3200, max: 4600 },  // ~18% below Trilogy rates
   'HC': { min: 240, max: 360 }, // Daily rates, ~18% below Trilogy
   'HC/MC': { min: 270, max: 400 }, // Daily rates, ~18% below Trilogy
-  'IL': { min: 1900, max: 3200 }  // ~18% below Trilogy rates
+  'SL': { min: 1900, max: 3200 },  // ~18% below Trilogy rates
+  'VIL': { min: 1900, max: 3200 }  // ~18% below Trilogy rates
 };
 
 // Care level rates for competitors
@@ -150,7 +151,7 @@ function generateRoomRates(serviceLine: string) {
     // Convert to monthly for display
     rates['Private'] = rates['Private'] * 30;
     rates['Semi-Private'] = rates['Semi-Private'] * 30;
-  } else if (serviceLine === 'IL') {
+  } else if (serviceLine === 'SL' || serviceLine === 'VIL') {
     rates['1BR'] = Math.round(baseRates.min + Math.random() * (baseRates.max - baseRates.min) * 0.7);
     rates['2BR'] = Math.round(rates['1BR'] * (1.25 + Math.random() * 0.25));
     rates['Studio'] = Math.round(rates['1BR'] * (0.75 + Math.random() * 0.1));
@@ -193,7 +194,8 @@ async function seedCompetitorData() {
         if (Math.random() < 0.7) competitorServiceLines.push('AL');
         if (Math.random() < 0.4) competitorServiceLines.push('AL/MC');
         if (Math.random() < 0.5) competitorServiceLines.push('HC');
-        if (Math.random() < 0.3) competitorServiceLines.push('IL');
+        if (Math.random() < 0.3) competitorServiceLines.push('SL');
+        if (Math.random() < 0.2) competitorServiceLines.push('VIL');
         
         // Use first service line for primary rates
         const primaryServiceLine = competitorServiceLines.length > 0 
@@ -210,7 +212,7 @@ async function seedCompetitorData() {
           roomType = Math.random() < 0.6 ? 'Private' : 'Semi-Private';
         } else if (primaryServiceLine === 'AL' || primaryServiceLine === 'AL/MC') {
           roomType = Math.random() < 0.4 ? 'Studio' : Math.random() < 0.7 ? '1BR' : '2BR';
-        } else if (primaryServiceLine === 'IL') {
+        } else if (primaryServiceLine === 'SL' || primaryServiceLine === 'VIL') {
           roomType = Math.random() < 0.6 ? '1BR' : '2BR';
         }
         

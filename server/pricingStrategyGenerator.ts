@@ -129,7 +129,8 @@ function generateSentenceVersion(
       'AL': 'Assisted Living',
       'MC': 'Memory Care',
       'HC': 'Health Center',
-      'IL': 'Independent Living',
+      'SL': 'Senior Living',
+      'VIL': 'Village',
       'SNF': 'Skilled Nursing'
     };
     sentence += ` - ${serviceLineNames[serviceLine] || serviceLine}`;

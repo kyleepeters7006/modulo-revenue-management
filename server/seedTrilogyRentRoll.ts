@@ -22,7 +22,11 @@ const roomTypesByServiceLine: Record<string, Array<{ type: string, baseRate: num
     { type: 'Private', baseRate: 380, weight: 0.4 },  // Daily rates for HC/MC
     { type: 'Semi-Private', baseRate: 310, weight: 0.6 }
   ],
-  'IL': [
+  'SL': [
+    { type: 'One Bedroom', baseRate: 2800, weight: 0.6 },
+    { type: 'Two Bedroom', baseRate: 3500, weight: 0.4 }
+  ],
+  'VIL': [
     { type: 'One Bedroom', baseRate: 2800, weight: 0.6 },
     { type: 'Two Bedroom', baseRate: 3500, weight: 0.4 }
   ]
@@ -58,8 +62,11 @@ const payerTypesByServiceLine: Record<string, Array<{ type: string, weight: numb
     { type: 'Medicaid IN', weight: 0.25 },
     { type: 'Insurance FFS', weight: 0.05 }
   ],
-  'IL': [
-    { type: 'Private IL', weight: 1.0 }
+  'SL': [
+    { type: 'Private SL', weight: 1.0 }
+  ],
+  'VIL': [
+    { type: 'Private VIL', weight: 1.0 }
   ]
 };
 
@@ -76,7 +83,7 @@ const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', '
 const serviceLineConfigs = [
   { lines: ['AL', 'HC'], weight: 0.4 },  // AL + HC campus
   { lines: ['AL', 'AL/MC', 'HC'], weight: 0.3 },  // AL + Memory Care + HC campus
-  { lines: ['AL', 'HC', 'IL'], weight: 0.2 },  // AL + HC + IL campus
+  { lines: ['AL', 'HC', 'SL'], weight: 0.2 },  // AL + HC + SL campus
   { lines: ['AL', 'AL/MC'], weight: 0.1 }  // AL + Memory Care only
 ];
 
@@ -86,8 +93,8 @@ const occupancyByServiceLine: Record<string, number> = {
   'HC/MC': 0.88,   // Health Center/Memory Care at 88%
   'AL': 0.92,      // Assisted Living at 92%
   'AL/MC': 0.90,   // Assisted Living/Memory Care at 90%
-  'IL': 0.93,      // Independent Living at 93%
-  'SL': 0.91       // Senior Living at 91%
+  'SL': 0.93,       // Senior Living at 93%
+  'VIL': 0.93       // Village at 93%
 };
 
 // Low occupancy targets for second campus (low demand market example)
@@ -96,8 +103,8 @@ const lowOccupancyByServiceLine: Record<string, number> = {
   'HC/MC': 0.58,
   'AL': 0.62,
   'AL/MC': 0.60,
-  'IL': 0.65,
-  'SL': 0.63
+  'SL': 0.65,
+  'VIL': 0.65
 };
 
 function getRandomElement<T>(items: Array<{ weight: number } & T>): T {
@@ -190,16 +197,16 @@ async function seedTrilogyRentRoll() {
         // Determine number of units for this service line
         const unitCount = serviceLine === 'HC' || serviceLine === 'HC/MC' 
           ? Math.floor(Math.random() * 40) + 30  // 30-70 beds for HC
-          : serviceLine === 'IL'
-          ? Math.floor(Math.random() * 20) + 15  // 15-35 units for IL
+          : (serviceLine === 'SL' || serviceLine === 'VIL')
+          ? Math.floor(Math.random() * 20) + 15  // 15-35 units for SL/VIL
           : Math.floor(Math.random() * 30) + 20; // 20-50 units for AL
         
         // Generate room numbers based on service line
         const roomPrefix = serviceLine === 'HC' || serviceLine === 'HC/MC' ? 'HC-' 
-                        : serviceLine === 'IL' ? 'IL-'
+                        : (serviceLine === 'SL' || serviceLine === 'VIL') ? 'SL-'
                         : serviceLine === 'AL/MC' ? 'MC-'
                         : '';
-        const startRoom = serviceLine === 'IL' ? 100 
+        const startRoom = (serviceLine === 'SL' || serviceLine === 'VIL') ? 100 
                         : serviceLine === 'AL/MC' ? 200
                         : serviceLine === 'HC' || serviceLine === 'HC/MC' ? 300
                         : 100;
@@ -289,7 +296,7 @@ async function seedTrilogyRentRoll() {
             moveOutDate: null,
             payorType: payerType.type,
             admissionStatus: isOccupied ? 'Active' : null,
-            levelOfCare: serviceLine.startsWith('HC') ? 'Skilled' : serviceLine === 'AL/MC' ? 'Memory Care' : serviceLine === 'IL' ? 'Independent' : 'Assisted',
+            levelOfCare: serviceLine.startsWith('HC') ? 'Skilled' : serviceLine === 'AL/MC' ? 'Memory Care' : (serviceLine === 'SL' || serviceLine === 'VIL') ? 'Independent' : 'Assisted',
             medicaidRate: payerType.type.includes('Medicaid') ? Math.round(displayStreetRate * 0.7) : null,
             medicareRate: payerType.type.includes('Medicare') ? Math.round(displayStreetRate * 0.85) : null,
             assessmentDate: isOccupied ? todayStr : null,

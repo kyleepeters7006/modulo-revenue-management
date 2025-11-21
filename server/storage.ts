@@ -455,7 +455,7 @@ export class DatabaseStorage implements IStorage {
     const units = await this.getRentRollDataByMonth(uploadMonth);
     
     // Define senior housing service lines
-    const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+    const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
     
     // Group by service line and calculate averages
     const serviceLineStats = units.reduce((acc: any, unit: any) => {
@@ -809,8 +809,8 @@ export class DatabaseStorage implements IStorage {
       'AL': ['Assisted Living', 'Senior Living'],
       'AL/MC': ['Memory Care', 'Alzheimers Care'],
       'HC': ['Skilled Nursing', 'Nursing Home'],
-      'IL': ['Independent Living', 'Senior Living'],
-      'SL': ['Skilled Nursing', 'Senior Living']
+      'SL': ['Senior Living'],
+      'VIL': ['Village', 'Independent Living']
     };
     
     let filteredCompetitors = locationCompetitors;
@@ -1029,7 +1029,7 @@ export class DatabaseStorage implements IStorage {
     const updatedUnits = [];
     
     // Filter units for occupancy calculation - exclude B beds for senior housing
-    const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+    const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
     const unitsForOccupancy = units.filter(unit => {
       if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
         const roomNumber = unit.roomNumber || '';
@@ -1092,7 +1092,7 @@ export class DatabaseStorage implements IStorage {
     const updatedUnits = [];
     
     // Filter units for occupancy calculation - exclude B beds for senior housing
-    const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+    const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
     const unitsForOccupancy = units.filter(unit => {
       if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
         const roomNumber = unit.roomNumber || '';

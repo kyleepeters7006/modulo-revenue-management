@@ -531,7 +531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Location: 'Creasy Springs',
           'Room Number': '202',
           'Room Type': '2 Bedroom',
-          'Service Line': 'IL',
+          'Service Line': 'SL',
           'Occupied Y/N': 'Y',
           'Days Vacant': 0,
           'Preferred Location': 'Y',
@@ -947,7 +947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertPricingWeightsSchema.parse(transformedData);
       
       if (applyToAllServiceLines && locationId) {
-        const serviceLines = ['AL', 'HC', 'IL', 'AL/MC', 'HC/MC', 'SL'];
+        const serviceLines = ['AL', 'HC', 'AL/MC', 'HC/MC', 'SL', 'VIL'];
         const weightsList = serviceLines.map(sl => ({
           ...validatedData,
           locationId,
@@ -3251,7 +3251,7 @@ Keep recommendations specific and quantitative when possible.`;
         if (normalized.includes('AL') && normalized.includes('MC')) return 'AL';
         if (normalized === 'AL' || normalized === 'ASSISTED LIVING') return 'AL';
         if (normalized === 'HC' || normalized === 'HEALTH CENTER' || normalized === 'SKILLED NURSING') return 'HC';
-        if (normalized === 'IL' || normalized === 'INDEPENDENT LIVING') return 'IL';
+        if (normalized === 'IL' || normalized === 'INDEPENDENT LIVING') return 'SL';
         if (normalized === 'MC' || normalized === 'MEMORY CARE') return 'MC';
         if (normalized === 'SL' || normalized === 'SUPPORTIVE LIVING') return 'SL';
         
@@ -3702,7 +3702,7 @@ Keep recommendations specific and quantitative when possible.`;
       // Calculate actual units from rent roll data, excluding B beds for senior housing
       // For AL, IL, SL, AL/MC: only count A beds (exclude rooms ending with "/B")
       // For HC: count both A and B beds
-      const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
+      const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'AL/MC'];
       const actualUnits = allRentRollData.filter(unit => {
         const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
         const isBBed = unit.roomNumber.endsWith('/B');
@@ -3796,7 +3796,7 @@ Keep recommendations specific and quantitative when possible.`;
       }
       
       // Filter out B beds for senior housing service lines (AL, IL, SL)
-      const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+      const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
       unitLevelData = unitLevelData.filter(unit => {
         // If this is a senior housing service line, exclude B beds
         if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
@@ -3924,7 +3924,7 @@ Keep recommendations specific and quantitative when possible.`;
       
       // Filter out B beds for senior housing service lines when calculating occupancy
       // This is important for accurate occupancy-based pricing calculations
-      const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+      const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
       const allUnitsForOccupancy = units.filter(unit => {
         // For senior housing service lines, exclude B beds from occupancy calculation
         if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
@@ -4295,7 +4295,7 @@ Keep recommendations specific and quantitative when possible.`;
       }
       
       // Filter out B beds for senior housing service lines when calculating occupancy
-      const seniorHousingServiceLines = ['AL', 'AL/MC', 'IL', 'SL'];
+      const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
       const allUnitsForOccupancy = units.filter(unit => {
         // For senior housing service lines, exclude B beds from occupancy calculation
         if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {

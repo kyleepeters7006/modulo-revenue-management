@@ -37,8 +37,8 @@ const mapServiceLineToLevelOfCare = (serviceLine: string): string => {
     'AL': 'BASE RATE - INTERMED - ACTIVE',
     'MC': 'BASE RATE - INTERMED - ACTIVE',
     'AL/MC': 'BASE RATE - INTERMED - ACTIVE',
-    'IL': 'BASE RATE - INDEPENDENT - ACTIVE',
-    'SL': 'BASE RATE - INTERMED - ACTIVE'
+    'SL': 'BASE RATE - INTERMED - ACTIVE',
+    'VIL': 'BASE RATE - INTERMED - ACTIVE'
   };
   return mappings[serviceLine] || 'BASE RATE - INTERMED - ACTIVE';
 };
@@ -74,8 +74,8 @@ const getRevenueAccount = (serviceLine: string): string => {
     'AL': '~C01-41010',
     'MC': '~C02-41013',
     'AL/MC': '~C02-41013',
-    'IL': '~C01-41010',
-    'SL': '~C01-41010'
+    'SL': '~C01-41010',
+    'VIL': '~C01-41010'
   };
   return accountMappings[serviceLine] || '~C01-41010';
 };
@@ -101,7 +101,8 @@ const getFacilityCustomerId = (location: string, serviceLine: string): string =>
   // Generate a consistent ID format based on location
   const locationCode = location.replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
   const serviceCode = serviceLine === 'HC' || serviceLine === 'SNF' ? 'HC' : 
-                       serviceLine === 'AL' || serviceLine === 'MC' ? 'AL' : 'IL';
+                       serviceLine === 'AL' || serviceLine === 'MC' ? 'AL' : 
+                       serviceLine === 'VIL' ? 'VIL' : 'SL';
   return `~14-${locationCode}-${serviceCode}`;
 };
 

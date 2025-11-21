@@ -68,8 +68,11 @@ export async function generateSpecialRatesExport(selectedCampuses?: string[]): P
         matrixCareName = location.matrixCareNameHC || getMatrixCareNameFromKeyStats(location.name, 'HC');
       } else if (unit.serviceLine === 'AL' || unit.serviceLine === 'AL/MC') {
         matrixCareName = location.matrixCareNameAL || getMatrixCareNameFromKeyStats(location.name, 'AL');
-      } else if (unit.serviceLine === 'IL') {
+      } else if (unit.serviceLine === 'SL') {
         matrixCareName = location.matrixCareNameIL || getMatrixCareNameFromKeyStats(location.name, 'IL');
+      } else if (unit.serviceLine === 'VIL') {
+        // Village units use the AL facility name or a generic name
+        matrixCareName = location.matrixCareNameAL || getMatrixCareNameFromKeyStats(location.name, 'AL') || `${location.name} VIL`;
       }
 
       if (!matrixCareName) continue;
@@ -86,7 +89,7 @@ export async function generateSpecialRatesExport(selectedCampuses?: string[]): P
       let proration = 0; // Proration flag
       
       // Set flags based on service line
-      if (unit.serviceLine === 'AL' || unit.serviceLine === 'AL/MC' || unit.serviceLine === 'IL') {
+      if (unit.serviceLine === 'AL' || unit.serviceLine === 'AL/MC' || unit.serviceLine === 'SL' || unit.serviceLine === 'VIL') {
         monthly = 1; // Monthly billing
         proration = 1; // Annually prorated
       }
@@ -164,8 +167,8 @@ function getPayerName(serviceLine: string): string {
     'HC/MC': 'Private HCC',
     'AL': 'Private AL',
     'AL/MC': 'Private AL',
-    'IL': 'Private IL',
-    'SL': 'Private SL'
+    'SL': 'Private SL',
+    'VIL': 'Private VIL'
   };
   return payerMapping[serviceLine] || 'Private';
 }

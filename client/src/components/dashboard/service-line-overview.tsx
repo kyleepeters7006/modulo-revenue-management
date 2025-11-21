@@ -16,8 +16,8 @@ const serviceLineNames = {
   'AL/MC': 'Assisted Living/Memory Care',
   'HC': 'Health Center',
   'HC/MC': 'Health Center/Memory Care',
-  'IL': 'Independent Living',
-  'SL': 'Senior Living'
+  'SL': 'Senior Living',
+  'VIL': 'Village'
 };
 
 export default function ServiceLineOverview({ onServiceLineChange }: ServiceLineOverviewProps) {

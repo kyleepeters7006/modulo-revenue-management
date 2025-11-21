@@ -39,7 +39,7 @@ export const users = pgTable("users", {
 });
 
 // Service line options for senior living facilities
-export const serviceLineEnum = ["AL", "AL/MC", "HC", "HC/MC", "IL", "SL"] as const;
+export const serviceLineEnum = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"] as const;
 export type ServiceLine = typeof serviceLineEnum[number];
 
 // Targets and Trends Table
@@ -100,7 +100,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   locationId: varchar("location_id").references(() => locations.id),
   roomNumber: text("room_number").notNull(),
   roomType: text("room_type").notNull(),
-  serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, IL, SL
+  serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, SL, VIL
   occupiedYN: boolean("occupied_yn").notNull(),
   daysVacant: integer("days_vacant").default(0),
   preferredLocation: text("preferred_location"), // Premium location flag
@@ -135,7 +135,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   moveOutDate: text("move_out_date"), // Date resident moved out (if applicable)
   payorType: text("payor_type"), // Private Pay, Medicaid, Medicare, Insurance
   admissionStatus: text("admission_status"), // New, Transfer, Readmission
-  levelOfCare: text("level_of_care"), // IL, AL, MC, SNF
+  levelOfCare: text("level_of_care"), // SL, VIL, AL, MC, SNF
   medicaidRate: real("medicaid_rate"), // Medicaid reimbursement rate if applicable
   medicareRate: real("medicare_rate"), // Medicare reimbursement rate if applicable
   assessmentDate: text("assessment_date"), // Date of last care assessment
@@ -152,7 +152,7 @@ export const rateCard = pgTable("rate_card", {
   location: text("location"),
   locationId: varchar("location_id").references(() => locations.id),
   roomType: text("room_type").notNull(),
-  serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, IL, SL
+  serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, SL, VIL
   averageStreetRate: real("average_street_rate"),
   averageModuloRate: real("average_modulo_rate"),
   averageAiRate: real("average_ai_rate"),

@@ -186,8 +186,10 @@ function signalCompetitors(basePrice: number, competitorPrices: number[], cfg: M
   let targetPremium = 0.18;  // Default: 18% above competitors
   if (serviceLine === 'AL') {
     targetPremium = 0.25;  // AL units should be 25% above competitors
-  } else if (serviceLine === 'IL') {
-    targetPremium = 0.10;  // IL units should be 10% above competitors
+  } else if (serviceLine === 'SL') {
+    targetPremium = 0.10;  // SL units should be 10% above competitors
+  } else if (serviceLine === 'VIL') {
+    targetPremium = 0.10;  // VIL units should be 10% above competitors
   } else if (serviceLine === 'HC' || serviceLine === 'AL/MC') {
     targetPremium = 0.20;  // HC and AL/MC should be 20% above
   }
@@ -240,7 +242,7 @@ export interface PricingInputs {
   marketReturn: number;        // e.g., 0.03 for +3%
   demandCurrent: number;       // current inquiries/tours
   demandHistory: number[];     // historical inquiries/tours
-  serviceLine?: string;        // Service line (AL, HC, IL, AL/MC) for market positioning
+  serviceLine?: string;        // Service line (AL, HC, SL, VIL, AL/MC, HC/MC) for market positioning
 }
 
 export interface PricingWeights {
@@ -380,7 +382,8 @@ function getFactorDescription(factor: string, inputs: PricingInputs, adjustment:
       const medianComp = sortedComp[Math.floor(sortedComp.length / 2)];
       let targetPremComp = 0.18;
       if (inputs.serviceLine === 'AL') targetPremComp = 0.25;
-      else if (inputs.serviceLine === 'IL') targetPremComp = 0.10;
+      else if (inputs.serviceLine === 'SL') targetPremComp = 0.10;
+      else if (inputs.serviceLine === 'VIL') targetPremComp = 0.10;
       else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremComp = 0.20;
       const currentPremComp = (basePrice - medianComp) / medianComp;
       const gapComp = targetPremComp - currentPremComp;
@@ -411,7 +414,8 @@ function getCalculationString(factor: string, inputs: PricingInputs, signal: num
       const medianCalc = sortedCalc[Math.floor(sortedCalc.length / 2)];
       let targetPremCalc = 0.18;
       if (inputs.serviceLine === 'AL') targetPremCalc = 0.25;
-      else if (inputs.serviceLine === 'IL') targetPremCalc = 0.10;
+      else if (inputs.serviceLine === 'SL') targetPremCalc = 0.10;
+      else if (inputs.serviceLine === 'VIL') targetPremCalc = 0.10;
       else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremCalc = 0.20;
       const currentPremCalc = (basePrice - medianCalc) / medianCalc;
       const gapCalc = targetPremCalc - currentPremCalc;
@@ -458,7 +462,8 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
       // Calculate target premium based on service line
       let targetPremium = 0.18;
       if (inputs.serviceLine === 'AL') targetPremium = 0.25;
-      else if (inputs.serviceLine === 'IL') targetPremium = 0.10;
+      else if (inputs.serviceLine === 'SL') targetPremium = 0.10;
+      else if (inputs.serviceLine === 'VIL') targetPremium = 0.10;
       else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremium = 0.20;
       
       const currentPremium = (basePrice - median) / median;
@@ -504,7 +509,7 @@ function getSignalExplanation(factor: string, signal: number, adjustment: number
     case 'seasonality':
       return `The seasonal signal (${signal.toFixed(3)}) reflects typical senior housing demand patterns, with peaks in summer months and valleys in winter.`;
     case 'competitors':
-      return `The market positioning signal (${signal.toFixed(3)}) drives pricing toward your target premium above competitors (18% default, 25% AL, 10% IL, 20% HC/AL-MC), with adjustments capped at ${Math.abs(adjustment * 100).toFixed(1)}% per calculation cycle.`;
+      return `The market positioning signal (${signal.toFixed(3)}) drives pricing toward your target premium above competitors (18% default, 25% AL, 10% SL/VIL, 20% HC/AL-MC), with adjustments capped at ${Math.abs(adjustment * 100).toFixed(1)}% per calculation cycle.`;
     case 'market':
       return `The economic indicator signal (${signal.toFixed(3)}) reflects broader market conditions with limited ${(Math.abs(adjustment) * 100).toFixed(1)}% influence on senior housing pricing.`;
     case 'demand':
