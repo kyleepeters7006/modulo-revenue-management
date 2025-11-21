@@ -1,5 +1,5 @@
 import { db } from './db';
-import { campusMaps, unitPolygons, rentRollData, locations } from '@/shared/schema';
+import { campusMaps, unitPolygons, rentRollData, locations } from '../shared/schema';
 import { eq, desc } from 'drizzle-orm';
 
 export async function generateOrGetDemoFloorPlan(locationId: string) {
