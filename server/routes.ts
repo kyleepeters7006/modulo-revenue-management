@@ -1528,14 +1528,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API endpoint for location filter data
   app.get("/api/locations", async (req, res) => {
     try {
-      const locations = await storage.getLocations();
+      const allLocations = await storage.getLocations();
       
-      // Extract unique regions and divisions
-      const regions = [...new Set(locations.map(loc => loc.region).filter(Boolean))];
-      const divisions = [...new Set(locations.map(loc => loc.division).filter(Boolean))];
+      // Get distinct locations that have rent roll data
+      const locationsWithData = await db.selectDistinct({ location: rentRollData.location })
+        .from(rentRollData);
+      
+      const locationsWithDataSet = new Set(locationsWithData.map(item => item.location));
+      
+      // Filter to only include locations that:
+      // 1. Have rent roll data
+      // 2. Have region AND division mappings (both non-null)
+      const filteredLocations = allLocations.filter(loc => 
+        locationsWithDataSet.has(loc.name) && 
+        loc.region && 
+        loc.division
+      );
+      
+      // Extract unique regions and divisions from filtered locations
+      const regions = [...new Set(filteredLocations.map(loc => loc.region).filter(Boolean))];
+      const divisions = [...new Set(filteredLocations.map(loc => loc.division).filter(Boolean))];
       
       res.json({
-        locations: locations,
+        locations: filteredLocations,
         regions: regions,
         divisions: divisions
       });
