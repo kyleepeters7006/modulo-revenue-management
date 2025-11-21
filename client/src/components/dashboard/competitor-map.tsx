@@ -191,18 +191,9 @@ export function CompetitorMap({
         };
       }
       
-      // Ultimate fallback
-      if (!currentLocation) {
-        currentLocation = {
-          name: "Default Location",
-          lat: 38.2527,
-          lng: -85.7585,
-          address: "Senior Living Community"
-        };
-      }
-      
-      // Current property marker
-      const currentProperty = {
+      // Set up portfolio property data for use in comparisons
+      // This will be used by competitor popups even if we don't show a portfolio marker
+      const currentProperty = currentLocation && currentLocation.lat && currentLocation.lng ? {
         name: currentLocation.name,
         lat: currentLocation.lat,
         lng: currentLocation.lng,
@@ -210,26 +201,38 @@ export function CompetitorMap({
         avgRate: 3800,
         avgCareRate: 775,
         address: currentLocation.address
+      } : {
+        // Default values when no valid location
+        name: "Portfolio Average",
+        lat: 38.2527,
+        lng: -85.7585,
+        rates: { "Studio": 3175, "One Bedroom": 4200, "Two Bedroom": 5100, "Memory Care": 4800 },
+        avgRate: 3800,
+        avgCareRate: 775,
+        address: "Portfolio Location"
       };
       
-      // Current property icon using original image
-      const currentIcon = window.L.icon({
-        iconUrl: "/attached_assets/image_1756856984756.png",
-        iconSize: [40, 40],
-        iconAnchor: [20, 40],
-        popupAnchor: [0, -40]
-      });
-      
-      const currentMarker = window.L.marker([currentProperty.lat, currentProperty.lng], {
-        icon: currentIcon
-      }).addTo(mapInstanceRef.current);
-      
-      // Calculate portfolio metrics
-      const primaryRate = currentProperty.rates.Studio || currentProperty.rates["One Bedroom"];
-      const roomTypeLabel = currentProperty.rates.Studio ? 'Studio' : '1BR';
-      const totalRate = primaryRate + currentProperty.avgCareRate;
+      // Only show portfolio location marker if we have valid coordinates from actual data
+      if (currentLocation && currentLocation.lat && currentLocation.lng) {
+        
+        // Current property icon using original image
+        const currentIcon = window.L.icon({
+          iconUrl: "/attached_assets/image_1756856984756.png",
+          iconSize: [40, 40],
+          iconAnchor: [20, 40],
+          popupAnchor: [0, -40]
+        });
+        
+        const currentMarker = window.L.marker([currentProperty.lat, currentProperty.lng], {
+          icon: currentIcon
+        }).addTo(mapInstanceRef.current);
+        
+        // Calculate portfolio metrics
+        const primaryRate = currentProperty.rates.Studio || currentProperty.rates["One Bedroom"];
+        const roomTypeLabel = currentProperty.rates.Studio ? 'Studio' : '1BR';
+        const totalRate = primaryRate + currentProperty.avgCareRate;
 
-      currentMarker.bindPopup(`
+        currentMarker.bindPopup(`
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 320px; max-width: 360px; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
           <!-- Header with gradient background -->
           <div style="background: linear-gradient(135deg, #0071e3 0%, #005bb5 100%); color: white; padding: 20px; position: relative;">
@@ -286,6 +289,7 @@ export function CompetitorMap({
           </div>
         </div>
       `);
+      } // End of if block for currentLocation check
       
       // Competitor markers
       competitorData.items.forEach((competitor: any) => {
