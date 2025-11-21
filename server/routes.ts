@@ -3752,6 +3752,122 @@ Keep recommendations specific and quantitative when possible.`;
   });
 
 
+  // Census Summary endpoint - provides database vs census view comparison
+  app.get("/api/overview/census", async (req, res) => {
+    try {
+      // Get the most recent month's data only
+      const mostRecentMonthResult = await db
+        .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
+        .from(rentRollData);
+      const mostRecentMonth = mostRecentMonthResult[0]?.month || '2025-11';
+      
+      // Get all rent roll data for most recent month
+      const allRentRollData = await db
+        .select()
+        .from(rentRollData)
+        .where(sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`);
+      
+      // Get total campus count from locations table
+      const portfolioStats = await db
+        .select({
+          totalLocations: sql<number>`COUNT(*)::int`
+        })
+        .from(locations);
+      
+      const totalCampuses = 131; // Total Trilogy campuses
+      const campusesWithData = new Set(allRentRollData.map(u => u.location)).size;
+      const portfolioCoverage = (campusesWithData / totalCampuses) * 100;
+      
+      // Senior housing service lines (A-beds only for census)
+      const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'AL/MC'];
+      
+      // Calculate database totals (all beds including A and B)
+      const totalBeds = allRentRollData.length;
+      const aBeds = allRentRollData.filter(unit => !unit.roomNumber.endsWith('/B')).length;
+      const bBeds = allRentRollData.filter(unit => unit.roomNumber.endsWith('/B')).length;
+      const occupiedBeds = allRentRollData.filter(unit => unit.occupiedYN).length;
+      const databaseOccupancyRate = totalBeds > 0 ? (occupiedBeds / totalBeds) * 100 : 0;
+      
+      // Calculate census totals (filtered for rate card eligible units)
+      const censusUnits = allRentRollData.filter(unit => {
+        const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
+        const isBBed = unit.roomNumber.endsWith('/B');
+        // For senior housing, exclude B beds. For HC, include all beds.
+        return !isSeniorHousing || !isBBed;
+      });
+      
+      const censusTotalBeds = censusUnits.length;
+      const censusOccupiedBeds = censusUnits.filter(unit => unit.occupiedYN).length;
+      const censusOccupancyRate = censusTotalBeds > 0 ? (censusOccupiedBeds / censusTotalBeds) * 100 : 0;
+      
+      // Calculate service line breakdown
+      const serviceLineBreakdown: any[] = [];
+      const serviceLines = [...new Set(allRentRollData.map(u => u.serviceLine))];
+      
+      for (const serviceLine of serviceLines) {
+        const serviceLineUnits = allRentRollData.filter(u => u.serviceLine === serviceLine);
+        const slTotalBeds = serviceLineUnits.length;
+        const slABeds = serviceLineUnits.filter(unit => !unit.roomNumber.endsWith('/B')).length;
+        const slBBeds = serviceLineUnits.filter(unit => unit.roomNumber.endsWith('/B')).length;
+        const slOccupiedBeds = serviceLineUnits.filter(unit => unit.occupiedYN).length;
+        const slOccupancyRate = slTotalBeds > 0 ? (slOccupiedBeds / slTotalBeds) * 100 : 0;
+        
+        // Census calculation for this service line
+        const isSeniorHousing = seniorHousingServiceLines.includes(serviceLine);
+        const censusBeds = isSeniorHousing ? slABeds : slTotalBeds; // A-beds only for senior housing, all beds for HC
+        const censusOccupied = serviceLineUnits.filter(unit => {
+          if (isSeniorHousing) {
+            return unit.occupiedYN && !unit.roomNumber.endsWith('/B');
+          }
+          return unit.occupiedYN;
+        }).length;
+        const censusOccupancyRate = censusBeds > 0 ? (censusOccupied / censusBeds) * 100 : 0;
+        
+        serviceLineBreakdown.push({
+          serviceLine,
+          totalBeds: slTotalBeds,
+          aBeds: slABeds,
+          bBeds: slBBeds,
+          occupiedBeds: slOccupiedBeds,
+          occupancyRate: slOccupancyRate,
+          censusBeds,
+          censusOccupied,
+          censusOccupancyRate
+        });
+      }
+      
+      // Sort service lines for consistent display
+      serviceLineBreakdown.sort((a, b) => {
+        const order = ['AL', 'HC', 'SL', 'VIL', 'IL', 'MC', 'AL/MC'];
+        return order.indexOf(a.serviceLine) - order.indexOf(b.serviceLine);
+      });
+      
+      res.json({
+        databaseTotals: {
+          totalBeds,
+          aBeds,
+          bBeds,
+          occupiedBeds,
+          occupancyRate: databaseOccupancyRate
+        },
+        censusTotals: {
+          totalBeds: censusTotalBeds,
+          occupiedBeds: censusOccupiedBeds,
+          occupancyRate: censusOccupancyRate
+        },
+        serviceLineBreakdown,
+        totalCampuses,
+        campusesWithData,
+        portfolioCoverage,
+        mostRecentMonth
+      });
+      
+    } catch (error) {
+      console.error('Census summary error:', error);
+      res.status(500).json({ error: 'Failed to fetch census summary data' });
+    }
+  });
+
   // Rate card endpoint - shows summary and unit-level view
   app.get("/api/rate-card", async (req, res) => {
     try {

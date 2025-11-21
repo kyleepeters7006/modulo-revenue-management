@@ -1,8 +1,15 @@
 import Navigation from "@/components/navigation";
 import OverviewTiles from "@/components/dashboard/overview-tiles";
 import RevenueChart from "@/components/dashboard/revenue-chart";
+import CensusSummary from "@/components/dashboard/census-summary";
+import { useQuery } from "@tanstack/react-query";
 
 export default function Overview() {
+  // Fetch census data for the new component
+  const { data: censusData, isLoading: censusLoading } = useQuery({
+    queryKey: ["/api/overview/census"],
+  });
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -29,6 +36,11 @@ export default function Overview() {
           <p className="text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
             Real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
           </p>
+        </div>
+
+        {/* Census Summary - NEW COMPONENT */}
+        <div className="mb-12">
+          <CensusSummary data={censusData} isLoading={censusLoading} />
         </div>
 
         {/* Overview Tiles */}
