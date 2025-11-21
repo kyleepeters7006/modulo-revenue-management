@@ -1,73 +1,84 @@
 /**
  * Competitor Rate Matching Service
  * 
- * This service matches rent roll units to competitors and calculates
- * adjusted competitor rates based on room type, service line, and care levels.
+ * This service matches rent roll units to competitors from the competitive_survey_data table
+ * and calculates adjusted competitor rates based on room type, service line, and care levels.
  */
 
 import { db } from "../db";
-import { competitors, rentRollData, locations } from "@shared/schema";
-import type { Competitor, RentRollData } from "@shared/schema";
+import { competitiveSurveyData, rentRollData, locations } from "@shared/schema";
+import type { CompetitiveSurveyData, RentRollData } from "@shared/schema";
 import { eq, and, or, sql, desc, asc } from "drizzle-orm";
 import { calculateAdjustedCompetitorRate } from "./competitorAdjustments";
 
-// Room type mapping based on service line
+// Room type mapping: Maps Trilogy room types to competitive survey room types
+// Note: Using full names to match the actual survey data format
 const ROOM_TYPE_MAPPING = {
   // Assisted Living (AL) mappings
   AL: {
-    'Studio': 'studio',
-    'Studio Dlx': 'studio_deluxe',
-    'One Bedroom': 'one_bedroom',
-    'Two Bedroom': 'two_bedroom',
-    'Companion': 'companion',
-    'Studio 300 SQ FT': 'studio', // Legacy room type variant
-    'Legacy Bldng - Private': 'studio', // Legacy building private rooms map to studio
-    'Private': 'studio' // Legacy private rooms map to studio
+    'Studio': 'Studio',
+    'Studio Dlx': 'Studio',
+    'One Bedroom': 'One Bedroom',
+    'Two Bedroom': 'Two Bedroom',
+    'Companion': 'Studio',
+    'Studio 300 SQ FT': 'Studio',
+    'Legacy Bldng - Private': 'Studio',
+    'Private': 'Studio'
   },
   // Health Center (HC) mappings
   HC: {
-    'Studio': 'private',
-    'Studio Dlx': 'private_deluxe',
-    'Companion': 'semi_private',
-    'One Bedroom': 'private_suite',
-    'Two Bedroom': 'private_suite',
-    'Private': 'private', // Direct private room type
-    'Semi-Private': 'semi_private' // Semi-private variant
+    'Studio': 'Private',
+    'Studio Dlx': 'Private',
+    'Companion': 'Semi-Private',
+    'One Bedroom': 'Private',
+    'Two Bedroom': 'Private',
+    'Private': 'Private',
+    'Semi-Private': 'Semi-Private'
   },
   // Senior Living (SL) mappings
   SL: {
-    'Studio': 'studio',
-    'Studio Dlx': 'studio_deluxe',
-    'One Bedroom': 'one_bedroom',
-    'Two Bedroom': 'two_bedroom',
-    'Companion': 'companion'
+    'Studio': 'Studio',
+    'Studio Dlx': 'Studio',
+    'One Bedroom': 'One Bedroom',
+    'Two Bedroom': 'Two Bedroom',
+    'Companion': 'Studio'
   },
   // Village (VIL) mappings
   VIL: {
-    'Studio': 'studio',
-    'One Bedroom': 'one_bedroom',
-    'Two Bedroom': 'two_bedroom',
-    'Studio Dlx': 'studio_deluxe',
-    'Companion': 'studio',
-    'Independent Living - Villa': 'two_bedroom', // Villas typically map to two_bedroom
-    'Villa': 'two_bedroom' // Direct villa type
+    'Studio': 'Studio',
+    'One Bedroom': 'One Bedroom',
+    'Two Bedroom': 'Two Bedroom',
+    'Studio Dlx': 'Studio',
+    'Companion': 'Studio',
+    'Independent Living - Villa': 'Two Bedroom',
+    'Villa': 'Two Bedroom'
   },
   // Memory Care variations
   'AL/MC': {
-    'Studio': 'memory_care_studio',
-    'Studio Dlx': 'memory_care_deluxe',
-    'One Bedroom': 'memory_care_suite',
-    'Two Bedroom': 'memory_care_suite',
-    'Companion': 'memory_care_companion'
+    'Studio': 'Studio',
+    'Studio Dlx': 'Studio',
+    'One Bedroom': 'One Bedroom',
+    'Two Bedroom': 'Two Bedroom',
+    'Companion': 'Studio'
   },
   'HC/MC': {
-    'Studio': 'memory_care_private',
-    'Studio Dlx': 'memory_care_deluxe',
-    'Companion': 'memory_care_semi',
-    'One Bedroom': 'memory_care_suite',
-    'Two Bedroom': 'memory_care_suite'
+    'Studio': 'Private',
+    'Studio Dlx': 'Private',
+    'Companion': 'Semi-Private',
+    'One Bedroom': 'Private',
+    'Two Bedroom': 'Private'
   }
 } as const;
+
+// Service line mapping: Maps Trilogy service lines to competitive survey types
+const SERVICE_LINE_MAPPING: Record<string, string> = {
+  'AL': 'AL',
+  'AL/MC': 'MC',
+  'HC': 'SNF',
+  'HC/MC': 'SNF',
+  'SL': 'IL',
+  'VIL': 'IL'
+};
 
 interface CompetitorRateResult {
   unitId: string;
@@ -83,116 +94,94 @@ interface CompetitorRateResult {
 }
 
 /**
- * Get the best competitor for a location based on weight or drive time
+ * Get the best competitor rate for a location, service line, and room type
+ * from the competitive_survey_data table
  */
-async function getBestCompetitorForLocation(
+async function getBestCompetitorRate(
   location: string,
-  serviceLine?: string
-): Promise<Competitor | null> {
+  serviceLine: string,
+  roomType: string,
+  surveyMonth?: string
+): Promise<{
+  competitorName: string;
+  baseRate: number;
+  careFeesAvg: number;
+  surveyData: CompetitiveSurveyData;
+} | null> {
   try {
-    // Handle different location formats:
-    // rent_roll_data format: "Anderson - 112" 
-    // competitor format: "Anderson-Bethany" or "Anderson-112"
+    // Map the Trilogy room type to survey room type
+    const serviceLineKey = serviceLine as keyof typeof ROOM_TYPE_MAPPING;
+    const roomTypeMapping = ROOM_TYPE_MAPPING[serviceLineKey];
     
-    // Extract the base location name (before the dash)
-    const baseName = location.split(' - ')[0].trim();
-    const locationCode = location.split(' - ')[1]?.trim();
-    
-    // Try multiple matching strategies
-    let competitorList: Competitor[] = [];
-    
-    // First try exact match
-    competitorList = await db.select().from(competitors)
-      .where(eq(competitors.location, location))
-      .orderBy(desc(competitors.weight))
-      .limit(10);
-    
-    // If no exact match, try with location code format (e.g., "Anderson-112")
-    if (competitorList.length === 0 && locationCode) {
-      const alternateFormat = `${baseName}-${locationCode}`;
-      competitorList = await db.select().from(competitors)
-        .where(eq(competitors.location, alternateFormat))
-        .orderBy(desc(competitors.weight))
-        .limit(10);
-    }
-    
-    // If still no match, try base name prefix match
-    if (competitorList.length === 0) {
-      competitorList = await db.select().from(competitors)
-        .where(sql`${competitors.location} LIKE ${baseName + '%'}`)
-        .orderBy(desc(competitors.weight))
-        .limit(10);
-    }
-    
-    // If service line is specified, filter by it
-    if (serviceLine && competitorList.length > 0) {
-      // Filter competitors that support this service line
-      competitorList = competitorList.filter(comp => {
-        const serviceLines = comp.serviceLines as string[] | null;
-        if (!serviceLines) return true; // If no service lines specified, include
-        return serviceLines.includes(serviceLine);
-      });
-    }
-    
-    if (competitorList.length === 0) {
+    if (!roomTypeMapping) {
+      console.warn(`No room type mapping for service line: ${serviceLine}`);
       return null;
     }
     
-    // Return the best competitor (highest weight or shortest drive time)
-    let bestCompetitor = competitorList[0];
+    const mappedRoomType = roomTypeMapping[roomType as keyof typeof roomTypeMapping];
     
-    // If the first competitor has no weight, try to find one with drive time
-    if (!bestCompetitor.weight) {
-      for (const comp of competitorList) {
-        // Check if attributes has drive_time_minutes
-        const driveTime = (comp.attributes as any)?.drive_time_minutes;
-        const bestDriveTime = (bestCompetitor.attributes as any)?.drive_time_minutes;
-        
-        if (driveTime && (!bestDriveTime || driveTime < bestDriveTime)) {
-          bestCompetitor = comp;
+    if (!mappedRoomType) {
+      console.warn(`No mapping for room type: ${roomType} in service line: ${serviceLine}`);
+      return null;
+    }
+    
+    // Map the service line to competitor type
+    const competitorType = SERVICE_LINE_MAPPING[serviceLine];
+    
+    // Build query conditions
+    const conditions: any[] = [
+      eq(competitiveSurveyData.keyStatsLocation, location),
+      eq(competitiveSurveyData.roomType, mappedRoomType),
+      sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
+    ];
+    
+    // Add survey month filter if provided
+    if (surveyMonth) {
+      conditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+    }
+    
+    // Add competitor type filter if available
+    if (competitorType) {
+      conditions.push(eq(competitiveSurveyData.competitorType, competitorType));
+    }
+    
+    // Query competitive survey data for this location
+    const surveyRecords = await db.select()
+      .from(competitiveSurveyData)
+      .where(and(...conditions));
+    
+    if (surveyRecords.length === 0) {
+      return null;
+    }
+    
+    // Find the best competitor (closest distance or highest rate)
+    // Prioritize by distance if available
+    let bestRecord = surveyRecords[0];
+    
+    for (const record of surveyRecords) {
+      if (record.distanceMiles && bestRecord.distanceMiles) {
+        if (record.distanceMiles < bestRecord.distanceMiles) {
+          bestRecord = record;
+        }
+      } else if (record.monthlyRateAvg && bestRecord.monthlyRateAvg) {
+        // If no distance, use the highest rate as a proxy for quality
+        if (record.monthlyRateAvg > bestRecord.monthlyRateAvg) {
+          bestRecord = record;
         }
       }
     }
     
-    return bestCompetitor;
+    return {
+      competitorName: bestRecord.competitorName,
+      baseRate: bestRecord.monthlyRateAvg || 0,
+      careFeesAvg: bestRecord.careFeesAvg || 0,
+      surveyData: bestRecord
+    };
+    
   } catch (error) {
-    console.error('Error getting best competitor for location:', error);
+    console.error('Error getting best competitor rate:', error);
     return null;
   }
-}
-
-/**
- * Get the competitor rate for a specific room type
- * Handles both column-based and attribute-based storage
- */
-function getCompetitorRateForRoomType(
-  competitor: Competitor,
-  roomType: string,
-  mappedRoomType: string,
-  serviceLine: string
-): number | null {
-  // First, try to get room-specific rate from attributes
-  const attributes = competitor.attributes as any;
-  
-  if (attributes) {
-    // Check various possible attribute keys for room-specific rates
-    const possibleKeys = [
-      `${serviceLine.toLowerCase()}_${mappedRoomType}_rate`,
-      `${mappedRoomType}_rate`,
-      `${roomType.toLowerCase().replace(' ', '_')}_rate`,
-      mappedRoomType,
-      roomType.toLowerCase()
-    ];
-    
-    for (const key of possibleKeys) {
-      if (attributes[key] && typeof attributes[key] === 'number') {
-        return attributes[key];
-      }
-    }
-  }
-  
-  // If no room-specific rate found, use the street_rate as base rate
-  return competitor.streetRate;
 }
 
 /**
@@ -240,55 +229,32 @@ export async function calculateCompetitorRateForUnit(
   };
   
   try {
-    // Get the best competitor for this location
-    const competitor = await getBestCompetitorForLocation(unit.location, unit.serviceLine);
-    
-    if (!competitor) {
-      result.error = 'No competitor found for location';
-      return result;
-    }
-    
-    result.competitorName = competitor.name;
-    
-    // Map the room type based on service line
-    const serviceLineKey = unit.serviceLine as keyof typeof ROOM_TYPE_MAPPING;
-    const roomTypeMapping = ROOM_TYPE_MAPPING[serviceLineKey];
-    
-    if (!roomTypeMapping) {
-      result.error = `No room type mapping for service line: ${unit.serviceLine}`;
-      return result;
-    }
-    
-    const mappedRoomType = roomTypeMapping[unit.roomType as keyof typeof roomTypeMapping];
-    
-    if (!mappedRoomType) {
-      result.error = `No mapping for room type: ${unit.roomType} in service line: ${unit.serviceLine}`;
-      return result;
-    }
-    
-    // Get the competitor's base rate for this room type
-    const baseRate = getCompetitorRateForRoomType(
-      competitor,
+    // Get the best competitor rate for this location, service line, and room type
+    const competitorData = await getBestCompetitorRate(
+      unit.location,
+      unit.serviceLine,
       unit.roomType,
-      mappedRoomType,
-      unit.serviceLine
+      unit.uploadMonth
     );
     
-    if (!baseRate) {
-      result.error = 'No base rate found for competitor';
+    if (!competitorData) {
+      // No competitor data is a normal case, not an error
+      // Just return the result with null values
       return result;
     }
     
-    result.competitorBaseRate = baseRate;
+    result.competitorName = competitorData.competitorName;
+    result.competitorBaseRate = competitorData.baseRate;
     
     // Get Trilogy's care level 2 rate
     const trilogyCareLevel2 = await getTrilogyCareLevel2Rate(unit.location, unit.serviceLine);
     
     // Calculate adjusted rate using the formula
+    // The competitor's care fees are considered as their care level 2 rate
     const adjustmentResult = calculateAdjustedCompetitorRate({
-      competitorBaseRate: baseRate,
-      competitorCareLevel2Rate: competitor.careLevel2Rate,
-      competitorMedicationManagementFee: competitor.medicationManagementFee,
+      competitorBaseRate: competitorData.baseRate,
+      competitorCareLevel2Rate: competitorData.careFeesAvg,
+      competitorMedicationManagementFee: 0, // Not in survey data
       trilogyCareLevel2Rate: trilogyCareLevel2
     });
     
@@ -298,8 +264,8 @@ export async function calculateCompetitorRateForUnit(
       careLevel2Adjustment: adjustmentResult.careLevel2Adjustment,
       medicationManagementAdjustment: adjustmentResult.medicationManagementAdjustment,
       explanation: adjustmentResult.explanation,
-      competitorWeight: competitor.weight,
-      competitorDriveTime: (competitor.attributes as any)?.drive_time_minutes
+      competitorDistance: competitorData.surveyData.distanceMiles,
+      surveyMonth: competitorData.surveyData.surveyMonth
     });
     
   } catch (error) {
@@ -330,13 +296,9 @@ export async function processAllUnitsForCompetitorRates(
   
   try {
     // Get all rent roll units for the specified month (or all if not specified)
-    let query = db.select().from(rentRollData);
-    
-    if (uploadMonth) {
-      query = query.where(eq(rentRollData.uploadMonth, uploadMonth));
-    }
-    
-    const units = await query;
+    const units = uploadMonth
+      ? await db.select().from(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth))
+      : await db.select().from(rentRollData);
     
     console.log(`Processing ${units.length} units for competitor rate calculation...`);
     
@@ -354,40 +316,44 @@ export async function processAllUnitsForCompetitorRates(
         stats.processed++;
         stats.details.push(result);
         
+        // Only count as error if there was an actual exception (not just missing data)
         if (result.error) {
           stats.errors++;
           console.warn(`Error for unit ${result.roomNumber}: ${result.error}`);
-        } else if (result.competitorAdjustedRate !== null) {
-          try {
-            // Parse adjustment details if available
-            let adjustmentData: any = {};
-            if (result.adjustmentDetails) {
-              try {
-                adjustmentData = JSON.parse(result.adjustmentDetails);
-              } catch (e) {
-                console.warn('Failed to parse adjustment details:', e);
-              }
+          continue; // Skip database update if there was an error
+        } 
+        
+        // Always update the database, even if competitor data is null
+        // This ensures we clear stale data when no competitor match exists
+        try {
+          // Parse adjustment details if available
+          let adjustmentData: any = {};
+          if (result.adjustmentDetails) {
+            try {
+              adjustmentData = JSON.parse(result.adjustmentDetails);
+            } catch (e) {
+              console.warn('Failed to parse adjustment details:', e);
             }
-            
-            await db.update(rentRollData)
-              .set({
-                competitorRate: result.competitorAdjustedRate,
-                competitorFinalRate: result.competitorAdjustedRate,
-                // Detailed competitor information for dialog display
-                competitorName: result.competitorName || null,
-                competitorBaseRate: result.competitorBaseRate || null,
-                competitorWeight: adjustmentData.competitorWeight || null,
-                competitorCareLevel2Adjustment: adjustmentData.careLevel2Adjustment || 0,
-                competitorMedManagementAdjustment: adjustmentData.medicationManagementAdjustment || 0,
-                competitorAdjustmentExplanation: adjustmentData.explanation || null
-              })
-              .where(eq(rentRollData.id, result.unitId));
-            
-            stats.updated++;
-          } catch (updateError) {
-            console.error(`Error updating unit ${result.unitId}:`, updateError);
-            stats.errors++;
           }
+          
+          await db.update(rentRollData)
+            .set({
+              competitorRate: result.competitorAdjustedRate,
+              competitorFinalRate: result.competitorAdjustedRate,
+              // Detailed competitor information for dialog display
+              competitorName: result.competitorName,
+              competitorBaseRate: result.competitorBaseRate,
+              competitorWeight: null, // Not in survey data
+              competitorCareLevel2Adjustment: adjustmentData.careLevel2Adjustment || 0,
+              competitorMedManagementAdjustment: adjustmentData.medicationManagementAdjustment || 0,
+              competitorAdjustmentExplanation: adjustmentData.explanation || null
+            })
+            .where(eq(rentRollData.id, result.unitId));
+          
+          stats.updated++;
+        } catch (updateError) {
+          console.error(`Error updating unit ${result.unitId}:`, updateError);
+          stats.errors++;
         }
       }
       
