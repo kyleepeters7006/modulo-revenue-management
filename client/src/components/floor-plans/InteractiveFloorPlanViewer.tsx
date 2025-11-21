@@ -495,6 +495,17 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                 />
               )}
               
+              {/* SVG content layer for demo floor plans */}
+              {campusMap.svgContent && !campusMap.baseImageUrl && (
+                <div 
+                  dangerouslySetInnerHTML={{ __html: campusMap.svgContent }}
+                  className="w-full h-auto"
+                  style={{
+                    maxHeight: '800px',
+                  }}
+                />
+              )}
+              
               {/* SVG overlay layer for interactive polygons */}
               <svg
                 viewBox={`0 0 ${campusMap.width || 1920} ${campusMap.height || 1080}`}
