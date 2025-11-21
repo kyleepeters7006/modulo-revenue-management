@@ -53,10 +53,10 @@ export default function CompetitorAnalysis() {
     queryKey: ["/api/locations"],
   });
 
-  // Extract unique regions, divisions, and locations
-  const regions = locationsData?.regions || [];
-  const divisions = locationsData?.divisions || [];
-  const locations = locationsData?.locations?.map((loc: any) => loc.name) || [];
+  // Extract unique regions, divisions, and locations - sorted alphabetically
+  const regions = (locationsData?.regions || []).sort((a, b) => a.localeCompare(b));
+  const divisions = (locationsData?.divisions || []).sort((a, b) => a.localeCompare(b));
+  const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a, b) => a.localeCompare(b));
   
   // Define service line options - matches backend serviceLineEnum
   const serviceLineOptions = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
