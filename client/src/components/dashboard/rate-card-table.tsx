@@ -497,20 +497,28 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
               </div>
             </div>
             
-            {/* Progress bars for loading states */}
-            {generateModuloMutation.isPending && (
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">Calculating Modulo pricing recommendations...</div>
-                <Progress value={33} className="h-2" />
-              </div>
-            )}
-            
-            {generateAIMutation.isPending && (
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">AI analyzing market conditions...</div>
-                <Progress value={33} className="h-2" />
-              </div>
-            )}
+            {/* Progress bars for loading states - show both when running concurrently */}
+            <div className="space-y-3">
+              {generateModuloMutation.isPending && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Calculator className="h-4 w-4 text-primary animate-pulse" />
+                    <div className="text-sm text-muted-foreground">Calculating Modulo pricing recommendations...</div>
+                  </div>
+                  <Progress value={33} className="h-2" />
+                </div>
+              )}
+              
+              {generateAIMutation.isPending && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Brain className="h-4 w-4 text-primary animate-pulse" />
+                    <div className="text-sm text-muted-foreground">AI analyzing market conditions...</div>
+                  </div>
+                  <Progress value={33} className="h-2" />
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

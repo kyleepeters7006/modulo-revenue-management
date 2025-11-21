@@ -140,6 +140,9 @@ export async function invalidateCache(uploadMonth?: string): Promise<void> {
   await attributePricingService.refreshBaseRates(uploadMonth);
 }
 
+// Simple lock mechanism to prevent concurrent cache refreshes
+let cacheInitializationPromise: Promise<void> | null = null;
+
 export async function ensureCacheInitialized(uploadMonth?: string): Promise<void> {
   const cacheStatus = attributePricingService.getCacheStatus();
   const requestedMonth = uploadMonth || new Date().toISOString().slice(0, 7);
@@ -150,7 +153,27 @@ export async function ensureCacheInitialized(uploadMonth?: string): Promise<void
                        cacheStatus.month !== requestedMonth;
   
   if (needsRefresh) {
+    // If there's already a cache refresh in progress, wait for it
+    if (cacheInitializationPromise) {
+      console.log(`Cache refresh already in progress for month: ${requestedMonth}, waiting...`);
+      await cacheInitializationPromise;
+      
+      // After waiting, check if we still need to refresh (another thread might have refreshed to a different month)
+      const newCacheStatus = attributePricingService.getCacheStatus();
+      if (newCacheStatus.month === requestedMonth && newCacheStatus.cached > 0) {
+        console.log(`Cache already refreshed by another process for month: ${requestedMonth}`);
+        return;
+      }
+    }
+    
+    // Start new cache refresh
     console.log(`Initializing/refreshing attribute pricing cache for month: ${requestedMonth} (current cache: ${cacheStatus.month || 'none'})`);
-    await attributePricingService.refreshBaseRates(requestedMonth);
+    cacheInitializationPromise = attributePricingService.refreshBaseRates(requestedMonth)
+      .finally(() => {
+        // Clear the promise after completion (success or failure)
+        cacheInitializationPromise = null;
+      });
+    
+    await cacheInitializationPromise;
   }
 }
