@@ -72,7 +72,7 @@ export default function OverviewTiles() {
     },
     {
       title: "Overall Occupancy",
-      value: formatPercentage(overviewData.unitsWithData > 0 ? (overviewData.occupiedUnits / overviewData.unitsWithData) : 0),
+      value: formatPercentage(overviewData.unitsWithData > 0 ? (overviewData.occupiedUnits / overviewData.unitsWithData) : 0, 0),
       subtitle: `${formatNumber(overviewData.occupiedUnits)}/${formatNumber(overviewData.unitsWithData)} units`,
       icon: Users,
       color: "emerald", 
@@ -193,7 +193,7 @@ export default function OverviewTiles() {
                     {serviceLine.serviceLine}
                   </h4>
                   <span className="text-sm font-bold text-[var(--trilogy-teal)]">
-                    {formatPercentage(serviceLine.occupancyRate / 100)}
+                    {formatPercentage(serviceLine.occupancyRate / 100, 0)}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--dashboard-muted)] mb-2">
@@ -243,7 +243,7 @@ export default function OverviewTiles() {
                     {roomType.roomType}
                   </h4>
                   <span className="text-sm font-bold text-[var(--trilogy-blue)]">
-                    {formatPercentage(roomType.occupancyRate / 100)}
+                    {formatPercentage(roomType.occupancyRate / 100, 0)}
                   </span>
                 </div>
                 <div className="text-sm text-[var(--dashboard-muted)] mb-2">
