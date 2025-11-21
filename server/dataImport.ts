@@ -243,6 +243,13 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     const data: any[] = XLSX.utils.sheet_to_json(worksheet);
 
     stats.totalRecords = data.length;
+    
+    // Log the column names from the first row for debugging
+    if (data.length > 0) {
+      const columns = Object.keys(data[0]);
+      console.log('Competitive survey file columns:', columns);
+      console.log('Sample first row:', data[0]);
+    }
 
     await db.transaction(async (tx) => {
       await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
