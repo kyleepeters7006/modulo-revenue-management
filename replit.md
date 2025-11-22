@@ -39,7 +39,7 @@ Preferred communication style: Simple, everyday language.
 - **Interactive Floor Plan Booking System**: Drag-and-drop unit assignment, automatic polygon detection, visual feedback, interactive tooltips, and service line filtering capabilities.
 - **Data Import System**: Transaction-safe CSV upload and parsing for rent roll data with duplicate prevention, fuzzy matching, and Unicode-safe column matching.
 - **Guardrails System**: Configurable pricing constraints and safety limits.
-- **Revenue Forecasting**: Real-time aggregation of rent roll data for time-series comparisons.
+- **Revenue Forecasting**: Real-time revenue calculations using actual in-house rates (including special rates) for occupied units and street rates for vacant units, displayed as time-series growth charts with S&P 500 comparison.
 - **Competitor Analysis**: Interactive Leaflet map integration with service line filtering. Fixed November 2025 - Now queries `competitive_survey_data` table (9,727 records), places competitors at actual geographic distances using improved geocoding, and shows all competitors for single location views.
 - **Explanation System**: Calculation dialogs present mathematical formulas and narrative explanations for pricing factors.
 - **Room Attributes & Pricing Page**: Manages and analyzes attribute-based pricing, including base pricing by room type and unit-level attributed pricing.
