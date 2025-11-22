@@ -3929,8 +3929,11 @@ Keep recommendations specific and quantitative when possible.`;
   // Rate card endpoint - shows summary and unit-level view
   app.get("/api/rate-card", async (req, res) => {
     try {
-      const { month, regions, divisions, locations } = req.query;
+      const { month, regions, divisions, locations, location } = req.query;
       let targetMonth = month as string || new Date().toISOString().substring(0, 7);
+      
+      // Support both 'location' (singular) and 'locations' (plural) for backwards compatibility
+      const locationParam = locations || location;
       
       // Check if data exists for the requested month
       let unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
@@ -3947,27 +3950,14 @@ Keep recommendations specific and quantitative when possible.`;
         }
       }
       
-      // Fetch all competitors and create a map by location
-      const allCompetitors = await storage.getCompetitors();
-      const competitorsByLocation = new Map<string, any[]>();
-      
-      allCompetitors.forEach(comp => {
-        const locName = comp.location || '';
-        if (!competitorsByLocation.has(locName)) {
-          competitorsByLocation.set(locName, []);
-        }
-        competitorsByLocation.get(locName)?.push(comp);
-      });
-      
-      // Sort competitors by weight (highest first) for each location
-      competitorsByLocation.forEach((competitors) => {
-        competitors.sort((a, b) => (b.weight || 0) - (a.weight || 0));
-      });
+      // NOTE: Removed legacy competitor fetching and calculation code
+      // Competitor rates are now stored directly in rent_roll_data by the
+      // competitor rate matching service and should not be recalculated here
       
       // Convert single values to arrays if needed
       const selectedRegions = Array.isArray(regions) ? regions : (regions ? [regions] : []);
       const selectedDivisions = Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []);
-      const selectedLocations = Array.isArray(locations) ? locations : (locations ? [locations] : []);
+      const selectedLocations = Array.isArray(locationParam) ? locationParam : (locationParam ? [locationParam] : []);
       
       // Apply filters
       if (selectedRegions.length > 0) {
@@ -4000,47 +3990,17 @@ Keep recommendations specific and quantitative when possible.`;
         return true; // Include all other units
       });
       
-      // Get Trilogy care level 2 rates for the location (example default values by service line)
-      const trilogyCareLevel2Rates: Record<string, number> = {
-        'AL': 400,
-        'AL/MC': 600,
-        'HC': 800,
-        'HC/MC': 900,
-        'SL': 200,
-        'VIL': 100
-      };
-      
-      // Apply competitor rate adjustments for each unit
-      unitLevelData = unitLevelData.map(unit => {
-        // Find the highest weight competitor for this location
-        const locationCompetitors = competitorsByLocation.get(unit.location) || [];
-        const bestCompetitor = locationCompetitors[0]; // Already sorted by weight
-        
-        if (bestCompetitor && bestCompetitor.streetRate) {
-          // Apply adjustments for care level and medication management
-          const trilogyCareLevel2 = trilogyCareLevel2Rates[unit.serviceLine || 'AL'] || 400;
-          const adjustmentResult = calculateAdjustedCompetitorRate({
-            competitorBaseRate: bestCompetitor.streetRate || 0,
-            competitorCareLevel2Rate: bestCompetitor.careLevel2Rate || 0,
-            competitorMedicationManagementFee: bestCompetitor.medicationManagementFee || 0,
-            trilogyCareLevel2Rate: trilogyCareLevel2
-          });
-          
-          // Store both the adjusted rate and adjustment details for display
-          return {
-            ...unit,
-            competitorRate: adjustmentResult.adjustedRate,
-            competitorName: bestCompetitor.name,
-            competitorWeight: bestCompetitor.weight,
-            competitorBaseRate: bestCompetitor.streetRate,
-            competitorCareLevel2Adjustment: adjustmentResult.careLevel2Adjustment,
-            competitorMedManagementAdjustment: adjustmentResult.medicationManagementAdjustment,
-            competitorAdjustmentExplanation: adjustmentResult.explanation
-          };
-        }
-        
-        return unit;
-      });
+      // NOTE: Competitor rates are already calculated and stored in rent_roll_data by the 
+      // competitor rate matching service (processAllUnitsForCompetitorRates).
+      // The database already contains:
+      //   - competitor_name
+      //   - competitor_base_rate
+      //   - competitor_rate (adjusted)
+      //   - competitor_final_rate (adjusted)
+      //   - competitor_care_level2_adjustment
+      //   - competitor_med_management_adjustment
+      //   - competitor_adjustment_explanation
+      // DO NOT recalculate or overwrite these values here - use the database data as-is.
 
       // NOTE: Modulo rates are already calculated and stored in the database
       // We should NOT recalculate them here as it overrides the correct values
