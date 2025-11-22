@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, X, Download } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, X, Download, Calculator } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 // Helper functions for localStorage persistence - using shared key for cross-page sync
 const saveFiltersToStorage = (filters: any) => {
@@ -46,6 +47,7 @@ export default function RateCard() {
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
   const [isExporting, setIsExporting] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const { toast } = useToast();
 
   // Save filters to localStorage whenever they change
@@ -88,6 +90,42 @@ export default function RateCard() {
   const clearAllSelection = (setter: (values: string[]) => void) => {
     setter([]);
   };
+
+  // Generate Modulo mutation
+  const generateModuloMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('/api/pricing/generate-modulo', 'POST', {
+        month: '2025-10', // Using October 2025 as default month with data
+        serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
+        regions: selectedRegions.length > 0 ? selectedRegions : undefined,
+        divisions: selectedDivisions.length > 0 ? selectedDivisions : undefined,
+        locations: selectedLocations.length > 0 ? selectedLocations : undefined,
+      });
+      return response;
+    },
+    onMutate: () => {
+      setIsGenerating(true);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Modulo Calculation Complete",
+        description: "Pricing suggestions have been generated successfully.",
+      });
+      // Invalidate rate card data to refresh the table
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Calculation Failed",
+        description: "Failed to generate Modulo pricing suggestions. Please try again.",
+        variant: "destructive",
+      });
+      console.error('Generate Modulo error:', error);
+    },
+    onSettled: () => {
+      setIsGenerating(false);
+    },
+  });
 
   // Export handler
   const handleExport = async () => {
@@ -165,16 +203,27 @@ export default function RateCard() {
                 Review current rates, Modulo suggestions, and AI recommendations
               </p>
             </div>
-            <Button 
-              onClick={handleExport}
-              disabled={isExporting}
-              variant="outline"
-              className="flex items-center gap-2"
-              data-testid="button-export-rate-card"
-            >
-              <Download className="h-4 w-4" />
-              {isExporting ? 'Exporting...' : 'Export to CSV'}
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={() => generateModuloMutation.mutate()}
+                disabled={isGenerating}
+                className="flex items-center gap-2 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
+                data-testid="button-generate-modulo"
+              >
+                <Calculator className="h-4 w-4" />
+                {isGenerating ? 'Calculating...' : 'Generate Modulo'}
+              </Button>
+              <Button 
+                onClick={handleExport}
+                disabled={isExporting}
+                variant="outline"
+                className="flex items-center gap-2"
+                data-testid="button-export-rate-card"
+              >
+                <Download className="h-4 w-4" />
+                {isExporting ? 'Exporting...' : 'Export to CSV'}
+              </Button>
+            </div>
           </div>
           
           {/* Filters */}
