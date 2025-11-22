@@ -3526,8 +3526,8 @@ Keep recommendations specific and quantitative when possible.`;
 
       console.log('Inquiry data processed:', processedRecords.length, 'records');
 
+      const { insertInquiryMetricsSchema } = await import('@shared/schema');
       const validatedRecords = processedRecords.map(record => {
-        const { insertInquiryMetricsSchema } = require('@shared/schema');
         return insertInquiryMetricsSchema.parse(record);
       });
 
@@ -5214,8 +5214,8 @@ Keep recommendations specific and quantitative when possible.`;
       }
       
       // Import sophisticated algorithm and explanations
-      const { calculateModuloPrice } = require('./moduloPricingAlgorithm');
-      const { getSentenceExplanation, generateOverallExplanation } = require('./sentenceExplanations');
+      const { calculateModuloPrice } = await import('./moduloPricingAlgorithm');
+      const { getSentenceExplanation, generateOverallExplanation } = await import('./sentenceExplanations');
       
       // Fallback to dynamic calculation if no stored details
       const storedAiRate = unit.aiSuggestedRate;
