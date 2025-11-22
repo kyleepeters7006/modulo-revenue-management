@@ -756,7 +756,69 @@ export class DatabaseStorage implements IStorage {
 
   // Competitors
   async getCompetitors(): Promise<Competitor[]> {
-    return await db.select().from(competitors);
+    // Query competitive survey data instead of old competitors table
+    const surveyData = await db.select().from(competitiveSurveyData);
+    
+    // Group by competitor and location to aggregate room types
+    const competitorMap = new Map<string, any>();
+    
+    for (const record of surveyData) {
+      const key = `${record.keyStatsLocation}|${record.competitorName}`;
+      
+      if (!competitorMap.has(key)) {
+        // Geocode address if available
+        let lat = null;
+        let lng = null;
+        if (record.competitorAddress) {
+          try {
+            const { geocodeAddress } = await import('./geocoding');
+            const coords = await geocodeAddress(record.competitorAddress);
+            lat = coords?.lat || null;
+            lng = coords?.lng || null;
+          } catch (error) {
+            console.error('Error geocoding competitor address:', error);
+          }
+        }
+        
+        competitorMap.set(key, {
+          id: record.id,
+          name: record.competitorName,
+          location: record.keyStatsLocation,
+          locationId: null,
+          lat,
+          lng,
+          address: record.competitorAddress,
+          distanceMiles: record.distanceMiles,
+          streetRate: record.monthlyRateAvg,
+          avgCareRate: record.careFeesAvg,
+          rating: null,
+          weight: null,
+          rank: null,
+          roomType: record.roomType,
+          serviceLines: record.competitorType ? [record.competitorType] : [],
+          rates: null,
+          attributes: null,
+          careLevel2Rate: record.careLevel2Rate,
+          medicationManagementFee: record.medicationManagementFee,
+          createdAt: null
+        });
+      } else {
+        // Update with better data if available
+        const existing = competitorMap.get(key);
+        if (!existing.streetRate && record.monthlyRateAvg) {
+          existing.streetRate = record.monthlyRateAvg;
+        }
+        if (!existing.avgCareRate && record.careFeesAvg) {
+          existing.avgCareRate = record.careFeesAvg;
+        }
+        // Collect unique service lines
+        if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
+          existing.serviceLines.push(record.competitorType);
+        }
+      }
+    }
+    
+    return Array.from(competitorMap.values());
   }
 
   async getCompetitorsByLocation(location: string): Promise<Competitor[]> {
@@ -784,52 +846,37 @@ export class DatabaseStorage implements IStorage {
     locations?: string[];
     serviceLines?: string[];
   }): Promise<Competitor[]> {
-    // Build query with all filters
-    let query = db.select().from(competitors);
+    // Build query for competitive survey data
+    let query = db.select().from(competitiveSurveyData);
     const conditions: any[] = [];
     
-    // If locations are specified, filter by location names
+    // If locations are specified, filter by keystats location names
     if (filters.locations && filters.locations.length > 0) {
-      // Get location IDs for the specified location names
-      const locationRecords = await db.select()
-        .from(locations)
-        .where(inArray(locations.name, filters.locations));
-      
-      const locationIds = locationRecords.map(loc => loc.id);
-      
-      if (locationIds.length > 0) {
-        conditions.push(
-          or(
-            inArray(competitors.locationId, locationIds),
-            inArray(competitors.location, filters.locations) // Fallback for old data
-          )
-        );
-      }
+      conditions.push(inArray(competitiveSurveyData.keyStatsLocation, filters.locations));
     }
     
-    // If regions are specified, filter by regions
+    // For regions/divisions, we need to get matching location names first
     if (filters.regions && filters.regions.length > 0) {
       const locationRecords = await db.select()
         .from(locations)
         .where(inArray(locations.region, filters.regions));
       
-      const locationIds = locationRecords.map(loc => loc.id);
+      const locationNames = locationRecords.map(loc => loc.name);
       
-      if (locationIds.length > 0) {
-        conditions.push(inArray(competitors.locationId, locationIds));
+      if (locationNames.length > 0) {
+        conditions.push(inArray(competitiveSurveyData.keyStatsLocation, locationNames));
       }
     }
     
-    // If divisions are specified, filter by divisions
     if (filters.divisions && filters.divisions.length > 0) {
       const locationRecords = await db.select()
         .from(locations)
         .where(inArray(locations.division, filters.divisions));
       
-      const locationIds = locationRecords.map(loc => loc.id);
+      const locationNames = locationRecords.map(loc => loc.name);
       
-      if (locationIds.length > 0) {
-        conditions.push(inArray(competitors.locationId, locationIds));
+      if (locationNames.length > 0) {
+        conditions.push(inArray(competitiveSurveyData.keyStatsLocation, locationNames));
       }
     }
     
@@ -838,12 +885,73 @@ export class DatabaseStorage implements IStorage {
       query = query.where(and(...conditions));
     }
     
-    // Get all competitors matching the location filters
-    const results = await query;
+    // Get all survey data matching the filters
+    const surveyData = await query;
+    
+    // Group by competitor and location to aggregate room types
+    const competitorMap = new Map<string, any>();
+    
+    for (const record of surveyData) {
+      const key = `${record.keyStatsLocation}|${record.competitorName}`;
+      
+      if (!competitorMap.has(key)) {
+        // Geocode address if available
+        let lat = null;
+        let lng = null;
+        if (record.competitorAddress) {
+          try {
+            const { geocodeAddress } = await import('./geocoding');
+            const coords = await geocodeAddress(record.competitorAddress);
+            lat = coords?.lat || null;
+            lng = coords?.lng || null;
+          } catch (error) {
+            console.error('Error geocoding competitor address:', error);
+          }
+        }
+        
+        competitorMap.set(key, {
+          id: record.id,
+          name: record.competitorName,
+          location: record.keyStatsLocation,
+          locationId: null,
+          lat,
+          lng,
+          address: record.competitorAddress,
+          distanceMiles: record.distanceMiles,
+          streetRate: record.monthlyRateAvg,
+          avgCareRate: record.careFeesAvg,
+          rating: null,
+          weight: null,
+          rank: null,
+          roomType: record.roomType,
+          serviceLines: record.competitorType ? [record.competitorType] : [],
+          rates: null,
+          attributes: null,
+          careLevel2Rate: record.careLevel2Rate,
+          medicationManagementFee: record.medicationManagementFee,
+          createdAt: null
+        });
+      } else {
+        // Update with better data if available
+        const existing = competitorMap.get(key);
+        if (!existing.streetRate && record.monthlyRateAvg) {
+          existing.streetRate = record.monthlyRateAvg;
+        }
+        if (!existing.avgCareRate && record.careFeesAvg) {
+          existing.avgCareRate = record.careFeesAvg;
+        }
+        // Collect unique service lines
+        if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
+          existing.serviceLines.push(record.competitorType);
+        }
+      }
+    }
+    
+    let results = Array.from(competitorMap.values());
     
     // If service lines are specified, filter in-memory using OR/ANY logic
     if (filters.serviceLines && filters.serviceLines.length > 0) {
-      return results.filter((competitor: any) => {
+      results = results.filter((competitor: any) => {
         if (!competitor.serviceLines || competitor.serviceLines.length === 0) {
           return false; // Exclude competitors without service lines when filter is active
         }
