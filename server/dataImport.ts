@@ -143,13 +143,24 @@ export async function importEnquireCSV(
   };
 
   return new Promise((resolve) => {
-    const fileContent = fileBuffer.toString('utf-8');
+    // Try UTF-8 first, fallback to latin1 if needed
+    let fileContent: string;
+    try {
+      fileContent = fileBuffer.toString('utf-8');
+      // Test if it's valid by checking for replacement characters
+      if (fileContent.includes('�')) {
+        throw new Error('Invalid UTF-8');
+      }
+    } catch (e) {
+      fileContent = fileBuffer.toString('latin1');
+    }
 
     Papa.parse(fileContent, {
       header: true,
       skipEmptyLines: true,
       complete: async (results: Papa.ParseResult<any>) => {
         stats.totalRecords = results.data.length;
+        console.log(`Parsing ${stats.totalRecords} records from Enquire CSV`);
 
         try {
           await db.transaction(async (tx) => {
@@ -164,26 +175,35 @@ export async function importEnquireCSV(
 
             for (const row of results.data as any[]) {
               try {
+                // Handle new CSV format from Enquire export
                 const enquireLocation = row['Location'] || row['location'] || row['Facility'] || row['facility'] || '';
                 const mapping = mappingMap.get(enquireLocation.toLowerCase());
+
+                // Extract inquiry ID from Link URL if available
+                let inquiryId = null;
+                const linkUrl = row['Link'] || '';
+                const idMatch = linkUrl.match(/details\/(\d+)/);
+                if (idMatch) {
+                  inquiryId = idMatch[1];
+                }
 
                 const record: InsertEnquireData = {
                   dataSource,
                   enquireLocation,
                   mappedLocationId: mapping?.targetLocationId || null,
                   mappedServiceLine: mapping?.defaultServiceLine || null,
-                  inquiryId: row['Inquiry ID'] || row['inquiry_id'] || row['ID'] || row['id'] || null,
+                  inquiryId: inquiryId || row['Inquiry ID'] || row['inquiry_id'] || row['ID'] || row['id'] || null,
                   inquiryDate: row['Inquiry Date'] || row['inquiry_date'] || row['Date'] || row['date'] || null,
-                  tourDate: row['Tour Date'] || row['tour_date'] || null,
-                  moveInDate: row['Move In Date'] || row['move_in_date'] || null,
-                  leadSource: row['Lead Source'] || row['lead_source'] || row['Source'] || row['source'] || null,
-                  leadStatus: row['Lead Status'] || row['lead_status'] || row['Status'] || row['status'] || null,
+                  tourDate: row['Tour Date'] || row['tour_date'] || row['UserLocalActivityStartDate'] || null,
+                  moveInDate: row['Move In Date'] || row['move_in_date'] || row['UserLocalActivityCompletedDate'] || null,
+                  leadSource: row['Individual Market Source'] || row['Lead Source'] || row['lead_source'] || row['Source'] || row['source'] || null,
+                  leadStatus: row['SaleStage'] || row['Lead Status'] || row['lead_status'] || row['Status'] || row['status'] || null,
                   prospectName: row['Prospect Name'] || row['prospect_name'] || row['Name'] || row['name'] || null,
-                  careNeeds: row['Care Needs'] || row['care_needs'] || null,
+                  careNeeds: row['Individual Care'] || row['Care Needs'] || row['care_needs'] || null,
                   budgetRange: row['Budget Range'] || row['budget_range'] || null,
                   desiredMoveInDate: row['Desired Move In Date'] || row['desired_move_in_date'] || null,
                   roomTypePreference: row['Room Type'] || row['room_type'] || null,
-                  notes: row['Notes'] || row['notes'] || null,
+                  notes: row['Activity Name'] || row['Notes'] || row['notes'] || null,
                   rawData: row,
                 };
 
