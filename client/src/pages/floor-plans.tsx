@@ -11,9 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ArrowLeft, Settings, Bed, Bath, Square, MapPin, Search, X, ChevronDown, Filter, AlertCircle } from "lucide-react";
-import { FixedSizeList as List } from "react-window";
 import Highlighter from "react-highlight-words";
 import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
+import type { locations, campusMaps, rentRollData } from "@shared/schema";
+
+// Type definitions for components
+type Location = typeof locations.$inferSelect;
+type CampusMap = typeof campusMaps.$inferSelect;
+type RentRollUnit = typeof rentRollData.$inferSelect;
 
 // Memoized Unit Card Component for performance
 const UnitCard = memo(({ 
@@ -25,7 +30,7 @@ const UnitCard = memo(({
   searchTerm,
   getServiceLineDisplay 
 }: {
-  unit: any;
+  unit: RentRollUnit;
   details: { beds: string; baths: string; sqft: string };
   rate: number;
   isHighlighted: boolean;
@@ -147,7 +152,7 @@ export default function FloorPlansPage() {
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
   // Fetch locations for campus selector
-  const { data: locationsData } = useQuery({
+  const { data: locationsData } = useQuery<{ locations: Location[] }>({
     queryKey: ['/api/locations'],
   });
 
@@ -160,13 +165,13 @@ export default function FloorPlansPage() {
   }, [locationsData, selectedCampus]);
   
   // Fetch rent roll data for the selected campus
-  const { data: rentRollData = [], isLoading: isLoadingUnits } = useQuery({
+  const { data: rentRollData = [], isLoading: isLoadingUnits } = useQuery<RentRollUnit[]>({
     queryKey: [`/api/rent-roll-data/location/${selectedCampus}`],
     enabled: !!selectedCampus,
   });
 
   // Fetch campus map
-  const { data: result, isLoading: isLoadingMap } = useQuery({
+  const { data: result, isLoading: isLoadingMap } = useQuery<{ campusMap: CampusMap }>({
     queryKey: [`/api/campus-maps/${selectedCampus}`],
     enabled: !!selectedCampus,
   });
@@ -177,7 +182,7 @@ export default function FloorPlansPage() {
   // Get unique floor plan types from the data - memoized for performance
   const uniqueFloorPlans = useMemo(() => {
     const plans = new Set(rentRollData
-      .map((u: any) => u.size || '')
+      .map((u: RentRollUnit) => u.size || '')
       .filter((size: string) => size));
     return Array.from(plans).sort();
   }, [rentRollData]);
@@ -185,7 +190,7 @@ export default function FloorPlansPage() {
   // Get unique care levels from the data - memoized for performance
   const uniqueCareLevels = useMemo(() => {
     const levels = new Set(rentRollData
-      .map((u: any) => u.serviceLine || '')
+      .map((u: RentRollUnit) => u.serviceLine || '')
       .filter((line: string) => line));
     return Array.from(levels).sort();
   }, [rentRollData]);
@@ -203,7 +208,7 @@ export default function FloorPlansPage() {
 
   // Filter units based on selected filters and search term - optimized with useMemo
   const filteredUnits = useMemo(() => {
-    return rentRollData.filter((unit: any) => {
+    return rentRollData.filter((unit: RentRollUnit) => {
       // Search filter
       if (debouncedSearchTerm) {
         const searchLower = debouncedSearchTerm.toLowerCase();
@@ -310,7 +315,7 @@ export default function FloorPlansPage() {
 
   const handleUnitClick = useCallback((unitId: string) => {
     setHighlightedUnitId(unitId);
-    const index = filteredUnits.findIndex((u: any) => u.id === unitId);
+    const index = filteredUnits.findIndex((u: RentRollUnit) => u.id === unitId);
     if (index !== -1) {
       setSelectedUnitIndex(index);
     }
@@ -532,7 +537,7 @@ export default function FloorPlansPage() {
                 <SelectValue placeholder="Select campus..." />
               </SelectTrigger>
               <SelectContent>
-                {locations.map((location: any) => (
+                {locations.map((location: Location) => (
                   <SelectItem key={location.id} value={location.id}>
                     {location.name}
                   </SelectItem>
@@ -633,7 +638,7 @@ export default function FloorPlansPage() {
                           </div>
                         ) : (
                           <div className="space-y-3" ref={unitListRef}>
-                            {filteredUnits.map((unit: any, index: number) => {
+                            {filteredUnits.map((unit: RentRollUnit, index: number) => {
                               const details = parseUnitDetails(unit.size);
                               const rate = unit.streetRate || unit.moduloSuggestedRate || unit.rentAndCareRate || 0;
                               
