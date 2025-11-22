@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules } from "@shared/schema";
-import { sql, and, eq, gte, lt, or } from "drizzle-orm";
+import { sql, and, eq, gte, lt, or, desc } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
@@ -3962,52 +3962,39 @@ Keep recommendations specific and quantitative when possible.`;
   // Rate card endpoint - shows summary and unit-level view
   app.get("/api/rate-card", async (req, res) => {
     try {
-      const { month, regions, divisions, locations, location } = req.query;
+      const { month, regions, divisions, locations, location, page = '1', limit = '1000' } = req.query;
       let targetMonth = month as string || new Date().toISOString().substring(0, 7);
+      const pageNum = parseInt(page as string, 10);
+      const pageLimit = Math.min(parseInt(limit as string, 10), 5000); // Max 5000 items per page
       
       // Support both 'location' (singular) and 'locations' (plural) for backwards compatibility
       const locationParam = locations || location;
       
-      // Check if data exists for the requested month
-      let unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
-      
-      // If no data for requested month, get the latest available data
-      if (unitLevelData.length === 0) {
-        const allData = await storage.getRentRollData();
-        if (allData.length > 0) {
-          // Get the LATEST upload month (sort descending and take first)
-          const uniqueMonths = [...new Set(allData.map(d => d.uploadMonth))].filter(Boolean);
-          uniqueMonths.sort((a, b) => b.localeCompare(a)); // Sort descending (latest first)
-          targetMonth = uniqueMonths[0] || targetMonth;
-          unitLevelData = await storage.getRentRollDataByMonth(targetMonth);
+      // Get latest month with data if not specified
+      if (!month) {
+        // Efficient query to get the latest month
+        const latestMonthData = await db.select({ uploadMonth: rentRollData.uploadMonth })
+          .from(rentRollData)
+          .orderBy(desc(rentRollData.uploadMonth))
+          .limit(1);
+        
+        if (latestMonthData.length > 0) {
+          targetMonth = latestMonthData[0].uploadMonth;
         }
       }
+      
+      // Build optimized query with filters applied in database
+      let unitLevelData = await storage.getRentRollDataFiltered(targetMonth, {
+        regions: Array.isArray(regions) ? regions : (regions ? [regions] : []),
+        divisions: Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []),
+        locations: Array.isArray(locationParam) ? locationParam : (locationParam ? [locationParam] : []),
+        offset: (pageNum - 1) * pageLimit,
+        limit: pageLimit
+      });
       
       // NOTE: Removed legacy competitor fetching and calculation code
       // Competitor rates are now stored directly in rent_roll_data by the
       // competitor rate matching service and should not be recalculated here
-      
-      // Convert single values to arrays if needed
-      const selectedRegions = Array.isArray(regions) ? regions : (regions ? [regions] : []);
-      const selectedDivisions = Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []);
-      const selectedLocations = Array.isArray(locationParam) ? locationParam : (locationParam ? [locationParam] : []);
-      
-      // Apply filters
-      if (selectedRegions.length > 0) {
-        const allLocations = await storage.getLocations();
-        const filteredLocationIds = allLocations.filter(loc => selectedRegions.includes(loc.region || '')).map(loc => loc.id);
-        unitLevelData = unitLevelData.filter(unit => filteredLocationIds.includes(unit.locationId || ''));
-      }
-      
-      if (selectedDivisions.length > 0) {
-        const allLocations = await storage.getLocations();
-        const filteredLocationIds = allLocations.filter(loc => selectedDivisions.includes(loc.division || '')).map(loc => loc.id);
-        unitLevelData = unitLevelData.filter(unit => filteredLocationIds.includes(unit.locationId || ''));
-      }
-      
-      if (selectedLocations.length > 0) {
-        unitLevelData = unitLevelData.filter(unit => selectedLocations.includes(unit.location));
-      }
       
       // Filter out B beds for senior housing service lines (AL, IL, SL)
       const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];

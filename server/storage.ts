@@ -103,6 +103,13 @@ export interface IStorage {
   getRentRollData(): Promise<RentRollData[]>;
   getTotalUnits(): Promise<number>;
   getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]>;
+  getRentRollDataFiltered(month: string, filters: {
+    regions?: string[];
+    divisions?: string[];
+    locations?: string[];
+    offset?: number;
+    limit?: number;
+  }): Promise<RentRollData[]>;
   getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[]): Promise<void>;
@@ -382,6 +389,60 @@ export class DatabaseStorage implements IStorage {
 
   async getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]> {
     return await db.select().from(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth));
+  }
+
+  async getRentRollDataFiltered(month: string, filters: {
+    regions?: string[];
+    divisions?: string[];
+    locations?: string[];
+    offset?: number;
+    limit?: number;
+  }): Promise<RentRollData[]> {
+    // Build optimized query with filters
+    let query = db.select().from(rentRollData);
+    const conditions: any[] = [eq(rentRollData.uploadMonth, month)];
+    
+    // If regions/divisions are specified, we need to join with locations table
+    if ((filters.regions && filters.regions.length > 0) || 
+        (filters.divisions && filters.divisions.length > 0)) {
+      // Get location IDs for the specified regions/divisions
+      let locationQuery = db.select({ id: locations.id }).from(locations);
+      const locationConditions: any[] = [];
+      
+      if (filters.regions && filters.regions.length > 0) {
+        locationConditions.push(inArray(locations.region, filters.regions));
+      }
+      if (filters.divisions && filters.divisions.length > 0) {
+        locationConditions.push(inArray(locations.division, filters.divisions));
+      }
+      
+      if (locationConditions.length > 0) {
+        const locationResults = await locationQuery.where(and(...locationConditions));
+        const locationIds = locationResults.map(l => l.id);
+        
+        if (locationIds.length > 0) {
+          conditions.push(inArray(rentRollData.locationId, locationIds));
+        }
+      }
+    }
+    
+    // Filter by location names directly
+    if (filters.locations && filters.locations.length > 0) {
+      conditions.push(inArray(rentRollData.location, filters.locations));
+    }
+    
+    // Apply all conditions
+    query = query.where(and(...conditions));
+    
+    // Add pagination
+    if (filters.limit) {
+      query = query.limit(filters.limit);
+    }
+    if (filters.offset) {
+      query = query.offset(filters.offset);
+    }
+    
+    return await query;
   }
 
   async getRentRollDataByLocation(location: string): Promise<RentRollData[]> {
