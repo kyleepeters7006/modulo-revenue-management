@@ -244,12 +244,12 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
 
     stats.totalRecords = data.length;
 
+    const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
+    
     await db.transaction(async (tx) => {
       await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
 
-      let rowNum = 0; // Track row number for debug logging
       for (const row of data) {
-        rowNum++;
         try {
           const trilogyCampus = row['TrilogyCampusName'] || '';
           const competitorName = row['CompetitorFacilityName'] || '';
@@ -358,50 +358,16 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             return false;
           };
 
-          // DEBUG: Log AL flags for first few rows AND first few AL=True rows
-          const isALTrue = isFlagTrue(row['AL']);
-          const debugThis = rowNum <= 10 || (isALTrue && stats.successfulImports < 10);
-          
-          if (debugThis) {
-            console.log(`[DEBUG Import] Row ${rowNum}:${isALTrue ? ' *** AL=TRUE ***' : ''}`);
-            console.log(`  Trilogy: ${trilogyCampus}, Competitor: ${competitorName}`);
-            console.log(`  AL flag: "${row['AL']}" (type: ${typeof row['AL']}) -> ${isFlagTrue(row['AL'])}`);
-            console.log(`  AL_StudioPrivateRoomRate: ${row['AL_StudioPrivateRoomRate']}`);
-            console.log(`  AL_2BRPrivateRoomRate: ${row['AL_2BRPrivateRoomRate']}`);
-            console.log(`  AL_2ndPersonFee: ${row['AL_2ndPersonFee']}`);
-          }
-
           // For each service line, create rows for each room type with a rate
           for (const serviceLine of serviceLines) {
-            const debugService = rowNum <= 10 || (serviceLine.type === 'AL' && isFlagTrue(serviceLine.flag) && stats.successfulImports < 10);
-            
             if (!isFlagTrue(serviceLine.flag)) {
-              // DEBUG: Log why service line is being skipped
-              if (debugService) {
-                console.log(`  [SKIP ${serviceLine.type}] flag is "${serviceLine.flag}", evaluated as false`);
-              }
               continue;
-            }
-
-            if (debugService) {
-              console.log(`  [PROCESS ${serviceLine.type}] flag="${serviceLine.flag}"`);
-              console.log(`  Room types with rates:`);
-              serviceLine.roomTypes.forEach(rt => {
-                if (rt.rate) console.log(`    - ${rt.name}: ${rt.rate}`);
-              });
             }
 
             for (const roomType of serviceLine.roomTypes) {
               // Only create a row if there's a rate
               if (!roomType.rate || parseFloat(roomType.rate) === 0) {
-                if (debugService) {
-                  console.log(`    [SKIP ROOM] ${roomType.name}: rate=${roomType.rate}`);
-                }
                 continue;
-              }
-              
-              if (debugService) {
-                console.log(`    [INSERT] ${serviceLine.type} ${roomType.name}: $${roomType.rate}`);
               }
 
               const record: InsertCompetitiveSurveyData = {
@@ -440,21 +406,10 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 }),
               };
 
-              try {
-                await tx.insert(competitiveSurveyData).values(record);
-                stats.successfulImports++;
-                stats.mappedRecords++;
-                if (debugService) {
-                  console.log(`      ✓ Successfully inserted ${serviceLine.type} record`);
-                }
-              } catch (insertError: any) {
-                if (serviceLine.type === 'AL') {
-                  console.error(`      ✗ ERROR inserting AL record: ${insertError.message}`);
-                  console.error(`        Location: ${trilogyCampus}, Competitor: ${competitorName}`);
-                  console.error(`        Room: ${roomType.name}, Rate: ${roomType.rate}`);
-                }
-                throw insertError; // Re-throw to be caught by outer try-catch
-              }
+              await tx.insert(competitiveSurveyData).values(record);
+              stats.successfulImports++;
+              stats.mappedRecords++;
+              insertCounts[serviceLine.type as keyof typeof insertCounts] = (insertCounts[serviceLine.type as keyof typeof insertCounts] || 0) + 1;
             }
           }
         } catch (error: any) {
@@ -463,6 +418,15 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
         }
       }
     });
+    
+    // Log summary of what was inserted
+    console.log('\n=== Import Summary ===');
+    console.log(`Total rows processed: ${data.length}`);
+    console.log(`Records inserted by type:`);
+    Object.entries(insertCounts).forEach(([type, count]) => {
+      if (count > 0) console.log(`  ${type}: ${count}`);
+    });
+    
   } catch (error: any) {
     stats.errors.push(`Excel parsing error: ${error.message}`);
   }
