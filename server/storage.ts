@@ -759,6 +759,26 @@ export class DatabaseStorage implements IStorage {
     // Query competitive survey data instead of old competitors table
     const surveyData = await db.select().from(competitiveSurveyData);
     
+    // Get location coordinates for better geocoding context
+    const locationCoords = new Map<string, { lat: number; lng: number }>();
+    const locationNames = [...new Set(surveyData.map(r => r.keyStatsLocation).filter(Boolean))];
+    
+    if (locationNames.length > 0) {
+      const locationData = await db.select({ 
+        name: locations.name, 
+        lat: locations.lat, 
+        lng: locations.lng 
+      })
+        .from(locations)
+        .where(inArray(locations.name, locationNames as string[]));
+      
+      for (const loc of locationData) {
+        if (loc.lat && loc.lng) {
+          locationCoords.set(loc.name, { lat: loc.lat, lng: loc.lng });
+        }
+      }
+    }
+    
     // Group by competitor and location to aggregate room types
     const competitorMap = new Map<string, any>();
     
@@ -766,13 +786,18 @@ export class DatabaseStorage implements IStorage {
       const key = `${record.keyStatsLocation}|${record.competitorName}`;
       
       if (!competitorMap.has(key)) {
-        // Geocode address if available
+        // Geocode address with location context if available
         let lat = null;
         let lng = null;
-        if (record.competitorAddress) {
+        if (record.competitorAddress && record.keyStatsLocation) {
           try {
-            const { geocodeAddress } = await import('./geocoding');
-            const coords = await geocodeAddress(record.competitorAddress);
+            const { geocodeAddressNearLocation } = await import('./geocoding');
+            const baseLocation = locationCoords.get(record.keyStatsLocation);
+            const coords = await geocodeAddressNearLocation(
+              record.competitorAddress,
+              baseLocation || null,
+              record.distanceMiles || 10
+            );
             lat = coords?.lat || null;
             lng = coords?.lng || null;
           } catch (error) {
@@ -888,6 +913,26 @@ export class DatabaseStorage implements IStorage {
     // Get all survey data matching the filters
     const surveyData = await query;
     
+    // Get location coordinates for better geocoding context
+    const locationCoords = new Map<string, { lat: number; lng: number }>();
+    const locationNames = [...new Set(surveyData.map(r => r.keyStatsLocation).filter(Boolean))];
+    
+    if (locationNames.length > 0) {
+      const locationData = await db.select({ 
+        name: locations.name, 
+        lat: locations.lat, 
+        lng: locations.lng 
+      })
+        .from(locations)
+        .where(inArray(locations.name, locationNames as string[]));
+      
+      for (const loc of locationData) {
+        if (loc.lat && loc.lng) {
+          locationCoords.set(loc.name, { lat: loc.lat, lng: loc.lng });
+        }
+      }
+    }
+    
     // Group by competitor and location to aggregate room types
     const competitorMap = new Map<string, any>();
     
@@ -895,13 +940,18 @@ export class DatabaseStorage implements IStorage {
       const key = `${record.keyStatsLocation}|${record.competitorName}`;
       
       if (!competitorMap.has(key)) {
-        // Geocode address if available
+        // Geocode address with location context if available
         let lat = null;
         let lng = null;
-        if (record.competitorAddress) {
+        if (record.competitorAddress && record.keyStatsLocation) {
           try {
-            const { geocodeAddress } = await import('./geocoding');
-            const coords = await geocodeAddress(record.competitorAddress);
+            const { geocodeAddressNearLocation } = await import('./geocoding');
+            const baseLocation = locationCoords.get(record.keyStatsLocation);
+            const coords = await geocodeAddressNearLocation(
+              record.competitorAddress,
+              baseLocation || null,
+              record.distanceMiles || 10
+            );
             lat = coords?.lat || null;
             lng = coords?.lng || null;
           } catch (error) {

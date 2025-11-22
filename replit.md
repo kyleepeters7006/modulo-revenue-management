@@ -40,7 +40,7 @@ Preferred communication style: Simple, everyday language.
 - **Data Import System**: Transaction-safe CSV upload and parsing for rent roll data with duplicate prevention, fuzzy matching, and Unicode-safe column matching.
 - **Guardrails System**: Configurable pricing constraints and safety limits.
 - **Revenue Forecasting**: Real-time aggregation of rent roll data for time-series comparisons.
-- **Competitor Analysis**: Interactive Leaflet map integration with service line filtering.
+- **Competitor Analysis**: Interactive Leaflet map integration with service line filtering. Fixed November 2025 - Now queries `competitive_survey_data` table (9,727 records), places competitors at actual geographic distances using improved geocoding, and shows all competitors for single location views.
 - **Explanation System**: Calculation dialogs present mathematical formulas and narrative explanations for pricing factors.
 - **Room Attributes & Pricing Page**: Manages and analyzes attribute-based pricing, including base pricing by room type and unit-level attributed pricing.
 - **Global Floor Plan Templates**: Floor plans can be uploaded as global templates that auto-map to all locations until replaced with location-specific versions.

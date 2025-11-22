@@ -31,6 +31,41 @@ export async function geocodeAddress(address: string | null): Promise<Location |
 }
 
 /**
+ * Geocode an address near a specific location
+ * Places the competitor within a realistic distance from the base location
+ */
+export async function geocodeAddressNearLocation(
+  address: string | null, 
+  baseLocation: Location | null,
+  distanceMiles: number = 10
+): Promise<Location | null> {
+  if (!address) return null;
+  
+  // If no base location provided, fall back to regular geocoding
+  if (!baseLocation) {
+    return geocodeAddress(address);
+  }
+  
+  // Generate a deterministic angle based on address hash
+  const hash = simpleHash(address);
+  const angle = (hash % 360) * (Math.PI / 180); // Convert to radians
+  
+  // Convert distance from miles to degrees (approximately)
+  // 1 degree of latitude ≈ 69 miles
+  // 1 degree of longitude varies by latitude, but we'll use ≈ 54 miles for US midwest
+  const latOffset = (distanceMiles / 69) * Math.cos(angle);
+  const lngOffset = (distanceMiles / 54) * Math.sin(angle);
+  
+  // Add some variation to avoid all competitors being at exact distance
+  const variation = ((hash % 30) - 15) / 100; // ±0.15 degree variation
+  
+  return {
+    lat: Number((baseLocation.lat + latOffset + variation).toFixed(6)),
+    lng: Number((baseLocation.lng + lngOffset + variation).toFixed(6))
+  };
+}
+
+/**
  * Calculate distance between two lat/lng points using Haversine formula
  * Returns distance in miles
  */

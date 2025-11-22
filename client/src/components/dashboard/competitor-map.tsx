@@ -520,7 +520,8 @@ export function CompetitorMap({
             Competitor Map {selectedLocations.length === 1 ? `- ${selectedLocations[0]}` : selectedLocations.length > 1 ? `- ${selectedLocations.length} Locations` : ''}
           </h3>
           <p className="text-sm text-[var(--dashboard-muted)]">
-            {competitors?.items?.length || 0} competitors found • Top 3 shown per location
+            {competitors?.items?.length || 0} competitors found
+            {selectedLocations.length > 1 && ' • Top 3 shown per location'}
           </p>
         </div>
         <div className="flex items-center space-x-2">

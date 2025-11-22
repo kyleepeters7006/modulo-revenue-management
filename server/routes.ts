@@ -1448,7 +1448,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return (a.distanceMiles || 999) - (b.distanceMiles || 999);
         }));
       } else {
-        // When filtered, group by location and get top 3 per location
+        // When filtered, check if single location or multiple
+        const isSingleLocation = filters.locations?.length === 1 && 
+                                !filters.regions?.length && 
+                                !filters.divisions?.length;
+        
         competitorsByLocation.forEach((comps, location) => {
           const sorted = comps
             .sort((a, b) => {
@@ -1456,9 +1460,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const ratingDiff = (parseFloat(b.rating || '0') - parseFloat(a.rating || '0'));
               if (ratingDiff !== 0) return ratingDiff;
               return (a.distanceMiles || 999) - (b.distanceMiles || 999);
-            })
-            .slice(0, 3); // Get top 3
-          topCompetitors.push(...sorted);
+            });
+          
+          // If single location selected, show all competitors. Otherwise, limit to top 3 per location
+          const finalList = isSingleLocation ? sorted : sorted.slice(0, 3);
+          topCompetitors.push(...finalList);
         });
       }
       
