@@ -121,8 +121,8 @@ export async function autoGenerateFloorPlanForCampus(campusId: string) {
         [x, y + h]
       ];
 
-      // Color based on occupancy (occupiedYN is "Y" or "N" string)
-      const isAvailable = unit.occupiedYN !== 'Y';
+      // Color based on occupancy (occupiedYN is a boolean)
+      const isAvailable = !unit.occupiedYN;
       const fillColor = isAvailable ? '#22c55e' : '#9ca3af';
       const strokeColor = isAvailable ? '#16a34a' : '#6b7280';
 
@@ -191,8 +191,8 @@ function generateEnhancedFloorPlanSVG(
       const x = col * tileWidth;
       const y = row * tileHeight + 50;
 
-      // occupiedYN is stored as "Y" or "N" string in the database
-      const isAvailable = unit.occupiedYN !== 'Y';
+      // occupiedYN is a boolean (true = occupied, false = available)
+      const isAvailable = !unit.occupiedYN;
       const fillColor = isAvailable ? '#22c55e' : '#e5e7eb';
       const strokeColor = isAvailable ? '#16a34a' : '#9ca3af';
       const statusColor = isAvailable ? '#ffffff' : '#6b7280';

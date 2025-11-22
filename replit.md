@@ -34,8 +34,9 @@ Preferred communication style: Simple, everyday language.
 - **Competitor Rate Matching with Detailed Breakdown**: Matches competitors at **Location + Service Line + Room Type** level, storing 6 detailed columns per unit (competitor name, base rate, weight, care level adjustment, medication management adjustment, and explanation) to enable comprehensive rate analysis dialogs.
 - **Competitor Adjustment Service**: Calculates market-accurate competitor rates by adjusting for care level differences and medication management fees.
 - **Service Line & Room Type Mapping**: Intelligent mapping system converts Trilogy's service lines (AL, HC, SL, VIL, AL/MC, HC/MC) to survey competitor types (HC, SMC) and normalizes room types (Studio, Companion, Studio Dlx) for accurate matching.
-- **AI-Powered Floor Plan System**: Integrates OpenAI Vision API for automatic room detection and mapping on floor plans.
-- **Interactive Floor Plan Booking System**: Drag-and-drop unit assignment, automatic polygon detection, visual feedback, and interactive tooltips.
+- **Auto-Generated Floor Plan System**: Automatically creates interactive SVG floor plans for all locations with grid-based layouts, color-coded occupancy status (green for available, gray for occupied), and complete unit metadata. System generates campus maps and unit polygons with normalized coordinates for 2,000+ unit campuses in under 60 seconds.
+- **Floor Plan Auto-Mapping**: Batch generation endpoint creates floor plans for all locations at once, preserving existing image-based floor plans. Includes intelligent occupancy detection (boolean field validation), service line section metadata, and room number display.
+- **Interactive Floor Plan Booking System**: Drag-and-drop unit assignment, automatic polygon detection, visual feedback, interactive tooltips, and service line filtering capabilities.
 - **Data Import System**: Transaction-safe CSV upload and parsing for rent roll data with duplicate prevention, fuzzy matching, and Unicode-safe column matching.
 - **Guardrails System**: Configurable pricing constraints and safety limits.
 - **Revenue Forecasting**: Real-time aggregation of rent roll data for time-series comparisons.
