@@ -195,6 +195,19 @@ export default function FloorPlansPage() {
     return Array.from(levels).sort();
   }, [rentRollData]);
 
+  // Helper to get service line display name - moved up to avoid initialization error
+  const getServiceLineDisplay = useCallback((serviceLine: string) => {
+    switch(serviceLine) {
+      case 'AL': return 'Assisted Living';
+      case 'AL/MC': return 'Assisted Living / Memory Care';
+      case 'HC': return 'Health Care';
+      case 'HC/MC': return 'Health Care / Memory Care';
+      case 'IL': return 'Independent Living';
+      case 'SL': return 'Senior Living';
+      default: return serviceLine;
+    }
+  }, []);
+
   // Calculate active filter count for badge
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -342,18 +355,6 @@ export default function FloorPlansPage() {
     return { beds, baths, sqft };
   }, []);
 
-  // Helper to get service line display name - memoized
-  const getServiceLineDisplay = useCallback((serviceLine: string) => {
-    switch(serviceLine) {
-      case 'AL': return 'Assisted Living';
-      case 'AL/MC': return 'Assisted Living / Memory Care';
-      case 'HC': return 'Health Care';
-      case 'HC/MC': return 'Health Care / Memory Care';
-      case 'IL': return 'Independent Living';
-      case 'SL': return 'Senior Living';
-      default: return serviceLine;
-    }
-  }, []);
 
   // Filter controls component - reusable for both desktop and mobile
   const FilterControls = () => (
