@@ -101,7 +101,7 @@ let marketDataCache = {
 };
 
 // Fetch real S&P 500 data from Alpha Vantage with database caching
-async function fetchSP500Data() {
+export async function fetchSP500Data() {
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
   if (!apiKey) {
     console.warn("Alpha Vantage API key not found, using mock data");
@@ -4846,6 +4846,92 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Error getting competitor rate summary:', error);
       res.status(500).json({ error: 'Failed to get competitor rate summary' });
+    }
+  });
+  
+  // OPTIMIZED Modulo pricing generation endpoint - uses background processing
+  // This endpoint returns immediately with a job ID and processes units in background
+  app.post("/api/pricing/generate-modulo-optimized", async (req, res) => {
+    try {
+      const { month, serviceLine, regions, divisions, locations } = req.body;
+      
+      // Import the job manager
+      const { pricingJobManager } = await import('./pricingJobManager');
+      
+      // Create a new background job
+      const jobId = pricingJobManager.createJob({
+        month: month || '2025-10',
+        serviceLine,
+        regions,
+        divisions,
+        locations
+      });
+      
+      console.log(`[API] Created pricing job ${jobId} for month: ${month || '2025-10'}`);
+      
+      // Return immediately with job ID
+      res.json({
+        success: true,
+        jobId,
+        message: 'Pricing calculation started in background. Use the job status endpoint to check progress.',
+        statusUrl: `/api/pricing/job-status/${jobId}`
+      });
+    } catch (error) {
+      console.error('Error creating pricing job:', error);
+      res.status(500).json({ error: 'Failed to start pricing calculation' });
+    }
+  });
+  
+  // Get status of a pricing calculation job
+  app.get("/api/pricing/job-status/:jobId", async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      
+      // Import the job manager
+      const { pricingJobManager } = await import('./pricingJobManager');
+      
+      const job = pricingJobManager.getJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      
+      res.json({
+        id: job.id,
+        status: job.status,
+        progress: job.progress,
+        startedAt: job.startedAt,
+        completedAt: job.completedAt,
+        error: job.error,
+        result: job.result,
+        params: job.params
+      });
+    } catch (error) {
+      console.error('Error fetching job status:', error);
+      res.status(500).json({ error: 'Failed to fetch job status' });
+    }
+  });
+  
+  // Get all pricing jobs (for monitoring)
+  app.get("/api/pricing/jobs", async (req, res) => {
+    try {
+      // Import the job manager
+      const { pricingJobManager } = await import('./pricingJobManager');
+      
+      const jobs = pricingJobManager.getAllJobs();
+      
+      // Sort by startedAt descending (most recent first)
+      const sortedJobs = jobs.sort((a, b) => {
+        return b.startedAt.getTime() - a.startedAt.getTime();
+      });
+      
+      res.json({
+        jobs: sortedJobs,
+        hasActiveJobs: pricingJobManager.hasActiveJobs()
+      });
+    } catch (error) {
+      console.error('Error fetching jobs list:', error);
+      res.status(500).json({ error: 'Failed to fetch jobs list' });
     }
   });
   
