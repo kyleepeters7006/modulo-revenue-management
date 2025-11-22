@@ -2447,6 +2447,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`Analytics: Processing ${rentRollData.length} units for ${currentMonth}`);
 
+      // Create a map of campus data for O(1) lookups instead of O(n) searches
+      const campusDataMap = new Map();
+      campusData.forEach((campus: any) => {
+        campusDataMap.set(campus.name, campus);
+      });
+
       // Filter rent roll data by service line first if needed
       let filteredRentRollData = rentRollData;
       if (serviceLine && serviceLine !== 'all') {
@@ -2505,6 +2511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       console.log(`Analytics Debug: Total=${debugTotalUnits}, Filtered=${debugFilteredUnits}, B-beds skipped=${debugBBedsSkipped}`);
+      console.log(`Analytics Debug: Found ${campusMetrics.size} unique campuses`);
 
       // Calculate portfolio-wide medians by room type as fallback when competitor data is missing
       const portfolioMediansByRoomType = new Map<string, number>();
@@ -2674,7 +2681,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const revenueImpact = potentialRevenue - currentMonthlyRevenue;
 
         // Find campus info for region and division (name field is the KeyStats name)
-        const campusInfo = campusData.find((c: any) => c.name === campusId);
+        const campusInfo = campusDataMap.get(campusId);
         const campusRegion = campusInfo?.region || 'Unknown';
         const campusDivision = campusInfo?.division || 'Unknown';
         
