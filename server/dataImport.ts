@@ -247,7 +247,9 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     await db.transaction(async (tx) => {
       await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
 
+      let rowNum = 0; // Track row number for debug logging
       for (const row of data) {
+        rowNum++;
         try {
           const trilogyCampus = row['TrilogyCampusName'] || '';
           const competitorName = row['CompetitorFacilityName'] || '';
@@ -270,9 +272,10 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               type: 'IL',
               flag: row['IL'],
               roomTypes: [
-                { name: 'Studio', rate: row['IL_StudioRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
-                { name: 'One Bedroom', rate: row['IL_OneBedRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
-                { name: 'Two Bedroom', rate: row['IL_TwoBedRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                // Support both old and new column name formats
+                { name: 'Studio', rate: row['IL_StudioRate'] || row['IL_StudioPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                { name: 'One Bedroom', rate: row['IL_OneBedRate'] || row['IL_1BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                { name: 'Two Bedroom', rate: row['IL_TwoBedRate'] || row['IL_2BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
               ],
               occupancy: row['IL_Occupancy'],
               totalUnits: row['IL_TotalUnits'],
@@ -281,11 +284,12 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               type: 'AL',
               flag: row['AL'],
               roomTypes: [
-                { name: 'Studio', rate: row['AL_StudioRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                { name: 'One Bedroom', rate: row['AL_OneBedRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                { name: 'Two Bedroom', rate: row['AL_TwoBedRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                { name: 'Companion', rate: row['AL_CompanionRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                // Support both old and new column name formats
+                { name: 'Studio', rate: row['AL_StudioRate'] || row['AL_StudioPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'One Bedroom', rate: row['AL_OneBedRate'] || row['AL_1BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Two Bedroom', rate: row['AL_TwoBedRate'] || row['AL_2BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Companion', rate: row['AL_CompanionRate'] || row['AL_2ndPersonFee'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
               ],
               occupancy: row['AL_Occupancy'],
               totalUnits: row['AL_TotalUnits'],
@@ -294,9 +298,10 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               type: 'HC',
               flag: row['HC'],
               roomTypes: [
+                // Support both old and new column name formats
                 { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
-                { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
-                { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'] || row['HC_PrivateDlxRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'] || row['HC_2ndPersonFee'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
               ],
               occupancy: row['HC_Occupancy'],
               totalUnits: row['HC_TotalUnits'],
@@ -323,7 +328,8 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             },
             {
               type: 'AL/MC',
-              flag: row['AL'] === 'True' && row['MC'] === 'True' ? 'True' : 'False',
+              flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && 
+                    (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               roomTypes: [
                 { name: 'Studio', rate: row['AL/MC_StudioRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                 { name: 'Companion', rate: row['AL/MC_CompanionRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
@@ -333,7 +339,8 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             },
             {
               type: 'HC/MC',
-              flag: row['HC'] === 'True' && row['MC'] === 'True' ? 'True' : 'False',
+              flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && 
+                    (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               roomTypes: [
                 { name: 'Studio', rate: row['HC/MC_PrivateRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
                 { name: 'Companion', rate: row['HC/MC_CompanionRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
@@ -343,13 +350,59 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             },
           ];
 
+          // Helper function to check if a flag is "true" (handles string, boolean, number formats)
+          const isFlagTrue = (flag: any): boolean => {
+            if (flag === 'True' || flag === 'TRUE' || flag === true || flag === 1 || flag === '1') {
+              return true;
+            }
+            return false;
+          };
+
+          // DEBUG: Log AL flags for first few rows AND first few AL=True rows
+          const isALTrue = isFlagTrue(row['AL']);
+          const debugThis = rowNum <= 10 || (isALTrue && stats.successfulImports < 10);
+          
+          if (debugThis) {
+            console.log(`[DEBUG Import] Row ${rowNum}:${isALTrue ? ' *** AL=TRUE ***' : ''}`);
+            console.log(`  Trilogy: ${trilogyCampus}, Competitor: ${competitorName}`);
+            console.log(`  AL flag: "${row['AL']}" (type: ${typeof row['AL']}) -> ${isFlagTrue(row['AL'])}`);
+            console.log(`  AL_StudioPrivateRoomRate: ${row['AL_StudioPrivateRoomRate']}`);
+            console.log(`  AL_2BRPrivateRoomRate: ${row['AL_2BRPrivateRoomRate']}`);
+            console.log(`  AL_2ndPersonFee: ${row['AL_2ndPersonFee']}`);
+          }
+
           // For each service line, create rows for each room type with a rate
           for (const serviceLine of serviceLines) {
-            if (serviceLine.flag !== 'True') continue;
+            const debugService = rowNum <= 10 || (serviceLine.type === 'AL' && isFlagTrue(serviceLine.flag) && stats.successfulImports < 10);
+            
+            if (!isFlagTrue(serviceLine.flag)) {
+              // DEBUG: Log why service line is being skipped
+              if (debugService) {
+                console.log(`  [SKIP ${serviceLine.type}] flag is "${serviceLine.flag}", evaluated as false`);
+              }
+              continue;
+            }
+
+            if (debugService) {
+              console.log(`  [PROCESS ${serviceLine.type}] flag="${serviceLine.flag}"`);
+              console.log(`  Room types with rates:`);
+              serviceLine.roomTypes.forEach(rt => {
+                if (rt.rate) console.log(`    - ${rt.name}: ${rt.rate}`);
+              });
+            }
 
             for (const roomType of serviceLine.roomTypes) {
               // Only create a row if there's a rate
-              if (!roomType.rate || parseFloat(roomType.rate) === 0) continue;
+              if (!roomType.rate || parseFloat(roomType.rate) === 0) {
+                if (debugService) {
+                  console.log(`    [SKIP ROOM] ${roomType.name}: rate=${roomType.rate}`);
+                }
+                continue;
+              }
+              
+              if (debugService) {
+                console.log(`    [INSERT] ${serviceLine.type} ${roomType.name}: $${roomType.rate}`);
+              }
 
               const record: InsertCompetitiveSurveyData = {
                 surveyMonth,
@@ -387,9 +440,21 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 }),
               };
 
-              await tx.insert(competitiveSurveyData).values(record);
-              stats.successfulImports++;
-              stats.mappedRecords++;
+              try {
+                await tx.insert(competitiveSurveyData).values(record);
+                stats.successfulImports++;
+                stats.mappedRecords++;
+                if (debugService) {
+                  console.log(`      ✓ Successfully inserted ${serviceLine.type} record`);
+                }
+              } catch (insertError: any) {
+                if (serviceLine.type === 'AL') {
+                  console.error(`      ✗ ERROR inserting AL record: ${insertError.message}`);
+                  console.error(`        Location: ${trilogyCampus}, Competitor: ${competitorName}`);
+                  console.error(`        Room: ${roomType.name}, Rate: ${roomType.rate}`);
+                }
+                throw insertError; // Re-throw to be caught by outer try-catch
+              }
             }
           }
         } catch (error: any) {
