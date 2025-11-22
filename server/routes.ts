@@ -6596,8 +6596,37 @@ Respond in JSON format:
   // Get all rent roll data
   app.get("/api/rent-roll", async (req, res) => {
     try {
-      const rentRollData = await storage.getRentRollData();
-      res.json(rentRollData);
+      // Get the latest upload month to avoid fetching all historical data
+      const latestMonthResult = await db
+        .select({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(sql`${rentRollData.uploadMonth} IS NOT NULL`)
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+        .limit(1);
+      
+      const latestMonth = latestMonthResult[0]?.uploadMonth || '2025-11';
+      
+      // Fetch only current month's data with necessary fields for the Room Attributes page
+      const currentMonthData = await db
+        .select({
+          id: rentRollData.id,
+          location: rentRollData.location,
+          serviceLine: rentRollData.serviceLine,
+          roomNumber: rentRollData.roomNumber,
+          roomType: rentRollData.roomType,
+          sizeRating: rentRollData.sizeRating,
+          viewRating: rentRollData.viewRating,
+          renovationRating: rentRollData.renovationRating,
+          locationRating: rentRollData.locationRating,
+          amenityRating: rentRollData.amenityRating,
+          streetRate: rentRollData.streetRate,
+          inHouseRate: rentRollData.inHouseRate,
+          occupiedYN: rentRollData.occupiedYN
+        })
+        .from(rentRollData)
+        .where(eq(rentRollData.uploadMonth, latestMonth));
+      
+      res.json(currentMonthData);
     } catch (error) {
       console.error('Error fetching rent roll data:', error);
       res.status(500).json({ error: "Failed to fetch rent roll data" });
