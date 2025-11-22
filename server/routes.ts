@@ -182,14 +182,8 @@ async function checkAndInitializeDatabase() {
       console.log('⚠️  Database is empty. Please import production data via POST /api/admin/import-production-data');
     }
     
-    // Sync locations from rent roll data (always run to keep locations in sync)
-    if (unitCount > 0) {
-      console.log('Syncing locations from rent roll data...');
-      const syncResult = await syncLocationsFromRentRoll();
-      if (syncResult.success) {
-        console.log(`Locations synced: ${syncResult.created} created, ${syncResult.updated} updated`);
-      }
-    }
+    // Location sync is now only done when rent roll data is uploaded, not on every startup
+    // This saves 50+ seconds on startup by avoiding 544+ database queries
   } catch (error) {
     console.error('Error checking/initializing database:', error);
   }

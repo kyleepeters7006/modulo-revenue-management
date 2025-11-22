@@ -5,79 +5,100 @@ import { sql, eq } from 'drizzle-orm';
 /**
  * Sync locations from rent roll data
  * This ensures the locations table reflects all unique campuses in rent_roll_data
+ * OPTIMIZED: Uses batch operations instead of individual queries
  */
 export async function syncLocationsFromRentRoll() {
   try {
+    const startTime = Date.now();
     console.log('Syncing locations from rent roll data...');
     
-    // Get all unique locations from rent_roll_data using raw SQL
-    const uniqueLocationsResult = await db.execute<{ location: string }>(
-      sql`SELECT DISTINCT location FROM ${rentRollData} WHERE location IS NOT NULL AND location != '' ORDER BY location`
+    // Get all existing locations in one query
+    const existingLocations = await db.select().from(locations);
+    const existingLocationMap = new Map(existingLocations.map(loc => [loc.name, loc]));
+    
+    // Get location names and counts in a single query (MUCH faster)
+    const locationStatsResult = await db.execute<{ location: string, count: number }>(
+      sql`
+        SELECT location, COUNT(*)::int as count 
+        FROM ${rentRollData} 
+        WHERE location IS NOT NULL AND location != '' 
+        GROUP BY location 
+        ORDER BY location
+      `
     );
     
-    const uniqueLocations = uniqueLocationsResult.rows;
-    console.log(`Found ${uniqueLocations.length} unique locations in rent roll data`);
+    const locationStats = locationStatsResult.rows;
+    console.log(`Found ${locationStats.length} unique locations in rent roll data`);
     
     let created = 0;
     let updated = 0;
+    const locationsToCreate: Array<{ name: string; totalUnits: number }> = [];
+    const locationsToUpdate: Array<{ id: string; name: string; totalUnits: number }> = [];
     
-    for (const row of uniqueLocations) {
-      const locationName = row.location;
-      if (!locationName) continue;
+    // Prepare batch operations
+    for (const stat of locationStats) {
+      const locationName = stat.location;
+      const unitCount = stat.count || 0;
       
-      // Check if location already exists
-      const existing = await db
-        .select()
-        .from(locations)
-        .where(eq(locations.name, locationName))
-        .limit(1);
+      const existing = existingLocationMap.get(locationName);
       
-      // Count units for this location
-      const unitCountResult = await db.execute<{ count: number }>(
-        sql`SELECT COUNT(*)::int as count FROM ${rentRollData} WHERE location = ${locationName}`
-      );
-      const unitCount = unitCountResult.rows[0]?.count || 0;
-      
-      let locationId: string;
-      
-      if (existing.length === 0) {
-        // Create new location
-        const [newLocation] = await db.insert(locations).values({
+      if (!existing) {
+        locationsToCreate.push({
           name: locationName,
+          totalUnits: unitCount
+        });
+      } else if (existing.totalUnits !== unitCount) {
+        locationsToUpdate.push({
+          id: existing.id,
+          name: locationName,
+          totalUnits: unitCount
+        });
+      }
+    }
+    
+    // Batch create new locations
+    if (locationsToCreate.length > 0) {
+      const newLocations = await db.insert(locations)
+        .values(locationsToCreate.map(loc => ({
+          name: loc.name,
           region: null,
           division: null,
-          totalUnits: unitCount
-        }).returning();
-        locationId = newLocation.id;
-        created++;
-        console.log(`Created location: ${locationName} (${unitCount} units)`);
-      } else {
-        // Update unit count
-        locationId = existing[0].id;
+          totalUnits: loc.totalUnits
+        })))
+        .returning();
+      
+      created = newLocations.length;
+      
+      // Update locationId for new locations in batch
+      for (const newLoc of newLocations) {
+        await db.execute(
+          sql`UPDATE ${rentRollData} SET location_id = ${newLoc.id} WHERE location = ${newLoc.name} AND location_id IS NULL`
+        );
+      }
+    }
+    
+    // Batch update existing locations
+    if (locationsToUpdate.length > 0) {
+      for (const loc of locationsToUpdate) {
         await db
           .update(locations)
           .set({ 
-            totalUnits: unitCount,
+            totalUnits: loc.totalUnits,
             updatedAt: new Date()
           })
-          .where(eq(locations.id, locationId));
-        updated++;
+          .where(eq(locations.id, loc.id));
       }
-      
-      // Update rent_roll_data to link to this location
-      await db
-        .update(rentRollData)
-        .set({ locationId })
-        .where(eq(rentRollData.location, locationName));
+      updated = locationsToUpdate.length;
     }
     
-    console.log(`Location sync complete: ${created} created, ${updated} updated`);
+    const duration = Date.now() - startTime;
+    console.log(`Location sync complete: ${created} created, ${updated} updated in ${duration}ms`);
     
     return {
       success: true,
       created,
       updated,
-      total: uniqueLocations.length
+      total: locationStats.length
     };
   } catch (error) {
     console.error('Error syncing locations:', error);
