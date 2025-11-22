@@ -7001,12 +7001,14 @@ Respond in JSON format:
         return res.status(404).json({ error: 'No data found for this month' });
       }
       
-      // Convert to CSV
-      const { stringify } = await import('csv-stringify/sync');
-      const csvContent = stringify(data, { header: true });
+      // Use optimized export utility
+      const { formatExportData, generateOptimizedCSV, generateExportFilename } = await import('./exportUtils');
+      const formattedData = formatExportData(data, 'rentRollHistory');
+      const csvContent = generateOptimizedCSV(formattedData, 'rentRollHistory');
+      const filename = generateExportFilename(`rent-roll-${month}`);
       
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=rent-roll-${month}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csvContent);
     } catch (error) {
       console.error('Export error:', error);
@@ -7039,12 +7041,14 @@ Respond in JSON format:
       
       const data = await query;
       
-      // Convert to CSV
-      const { stringify } = await import('csv-stringify/sync');
-      const csvContent = stringify(data, { header: true });
+      // Use optimized export utility
+      const { formatExportData, generateOptimizedCSV, generateExportFilename } = await import('./exportUtils');
+      const formattedData = formatExportData(data, 'enquireData');
+      const csvContent = generateOptimizedCSV(formattedData, 'enquireData');
+      const filename = generateExportFilename('enquire-data-export');
       
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=enquire-data-export.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csvContent);
     } catch (error) {
       console.error('Export error:', error);
@@ -7066,12 +7070,14 @@ Respond in JSON format:
         return res.status(404).json({ error: 'No data found for this month' });
       }
       
-      // Convert to CSV
-      const { stringify } = await import('csv-stringify/sync');
-      const csvContent = stringify(data, { header: true });
+      // Use optimized export utility
+      const { formatExportData, generateOptimizedCSV, generateExportFilename } = await import('./exportUtils');
+      const formattedData = formatExportData(data, 'competitiveSurvey');
+      const csvContent = generateOptimizedCSV(formattedData, 'competitiveSurvey');
+      const filename = generateExportFilename(`competitive-survey-${month}`);
       
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=competitive-survey-${month}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csvContent);
     } catch (error) {
       console.error('Export error:', error);
@@ -7085,15 +7091,62 @@ Respond in JSON format:
         .select()
         .from(locationMappings);
       
-      // Convert to CSV
-      const { stringify } = await import('csv-stringify/sync');
-      const csvContent = stringify(data, { header: true });
+      // Use optimized export utility
+      const { formatExportData, generateOptimizedCSV, generateExportFilename } = await import('./exportUtils');
+      const formattedData = formatExportData(data, 'locationMappings');
+      const csvContent = generateOptimizedCSV(formattedData, 'locationMappings');
+      const filename = generateExportFilename('location-mappings');
       
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=location-mappings.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csvContent);
     } catch (error) {
       console.error('Export error:', error);
+      res.status(500).json({ error: 'Export failed' });
+    }
+  });
+  
+  // Rate card export endpoint - optimized with essential fields only
+  app.get('/api/export/rate-card', async (req, res) => {
+    try {
+      const { month, regions, divisions, locations } = req.query;
+      let targetMonth = month as string || new Date().toISOString().substring(0, 7);
+      
+      // Get latest month with data if not specified
+      if (!month) {
+        const latestMonthData = await db.select({ uploadMonth: rentRollData.uploadMonth })
+          .from(rentRollData)
+          .orderBy(desc(rentRollData.uploadMonth))
+          .limit(1);
+        
+        if (latestMonthData.length > 0) {
+          targetMonth = latestMonthData[0].uploadMonth;
+        }
+      }
+      
+      // Get filtered data using the optimized method
+      const data = await storage.getRentRollDataFiltered(targetMonth, {
+        regions: Array.isArray(regions) ? regions : (regions ? [regions] : []),
+        divisions: Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []),
+        locations: Array.isArray(locations) ? locations : (locations ? [locations] : []),
+        limit: 10000 // Large limit for export
+      });
+      
+      if (data.length === 0) {
+        return res.status(404).json({ error: 'No data found for the selected filters' });
+      }
+      
+      // Use optimized export utility - only export essential fields
+      const { formatExportData, generateOptimizedCSV, generateExportFilename } = await import('./exportUtils');
+      const formattedData = formatExportData(data, 'rateCard');
+      const csvContent = generateOptimizedCSV(formattedData, 'rateCard');
+      const filename = generateExportFilename(`rate-card-${targetMonth}`);
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error('Rate card export error:', error);
       res.status(500).json({ error: 'Export failed' });
     }
   });
