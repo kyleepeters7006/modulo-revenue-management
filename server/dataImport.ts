@@ -284,11 +284,24 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   return false;
                 };
 
+                // Helper to parse numeric values safely
+                const parseNumeric = (value: any): number | null => {
+                  if (!value) return null;
+                  const cleaned = String(value).trim().replace(/[\$,\s]/g, '');
+                  const parsed = parseFloat(cleaned);
+                  return isNaN(parsed) ? null : parsed;
+                };
+
                 // Service line definitions
                 const serviceLines = [
                   {
                     type: 'IL',
                     flag: row['IL'],
+                    careLevel1: parseNumeric(row['IL_Level1']),
+                    careLevel2: parseNumeric(row['IL_Level2']),
+                    careLevel3: parseNumeric(row['IL_Level3']),
+                    careLevel4: parseNumeric(row['IL_Level4']),
+                    medicationManagement: parseNumeric(row['IL_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['IL_StudioRate'] || row['IL_StudioPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
                       { name: 'One Bedroom', rate: row['IL_OneBedRate'] || row['IL_1BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
@@ -300,6 +313,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   {
                     type: 'AL',
                     flag: row['AL'],
+                    careLevel1: parseNumeric(row['AL_Level1']),
+                    careLevel2: parseNumeric(row['AL_Level2']),
+                    careLevel3: parseNumeric(row['AL_Level3']),
+                    careLevel4: parseNumeric(row['AL_Level4']),
+                    medicationManagement: parseNumeric(row['AL_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['AL_StudioRate'] || row['AL_StudioPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                       { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
@@ -313,6 +331,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   {
                     type: 'HC',
                     flag: row['HC'],
+                    careLevel1: parseNumeric(row['HC_Level1']),
+                    careLevel2: parseNumeric(row['HC_Level2']),
+                    careLevel3: parseNumeric(row['HC_Level3']),
+                    careLevel4: parseNumeric(row['HC_Level4']),
+                    medicationManagement: parseNumeric(row['HC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
                       { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'] || row['HC_PrivateDlxRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
@@ -324,6 +347,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   {
                     type: 'SMC',
                     flag: row['SMC'],
+                    careLevel1: parseNumeric(row['SMC_Level1']),
+                    careLevel2: parseNumeric(row['SMC_Level2']),
+                    careLevel3: parseNumeric(row['SMC_Level3']),
+                    careLevel4: parseNumeric(row['SMC_Level4']),
+                    medicationManagement: parseNumeric(row['SMC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['SMC_PrivateRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
                       { name: 'Companion', rate: row['SMC_CompanionRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
@@ -334,6 +362,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   {
                     type: 'MC',
                     flag: row['MC'],
+                    careLevel1: parseNumeric(row['MC_Level1']),
+                    careLevel2: parseNumeric(row['MC_Level2']),
+                    careLevel3: parseNumeric(row['MC_Level3']),
+                    careLevel4: parseNumeric(row['MC_Level4']),
+                    medicationManagement: parseNumeric(row['MC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['MC_PrivateRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
                       { name: 'Companion', rate: row['MC_CompanionRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
@@ -385,6 +418,10 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       careFeesLow: null,
                       careFeesHigh: null,
                       careFeesAvg: parseFloat(roomType.careLevel) || null,
+                      careLevel1Rate: serviceLine.careLevel1 || null,
+                      careLevel2Rate: serviceLine.careLevel2 || null,
+                      careLevel3Rate: serviceLine.careLevel3 || null,
+                      careLevel4Rate: serviceLine.careLevel4 || null,
                       totalMonthlyLow: null,
                       totalMonthlyHigh: null,
                       totalMonthlyAvg: null,
@@ -397,6 +434,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       yearBuilt: row['Age'] ? parseInt(row['Age']) : null,
                       lastRenovation: null,
                       amenities: null,
+                      medicationManagementFee: serviceLine.medicationManagement || null,
                       notes: JSON.stringify({
                         weight: roomType.weight || 0,
                         latitude,

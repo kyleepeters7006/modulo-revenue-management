@@ -538,6 +538,11 @@ export const competitiveSurveyData = pgTable("competitive_survey_data", {
   careFeesLow: real("care_fees_low"),
   careFeesHigh: real("care_fees_high"),
   careFeesAvg: real("care_fees_avg"),
+  // Individual care level rates (Trilogy has 4 levels, competitors may have more)
+  careLevel1Rate: real("care_level_1_rate"),
+  careLevel2Rate: real("care_level_2_rate"),
+  careLevel3Rate: real("care_level_3_rate"),
+  careLevel4Rate: real("care_level_4_rate"),
   totalMonthlyLow: real("total_monthly_low"),
   totalMonthlyHigh: real("total_monthly_high"),
   totalMonthlyAvg: real("total_monthly_avg"),
