@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, X, Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 // Helper functions for localStorage persistence - using shared key for cross-page sync
 const saveFiltersToStorage = (filters: any) => {
@@ -44,6 +45,8 @@ export default function RateCard() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
+  const [isExporting, setIsExporting] = useState(false);
+  const { toast } = useToast();
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -86,18 +89,93 @@ export default function RateCard() {
     setter([]);
   };
 
+  // Export handler
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (selectedRegions.length > 0) {
+        selectedRegions.forEach(region => params.append('regions', region));
+      }
+      if (selectedDivisions.length > 0) {
+        selectedDivisions.forEach(division => params.append('divisions', division));
+      }
+      if (selectedLocations.length > 0) {
+        selectedLocations.forEach(location => params.append('locations', location));
+      }
+      
+      // Fetch the export
+      const response = await fetch(`/api/export/rate-card?${params.toString()}`);
+      
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+      
+      // Get the filename from the Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'rate-card-export.csv';
+      if (contentDisposition) {
+        const matches = /filename="([^"]+)"/.exec(contentDisposition);
+        if (matches && matches[1]) {
+          filename = matches[1];
+        }
+      }
+      
+      // Create a blob and download it
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Export Successful",
+        description: `Rate card data exported to ${filename}`,
+      });
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export rate card data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2" data-testid="text-page-title">
-            Rate Card & Pricing
-          </h1>
-          <p className="text-gray-600" data-testid="text-page-subtitle">
-            Review current rates, Modulo suggestions, and AI recommendations
-          </p>
+          <div className="flex justify-between items-start mb-2">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2" data-testid="text-page-title">
+                Rate Card & Pricing
+              </h1>
+              <p className="text-gray-600" data-testid="text-page-subtitle">
+                Review current rates, Modulo suggestions, and AI recommendations
+              </p>
+            </div>
+            <Button 
+              onClick={handleExport}
+              disabled={isExporting}
+              variant="outline"
+              className="flex items-center gap-2"
+              data-testid="button-export-rate-card"
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? 'Exporting...' : 'Export to CSV'}
+            </Button>
+          </div>
           
           {/* Filters */}
           <div className="mt-6 space-y-4">
