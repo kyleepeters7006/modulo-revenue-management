@@ -543,6 +543,7 @@ export const competitiveSurveyData = pgTable("competitive_survey_data", {
   careLevel2Rate: real("care_level_2_rate"),
   careLevel3Rate: real("care_level_3_rate"),
   careLevel4Rate: real("care_level_4_rate"),
+  medicationManagementFee: real("medication_management_fee"),
   totalMonthlyLow: real("total_monthly_low"),
   totalMonthlyHigh: real("total_monthly_high"),
   totalMonthlyAvg: real("total_monthly_avg"),

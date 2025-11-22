@@ -296,7 +296,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                 const serviceLines = [
                   {
                     type: 'IL',
-                    flag: row['IL'],
+                    flag: row['IL flag'] || row['IL'],
                     careLevel1: parseNumeric(row['IL_Level1']),
                     careLevel2: parseNumeric(row['IL_Level2']),
                     careLevel3: parseNumeric(row['IL_Level3']),
@@ -312,7 +312,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'AL',
-                    flag: row['AL'],
+                    flag: row['AL flag'] || row['AL'],
                     careLevel1: parseNumeric(row['AL_Level1']),
                     careLevel2: parseNumeric(row['AL_Level2']),
                     careLevel3: parseNumeric(row['AL_Level3']),
@@ -330,7 +330,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'HC',
-                    flag: row['HC'],
+                    flag: row['HC flag'] || row['HC'],
                     careLevel1: parseNumeric(row['HC_Level1']),
                     careLevel2: parseNumeric(row['HC_Level2']),
                     careLevel3: parseNumeric(row['HC_Level3']),
@@ -346,7 +346,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'SMC',
-                    flag: row['SMC'],
+                    flag: row['SMC flag'] || row['SMC'],
                     careLevel1: parseNumeric(row['SMC_Level1']),
                     careLevel2: parseNumeric(row['SMC_Level2']),
                     careLevel3: parseNumeric(row['SMC_Level3']),
@@ -361,7 +361,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'MC',
-                    flag: row['MC'],
+                    flag: row['MC flag'] || row['MC'],
                     careLevel1: parseNumeric(row['MC_Level1']),
                     careLevel2: parseNumeric(row['MC_Level2']),
                     careLevel3: parseNumeric(row['MC_Level3']),

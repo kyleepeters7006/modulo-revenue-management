@@ -108,6 +108,11 @@ async function getBestCompetitorRate(
   competitorName: string;
   baseRate: number;
   careFeesAvg: number;
+  careLevel1Rate: number | null;
+  careLevel2Rate: number | null;
+  careLevel3Rate: number | null;
+  careLevel4Rate: number | null;
+  medicationManagementFee: number | null;
   surveyData: CompetitiveSurveyData;
 } | null> {
   try {
@@ -177,6 +182,11 @@ async function getBestCompetitorRate(
       competitorName: bestRecord.competitorName,
       baseRate: bestRecord.monthlyRateAvg || 0,
       careFeesAvg: bestRecord.careFeesAvg || 0,
+      careLevel1Rate: bestRecord.careLevel1Rate || null,
+      careLevel2Rate: bestRecord.careLevel2Rate || null,
+      careLevel3Rate: bestRecord.careLevel3Rate || null,
+      careLevel4Rate: bestRecord.careLevel4Rate || null,
+      medicationManagementFee: bestRecord.medicationManagementFee || null,
       surveyData: bestRecord
     };
     
@@ -187,15 +197,38 @@ async function getBestCompetitorRate(
 }
 
 /**
- * Get Trilogy's care level 2 rate for a location and service line
+ * Get Trilogy's care level 2 rate for a location and service line from actual rent roll data
  */
 async function getTrilogyCareLevel2Rate(
   location: string,
-  serviceLine: string
+  serviceLine: string,
+  uploadMonth?: string
 ): Promise<number | null> {
   try {
-    // This would typically come from your rate card or assumptions table
-    // For now, we'll use a standard rate by service line
+    // Get actual care rates from rent roll data for this location and service line
+    const conditions: any[] = [
+      eq(rentRollData.location, location),
+      eq(rentRollData.serviceLine, serviceLine),
+      sql`${rentRollData.careRate} IS NOT NULL`,
+      sql`${rentRollData.careRate} > 0`
+    ];
+    
+    if (uploadMonth) {
+      conditions.push(eq(rentRollData.uploadMonth, uploadMonth));
+    }
+    
+    const careRates = await db.select({ careRate: rentRollData.careRate })
+      .from(rentRollData)
+      .where(and(...conditions))
+      .limit(10);
+    
+    if (careRates.length > 0) {
+      // Calculate average care rate from actual data
+      const avgCareRate = careRates.reduce((sum, r) => sum + (r.careRate || 0), 0) / careRates.length;
+      return avgCareRate;
+    }
+    
+    // Fallback to standard rates if no data available
     const standardRates: Record<string, number> = {
       'AL': 500,
       'AL/MC': 750,
@@ -248,20 +281,23 @@ export async function calculateCompetitorRateForUnit(
     result.competitorName = competitorData.competitorName;
     result.competitorBaseRate = competitorData.baseRate;
     
-    // Get Trilogy's care level 2 rate
-    const trilogyCareLevel2 = await getTrilogyCareLevel2Rate(unit.location, unit.serviceLine);
+    // Get Trilogy's care level 2 rate from actual rent roll data
+    const trilogyCareLevel2 = await getTrilogyCareLevel2Rate(unit.location, unit.serviceLine, unit.uploadMonth);
     
-    // Calculate adjusted rate using the formula
-    // The competitor's care fees are considered as their care level 2 rate
+    // Calculate adjusted rate using the 4-level care formula with actual competitor data
     const adjustmentResult = calculateAdjustedCompetitorRate({
       competitorBaseRate: competitorData.baseRate,
-      competitorCareLevel2Rate: competitorData.careFeesAvg,
-      competitorMedicationManagementFee: 0, // Not in survey data
+      competitorCareLevel1Rate: competitorData.careLevel1Rate,
+      competitorCareLevel2Rate: competitorData.careLevel2Rate,
+      competitorCareLevel3Rate: competitorData.careLevel3Rate,
+      competitorCareLevel4Rate: competitorData.careLevel4Rate,
+      competitorMedicationManagementFee: competitorData.medicationManagementFee,
       trilogyCareLevel2Rate: trilogyCareLevel2
     });
     
     result.competitorAdjustedRate = adjustmentResult.adjustedRate;
     result.adjustmentDetails = JSON.stringify({
+      normalizedRate: adjustmentResult.normalizedRate,
       baseRate: adjustmentResult.baseRate,
       careLevel2Adjustment: adjustmentResult.careLevel2Adjustment,
       medicationManagementAdjustment: adjustmentResult.medicationManagementAdjustment,
