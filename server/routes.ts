@@ -1321,13 +1321,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const revenueByMonth: Record<string, number> = {};
       
       rentRollData.forEach((unit: any) => {
-        // Use upload month or current month (handle both snake_case and camelCase)
-        const monthKey = unit.upload_month || unit.uploadMonth || '2025-01';
-        // Calculate revenue: street_rate + care_rate for occupied units only (handle both snake_case and camelCase)
-        const isOccupied = unit.occupied_yn !== undefined ? unit.occupied_yn : unit.occupiedYn;
-        const streetRate = unit.street_rate !== undefined ? unit.street_rate : (unit.streetRate || 0);
-        const careRate = unit.care_rate !== undefined ? unit.care_rate : (unit.careRate || 0);
-        const monthlyRevenue = isOccupied ? (streetRate + careRate) : 0;
+        // Use upload month or current month
+        const monthKey = unit.uploadMonth || '2025-01';
+        
+        // For occupied units: use inHouseRate (actual rate being paid by residents, includes special rates)
+        // For vacant units: use streetRate (potential revenue)
+        let monthlyRevenue = 0;
+        
+        if (unit.occupiedYN) {
+          // Use inHouseRate for occupied units - this is what residents are actually paying
+          // This includes any special rates, rate freezes, etc.
+          const inHouseRate = unit.inHouseRate || 0;
+          const careRate = unit.careRate || 0;
+          monthlyRevenue = inHouseRate + careRate;
+          
+          // Apply any promotion allowance if present
+          if (unit.promotionAllowance) {
+            monthlyRevenue -= unit.promotionAllowance;
+          }
+        } else {
+          // For vacant units, use streetRate to show potential revenue
+          const streetRate = unit.streetRate || 0;
+          monthlyRevenue = streetRate;
+        }
         
         if (!revenueByMonth[monthKey]) {
           revenueByMonth[monthKey] = 0;
