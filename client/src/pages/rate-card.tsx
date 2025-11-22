@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { ChevronDown, X, Download, Calculator } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -48,6 +49,12 @@ export default function RateCard() {
   );
   const [isExporting, setIsExporting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [jobProgress, setJobProgress] = useState<{
+    percentage: number;
+    current: number;
+    total: number;
+    message: string;
+  } | null>(null);
   const { toast } = useToast();
 
   // Save filters to localStorage whenever they change
@@ -91,10 +98,51 @@ export default function RateCard() {
     setter([]);
   };
 
-  // Generate Modulo mutation
+  // Function to check job status
+  const checkJobStatus = async (jobId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/pricing/job-status/${jobId}`);
+        const data = await response.json();
+        
+        if (data.status === 'completed') {
+          clearInterval(pollInterval);
+          setIsGenerating(false);
+          setJobProgress(null);
+          toast({
+            title: "Modulo Calculation Complete",
+            description: `Successfully generated pricing for ${data.progress.total} units.`,
+          });
+          // Invalidate rate card data to refresh the table
+          queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+        } else if (data.status === 'failed') {
+          clearInterval(pollInterval);
+          setIsGenerating(false);
+          setJobProgress(null);
+          toast({
+            title: "Calculation Failed",
+            description: data.error || "Failed to generate Modulo pricing suggestions.",
+            variant: "destructive",
+          });
+        } else if (data.status === 'processing') {
+          // Update progress
+          setJobProgress({
+            percentage: data.progress.percentage || 0,
+            current: data.progress.current || 0,
+            total: data.progress.total || 0,
+            message: data.progress.message || 'Processing...'
+          });
+        }
+      } catch (error) {
+        console.error('Error checking job status:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+  };
+
+  // Generate Modulo mutation using optimized endpoint
   const generateModuloMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('/api/pricing/generate-modulo', 'POST', {
+      const response = await apiRequest('/api/pricing/generate-modulo-optimized', 'POST', {
         month: '2025-10', // Using October 2025 as default month with data
         serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
         regions: selectedRegions.length > 0 ? selectedRegions : undefined,
@@ -105,25 +153,32 @@ export default function RateCard() {
     },
     onMutate: () => {
       setIsGenerating(true);
-    },
-    onSuccess: () => {
-      toast({
-        title: "Modulo Calculation Complete",
-        description: "Pricing suggestions have been generated successfully.",
+      setJobProgress({
+        percentage: 0,
+        current: 0,
+        total: 0,
+        message: 'Starting calculation...'
       });
-      // Invalidate rate card data to refresh the table
-      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+    },
+    onSuccess: (data) => {
+      if (data.jobId) {
+        toast({
+          title: "Calculation Started",
+          description: "Processing pricing suggestions in the background...",
+        });
+        // Start polling for job status
+        checkJobStatus(data.jobId);
+      }
     },
     onError: (error) => {
+      setIsGenerating(false);
+      setJobProgress(null);
       toast({
         title: "Calculation Failed",
-        description: "Failed to generate Modulo pricing suggestions. Please try again.",
+        description: "Failed to start Modulo pricing calculation. Please try again.",
         variant: "destructive",
       });
       console.error('Generate Modulo error:', error);
-    },
-    onSettled: () => {
-      setIsGenerating(false);
     },
   });
 
@@ -203,26 +258,39 @@ export default function RateCard() {
                 Review current rates, Modulo suggestions, and AI recommendations
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button 
-                onClick={() => generateModuloMutation.mutate()}
-                disabled={isGenerating}
-                className="flex items-center gap-2 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
-                data-testid="button-generate-modulo"
-              >
-                <Calculator className="h-4 w-4" />
-                {isGenerating ? 'Calculating...' : 'Generate Modulo'}
-              </Button>
-              <Button 
-                onClick={handleExport}
-                disabled={isExporting}
-                variant="outline"
-                className="flex items-center gap-2"
-                data-testid="button-export-rate-card"
-              >
-                <Download className="h-4 w-4" />
-                {isExporting ? 'Exporting...' : 'Export to CSV'}
-              </Button>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <Button 
+                  onClick={() => generateModuloMutation.mutate()}
+                  disabled={isGenerating}
+                  className="flex items-center gap-2 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
+                  data-testid="button-generate-modulo"
+                >
+                  <Calculator className="h-4 w-4" />
+                  {isGenerating ? 'Calculating...' : 'Generate Modulo'}
+                </Button>
+                <Button 
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                  data-testid="button-export-rate-card"
+                >
+                  <Download className="h-4 w-4" />
+                  {isExporting ? 'Exporting...' : 'Export to CSV'}
+                </Button>
+              </div>
+              {jobProgress && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm font-medium text-blue-900">{jobProgress.message}</span>
+                    <span className="text-sm text-blue-700">
+                      {jobProgress.current} / {jobProgress.total} units ({jobProgress.percentage}%)
+                    </span>
+                  </div>
+                  <Progress value={jobProgress.percentage} className="h-2" />
+                </div>
+              )}
             </div>
           </div>
           
