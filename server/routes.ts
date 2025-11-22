@@ -6887,13 +6887,53 @@ Respond in JSON format:
         surveyMonth
       );
       
-      res.json(importStats);
+      // Auto-trigger competitor rate matching after successful import
+      console.log('Triggering automatic competitor rate matching...');
+      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+      
+      // Run in background - don't wait for completion
+      processAllUnitsForCompetitorRates(surveyMonth).then(matchingStats => {
+        console.log('Competitor rate matching completed:', {
+          processed: matchingStats.processed,
+          updated: matchingStats.updated,
+          errors: matchingStats.errors
+        });
+      }).catch(error => {
+        console.error('Error in automatic competitor matching:', error);
+      });
+      
+      res.json({
+        ...importStats,
+        message: 'Import successful. Competitor rate matching is running in the background.'
+      });
     } catch (error) {
       console.error('Error importing competitive survey:', error);
       res.status(500).json({ error: "Failed to import competitive survey data" });
     }
   });
   
+  // Manually trigger competitor rate matching
+  app.post("/api/competitor-matching/process", async (req, res) => {
+    try {
+      const { uploadMonth } = req.body;
+      
+      console.log(`Starting competitor rate matching for month: ${uploadMonth || 'all'}...`);
+      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+      
+      const stats = await processAllUnitsForCompetitorRates(uploadMonth);
+      
+      console.log('Competitor rate matching completed:', stats);
+      res.json({
+        success: true,
+        ...stats,
+        message: `Processed ${stats.processed} units, updated ${stats.updated} units with competitor rates`
+      });
+    } catch (error) {
+      console.error('Error processing competitor rates:', error);
+      res.status(500).json({ error: "Failed to process competitor rates" });
+    }
+  });
+
   app.get("/api/import/location-mappings", async (req, res) => {
     try {
       const mappings = await storage.getLocationMappings();

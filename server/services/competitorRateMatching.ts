@@ -26,14 +26,15 @@ const ROOM_TYPE_MAPPING = {
     'Private': 'Studio'
   },
   // Health Center (HC) mappings
+  // Survey data has: Studio, Companion, Studio Dlx
   HC: {
-    'Studio': 'Private',
-    'Studio Dlx': 'Private',
-    'Companion': 'Semi-Private',
-    'One Bedroom': 'Private',
-    'Two Bedroom': 'Private',
-    'Private': 'Private',
-    'Semi-Private': 'Semi-Private'
+    'Studio': 'Studio',
+    'Studio Dlx': 'Studio Dlx',
+    'Companion': 'Companion',
+    'One Bedroom': 'Studio',
+    'Two Bedroom': 'Studio',
+    'Private': 'Studio',
+    'Semi-Private': 'Companion'
   },
   // Senior Living (SL) mappings
   SL: {
@@ -71,13 +72,14 @@ const ROOM_TYPE_MAPPING = {
 } as const;
 
 // Service line mapping: Maps Trilogy service lines to competitive survey types
+// Based on actual competitor_type values in competitive_survey_data: 'HC' and 'SMC'
 const SERVICE_LINE_MAPPING: Record<string, string> = {
-  'AL': 'AL',
-  'AL/MC': 'MC',
-  'HC': 'SNF',
-  'HC/MC': 'SNF',
-  'SL': 'IL',
-  'VIL': 'IL'
+  'AL': 'AL',      // No AL data in current survey
+  'AL/MC': 'SMC',  // Skilled Memory Care
+  'HC': 'HC',      // Health Center (was incorrectly mapped to 'SNF')
+  'HC/MC': 'SMC',  // Skilled Memory Care
+  'SL': 'IL',      // No IL data in current survey
+  'VIL': 'IL'      // No IL data in current survey
 };
 
 interface CompetitorRateResult {

@@ -30,8 +30,10 @@ Preferred communication style: Simple, everyday language.
 ## Core Features
 - **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions, with a premium positioning strategy.
 - **Hierarchical Pricing Weights**: Granular control of pricing weights at the Location + Service Line level with a 3-tier fallback system (specific → location → global).
+- **Competitive Survey Import & Auto-Matching**: Imports wide-format Excel competitive survey data (4,206+ records) and automatically matches competitors to rent roll units by location + service line + room type. System processes all units (17,216) in batches of 100, resulting in ~3,400+ units matched with competitor data. Matching runs automatically after survey import and can be manually triggered via API endpoint.
 - **Competitor Rate Matching with Detailed Breakdown**: Matches competitors at **Location + Service Line + Room Type** level, storing 6 detailed columns per unit (competitor name, base rate, weight, care level adjustment, medication management adjustment, and explanation) to enable comprehensive rate analysis dialogs.
 - **Competitor Adjustment Service**: Calculates market-accurate competitor rates by adjusting for care level differences and medication management fees.
+- **Service Line & Room Type Mapping**: Intelligent mapping system converts Trilogy's service lines (AL, HC, SL, VIL, AL/MC, HC/MC) to survey competitor types (HC, SMC) and normalizes room types (Studio, Companion, Studio Dlx) for accurate matching.
 - **AI-Powered Floor Plan System**: Integrates OpenAI Vision API for automatic room detection and mapping on floor plans.
 - **Interactive Floor Plan Booking System**: Drag-and-drop unit assignment, automatic polygon detection, visual feedback, and interactive tooltips.
 - **Data Import System**: Transaction-safe CSV upload and parsing for rent roll data with duplicate prevention, fuzzy matching, and Unicode-safe column matching.
