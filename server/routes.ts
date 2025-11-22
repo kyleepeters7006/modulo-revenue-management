@@ -2551,7 +2551,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           locationMap.set(roomType, []);
         }
         
-        if (comp.streetRate && comp.streetRate > 0) {
+        // Filter out unrealistically low rates (likely data import errors)
+        // Senior living monthly rates below $1000 are clearly errors (daily rates imported as monthly)
+        const MIN_REALISTIC_MONTHLY_RATE = 1000;
+        if (comp.streetRate && comp.streetRate > MIN_REALISTIC_MONTHLY_RATE) {
           locationMap.get(roomType)!.push(comp.streetRate);
         }
       });
@@ -2619,6 +2622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (locationCompetitors) {
               ['Studio', '1BR', '2BR'].forEach(alType => {
                 if (locationCompetitors.has(alType)) {
+                  // Already filtered for MIN_REALISTIC_MONTHLY_RATE in competitorsByLocationAndType
                   alBaseRates.push(...locationCompetitors.get(alType)!);
                 }
               });
