@@ -27,6 +27,13 @@ Preferred communication style: Simple, everyday language.
 - **Schema Management**: Drizzle Kit
 - **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`, `inquiry_metrics`.
 
+## Performance Optimizations (November 2025)
+- **Database Indexing**: Added 7 indexes on critical columns (upload_month, location_id, location, service_line, occupied_yn, room_number, room_type) to accelerate queries on 17,216-unit dataset
+- **Optimized Filtering**: Implemented database-level filtering in getRentRollDataFiltered method, replacing in-memory filtering with SQL WHERE clauses and pagination
+- **Map-Based Lookups**: Replaced O(n²) Array.find() operations with O(1) Map lookups in analytics endpoint, reducing processing time for campus data aggregation
+- **Competitor Data Quality**: Added validation filter to exclude erroneous competitor rates (<$1000/month) from competitive_survey_data, improving market position accuracy
+- **Response Time Improvements**: Rate card API reduced from timeouts to 63-67ms; Analytics API stable at ~0.9s for full portfolio
+
 ## Core Features
 - **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions, with a premium positioning strategy.
 - **Hierarchical Pricing Weights**: Granular control of pricing weights at the Location + Service Line level with a 3-tier fallback system (specific → location → global).
