@@ -226,6 +226,236 @@ export async function importEnquireCSV(
   });
 }
 
+export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth: string): Promise<ImportStats> {
+  const stats: ImportStats = {
+    totalRecords: 0,
+    successfulImports: 0,
+    failedImports: 0,
+    mappedRecords: 0,
+    unmappedRecords: 0,
+    errors: [],
+  };
+
+  return new Promise((resolve) => {
+    // Try UTF-8 first, fallback to latin1 if needed
+    let fileContent: string;
+    try {
+      fileContent = fileBuffer.toString('utf-8');
+    } catch (e) {
+      fileContent = fileBuffer.toString('latin1');
+    }
+
+    Papa.parse(fileContent, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results: Papa.ParseResult<any>) => {
+        stats.totalRecords = results.data.length;
+        console.log(`Parsed ${stats.totalRecords} rows from CSV`);
+
+        const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
+        const allRecords: InsertCompetitiveSurveyData[] = [];
+
+        try {
+          // First, collect all records (no database operations yet)
+          for (const row of results.data) {
+            try {
+                const trilogyCampus = row['TrilogyCampusName'] || '';
+                const competitorName = row['CompetitorFacilityName'] || '';
+                const address = row['Address'] || null;
+                const latitude = row['Latitude'] || null;
+                const longitude = row['Longitude'] || null;
+
+                // Parse driving time
+                let distanceMiles: number | null = null;
+                if (row['DrivingTime']) {
+                  const timeMatch = String(row['DrivingTime']).match(/(\d+)/);
+                  if (timeMatch) {
+                    distanceMiles = parseInt(timeMatch[1]);
+                  }
+                }
+
+                // Helper to check boolean flags
+                const isFlagTrue = (value: any): boolean => {
+                  if (value === true || value === 1) return true;
+                  if (typeof value === 'string') {
+                    const lower = value.toLowerCase().trim();
+                    return lower === 'true' || lower === '1' || lower === 'yes';
+                  }
+                  return false;
+                };
+
+                // Service line definitions
+                const serviceLines = [
+                  {
+                    type: 'IL',
+                    flag: row['IL'],
+                    roomTypes: [
+                      { name: 'Studio', rate: row['IL_StudioRate'] || row['IL_StudioPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                      { name: 'One Bedroom', rate: row['IL_OneBedRate'] || row['IL_1BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                      { name: 'Two Bedroom', rate: row['IL_TwoBedRate'] || row['IL_2BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                    ],
+                    occupancy: row['IL_Occupancy'],
+                    totalUnits: row['IL_TotalUnits'],
+                  },
+                  {
+                    type: 'AL',
+                    flag: row['AL'],
+                    roomTypes: [
+                      { name: 'Studio', rate: row['AL_StudioRate'] || row['AL_StudioPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                      { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                      { name: 'One Bedroom', rate: row['AL_OneBedRate'] || row['AL_1BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                      { name: 'Two Bedroom', rate: row['AL_TwoBedRate'] || row['AL_2BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                      { name: 'Companion', rate: row['AL_CompanionRate'] || row['AL_2ndPersonFee'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                    ],
+                    occupancy: row['AL_Occupancy'],
+                    totalUnits: row['AL_TotalUnits'],
+                  },
+                  {
+                    type: 'HC',
+                    flag: row['HC'],
+                    roomTypes: [
+                      { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                      { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'] || row['HC_PrivateDlxRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'] || row['HC_2ndPersonFee'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                    ],
+                    occupancy: row['HC_Occupancy'],
+                    totalUnits: row['HC_TotalUnits'],
+                  },
+                  {
+                    type: 'SMC',
+                    flag: row['SMC'],
+                    roomTypes: [
+                      { name: 'Studio', rate: row['SMC_PrivateRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['SMC_CompanionRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
+                    ],
+                    occupancy: row['SMC_Occupancy'],
+                    totalUnits: row['SMC_TotalUnits'],
+                  },
+                  {
+                    type: 'MC',
+                    flag: row['MC'],
+                    roomTypes: [
+                      { name: 'Studio', rate: row['MC_PrivateRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['MC_CompanionRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
+                    ],
+                    occupancy: null,
+                    totalUnits: null,
+                  },
+                  {
+                    type: 'AL/MC',
+                    flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    roomTypes: [
+                      { name: 'Studio', rate: row['AL/MC_PrivateRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['AL/MC_CompanionRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                    ],
+                    occupancy: null,
+                    totalUnits: null,
+                  },
+                  {
+                    type: 'HC/MC',
+                    flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    roomTypes: [
+                      { name: 'Studio', rate: row['HC/MC_PrivateRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['HC/MC_CompanionRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                    ],
+                    occupancy: null,
+                    totalUnits: null,
+                  },
+                ];
+
+                // Process each service line
+                for (const serviceLine of serviceLines) {
+                  if (!isFlagTrue(serviceLine.flag)) continue;
+
+                  for (const roomType of serviceLine.roomTypes) {
+                    if (!roomType.rate || parseFloat(roomType.rate) === 0) continue;
+
+                    const record: InsertCompetitiveSurveyData = {
+                      surveyMonth,
+                      keyStatsLocation: trilogyCampus,
+                      competitorName,
+                      competitorAddress: address,
+                      distanceMiles,
+                      competitorType: serviceLine.type,
+                      roomType: roomType.name,
+                      squareFootage: null,
+                      monthlyRateLow: null,
+                      monthlyRateHigh: null,
+                      monthlyRateAvg: parseFloat(roomType.rate) || null,
+                      careFeesLow: null,
+                      careFeesHigh: null,
+                      careFeesAvg: parseFloat(roomType.careLevel) || null,
+                      totalMonthlyLow: null,
+                      totalMonthlyHigh: null,
+                      totalMonthlyAvg: null,
+                      communityFee: null,
+                      petFee: null,
+                      otherFees: parseFloat(roomType.otherAdj) || null,
+                      incentives: null,
+                      totalUnits: serviceLine.totalUnits ? parseInt(serviceLine.totalUnits) : null,
+                      occupancyRate: serviceLine.occupancy ? parseFloat(serviceLine.occupancy) : null,
+                      yearBuilt: row['Age'] ? parseInt(row['Age']) : null,
+                      lastRenovation: null,
+                      amenities: null,
+                      notes: JSON.stringify({
+                        weight: roomType.weight || 0,
+                        latitude,
+                        longitude,
+                        providerId: row['ID'],
+                        providerNumber: row['Provider Number'],
+                      }),
+                    };
+
+                    allRecords.push(record);
+                    insertCounts[serviceLine.type as keyof typeof insertCounts] = (insertCounts[serviceLine.type as keyof typeof insertCounts] || 0) + 1;
+                  }
+                }
+              } catch (error: any) {
+                stats.failedImports++;
+                stats.errors.push(`Row ${stats.successfulImports + stats.failedImports}: ${error.message}`);
+              }
+            }
+
+          console.log(`\nPrepared ${allRecords.length} records for insertion`);
+          console.log('Starting database transaction...');
+
+          // Now do a single batch insert in a transaction
+          await db.transaction(async (tx) => {
+            await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+            console.log('Deleted old survey data');
+
+            // Insert in batches of 1000 to avoid memory issues
+            const batchSize = 1000;
+            for (let i = 0; i < allRecords.length; i += batchSize) {
+              const batch = allRecords.slice(i, i + batchSize);
+              await tx.insert(competitiveSurveyData).values(batch);
+              console.log(`Inserted batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(allRecords.length / batchSize)}`);
+            }
+          });
+
+          stats.successfulImports = allRecords.length;
+          stats.mappedRecords = allRecords.length;
+
+          // Log summary
+          console.log('\n=== CSV Import Summary ===');
+          console.log(`Records inserted by type:`);
+          Object.entries(insertCounts).forEach(([type, count]) => {
+            if (count > 0) console.log(`  ${type}: ${count}`);
+          });
+        } catch (txError: any) {
+          stats.errors.push(`Transaction error: ${txError.message}`);
+        }
+
+        resolve(stats);
+      },
+      error: (error: Error) => {
+        stats.errors.push(`CSV parsing error: ${error.message}`);
+        resolve(stats);
+      },
+    });
+  });
+}
+
 export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMonth: string): Promise<ImportStats> {
   const stats: ImportStats = {
     totalRecords: 0,
