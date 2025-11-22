@@ -573,22 +573,47 @@ export default function FloorPlansPage() {
         </div>
       ) : (
         <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column - Filters and Unit List (1/3 width) */}
-            <div className="lg:col-span-1">
-              <div className="sticky top-4 space-y-6 max-h-[calc(100vh-2rem)] overflow-y-auto">
-                {/* Desktop Filter Section - Collapsible and Sticky */}
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* Left Column - Floor Plan Viewer (60% width on desktop) */}
+            <div className="flex-1 lg:flex-[1.5] order-2 lg:order-1">
+              <Card className="shadow-sm h-full min-h-[400px] lg:min-h-[calc(100vh-12rem)]">
+                <CardContent className="p-0 h-full">
+                  {isLoadingMap ? (
+                    <div className="h-full flex items-center justify-center bg-gray-50">
+                      <div className="text-center">
+                        <Skeleton className="h-16 w-16 rounded-full mx-auto mb-4 animate-pulse" />
+                        <p className="text-gray-500">Loading floor plan...</p>
+                      </div>
+                    </div>
+                  ) : campusMap ? (
+                    <InteractiveFloorPlanViewer campusMap={campusMap} />
+                  ) : (
+                    <div className="h-full flex items-center justify-center bg-gray-50">
+                      <div className="text-center">
+                        <MapPin className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                        <p className="text-gray-500">No floor plan available</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right Column - Filters and Unit List (40% width on desktop) */}
+            <div className="flex-1 lg:w-[450px] lg:max-w-[450px] order-1 lg:order-2">
+              <div className="sticky top-4 space-y-4 max-h-[calc(100vh-6rem)]">
+                {/* Desktop Filter Section - Collapsible */}
                 <div className="hidden lg:block">
                   <Card className="shadow-sm transition-all duration-300">
                     <Collapsible open={isFilterOpen} onOpenChange={setIsFilterOpen}>
                       <CollapsibleTrigger className="w-full">
-                        <CardContent className="p-6 pb-4">
+                        <CardContent className="px-4 py-3">
                           <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-medium text-gray-900">
+                            <h3 className="text-base font-medium text-gray-900">
                               Filters
                               {activeFilterCount > 0 && (
-                                <Badge className="ml-2 bg-blue-500">
-                                  {activeFilterCount} active
+                                <Badge className="ml-2 bg-blue-500 text-xs">
+                                  {activeFilterCount}
                                 </Badge>
                               )}
                             </h3>
@@ -597,7 +622,7 @@ export default function FloorPlansPage() {
                         </CardContent>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
-                        <CardContent className="p-6 pt-0">
+                        <CardContent className="px-4 pb-4 pt-0">
                           <FilterControls />
                         </CardContent>
                       </CollapsibleContent>
@@ -606,11 +631,18 @@ export default function FloorPlansPage() {
                 </div>
 
                 {/* Unit List Section */}
-                <Card className="shadow-sm">
-                  <CardContent className="p-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
-                      {filteredUnits.length} {filteredUnits.length === 1 ? 'Match' : 'Matches'}
-                    </h3>
+                <Card className="shadow-sm h-full">
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-base font-medium text-gray-900">
+                        Available Units ({filteredUnits.length})
+                      </h3>
+                      {filteredUnits.filter(u => !u.occupiedYN).length > 0 && (
+                        <Badge className="bg-green-100 text-green-700">
+                          {filteredUnits.filter(u => !u.occupiedYN).length} Available
+                        </Badge>
+                      )}
+                    </div>
                     
                     {/* No results message */}
                     {filteredUnits.length === 0 && !isLoadingUnits ? (
@@ -629,11 +661,11 @@ export default function FloorPlansPage() {
                         </Button>
                       </div>
                     ) : (
-                      <ScrollArea className="h-[500px] pr-4">
+                      <ScrollArea className="h-[calc(100vh-20rem)] lg:h-[calc(100vh-24rem)] pr-2">
                         {isLoadingUnits ? (
                           <div className="space-y-3">
                             {[...Array(5)].map((_, i) => (
-                              <Skeleton key={i} className="h-32 w-full animate-pulse" />
+                              <Skeleton key={i} className="h-28 w-full animate-pulse" />
                             ))}
                           </div>
                         ) : (
@@ -662,31 +694,6 @@ export default function FloorPlansPage() {
                   </CardContent>
                 </Card>
               </div>
-            </div>
-
-            {/* Right Column - Floor Plan Viewer (2/3 width) */}
-            <div className="lg:col-span-2">
-              <Card className="shadow-sm h-full min-h-[400px] lg:min-h-[700px]">
-                <CardContent className="p-0 h-full">
-                  {isLoadingMap ? (
-                    <div className="h-full flex items-center justify-center bg-gray-50">
-                      <div className="text-center">
-                        <Skeleton className="h-16 w-16 rounded-full mx-auto mb-4 animate-pulse" />
-                        <p className="text-gray-500">Loading floor plan...</p>
-                      </div>
-                    </div>
-                  ) : campusMap ? (
-                    <InteractiveFloorPlanViewer campusMap={campusMap} />
-                  ) : (
-                    <div className="h-full flex items-center justify-center bg-gray-50">
-                      <div className="text-center">
-                        <MapPin className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                        <p className="text-gray-500">No floor plan available</p>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
             </div>
           </div>
         </div>
