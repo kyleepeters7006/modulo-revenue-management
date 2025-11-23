@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { storage } from './storage';
 import { db } from './db';
 import { rentRollData, competitiveSurveyData, enquireData } from '@shared/schema';
-import { eq, sql, and } from 'drizzle-orm';
+import { eq, sql, and, or, inArray } from 'drizzle-orm';
 import { calculateAttributedPrice, ensureCacheInitialized } from './pricingOrchestrator';
 import type { RentRollData, Guardrails, PricingWeights } from '@shared/schema';
 import type { PricingInputs } from './moduloPricingAlgorithm';
@@ -299,18 +299,48 @@ class PricingJobManager {
     });
     
     // 7. Calculate service line occupancy
+    // IMPORTANT: For senior housing (AL, SL, VIL, IL, AL/MC), exclude B-beds from occupancy calculation
+    // Only HC counts all beds
     console.log(`[PricingJob ${jobId}] Calculating occupancy metrics...`);
     const serviceLineOccupancy = new Map<string, number>();
-    const serviceLineStats = await db.select({
+    const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'IL', 'AL/MC'];
+    
+    // Calculate occupancy for senior housing (excluding B-beds)
+    const seniorHousingStats = await db.select({
+      serviceLine: rentRollData.serviceLine,
+      occupied: sql`SUM(CASE WHEN occupied_yn = true AND room_number NOT LIKE '%/B' THEN 1 ELSE 0 END)`.as('occupied'),
+      total: sql`COUNT(CASE WHEN room_number NOT LIKE '%/B' THEN 1 END)`.as('total')
+    })
+    .from(rentRollData)
+    .where(and(
+      eq(rentRollData.uploadMonth, targetMonth),
+      inArray(rentRollData.serviceLine, seniorHousingServiceLines)
+    ))
+    .groupBy(rentRollData.serviceLine);
+    
+    for (const stats of seniorHousingStats) {
+      const serviceLine = stats.serviceLine || 'Unknown';
+      const { occupied, total } = stats as { occupied: number; total: number };
+      serviceLineOccupancy.set(serviceLine, total > 0 ? occupied / total : 0);
+    }
+    
+    // Calculate occupancy for HC (including all beds)
+    const hcStats = await db.select({
       serviceLine: rentRollData.serviceLine,
       occupied: sql`SUM(CASE WHEN occupied_yn = true THEN 1 ELSE 0 END)`.as('occupied'),
       total: sql`COUNT(*)`.as('total')
     })
     .from(rentRollData)
-    .where(eq(rentRollData.uploadMonth, targetMonth))
+    .where(and(
+      eq(rentRollData.uploadMonth, targetMonth),
+      or(
+        eq(rentRollData.serviceLine, 'HC'),
+        eq(rentRollData.serviceLine, 'HC/MC')
+      )
+    ))
     .groupBy(rentRollData.serviceLine);
     
-    for (const stats of serviceLineStats) {
+    for (const stats of hcStats) {
       const serviceLine = stats.serviceLine || 'Unknown';
       const { occupied, total } = stats as { occupied: number; total: number };
       serviceLineOccupancy.set(serviceLine, total > 0 ? occupied / total : 0);
