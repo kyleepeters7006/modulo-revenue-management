@@ -142,6 +142,21 @@ export function Analytics() {
       return response.json();
     }
   });
+  
+  // Fetch vacancy scatter data
+  const { data: vacancyData, isLoading: isLoadingVacancy } = useQuery({
+    queryKey: ['/api/analytics/vacancy-scatter', selectedRegion, selectedDivision, selectedServiceLine],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedRegion !== 'all') params.append('location', selectedRegion);
+      if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      
+      const response = await fetch(`/api/analytics/vacancy-scatter${queryString}`);
+      if (!response.ok) throw new Error('Failed to fetch vacancy data');
+      return response.json();
+    }
+  });
 
   // Process data for scatter plots
   const processedData = useMemo(() => {
@@ -519,13 +534,14 @@ export function Analytics() {
 
       {/* Scatter Plots */}
       <Tabs defaultValue="rate-growth" className="space-y-4">
-        <TabsList className="grid grid-cols-3 lg:grid-cols-6 w-full">
+        <TabsList className="grid grid-cols-4 lg:grid-cols-7 w-full">
           <TabsTrigger value="rate-growth">Rate Growth</TabsTrigger>
           <TabsTrigger value="price-position">Price vs Market</TabsTrigger>
           <TabsTrigger value="occupancy-rate">Occupancy vs Rate</TabsTrigger>
           <TabsTrigger value="occupancy-position">Occ vs Position</TabsTrigger>
           <TabsTrigger value="revenue-impact">Revenue Impact</TabsTrigger>
           <TabsTrigger value="market-share">Market Position</TabsTrigger>
+          <TabsTrigger value="vacancy-analysis">Vacancy Analysis</TabsTrigger>
         </TabsList>
 
         {/* Occupancy vs T6 Rate Growth */}
@@ -910,6 +926,131 @@ export function Analytics() {
                   </Badge>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Vacancy Analysis */}
+        <TabsContent value="vacancy-analysis" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Vacancy Analysis</CardTitle>
+              <CardDescription>
+                Each dot represents a vacant unit or B-bed. Click any dot to view its rate card.
+                {vacancyData?.summary && (
+                  <div className="mt-2 text-sm">
+                    <span className="font-medium">{vacancyData.summary.totalVacantUnits} vacant units</span>
+                    {vacancyData.summary.totalBBeds > 0 && (
+                      <span className="ml-2">• {vacancyData.summary.totalBBeds} B-beds</span>
+                    )}
+                    {vacancyData.summary.avgDaysVacant > 0 && (
+                      <span className="ml-2">• Avg {Math.round(vacancyData.summary.avgDaysVacant)} days vacant</span>
+                    )}
+                  </div>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingVacancy ? (
+                <div className="h-[500px] flex items-center justify-center">
+                  <span className="text-muted-foreground">Loading vacancy data...</span>
+                </div>
+              ) : vacancyData?.units && vacancyData.units.length > 0 ? (
+                <ResponsiveContainer width="100%" height={500}>
+                  <ScatterChart margin={{ top: 20, right: 20, bottom: 60, left: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      type="number" 
+                      dataKey="campusOccupancy" 
+                      name="Campus Occupancy"
+                      label={{ value: 'Campus Occupancy (%)', position: 'insideBottom', offset: -10 }}
+                      domain={[0, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                    />
+                    <YAxis 
+                      type="number" 
+                      dataKey="daysVacant" 
+                      name="Days Vacant"
+                      label={{ value: 'Days Vacant', angle: -90, position: 'center', dx: -20 }}
+                      domain={[0, 'dataMax + 10']}
+                    />
+                    <ZAxis type="number" range={[50, 150]} />
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+                              <p className="font-semibold text-sm mb-1">{data.location}</p>
+                              <p className="text-xs">Room: {data.roomNumber}</p>
+                              <p className="text-xs">Type: {data.roomType} ({data.unitType})</p>
+                              <p className="text-xs">Service Line: {data.serviceLine}</p>
+                              <p className="text-xs font-medium mt-1">
+                                Days Vacant: {data.daysVacant}
+                              </p>
+                              <p className="text-xs">
+                                Campus Occupancy: {data.campusOccupancy.toFixed(1)}%
+                              </p>
+                              {data.streetRate > 0 && (
+                                <p className="text-xs">
+                                  Street Rate: ${Math.round(data.streetRate).toLocaleString()}
+                                </p>
+                              )}
+                              <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                <p className="text-xs text-[var(--trilogy-teal)] font-medium">
+                                  Click to view rate card →
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      height={36} 
+                      wrapperStyle={{ paddingTop: '20px' }}
+                      content={() => (
+                        <div className="flex justify-center gap-4 text-sm">
+                          <span className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded-full bg-red-500" />
+                            Vacant A-Beds
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded-full bg-blue-500" />
+                            B-Beds (HC)
+                          </span>
+                        </div>
+                      )}
+                    />
+                    <Scatter 
+                      name="Vacant Units" 
+                      data={vacancyData.units} 
+                      fill="#6B7280"
+                      onClick={(data: any) => {
+                        if (data && data.payload) {
+                          const unit = data.payload;
+                          const url = `/rate-card?location=${encodeURIComponent(unit.location)}&serviceLine=${encodeURIComponent(unit.serviceLine)}&unit=${encodeURIComponent(unit.roomNumber)}`;
+                          window.location.href = url;
+                        }
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {vacancyData.units.map((entry: any, index: number) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={entry.isBBed ? '#3B82F6' : '#EF4444'}  // Blue for B-beds, red for vacant A-beds
+                        />
+                      ))}
+                    </Scatter>
+                  </ScatterChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[500px] flex items-center justify-center">
+                  <span className="text-muted-foreground">No vacant units or B-beds found</span>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
