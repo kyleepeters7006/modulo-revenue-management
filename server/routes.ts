@@ -3939,7 +3939,19 @@ Keep recommendations specific and quantitative when possible.`;
       });
 
       // Calculate service line statistics for all data (not filtered)
+      // For senior housing (AL, SL, VIL), only count A-beds (units)
+      // For HC, count all beds
+      const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'IL', 'AL/MC'];
       const serviceLineStats = allRentRollData.reduce((acc: any, unit: any) => {
+        // For senior housing, skip B-beds
+        const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
+        const isBBed = unit.roomNumber && unit.roomNumber.endsWith('/B');
+        
+        if (isSeniorHousing && isBBed) {
+          // Skip B-beds for senior housing
+          return acc;
+        }
+        
         if (!acc[unit.serviceLine]) {
           acc[unit.serviceLine] = { occupied: 0, total: 0 };
         }
@@ -3951,11 +3963,28 @@ Keep recommendations specific and quantitative when possible.`;
       }, {});
 
       const occupancyByServiceLine = Object.entries(serviceLineStats).map(([serviceLine, stats]: [string, any]) => {
-        const serviceLineUnits = allRentRollData.filter(u => u.serviceLine === serviceLine);
+        // Filter units based on service line, excluding B-beds for senior housing
+        const isSeniorHousing = seniorHousingServiceLines.includes(serviceLine);
+        const serviceLineUnits = allRentRollData.filter(u => {
+          if (u.serviceLine !== serviceLine) return false;
+          // For senior housing, exclude B-beds
+          if (isSeniorHousing && u.roomNumber && u.roomNumber.endsWith('/B')) {
+            return false;
+          }
+          return true;
+        });
+        
         const avgRate = serviceLineUnits.length > 0 ? 
           serviceLineUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / serviceLineUnits.length : 0;
-        const avgCompetitorRate = serviceLineUnits.length > 0 ? 
-          serviceLineUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / serviceLineUnits.length : 0;
+        
+        // Calculate competitor rate - only average units WITH competitor data
+        let avgCompetitorRate = 0;
+        if (serviceLineUnits.length > 0) {
+          const unitsWithCompetitorData = serviceLineUnits.filter(u => u.competitorRate && u.competitorRate > 0);
+          if (unitsWithCompetitorData.length > 0) {
+            avgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / unitsWithCompetitorData.length;
+          }
+        }
         
         // Use same logic as rate card generation - use stored moduloSuggestedRate values
         let avgModuloSuggested = 0;
@@ -4002,7 +4031,6 @@ Keep recommendations specific and quantitative when possible.`;
       // Calculate actual units from rent roll data, excluding B beds for senior housing
       // For AL, IL, SL, AL/MC: only count A beds (exclude rooms ending with "/B")
       // For HC: count both A and B beds
-      const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'AL/MC'];
       const actualUnits = allRentRollData.filter(unit => {
         const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
         const isBBed = unit.roomNumber.endsWith('/B');
