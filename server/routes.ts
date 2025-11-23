@@ -36,6 +36,7 @@ import { importProductionData } from "./importProductionData";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
+import attributePricingService from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 
 const upload = multer({ storage: multer.memoryStorage() });
