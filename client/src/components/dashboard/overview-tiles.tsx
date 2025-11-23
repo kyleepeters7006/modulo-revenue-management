@@ -1,9 +1,20 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
-import { DollarSign, Home, Users, TrendingUp, Info } from "lucide-react";
+import { DollarSign, Home, Users, TrendingUp, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
+
+interface ServiceLineData {
+  serviceLine: string;
+  occupied: number;
+  total: number;
+  occupancyRate: number;
+  avgRate?: number;
+  avgCompetitorRate?: number;
+  avgModuloRate?: number;
+  monthlyRemainder?: number;
+}
 
 interface OverviewData {
   occupancyByRoomType: {
@@ -15,6 +26,7 @@ interface OverviewData {
     avgCompetitorRate?: number;
     avgModuloRate?: number;
     monthlyRemainder?: number;
+    serviceLineBreakdown?: ServiceLineData[];
   }[];
   occupancyByServiceLine: {
     serviceLine: string;
@@ -39,10 +51,23 @@ interface OverviewData {
 export default function OverviewTiles() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState<{ type: string; calculation: string } | null>(null);
+  const [expandedRoomTypes, setExpandedRoomTypes] = useState<Set<string>>(new Set());
 
   const { data: overviewData, isLoading } = useQuery<OverviewData>({
     queryKey: ["/api/overview"],
   });
+
+  const toggleRoomTypeExpanded = (roomType: string) => {
+    setExpandedRoomTypes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(roomType)) {
+        newSet.delete(roomType);
+      } else {
+        newSet.add(roomType);
+      }
+      return newSet;
+    });
+  };
 
   if (isLoading || !overviewData) {
     return (
@@ -233,43 +258,118 @@ export default function OverviewTiles() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {overviewData.occupancyByRoomType.map((roomType) => (
-              <div 
-                key={roomType.roomType} 
-                className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-medium text-[var(--dashboard-text)]">
-                    {roomType.roomType}
-                  </h4>
-                  <span className="text-sm font-bold text-[var(--trilogy-blue)]">
-                    {formatPercentage(roomType.occupancyRate / 100, 0)}
-                  </span>
-                </div>
-                <div className="text-sm text-[var(--dashboard-muted)] mb-2">
-                  {formatNumber(roomType.occupied)} / {formatNumber(roomType.total)} units
-                </div>
-                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
-                  <div 
-                    className="bg-[var(--trilogy-blue)] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${roomType.occupancyRate}%` }}
-                  ></div>
-                </div>
-                
-                {/* Rate Information */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
-                    <span className="font-medium">{formatCurrency(Math.round(roomType.avgRate || 0))}</span>
+            {overviewData.occupancyByRoomType.map((roomType) => {
+              const isExpanded = expandedRoomTypes.has(roomType.roomType);
+              const hasServiceLineBreakdown = roomType.serviceLineBreakdown && roomType.serviceLineBreakdown.length > 0;
+              
+              return (
+                <div 
+                  key={roomType.roomType} 
+                  className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-medium text-[var(--dashboard-text)]">
+                      {roomType.roomType}
+                    </h4>
+                    <span className="text-sm font-bold text-[var(--trilogy-blue)]">
+                      {formatPercentage(roomType.occupancyRate / 100, 0)}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
-                    <span className="font-medium">{formatCurrency(Math.round(roomType.avgCompetitorRate || 0))}</span>
+                  <div className="text-sm text-[var(--dashboard-muted)] mb-2">
+                    {formatNumber(roomType.occupied)} / {formatNumber(roomType.total)} units
                   </div>
-                  {renderRemainderWithDialog(roomType, roomType.roomType)}
+                  <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
+                    <div 
+                      className="bg-[var(--trilogy-blue)] h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${roomType.occupancyRate}%` }}
+                    ></div>
+                  </div>
+                  
+                  {/* Rate Information */}
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-[var(--dashboard-muted)]">Avg Rate:</span>
+                      <span className="font-medium">{formatCurrency(Math.round(roomType.avgRate || 0))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[var(--dashboard-muted)]">Competitor Rate:</span>
+                      <span className="font-medium">{formatCurrency(Math.round(roomType.avgCompetitorRate || 0))}</span>
+                    </div>
+                    {renderRemainderWithDialog(roomType, roomType.roomType)}
+                  </div>
+
+                  {/* Service Line Breakdown Toggle Button */}
+                  {hasServiceLineBreakdown && (
+                    <div className="mt-4 pt-3 border-t border-[var(--dashboard-border)]">
+                      <button
+                        onClick={() => toggleRoomTypeExpanded(roomType.roomType)}
+                        className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-medium text-[var(--dashboard-muted)] hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
+                      >
+                        <span>Service Line Breakdown</span>
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Service Line Breakdown Content */}
+                  {hasServiceLineBreakdown && isExpanded && (
+                    <div className="mt-3 space-y-2 animate-in slide-in-from-top-1">
+                      {roomType.serviceLineBreakdown?.map((serviceLine) => (
+                        <div
+                          key={serviceLine.serviceLine}
+                          className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-md border border-[var(--dashboard-border)]"
+                        >
+                          <div className="flex justify-between items-center mb-1.5">
+                            <span className="text-xs font-semibold text-[var(--dashboard-text)]">
+                              {serviceLine.serviceLine}
+                            </span>
+                            <span className="text-xs font-bold text-[var(--trilogy-teal)]">
+                              {formatPercentage(serviceLine.occupancyRate / 100, 0)}
+                            </span>
+                          </div>
+                          
+                          <div className="text-xs text-[var(--dashboard-muted)] mb-1.5">
+                            {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
+                          </div>
+                          
+                          {/* Service Line Progress Bar */}
+                          <div className="w-full bg-[var(--dashboard-border)] rounded-full h-1.5 mb-2">
+                            <div
+                              className="bg-[var(--trilogy-teal)] h-1.5 rounded-full transition-all duration-300"
+                              style={{ width: `${serviceLine.occupancyRate}%` }}
+                            ></div>
+                          </div>
+                          
+                          {/* Service Line Rate Info */}
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-[var(--dashboard-muted)]">Avg:</span>
+                              <span className="font-medium">{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--dashboard-muted)]">Comp:</span>
+                              <span className="font-medium">{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
+                            </div>
+                            {serviceLine.monthlyRemainder && (
+                              <div className="col-span-2 flex justify-between mt-1 pt-1 border-t border-[var(--dashboard-border)]">
+                                <span className="text-[var(--dashboard-muted)]">Remainder:</span>
+                                <span className="font-medium text-[var(--trilogy-success)]">
+                                  {formatCurrency(Math.round(serviceLine.monthlyRemainder))}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
