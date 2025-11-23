@@ -3868,8 +3868,30 @@ Keep recommendations specific and quantitative when possible.`;
           const slUnits = roomTypeUnits.filter(u => u.serviceLine === serviceLine);
           const slAvgRate = slUnits.length > 0 ?
             slUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / slUnits.length : 0;
-          const slAvgCompetitorRate = slUnits.length > 0 ?
-            slUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / slUnits.length : 0;
+          // Calculate competitor rate - ONLY average units that have competitor data
+          let slAvgCompetitorRate = 0;
+          if (slUnits.length > 0) {
+            // Filter to only units with actual competitor rates
+            const unitsWithCompetitorData = slUnits.filter(u => u.competitorRate && u.competitorRate > 0);
+            
+            if (unitsWithCompetitorData.length > 0) {
+              const competitorRates = unitsWithCompetitorData.map(u => {
+                let rate = u.competitorRate || 0;
+                
+                // Convert HC/SMC daily rates to monthly (multiply by 30.44)
+                // HC rates below $1000 are likely daily rates that need conversion
+                if ((serviceLine === 'HC' || serviceLine === 'HC/MC' || serviceLine === 'SMC') && rate > 0 && rate < 1000) {
+                  rate = rate * 30.44; // Convert daily to monthly
+                  console.log(`Converting ${serviceLine} daily rate $${(u.competitorRate || 0).toFixed(2)} to monthly: $${rate.toFixed(2)}`);
+                }
+                
+                return rate;
+              });
+              
+              slAvgCompetitorRate = competitorRates.reduce((sum, rate) => sum + rate, 0) / competitorRates.length;
+            }
+            // If no units have competitor data, slAvgCompetitorRate remains 0
+          }
           
           // Calculate modulo rate for this service line
           let slAvgModuloSuggested = 0;

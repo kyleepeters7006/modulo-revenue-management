@@ -4,7 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["geos", "glibcLocales", "libGL", "libGLU"]
+packages = ["geos", "glibcLocales", "libGL", "libGLU", "jq"]
 
 [deployment]
 deploymentTarget = "autoscale"
