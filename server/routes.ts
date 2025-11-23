@@ -231,6 +231,145 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to generate distance report' });
     }
   });
+  
+  // Endpoint to fix competitor rates in the database directly
+  app.post('/api/admin/fix-competitor-rates', async (req, res) => {
+    try {
+      console.log('🔧 Fixing competitor rates in database...');
+      
+      const { fixCompetitorRates } = await import('./fixCompetitorRates');
+      const result = await fixCompetitorRates();
+      
+      // After fixing the database, trigger recalculation
+      console.log('📊 Now recalculating competitor rates for rent roll...');
+      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+      
+      // Process only the latest month for efficiency
+      const latestMonth = '2025-11';
+      const matchingStats = await processAllUnitsForCompetitorRates(latestMonth);
+      
+      res.json({
+        success: true,
+        message: 'Competitor rates fixed successfully',
+        fixResults: result,
+        recalculationStats: {
+          processed: matchingStats.processed,
+          updated: matchingStats.updated,
+          errors: matchingStats.errors
+        }
+      });
+      
+    } catch (error) {
+      console.error('Error fixing competitor rates:', error);
+      res.status(500).json({
+        error: 'Failed to fix competitor rates',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+  
+  // Endpoint to recalculate competitor rates with fixed daily-to-monthly conversion
+  app.post('/api/admin/recalculate-competitor-rates', async (req, res) => {
+    try {
+      console.log('🔄 Starting competitor rate recalculation with fixed conversion logic...');
+      
+      // Get optional filters from request
+      const { location, serviceLine, uploadMonth } = req.body;
+      
+      // Import the processing function
+      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+      
+      // Build filter conditions
+      const conditions: any[] = [];
+      if (location) {
+        conditions.push(eq(rentRollData.location, location));
+        console.log(`Filtering by location: ${location}`);
+      }
+      if (serviceLine) {
+        conditions.push(eq(rentRollData.serviceLine, serviceLine));
+        console.log(`Filtering by service line: ${serviceLine}`);
+      }
+      if (uploadMonth) {
+        conditions.push(eq(rentRollData.uploadMonth, uploadMonth));
+        console.log(`Filtering by upload month: ${uploadMonth}`);
+      }
+      
+      // Get units to process
+      const unitsQuery = conditions.length > 0 
+        ? db.select().from(rentRollData).where(and(...conditions))
+        : db.select().from(rentRollData);
+        
+      const units = await unitsQuery;
+      console.log(`Found ${units.length} units to process`);
+      
+      // Process in batches to avoid overwhelming the system
+      const batchSize = 100;
+      let totalProcessed = 0;
+      let totalUpdated = 0;
+      let totalErrors = 0;
+      const updates: any[] = [];
+      
+      for (let i = 0; i < units.length; i += batchSize) {
+        const batch = units.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(units.length/batchSize)}`);
+        
+        // Process this batch
+        const stats = await processAllUnitsForCompetitorRates(uploadMonth || null);
+        totalProcessed += stats.processed;
+        totalUpdated += stats.updated;
+        totalErrors += stats.errors;
+        
+        // Track updates for response
+        if (stats.updates && stats.updates.length > 0) {
+          updates.push(...stats.updates);
+        }
+      }
+      
+      // Get summary of changes
+      const changedUnits = await db.select({
+        location: rentRollData.location,
+        serviceLine: rentRollData.serviceLine,
+        roomType: rentRollData.roomType,
+        competitorRate: rentRollData.competitorRate,
+        competitorFinalRate: rentRollData.competitorFinalRate
+      })
+      .from(rentRollData)
+      .where(and(
+        sql`${rentRollData.competitorRate} IS NOT NULL`,
+        sql`${rentRollData.competitorRate} > 0`
+      ))
+      .limit(20);
+      
+      console.log('✅ Competitor rate recalculation complete');
+      
+      res.json({
+        success: true,
+        message: 'Competitor rates recalculated with fixed daily-to-monthly conversion',
+        stats: {
+          totalUnits: units.length,
+          processed: totalProcessed,
+          updated: totalUpdated,
+          errors: totalErrors
+        },
+        conversionRules: {
+          HC: 'Rates < $1000 converted from daily to monthly (×30.44)',
+          SMC: 'Rates < $1000 converted from daily to monthly (×30.44)',
+          AL: 'Rates < $500 converted from daily to monthly (×30.44)',
+          SL: 'Rates < $500 converted from daily to monthly (×30.44)',
+          VIL: 'Rates < $500 converted from daily to monthly (×30.44)'
+        },
+        sampleUpdates: changedUnits.slice(0, 10),
+        filters: { location, serviceLine, uploadMonth }
+      });
+      
+    } catch (error) {
+      console.error('Error recalculating competitor rates:', error);
+      res.status(500).json({ 
+        error: 'Failed to recalculate competitor rates',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 
   // Re-seed database with updated occupancy rates
   app.post('/api/admin/reseed-database', async (req, res) => {

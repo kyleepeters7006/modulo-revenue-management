@@ -82,6 +82,53 @@ const SERVICE_LINE_MAPPING: Record<string, string> = {
   'VIL': 'IL'      // No IL data in current survey
 };
 
+/**
+ * Validate if a rate is reasonable for the given service line
+ * @param serviceLine - The service line (AL, HC, SL, etc.)
+ * @param monthlyRate - The monthly rate to validate
+ * @param wasConvertedFromDaily - Whether the rate was converted from daily
+ * @returns true if the rate is reasonable, false if suspicious
+ */
+function validateRateReasonability(
+  serviceLine: string,
+  monthlyRate: number,
+  wasConvertedFromDaily: boolean = false
+): boolean {
+  // Define reasonable ranges for monthly rates by service line
+  const monthlyRateRanges: Record<string, { min: number; max: number; typical: string }> = {
+    'AL': { min: 2000, max: 12000, typical: '$3000-$7000' },
+    'HC': { min: 4000, max: 20000, typical: '$6000-$12000' },
+    'SMC': { min: 5000, max: 20000, typical: '$7000-$13000' },
+    'SL': { min: 2500, max: 10000, typical: '$3500-$6500' },
+    'IL': { min: 2000, max: 8000, typical: '$2500-$5500' },
+    'VIL': { min: 2000, max: 10000, typical: '$3000-$7000' }
+  };
+  
+  const range = monthlyRateRanges[serviceLine];
+  if (!range) {
+    console.warn(`⚠️  Unknown service line for rate validation: ${serviceLine}`);
+    return true; // Don't flag unknown service lines
+  }
+  
+  if (monthlyRate < range.min) {
+    console.warn(
+      `⚠️  RATE TOO LOW: ${serviceLine} monthly rate $${monthlyRate.toFixed(2)} is below minimum $${range.min}. ` +
+      `Typical range: ${range.typical}. ${wasConvertedFromDaily ? '(Converted from daily)' : '(Stored as monthly)'}`
+    );
+    return false;
+  }
+  
+  if (monthlyRate > range.max) {
+    console.warn(
+      `⚠️  RATE TOO HIGH: ${serviceLine} monthly rate $${monthlyRate.toFixed(2)} exceeds maximum $${range.max}. ` +
+      `Typical range: ${range.typical}. ${wasConvertedFromDaily ? '(Converted from daily)' : '(Stored as monthly)'}`
+    );
+    return false;
+  }
+  
+  return true;
+}
+
 interface CompetitorRateResult {
   unitId: string;
   location: string;
@@ -188,22 +235,54 @@ async function getBestCompetitorRate(
     let careLevel4Rate = bestRecord.careLevel4Rate;
     let medicationManagementFee = bestRecord.medicationManagementFee;
     
-    // Check if this is HC or SMC data (daily rates) - convert to monthly
-    // HC and SMC (Skilled Memory Care) rates are stored as daily rates
-    if ((competitorType === 'HC' || competitorType === 'SMC') && baseRate > 0 && baseRate < 1000) {
-      // Rates below $1000 are likely daily - convert to monthly
-      const daysPerMonth = 30.44; // Average days per month
-      baseRate = baseRate * daysPerMonth;
-      
-      // Convert care level rates if they exist
-      if (careFeesAvg) careFeesAvg = careFeesAvg * daysPerMonth;
-      if (careLevel1Rate) careLevel1Rate = careLevel1Rate * daysPerMonth;
-      if (careLevel2Rate) careLevel2Rate = careLevel2Rate * daysPerMonth;
-      if (careLevel3Rate) careLevel3Rate = careLevel3Rate * daysPerMonth;
-      if (careLevel4Rate) careLevel4Rate = careLevel4Rate * daysPerMonth;
-      if (medicationManagementFee) medicationManagementFee = medicationManagementFee * daysPerMonth;
-      
-      console.log(`Converted ${competitorType} daily rate $${(bestRecord.monthlyRateAvg || 0).toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
+    // Check if rates need to be converted from daily to monthly
+    // HC and SMC rates are typically stored as daily rates
+    // AL rates under $500 are also likely daily rates that need conversion
+    const daysPerMonth = 30.44; // Average days per month
+    let isConvertedFromDaily = false;
+    
+    if (competitorType === 'HC' || competitorType === 'SMC') {
+      // HC and SMC rates below $1000 are daily rates
+      if (baseRate > 0 && baseRate < 1000) {
+        isConvertedFromDaily = true;
+        const originalRate = baseRate;
+        baseRate = baseRate * daysPerMonth;
+        
+        // Convert care level rates if they exist
+        if (careFeesAvg) careFeesAvg = careFeesAvg * daysPerMonth;
+        if (careLevel1Rate) careLevel1Rate = careLevel1Rate * daysPerMonth;
+        if (careLevel2Rate) careLevel2Rate = careLevel2Rate * daysPerMonth;
+        if (careLevel3Rate) careLevel3Rate = careLevel3Rate * daysPerMonth;
+        if (careLevel4Rate) careLevel4Rate = careLevel4Rate * daysPerMonth;
+        if (medicationManagementFee) medicationManagementFee = medicationManagementFee * daysPerMonth;
+        
+        console.log(`✓ Converted ${competitorType} daily rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
+      }
+    } else if (competitorType === 'AL' || competitorType === 'SL' || competitorType === 'VIL' || competitorType === 'IL') {
+      // AL/SL/VIL/IL rates under $500 are clearly daily rates (monthly AL should be $2000+)
+      if (baseRate > 0 && baseRate < 500) {
+        isConvertedFromDaily = true;
+        const originalRate = baseRate;
+        baseRate = baseRate * daysPerMonth;
+        
+        // Convert care level rates if they exist (only if they're also suspiciously low)
+        if (careFeesAvg && careFeesAvg < 500) careFeesAvg = careFeesAvg * daysPerMonth;
+        if (careLevel1Rate && careLevel1Rate < 500) careLevel1Rate = careLevel1Rate * daysPerMonth;
+        if (careLevel2Rate && careLevel2Rate < 500) careLevel2Rate = careLevel2Rate * daysPerMonth;
+        if (careLevel3Rate && careLevel3Rate < 500) careLevel3Rate = careLevel3Rate * daysPerMonth;
+        if (careLevel4Rate && careLevel4Rate < 500) careLevel4Rate = careLevel4Rate * daysPerMonth;
+        if (medicationManagementFee && medicationManagementFee < 100) medicationManagementFee = medicationManagementFee * daysPerMonth;
+        
+        console.log(`⚠️  WARNING: Converting suspiciously low ${competitorType} rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
+      }
+    }
+    
+    // Validate the final rate is reasonable
+    if (baseRate > 0) {
+      const isReasonable = validateRateReasonability(competitorType || 'Unknown', baseRate, isConvertedFromDaily);
+      if (!isReasonable) {
+        console.warn(`⚠️  Suspicious rate for ${bestRecord.competitorName} at ${location}: ${competitorType} ${mappedRoomType} = $${baseRate.toFixed(2)}/month`);
+      }
     }
     
     return {
