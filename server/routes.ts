@@ -3859,14 +3859,18 @@ Keep recommendations specific and quantitative when possible.`;
       
       const currentAnnualRevenue = actualUnits.reduce((sum, u) => {
         if (u.occupiedYN) {
-          const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
-          const careRate = u.careRate || u.careFee || 0;
+          // For occupied units, use inHouseRate if available, otherwise streetRate
+          // (In production data, inHouseRate may be 0, so we fall back to streetRate)
+          const baseRent = u.inHouseRate > 0 ? u.inHouseRate : (u.streetRate || 0);
+          const careRate = u.careFee || u.careRate || 0;
           return sum + (baseRent + careRate) * 12;
         }
+        // Vacant units contribute 0 to current revenue
         return sum;
       }, 0);
       const potentialAnnualRevenue = actualUnits.reduce((sum, u) => {
-        const baseRent = u.streetRate || u.inHouseRate || u.baseRent || 0;
+        // For potential revenue, use streetRate for ALL units (100% occupancy scenario)
+        const baseRent = u.streetRate || 0;
         const careRate = u.careRate || u.careFee || 0;
         return sum + (baseRent + careRate) * 12;
       }, 0);
