@@ -148,7 +148,9 @@ export function Analytics() {
     queryKey: ['/api/analytics/vacancy-scatter', selectedRegion, selectedDivision, selectedServiceLine],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedRegion !== 'all') params.append('location', selectedRegion);
+      // Note: The backend endpoint doesn't filter by region/division, 
+      // it only filters by specific location name or service line
+      // We could enhance the backend to support regional filtering if needed
       if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
       const queryString = params.toString() ? `?${params.toString()}` : '';
       

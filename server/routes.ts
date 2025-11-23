@@ -2874,12 +2874,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { location, serviceLine } = req.query;
       const uploadMonth = 'November 2025';
       
-      // Get all rent roll data
-      const allRentRollData = await storage.getRentRollDataFiltered({
-        uploadMonth,
-        location: location as string,
-        serviceLine: serviceLine as string
-      });
+      // Get all rent roll data - getRentRollDataFiltered expects month as first param, filters as second
+      const filters: any = {};
+      if (location) {
+        filters.locations = [location as string];
+      }
+      // Note: getRentRollDataFiltered doesn't support serviceLine filter directly
+      // We'll filter by serviceLine in memory after fetching
+      let allRentRollData = await storage.getRentRollDataFiltered(uploadMonth, filters);
+      
+      // Filter by service line if provided
+      if (serviceLine) {
+        allRentRollData = allRentRollData.filter(unit => unit.serviceLine === serviceLine);
+      }
       
       // Calculate campus occupancy by location
       const campusMetrics = new Map<string, { occupied: number; total: number; occupancy: number }>();
