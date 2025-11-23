@@ -4373,8 +4373,8 @@ Keep recommendations specific and quantitative when possible.`;
   app.post("/api/pricing/generate-modulo-legacy", async (req, res) => {
     try {
       const { month, serviceLine, regions, divisions, locations } = req.body;
-      // Default to October 2025 which has the data, instead of current month
-      const targetMonth = month || '2025-10';
+      // Default to November 2025 which has the latest data
+      const targetMonth = month || '2025-11';
       
       await ensureCacheInitialized(targetMonth);
       

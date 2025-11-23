@@ -222,7 +222,7 @@ export async function generateModuloOptimized(req: any, res: any) {
   try {
     const startTime = Date.now();
     const { month, serviceLine, regions, divisions, locations } = req.body;
-    const targetMonth = month || '2025-10';
+    const targetMonth = month || '2025-11';
     
     await ensureCacheInitialized(targetMonth);
     
@@ -272,7 +272,8 @@ export async function generateModuloOptimized(req: any, res: any) {
     console.log('Precomputing shared signals...');
     
     // Filter B beds for occupancy calculations
-    const seniorHousingServiceLines = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+    // IMPORTANT: For senior housing (AL, SL, VIL, IL, AL/MC), exclude B-beds from occupancy calculation
+    const seniorHousingServiceLines = new Set(['AL', 'AL/MC', 'SL', 'VIL', 'IL']);
     const unitsForOccupancy = units.filter(unit => {
       if (seniorHousingServiceLines.has(unit.serviceLine || '')) {
         const roomNumber = unit.roomNumber || '';
@@ -316,6 +317,8 @@ export async function generateModuloOptimized(req: any, res: any) {
         locationOccupancy.set(key, occ);
       } else {
         serviceLineOccupancy.set(key, occ);
+        // Log service line occupancies to verify B-bed exclusion
+        console.log(`Service Line ${key}: ${stats.occupied}/${stats.total} units = ${(occ * 100).toFixed(1)}% occupancy (B-beds excluded for senior housing)`);
       }
     }
     

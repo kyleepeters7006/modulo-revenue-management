@@ -321,7 +321,9 @@ class PricingJobManager {
     for (const stats of seniorHousingStats) {
       const serviceLine = stats.serviceLine || 'Unknown';
       const { occupied, total } = stats as { occupied: number; total: number };
-      serviceLineOccupancy.set(serviceLine, total > 0 ? occupied / total : 0);
+      const occupancyRate = total > 0 ? occupied / total : 0;
+      serviceLineOccupancy.set(serviceLine, occupancyRate);
+      console.log(`[PricingJob ${jobId}] Senior Housing ${serviceLine}: ${occupied}/${total} units = ${(occupancyRate * 100).toFixed(1)}% occupancy (excluding B-beds)`);
     }
     
     // Calculate occupancy for HC (including all beds)
@@ -554,6 +556,11 @@ class PricingJobManager {
         
         // Get cached occupancy (O(1) lookup)
         const serviceLineOcc = context.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
+        
+        // Log the actual occupancy being used for debugging
+        if (processedInBatch === 0 || unit.serviceLine !== units[0]?.serviceLine) {
+          console.log(`[Batch] Using ${unit.serviceLine} occupancy: ${(serviceLineOcc * 100).toFixed(1)}% for unit ${unit.roomNumber}`);
+        }
         const daysVacant = unit.daysVacant || 0;
         const monthIndex = new Date(context.targetMonth).getMonth() + 1;
         
