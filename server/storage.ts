@@ -452,12 +452,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRevenueByMonths(months: string[]): Promise<Record<string, number>> {
-    // Query to get sum of street_rate grouped by upload_month
-    // This is much more memory efficient than loading all records
+    // Query to get sum of revenue grouped by upload_month
+    // For occupied units: use inHouseRate (includes special rates/discounts)
+    // For vacant units: use streetRate (potential revenue)
+    // This properly reflects revenue growth when occupancy increases
     const result = await db
       .select({
         uploadMonth: rentRollData.uploadMonth,
-        totalRevenue: sql<number>`SUM(COALESCE(${rentRollData.streetRate}, 0))`.as('totalRevenue')
+        totalRevenue: sql<number>`SUM(
+          CASE 
+            WHEN ${rentRollData.occupiedYN} = true THEN COALESCE(${rentRollData.inHouseRate}, 0)
+            ELSE COALESCE(${rentRollData.streetRate}, 0)
+          END
+        )`.as('totalRevenue')
       })
       .from(rentRollData)
       .where(inArray(rentRollData.uploadMonth, months))
