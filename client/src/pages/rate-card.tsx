@@ -36,6 +36,7 @@ export default function RateCard() {
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
   const urlServiceLine = urlParams.get('serviceLine');
+  const urlUnit = urlParams.get('unit');  // New parameter for specific unit filtering
   
   // Load initial state from URL params, then localStorage, or use defaults
   const savedFilters = loadFiltersFromStorage();
@@ -47,6 +48,7 @@ export default function RateCard() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(urlUnit); // Track selected unit
   const [isExporting, setIsExporting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [jobProgress, setJobProgress] = useState<{
@@ -512,6 +514,7 @@ export default function RateCard() {
           selectedRegions={selectedRegions}
           selectedDivisions={selectedDivisions}
           selectedLocations={selectedLocations}
+          selectedUnit={selectedUnit}
         />
 
         {/* Pricing Change History */}

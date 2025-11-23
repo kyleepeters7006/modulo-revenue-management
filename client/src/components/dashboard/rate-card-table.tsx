@@ -38,13 +38,15 @@ interface RateCardTableProps {
   selectedRegions?: string[];
   selectedDivisions?: string[];
   selectedLocations?: string[];
+  selectedUnit?: string | null;
 }
 
 export default function RateCardTable({ 
   selectedServiceLine: propServiceLine,
   selectedRegions,
   selectedDivisions,
-  selectedLocations
+  selectedLocations,
+  selectedUnit
 }: RateCardTableProps) {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [editingUnit, setEditingUnit] = useState<string | null>(null);
@@ -294,6 +296,29 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
         // Use the actual serviceLine field from the data
         return unit.serviceLine === selectedServiceLine;
       });
+  
+  // If a specific unit is selected, ensure it's visible
+  // Also prepare for highlighting
+  const highlightedUnitId = selectedUnit ? 
+    filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
+  
+  // Scroll to highlighted unit when it changes
+  useEffect(() => {
+    if (highlightedUnitId && !isLoading) {
+      // Wait for render to complete, then scroll
+      setTimeout(() => {
+        const element = document.getElementById(`unit-row-${highlightedUnitId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add a temporary pulse animation
+          element.classList.add('animate-pulse');
+          setTimeout(() => {
+            element.classList.remove('animate-pulse');
+          }, 2000);
+        }
+      }, 100);
+    }
+  }, [highlightedUnitId, isLoading]);
 
   // Handle column sorting
   const handleSort = (column: string) => {
@@ -668,7 +693,11 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </TableHeader>
                 <TableBody>
                   {filteredUnits.slice(0, 20).map((unit: any) => (
-                    <TableRow key={unit.id}>
+                    <TableRow 
+                      key={unit.id}
+                      id={`unit-row-${unit.id}`}
+                      className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
+                    >
                       <TableCell className="font-medium">
                         {unit.roomNumber}
                       </TableCell>
