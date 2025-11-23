@@ -4344,8 +4344,17 @@ Keep recommendations specific and quantitative when possible.`;
     }
   });
 
-  // Generate Modulo pricing suggestions
+  // Import optimized Modulo endpoint
+  const { generateModuloOptimized } = await import('./optimizedModuloEndpoint');
+  
+  // Generate Modulo pricing suggestions - OPTIMIZED VERSION
   app.post("/api/pricing/generate-modulo", async (req, res) => {
+    // Use the optimized implementation for better performance with large datasets
+    return generateModuloOptimized(req, res);
+  });
+  
+  // Original Modulo endpoint (kept for reference, but not used)
+  app.post("/api/pricing/generate-modulo-legacy", async (req, res) => {
     try {
       const { month, serviceLine, regions, divisions, locations } = req.body;
       // Default to October 2025 which has the data, instead of current month

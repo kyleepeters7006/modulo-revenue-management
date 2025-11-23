@@ -634,46 +634,87 @@ export class DatabaseStorage implements IStorage {
   }
 
   async bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void> {
-    // Process in batches of 50 and run updates in parallel within each batch
-    const batchSize = 50;
+    // Optimized bulk update using single SQL query with CASE statements
+    // Process in batches of 500 for optimal performance
+    const batchSize = 500;
+    const totalBatches = Math.ceil(updates.length / batchSize);
+    
     for (let i = 0; i < updates.length; i += batchSize) {
       const batch = updates.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
       
-      // Run all updates in this batch in parallel
-      await Promise.all(
-        batch.map(update => 
-          db.update(rentRollData)
-            .set({
-              moduloSuggestedRate: update.moduloSuggestedRate,
-              moduloCalculationDetails: update.moduloCalculationDetails
-            })
-            .where(eq(rentRollData.id, update.id))
-        )
+      if (batch.length === 0) continue;
+      
+      // Build a single UPDATE query with CASE statements for bulk update
+      // This is much faster than individual updates
+      const ids = batch.map(u => u.id);
+      
+      // Create CASE statements for each field
+      const rateCases = batch.map(u => 
+        sql`WHEN id = ${u.id} THEN ${u.moduloSuggestedRate}`
+      );
+      const detailsCases = batch.map(u => 
+        sql`WHEN id = ${u.id} THEN ${u.moduloCalculationDetails}::text`
       );
       
-      console.log(`Updated Modulo batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
+      // Execute single bulk update query
+      await db.execute(sql`
+        UPDATE ${rentRollData}
+        SET 
+          modulo_suggested_rate = CASE 
+            ${sql.join(rateCases, sql.raw(' '))}
+            ELSE modulo_suggested_rate
+          END,
+          modulo_calculation_details = CASE
+            ${sql.join(detailsCases, sql.raw(' '))}
+            ELSE modulo_calculation_details
+          END
+        WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})
+      `);
+      
+      console.log(`Updated Modulo batch ${batchNumber}/${totalBatches} (${batch.length} units) - ${Math.round((batchNumber/totalBatches) * 100)}% complete`);
     }
   }
 
   async bulkUpdateAIRates(updates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }>): Promise<void> {
-    // Process in batches of 50 and run updates in parallel within each batch
-    const batchSize = 50;
+    // Optimized bulk update using single SQL query with CASE statements
+    // Process in batches of 500 for optimal performance
+    const batchSize = 500;
+    const totalBatches = Math.ceil(updates.length / batchSize);
+    
     for (let i = 0; i < updates.length; i += batchSize) {
       const batch = updates.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
       
-      // Run all updates in this batch in parallel
-      await Promise.all(
-        batch.map(update => 
-          db.update(rentRollData)
-            .set({
-              aiSuggestedRate: update.aiSuggestedRate,
-              aiCalculationDetails: update.aiCalculationDetails
-            })
-            .where(eq(rentRollData.id, update.id))
-        )
+      if (batch.length === 0) continue;
+      
+      // Build a single UPDATE query with CASE statements for bulk update
+      const ids = batch.map(u => u.id);
+      
+      // Create CASE statements for each field
+      const rateCases = batch.map(u => 
+        sql`WHEN id = ${u.id} THEN ${u.aiSuggestedRate}`
+      );
+      const detailsCases = batch.map(u => 
+        sql`WHEN id = ${u.id} THEN ${u.aiCalculationDetails}::text`
       );
       
-      console.log(`Updated AI batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(updates.length / batchSize)} (${batch.length} units)`);
+      // Execute single bulk update query
+      await db.execute(sql`
+        UPDATE ${rentRollData}
+        SET 
+          ai_suggested_rate = CASE 
+            ${sql.join(rateCases, sql.raw(' '))}
+            ELSE ai_suggested_rate
+          END,
+          ai_calculation_details = CASE
+            ${sql.join(detailsCases, sql.raw(' '))}
+            ELSE ai_calculation_details
+          END
+        WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})
+      `);
+      
+      console.log(`Updated AI batch ${batchNumber}/${totalBatches} (${batch.length} units) - ${Math.round((batchNumber/totalBatches) * 100)}% complete`);
     }
   }
 
