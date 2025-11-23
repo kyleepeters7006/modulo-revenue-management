@@ -139,7 +139,6 @@ export default function FloorPlansPage() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [bedroomsFilter, setBedroomsFilter] = useState<string>("any");
   const [floorPlanFilter, setFloorPlanFilter] = useState<string>("any");
-  const [sqftFilter, setSqftFilter] = useState<string>("any");
   const [careLevelFilter, setCareLevelFilter] = useState<string>("any");
   const [highlightedUnitId, setHighlightedUnitId] = useState<string | null>(null);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState<number>(0);
@@ -213,66 +212,48 @@ export default function FloorPlansPage() {
     let count = 0;
     if (bedroomsFilter !== "any") count++;
     if (floorPlanFilter !== "any") count++;
-    if (sqftFilter !== "any") count++;
     if (careLevelFilter !== "any") count++;
     if (debouncedSearchTerm) count++;
     return count;
-  }, [bedroomsFilter, floorPlanFilter, sqftFilter, careLevelFilter, debouncedSearchTerm]);
+  }, [bedroomsFilter, floorPlanFilter, careLevelFilter, debouncedSearchTerm]);
 
   // Filter units based on selected filters and search term - optimized with useMemo
   const filteredUnits = useMemo(() => {
     return rentRollData.filter((unit: RentRollUnit) => {
-      // Search filter
+      // Search filter - optimized to avoid unnecessary function calls
       if (debouncedSearchTerm) {
         const searchLower = debouncedSearchTerm.toLowerCase();
-        const roomNumberMatch = unit.roomNumber?.toLowerCase().includes(searchLower);
-        const serviceLineMatch = unit.serviceLine?.toLowerCase().includes(searchLower);
-        const sizeMatch = unit.size?.toLowerCase().includes(searchLower);
-        const serviceLineDisplayMatch = getServiceLineDisplay(unit.serviceLine).toLowerCase().includes(searchLower);
+        const roomNumberLower = unit.roomNumber?.toLowerCase() || '';
+        const serviceLineLower = unit.serviceLine?.toLowerCase() || '';
+        const sizeLower = unit.size?.toLowerCase() || '';
         
-        if (!roomNumberMatch && !serviceLineMatch && !sizeMatch && !serviceLineDisplayMatch) {
-          return false;
+        // Only call getServiceLineDisplay if needed
+        if (!roomNumberLower.includes(searchLower) && 
+            !serviceLineLower.includes(searchLower) && 
+            !sizeLower.includes(searchLower)) {
+          // Check service line display as last resort
+          const serviceLineDisplay = getServiceLineDisplay(unit.serviceLine).toLowerCase();
+          if (!serviceLineDisplay.includes(searchLower)) {
+            return false;
+          }
         }
       }
 
       // Bedroom filter
       if (bedroomsFilter !== "any") {
         const size = unit.size || '';
+        const sizeLower = size.toLowerCase();
         const unitBedrooms = 
-          size.toLowerCase().includes('studio') || size.toLowerCase().includes('companion') ? 'studio' :
-          size.toLowerCase().includes('one bedroom') || size.toLowerCase().includes('1 bedroom') ? '1' :
-          size.toLowerCase().includes('two bedroom') || size.toLowerCase().includes('2 bedroom') ? '2' :
-          size.toLowerCase().includes('three bedroom') || size.toLowerCase().includes('3 bedroom') ? '3' : 'other';
+          sizeLower.includes('studio') || sizeLower.includes('companion') ? 'studio' :
+          sizeLower.includes('one bedroom') || sizeLower.includes('1 bedroom') ? '1' :
+          sizeLower.includes('two bedroom') || sizeLower.includes('2 bedroom') ? '2' :
+          sizeLower.includes('three bedroom') || sizeLower.includes('3 bedroom') ? '3' : 'other';
         if (unitBedrooms !== bedroomsFilter) return false;
       }
       
       // Floor Plan filter
       if (floorPlanFilter !== "any" && unit.size !== floorPlanFilter) {
         return false;
-      }
-      
-      // Square footage filter
-      if (sqftFilter !== "any") {
-        const size = unit.size || '';
-        const estimatedSqft = 
-          size.toLowerCase().includes('studio') ? 400 :
-          size.toLowerCase().includes('one bedroom') ? 700 :
-          size.toLowerCase().includes('two bedroom') ? 1000 : 1200;
-          
-        switch(sqftFilter) {
-          case 'lt500':
-            if (estimatedSqft >= 500) return false;
-            break;
-          case '500-750':
-            if (estimatedSqft < 500 || estimatedSqft > 750) return false;
-            break;
-          case '750-1000':
-            if (estimatedSqft < 750 || estimatedSqft > 1000) return false;
-            break;
-          case 'gt1000':
-            if (estimatedSqft <= 1000) return false;
-            break;
-        }
       }
       
       // Care Level filter
@@ -282,7 +263,7 @@ export default function FloorPlansPage() {
       
       return true;
     });
-  }, [rentRollData, bedroomsFilter, floorPlanFilter, sqftFilter, careLevelFilter, debouncedSearchTerm]);
+  }, [rentRollData, bedroomsFilter, floorPlanFilter, careLevelFilter, debouncedSearchTerm, getServiceLineDisplay]);
 
   // Reset selected unit index when filters change
   useEffect(() => {
@@ -321,7 +302,6 @@ export default function FloorPlansPage() {
     setSearchTerm("");
     setBedroomsFilter("any");
     setFloorPlanFilter("any");
-    setSqftFilter("any");
     setCareLevelFilter("any");
     setSelectedUnitIndex(0);
   }, []);
@@ -415,25 +395,6 @@ export default function FloorPlansPage() {
               {uniqueFloorPlans.map((plan) => (
                 <SelectItem key={plan} value={plan}>{plan}</SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Square Footage Filter */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Square Footage
-          </label>
-          <Select value={sqftFilter} onValueChange={setSqftFilter}>
-            <SelectTrigger data-testid="filter-sqft">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="any">Any</SelectItem>
-              <SelectItem value="lt500">&lt; 500</SelectItem>
-              <SelectItem value="500-750">500-750</SelectItem>
-              <SelectItem value="750-1000">750-1000</SelectItem>
-              <SelectItem value="gt1000">&gt; 1000</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -636,7 +597,7 @@ export default function FloorPlansPage() {
                   <CardContent className="p-4">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="text-base font-medium text-gray-900">
-                        Available Units ({filteredUnits.length})
+                        Units ({filteredUnits.length})
                       </h3>
                       {filteredUnits.filter(u => !u.occupiedYN).length > 0 && (
                         <Badge className="bg-green-100 text-green-700">
