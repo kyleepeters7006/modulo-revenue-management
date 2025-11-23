@@ -105,13 +105,15 @@ export default function RateCard() {
         const response = await fetch(`/api/pricing/job-status/${jobId}`);
         const data = await response.json();
         
+        console.log(`Job ${jobId} status:`, data.status, 'Progress:', data.progress);
+        
         if (data.status === 'completed') {
           clearInterval(pollInterval);
           setIsGenerating(false);
           setJobProgress(null);
           toast({
             title: "Modulo Calculation Complete",
-            description: `Successfully generated pricing for ${data.progress.total} units.`,
+            description: `Successfully generated pricing for ${data.progress?.total || data.result?.totalUnits || 0} units.`,
           });
           // Invalidate rate card data to refresh the table
           queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
@@ -125,18 +127,34 @@ export default function RateCard() {
             variant: "destructive",
           });
         } else if (data.status === 'processing') {
-          // Update progress
+          // Update progress - handle the actual data structure
+          const progress = data.progress || {};
+          const percentage = progress.percentage || 0;
+          const current = progress.current || 0;
+          const total = progress.total || 0;
+          
+          // Generate appropriate message based on progress
+          let message = 'Processing...';
+          if (percentage > 0) {
+            message = `Processing batch ${progress.currentBatch || 0} of ${progress.totalBatches || 0}`;
+          } else {
+            message = 'Initializing calculation...';
+          }
+          
           setJobProgress({
-            percentage: data.progress.percentage || 0,
-            current: data.progress.current || 0,
-            total: data.progress.total || 0,
-            message: data.progress.message || 'Processing...'
+            percentage,
+            current,
+            total,
+            message
           });
         }
       } catch (error) {
         console.error('Error checking job status:', error);
       }
     }, 2000); // Poll every 2 seconds
+    
+    // Return the interval so it can be cleared if needed
+    return pollInterval;
   };
 
   // Generate Modulo mutation using optimized endpoint

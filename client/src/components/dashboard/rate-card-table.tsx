@@ -398,7 +398,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </SelectTrigger>
                 <SelectContent>
                   {availableMonths.length === 0 ? (
-                    <SelectItem value="" disabled>No data uploaded</SelectItem>
+                    <SelectItem value="no-data" disabled>No data uploaded</SelectItem>
                   ) : (
                     availableMonths.map((month) => (
                       <SelectItem key={month} value={month}>

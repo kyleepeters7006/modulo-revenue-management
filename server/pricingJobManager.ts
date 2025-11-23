@@ -466,8 +466,12 @@ class PricingJobManager {
       console.log(`[PricingJob ${jobId}] Regenerating rate card for month: ${targetMonth}`);
       await storage.generateRateCard(targetMonth);
       
-      // Mark job as completed
+      // Mark job as completed - ensure progress is 100%
       const processingTime = Date.now() - startTime;
+      
+      // Set final progress to 100% before marking complete
+      this.updateProgress(jobId, totalUnits, totalUnits, totalBatches, totalBatches);
+      
       job.status = 'completed';
       job.completedAt = new Date();
       job.result = {
