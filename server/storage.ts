@@ -111,6 +111,7 @@ export interface IStorage {
     limit?: number;
   }): Promise<RentRollData[]>;
   getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
+  getRevenueByMonths(months: string[]): Promise<Record<string, number>>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[]): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
@@ -448,6 +449,29 @@ export class DatabaseStorage implements IStorage {
 
   async getRentRollDataByLocation(location: string): Promise<RentRollData[]> {
     return await db.select().from(rentRollData).where(eq(rentRollData.location, location));
+  }
+
+  async getRevenueByMonths(months: string[]): Promise<Record<string, number>> {
+    // Query to get sum of street_rate grouped by upload_month
+    // This is much more memory efficient than loading all records
+    const result = await db
+      .select({
+        uploadMonth: rentRollData.uploadMonth,
+        totalRevenue: sql<number>`SUM(COALESCE(${rentRollData.streetRate}, 0))`.as('totalRevenue')
+      })
+      .from(rentRollData)
+      .where(inArray(rentRollData.uploadMonth, months))
+      .groupBy(rentRollData.uploadMonth);
+    
+    // Convert to Record<string, number>
+    const revenueByMonth: Record<string, number> = {};
+    result.forEach((row) => {
+      if (row.uploadMonth) {
+        revenueByMonth[row.uploadMonth] = row.totalRevenue || 0;
+      }
+    });
+    
+    return revenueByMonth;
   }
 
   async createRentRollData(data: InsertRentRollData): Promise<RentRollData> {

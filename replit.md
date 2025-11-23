@@ -33,6 +33,7 @@ Preferred communication style: Simple, everyday language.
 - **Map-Based Lookups**: Replaced O(n²) Array.find() operations with O(1) Map lookups in analytics endpoint, reducing processing time for campus data aggregation
 - **Competitor Data Quality**: Added validation filter to exclude erroneous competitor rates (<$1000/month) from competitive_survey_data, improving market position accuracy
 - **Response Time Improvements**: Rate card API reduced from timeouts to 63-67ms; Analytics API stable at ~0.9s for full portfolio
+- **Revenue Growth Calculation**: Fixed memory optimization for /api/series endpoint using database aggregation instead of loading all 391K records into memory, preventing OOM errors and correctly showing positive revenue growth aligned with occupancy increases
 
 ## Core Features
 - **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions, with a premium positioning strategy.

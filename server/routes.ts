@@ -1330,28 +1330,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         monthsToFetch.push(monthKey);
       }
       
-      // Get rent roll data for ALL months in the time range
-      const allRentRollData = await storage.getRentRollData();
-      
-      // Group by month and calculate revenue for each month
-      const revenueByMonth: Record<string, number> = {};
-      
-      allRentRollData.forEach((unit: any) => {
-        const monthKey = unit.uploadMonth;
-        if (!monthKey || !monthsToFetch.includes(monthKey)) {
-          return; // Skip months outside our range
-        }
-        
-        // Calculate revenue based on the Modulo-calculated street rate
-        // This is the final optimized rate after all pricing factors
-        // For both occupied and vacant units, use street rate to show portfolio value
-        const monthlyRevenue = unit.streetRate || 0;
-        
-        if (!revenueByMonth[monthKey]) {
-          revenueByMonth[monthKey] = 0;
-        }
-        revenueByMonth[monthKey] += monthlyRevenue;
-      });
+      // Get revenue aggregated by month directly from database
+      // This is much more memory efficient than loading all 391,030 records
+      const revenueByMonth = await storage.getRevenueByMonths(monthsToFetch);
       
       // Convert monthly revenue to annual (multiply by 12) for display
       Object.keys(revenueByMonth).forEach(month => {
