@@ -59,7 +59,7 @@ export default function ModuloCalculationDialog({
   };
 
   const formatPercent = (value: number) => {
-    return `${value.toFixed(2)}%`;
+    return `${(value * 100).toFixed(2)}%`;
   };
 
   const getAdjustmentColor = (value: number) => {
