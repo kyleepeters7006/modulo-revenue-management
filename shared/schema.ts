@@ -39,7 +39,7 @@ export const users = pgTable("users", {
 });
 
 // Service line options for senior living facilities
-export const serviceLineEnum = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"] as const;
+export const serviceLineEnum = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const;
 export type ServiceLine = typeof serviceLineEnum[number];
 
 // Targets and Trends Table
