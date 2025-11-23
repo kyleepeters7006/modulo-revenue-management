@@ -251,15 +251,16 @@ export function Analytics() {
         };
 
       case 'marketPosition':
-        const totalPricePosition = campuses.reduce((sum: number, c: any) => 
+        const campusesWithData = campuses.filter((c: any) => c.pricePosition !== 0 && c.competitorAvgRate > 0);
+        const totalPricePosition = campusesWithData.reduce((sum: number, c: any) => 
           sum + (c.pricePosition || 0), 0);
         return {
           title: 'Market Position Calculation',
-          formula: 'Average of ((Your Rate - Competitor Rate) ÷ Competitor Rate × 100) across all campuses',
+          formula: 'Average of ((Your Rate - Adjusted Competitor Rate) ÷ Adjusted Competitor Rate × 100)',
           steps: [
-            { label: 'Number of campuses with competitor data', value: campuses.length.toString() },
-            { label: 'Sum of all price positions', value: `${totalPricePosition.toFixed(1)}%` },
-            { label: 'Average market position', value: `${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
+            { label: 'Campuses with adjusted competitor data', value: campusesWithData.length.toString() },
+            { label: 'Sum of all price positions', value: `${totalPricePosition > 0 ? '+' : ''}${totalPricePosition.toFixed(1)}%` },
+            { label: 'Average market position (weighted)', value: `${summary.avgPricePosition > 0 ? '+' : ''}${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
           ],
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,

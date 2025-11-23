@@ -2701,107 +2701,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const occupancy = metrics.occupiedUnits / metrics.totalUnits;
         const avgRate = metrics.occupiedUnits > 0 ? metrics.totalRent / metrics.occupiedUnits : 0;
         
-        // Calculate weighted competitor benchmark based on campus's room type mix
-        // This compares our room types to competitor room types (apples-to-apples)
-        const roomTypeMix = new Map<string, { count: number; totalRate: number }>();
+        // Calculate market position using adjusted competitor rates from rent roll data
+        // Use competitorFinalRate which already has all adjustments applied
+        let totalTrilogyRate = 0;
+        let totalCompetitorRate = 0;
+        let unitsWithCompetitorData = 0;
         
         metrics.units.forEach((unit: any) => {
-          // Normalize room type names to match competitor data
-          let roomType = unit.roomType || 'Unknown';
-          // Map our room types to competitor room types (direct mapping)
-          if (roomType === 'One Bedroom') roomType = '1BR';
-          else if (roomType === 'Two Bedroom') roomType = '2BR';
-          // Keep Semi-Private, Private, Studio, Companion as-is - they match competitor data
-          
-          const rate = unit.inHouseRate || unit.streetRate || 0;
-          if (rate > 0) {
-            if (!roomTypeMix.has(roomType)) {
-              roomTypeMix.set(roomType, { count: 0, totalRate: 0 });
+          // Only include units that have competitor data
+          if (unit.competitorFinalRate && unit.competitorFinalRate > 0) {
+            const trilogyRate = unit.streetRate || unit.inHouseRate || 0;
+            if (trilogyRate > 0) {
+              totalTrilogyRate += trilogyRate;
+              totalCompetitorRate += unit.competitorFinalRate;
+              unitsWithCompetitorData++;
             }
-            const mix = roomTypeMix.get(roomType)!;
-            mix.count++;
-            mix.totalRate += rate;
           }
         });
         
-        // Calculate weighted competitor average
-        let weightedCompetitorRate = 0;
-        let totalUnitsForComparison = 0;
-        const locationCompetitors = competitorsByLocationAndType.get(campusId);
-        
-        roomTypeMix.forEach((mix, roomType) => {
-          let competitorRatesForType: number[] = [];
-          
-          // Get competitor rates for this room type at this location
-          if (locationCompetitors && locationCompetitors.has(roomType)) {
-            competitorRatesForType = locationCompetitors.get(roomType)!;
-          }
-          
-          // Calculate median competitor rate for this room type
-          let medianCompRate: number;
-          
-          if (competitorRatesForType.length > 0) {
-            // Use actual competitor data when available
-            competitorRatesForType.sort((a, b) => a - b);
-            const mid = Math.floor(competitorRatesForType.length / 2);
-            medianCompRate = competitorRatesForType.length % 2 === 0
-              ? (competitorRatesForType[mid - 1] + competitorRatesForType[mid]) / 2
-              : competitorRatesForType[mid];
-          } else {
-            // When no competitor data exists for this room type (e.g., HC Semi-Private),
-            // estimate using service-line multipliers from portfolio:
-            // HC is 2.37x AL, IL is 0.81x AL
-            // Use any available AL competitor data as the base, then apply multiplier
-            
-            const alBaseRates: number[] = [];
-            if (locationCompetitors) {
-              ['Studio', '1BR', '2BR'].forEach(alType => {
-                if (locationCompetitors.has(alType)) {
-                  // Already filtered for MIN_REALISTIC_MONTHLY_RATE in competitorsByLocationAndType
-                  alBaseRates.push(...locationCompetitors.get(alType)!);
-                }
-              });
-            }
-            
-            if (alBaseRates.length > 0) {
-              // Calculate median of AL competitor rates
-              alBaseRates.sort((a, b) => a - b);
-              const mid = Math.floor(alBaseRates.length / 2);
-              const alMedian = alBaseRates.length % 2 === 0
-                ? (alBaseRates[mid - 1] + alBaseRates[mid]) / 2
-                : alBaseRates[mid];
-              
-              // Apply service-line multiplier for HC (2.37x) or IL (0.81x)
-              if (roomType === 'Semi-Private' || roomType === 'Private') {
-                medianCompRate = alMedian * 2.37; // HC multiplier
-              } else {
-                medianCompRate = alMedian; // Default to AL rate
-              }
-            } else {
-              // Last resort: use portfolio median
-              medianCompRate = portfolioMediansByRoomType.get(roomType) || (mix.totalRate / mix.count);
-            }
-          }
-          
-          weightedCompetitorRate += medianCompRate * mix.count;
-          totalUnitsForComparison += mix.count;
-        });
-        
-        let competitorAvgRate = totalUnitsForComparison > 0 
-          ? weightedCompetitorRate / totalUnitsForComparison 
-          : avgRate;
-        
-        // Adjust a few campuses to show pricing opportunities (slightly below market)
-        const opportunityCampuses = ['Springfield-401', 'Anderson-Bethany', 'Cynthiana-114'];
-        if (opportunityCampuses.includes(campusId)) {
-          // Increase competitor benchmark by 10-15% to make these campuses appear below market
-          competitorAvgRate = competitorAvgRate * 1.12;
-        }
-        
-        // Calculate price position (% above/below room-type-weighted competitor median)
-        const pricePosition = competitorAvgRate > 0 
-          ? ((avgRate - competitorAvgRate) / competitorAvgRate) * 100
+        // Calculate average rates for units with competitor data
+        const avgTrilogyRateWithComp = unitsWithCompetitorData > 0 
+          ? totalTrilogyRate / unitsWithCompetitorData 
           : 0;
+        const avgCompetitorRate = unitsWithCompetitorData > 0 
+          ? totalCompetitorRate / unitsWithCompetitorData 
+          : 0;
+        
+        // Calculate price position using adjusted competitor rates
+        // This gives us the actual market position using properly adjusted rates
+        let pricePosition = 0;
+        if (avgCompetitorRate > 0 && avgTrilogyRateWithComp > 0) {
+          pricePosition = ((avgTrilogyRateWithComp - avgCompetitorRate) / avgCompetitorRate) * 100;
+        }
           
         // Calculate revenue impact (simplified)
         const currentMonthlyRevenue = avgRate * metrics.occupiedUnits * 30;
@@ -2840,7 +2771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avgRate: Math.round(avgRate),
           occupancy,
           occupiedUnits: metrics.occupiedUnits,  // Add occupied units for weighted avg
-          competitorAvgRate: Math.round(competitorAvgRate),
+          competitorAvgRate: Math.round(avgCompetitorRate), // Use adjusted competitor rate
           pricePosition,
           revenueImpact,
           potentialRevenue,
@@ -2857,6 +2788,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sum + (c.avgRate * (c.occupiedUnits || 0)), 0);
       const totalUnits = campusesData.reduce((sum, c) => sum + c.unitsCount, 0);
       
+      // Calculate weighted average price position (by number of units with competitor data)
+      let totalWeightedPosition = 0;
+      let totalUnitsWithData = 0;
+      campusesData.forEach(campus => {
+        // Only include campuses with actual competitor data in the average
+        if (campus.pricePosition !== 0 && campus.competitorAvgRate > 0) {
+          totalWeightedPosition += campus.pricePosition * campus.unitsCount;
+          totalUnitsWithData += campus.unitsCount;
+        }
+      });
+      
       const summary = {
         avgPortfolioRate: totalOccupiedUnits > 0 
           ? Math.round(totalRentRevenue / totalOccupiedUnits)
@@ -2864,12 +2806,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         avgOccupancy: totalUnits > 0
           ? campusesData.reduce((sum, c) => sum + (c.occupiedUnits || 0), 0) / totalUnits
           : 0,
-        avgPricePosition: campusesData.length > 0
-          ? campusesData.reduce((sum, c) => sum + c.pricePosition, 0) / campusesData.length
+        avgPricePosition: totalUnitsWithData > 0
+          ? totalWeightedPosition / totalUnitsWithData
           : 0,
         totalRevenueOpportunity: campusesData.reduce((sum, c) => sum + c.revenueImpact, 0),
         totalOccupiedUnits,  // Add for dialog display
-        totalRentRevenue: Math.round(totalRentRevenue * 30)  // Monthly revenue
+        totalRentRevenue: Math.round(totalRentRevenue * 30),  // Monthly revenue
+        campusesWithCompetitorData: campusesData.filter(c => c.pricePosition !== 0).length
       };
 
       res.json({
