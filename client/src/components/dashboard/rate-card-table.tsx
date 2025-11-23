@@ -118,6 +118,31 @@ export default function RateCardTable({
     }
   }, [rateCardData, selectedServiceLine]);
 
+  // Scroll to highlighted unit when it changes - moved up here with other hooks
+  useEffect(() => {
+    const units = rateCardData?.units || [];
+    const filteredUnits = selectedServiceLine === "All" 
+      ? units 
+      : units.filter((unit: any) => unit.serviceLine === selectedServiceLine);
+    const highlightedUnitId = selectedUnit ? 
+      filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
+    
+    if (highlightedUnitId && !isLoading) {
+      // Wait for render to complete, then scroll
+      setTimeout(() => {
+        const element = document.getElementById(`unit-row-${highlightedUnitId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add a temporary pulse animation
+          element.classList.add('animate-pulse');
+          setTimeout(() => {
+            element.classList.remove('animate-pulse');
+          }, 2000);
+        }
+      }, 100);
+    }
+  }, [rateCardData, selectedUnit, selectedServiceLine, isLoading]);
+
   const generateModuloMutation = useMutation({
     mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { 
       month: selectedMonth,
@@ -229,10 +254,10 @@ export default function RateCardTable({
     }
     
     // Competitor factor
-    if (unit.competitorRate && Math.abs(unit.competitorRate - unit.streetRate) > 50) {
-      const competitorDiff = unit.competitorRate - unit.streetRate;
+    if (unit.competitorFinalRate && Math.abs(unit.competitorFinalRate - unit.streetRate) > 50) {
+      const competitorDiff = unit.competitorFinalRate - unit.streetRate;
       const adjustment = Math.round(competitorDiff / unit.streetRate * 50);
-      factors.push(`🏢 Competitor rate $${unit.competitorRate?.toLocaleString()}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
+      factors.push(`🏢 Competitor rate $${unit.competitorFinalRate?.toLocaleString()}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
     }
 
     return `Modulo Algorithm Calculation:
@@ -284,24 +309,6 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   // Also prepare for highlighting
   const highlightedUnitId = selectedUnit ? 
     filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
-  
-  // Scroll to highlighted unit when it changes - must be before any conditional returns
-  useEffect(() => {
-    if (highlightedUnitId && !isLoading) {
-      // Wait for render to complete, then scroll
-      setTimeout(() => {
-        const element = document.getElementById(`unit-row-${highlightedUnitId}`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          // Add a temporary pulse animation
-          element.classList.add('animate-pulse');
-          setTimeout(() => {
-            element.classList.remove('animate-pulse');
-          }, 2000);
-        }
-      }, 100);
-    }
-  }, [highlightedUnitId, isLoading]);
 
   if (isLoading) {
     return (
@@ -367,8 +374,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           bVal = b.aiSuggestedRate || 0;
           break;
         case 'competitor':
-          aVal = a.competitorRate || 0;
-          bVal = b.competitorRate || 0;
+          aVal = a.competitorFinalRate || 0;
+          bVal = b.competitorFinalRate || 0;
           break;
         default:
           return 0;
@@ -473,11 +480,11 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
                 <Button
                   onClick={() => {
-                    const unitsWithModulo = filteredUnits.filter((u: any) => u.moduloSuggestedRate);
+                    const unitsWithModulo = filteredUnits.filter((u: any) => u.moduloSuggestedRate && !u.occupiedYN);
                     if (unitsWithModulo.length === 0) {
                       toast({ 
                         title: "No Modulo suggestions", 
-                        description: "Generate Modulo suggestions first",
+                        description: "Generate Modulo suggestions first or all units are occupied",
                         variant: "destructive"
                       });
                       return;
@@ -493,16 +500,16 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-modulo"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Modulo ({filteredUnits.filter((u: any) => u.moduloSuggestedRate).length})
+                  Accept All Modulo ({filteredUnits.filter((u: any) => u.moduloSuggestedRate && !u.occupiedYN).length})
                 </Button>
                 
                 <Button
                   onClick={() => {
-                    const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate);
+                    const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate && !u.occupiedYN);
                     if (unitsWithAI.length === 0) {
                       toast({ 
                         title: "No AI suggestions", 
-                        description: "Generate AI suggestions first",
+                        description: "Generate AI suggestions first or all units are occupied",
                         variant: "destructive"
                       });
                       return;
@@ -518,7 +525,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-ai"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
+                  Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate && !u.occupiedYN).length})
                 </Button>
               </div>
             </div>
