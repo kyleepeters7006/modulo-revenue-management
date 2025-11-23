@@ -269,23 +269,6 @@ Analysis Factors:
 The AI considers complex market dynamics, seasonal patterns, and competitive intelligence to generate data-driven pricing recommendations.`;
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Loading rate card...</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-            <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
   
@@ -302,7 +285,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
   const highlightedUnitId = selectedUnit ? 
     filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
   
-  // Scroll to highlighted unit when it changes
+  // Scroll to highlighted unit when it changes - must be before any conditional returns
   useEffect(() => {
     if (highlightedUnitId && !isLoading) {
       // Wait for render to complete, then scroll
@@ -319,6 +302,23 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
       }, 100);
     }
   }, [highlightedUnitId, isLoading]);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Loading rate card...</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="animate-pulse space-y-4">
+            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+            <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Handle column sorting
   const handleSort = (column: string) => {
