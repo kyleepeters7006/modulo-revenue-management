@@ -277,27 +277,16 @@ export default function RateCard() {
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                <Button 
-                  onClick={() => generateModuloMutation.mutate()}
-                  disabled={isGenerating}
-                  className="flex items-center gap-2 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
-                  data-testid="button-generate-modulo"
-                >
-                  <Calculator className="h-4 w-4" />
-                  {isGenerating ? 'Calculating...' : 'Generate Modulo'}
-                </Button>
-                <Button 
-                  onClick={handleExport}
-                  disabled={isExporting}
-                  variant="outline"
-                  className="flex items-center gap-2"
-                  data-testid="button-export-rate-card"
-                >
-                  <Download className="h-4 w-4" />
-                  {isExporting ? 'Exporting...' : 'Export to CSV'}
-                </Button>
-              </div>
+              <Button 
+                onClick={handleExport}
+                disabled={isExporting}
+                variant="outline"
+                className="flex items-center gap-2"
+                data-testid="button-export-rate-card"
+              >
+                <Download className="h-4 w-4" />
+                {isExporting ? 'Exporting...' : 'Export to CSV'}
+              </Button>
               {jobProgress && (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
                   <div className="flex justify-between mb-2">
