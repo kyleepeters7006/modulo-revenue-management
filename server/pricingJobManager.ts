@@ -78,17 +78,31 @@ class PricingJobManager {
   private updateProgress(jobId: string, current: number, total: number, currentBatch: number, totalBatches: number) {
     const job = this.jobs.get(jobId);
     if (job) {
+      // Calculate percentage with decimal precision, ensure it's never exactly 0 if there's any progress
+      let percentage = 0;
+      if (total > 0) {
+        percentage = (current / total) * 100;
+        // If there's any progress but it would round to 0, show at least 1%
+        if (current > 0 && percentage < 1) {
+          percentage = 1;
+        }
+        // Keep one decimal place for better granularity
+        percentage = Math.round(percentage * 10) / 10;
+      }
+      
       job.progress = {
         current,
         total,
-        percentage: Math.round((current / total) * 100),
+        percentage,
         currentBatch,
         totalBatches
       };
       
-      // Log progress every 10% or every batch completion
-      if (job.progress.percentage % 10 === 0 || current === total) {
-        console.log(`[PricingJob ${jobId}] Progress: ${job.progress.percentage}% (${current}/${total} units, Batch ${currentBatch}/${totalBatches})`);
+      // Log progress more frequently - every 5% or every batch completion
+      const prevPercentage = Math.floor((current - 1) / total * 100 / 5) * 5;
+      const currPercentage = Math.floor(percentage / 5) * 5;
+      if (currPercentage !== prevPercentage || current === total || currentBatch !== job.progress.currentBatch) {
+        console.log(`[PricingJob ${jobId}] Progress: ${percentage.toFixed(1)}% (${current}/${total} units, Batch ${currentBatch}/${totalBatches})`);
       }
     }
   }
@@ -104,9 +118,6 @@ class PricingJobManager {
       console.log(`[PricingJob ${jobId}] Starting processing...`);
       job.status = 'processing';
       this.processingJobs.add(jobId);
-      
-      // Add initial progress update
-      this.updateProgress(jobId, 0, 1, 0, 1);
       
       const startTime = Date.now();
       const { month } = job.params;
@@ -259,49 +270,75 @@ class PricingJobManager {
       console.log(`[PricingJob ${jobId}] Starting batch processing (${totalBatches} batches of ${this.BATCH_SIZE} units)...`);
       const allUpdates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex += this.MAX_PARALLEL_BATCHES) {
+      // Track completed batches properly
+      const completedBatches = new Map<number, number>();
+      let totalProcessed = 0;
+      
+      for (let batchGroupIndex = 0; batchGroupIndex < totalBatches; batchGroupIndex += this.MAX_PARALLEL_BATCHES) {
         // Process up to MAX_PARALLEL_BATCHES in parallel
-        const batchPromises = [];
-        const endBatchIndex = Math.min(batchIndex + this.MAX_PARALLEL_BATCHES, totalBatches);
+        const batchPromises: Array<Promise<{ batchIndex: number; updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> }>> = [];
+        const endBatchIndex = Math.min(batchGroupIndex + this.MAX_PARALLEL_BATCHES, totalBatches);
         
-        for (let i = batchIndex; i < endBatchIndex; i++) {
+        for (let i = batchGroupIndex; i < endBatchIndex; i++) {
           const startIdx = i * this.BATCH_SIZE;
           const endIdx = Math.min(startIdx + this.BATCH_SIZE, totalUnits);
           const batchUnits = units.slice(startIdx, endIdx);
+          const currentBatchIndex = i;
           
-          console.log(`[PricingJob ${jobId}] Processing batch ${i + 1}/${totalBatches} (units ${startIdx + 1}-${endIdx})...`);
+          console.log(`[PricingJob ${jobId}] Processing batch ${currentBatchIndex + 1}/${totalBatches} (units ${startIdx + 1}-${endIdx})...`);
           
-          batchPromises.push(
-            this.processBatch(
-              batchUnits,
-              {
-                getWeightsForUnit,
-                serviceLineOccupancy,
-                serviceLineMedians,
-                stockMarketChange,
-                guardrailsData,
-                activeRules,
-                targetMonth
-              }
-            )
-          );
+          // Wrap batch processing to include batch index for progress tracking
+          const batchPromise = this.processBatch(
+            batchUnits,
+            {
+              getWeightsForUnit,
+              serviceLineOccupancy,
+              serviceLineMedians,
+              stockMarketChange,
+              guardrailsData,
+              activeRules,
+              targetMonth
+            },
+            // Intra-batch progress callback for large batches
+            (processedInBatch) => {
+              // Calculate approximate progress including partial batch
+              const baseProcessed = totalProcessed;
+              const approxProcessed = baseProcessed + processedInBatch;
+              this.updateProgress(jobId, approxProcessed, totalUnits, currentBatchIndex + 1, totalBatches);
+            }
+          ).then(updates => {
+            // Store the number of units processed in this batch
+            completedBatches.set(currentBatchIndex, updates.length);
+            
+            // Calculate total processed based on all completed batches so far
+            let newTotalProcessed = 0;
+            for (const count of completedBatches.values()) {
+              newTotalProcessed += count;
+            }
+            
+            // Update progress with accurate count
+            this.updateProgress(jobId, newTotalProcessed, totalUnits, completedBatches.size, totalBatches);
+            console.log(`[PricingJob ${jobId}] Batch ${currentBatchIndex + 1} completed: ${updates.length} units processed`);
+            
+            return { batchIndex: currentBatchIndex, updates };
+          });
+          
+          batchPromises.push(batchPromise);
         }
         
         // Wait for all parallel batches to complete
         const batchResults = await Promise.all(batchPromises);
         
-        // Collect all updates
-        for (const updates of batchResults) {
-          allUpdates.push(...updates);
+        // Collect all updates and update total
+        for (const result of batchResults) {
+          allUpdates.push(...result.updates);
         }
         
-        // Update progress - use actual count of processed items
-        const processedCount = allUpdates.length;
-        const completedBatches = endBatchIndex;
-        this.updateProgress(jobId, processedCount, totalUnits, completedBatches, totalBatches);
+        // Update totalProcessed for next batch group
+        totalProcessed = allUpdates.length;
         
-        // Log batch completion
-        console.log(`[PricingJob ${jobId}] Completed batches ${batchIndex + 1}-${endBatchIndex} (${processedCount}/${totalUnits} units processed)`);
+        // Log batch group completion  
+        console.log(`[PricingJob ${jobId}] Completed batch group ${batchGroupIndex + 1}-${endBatchIndex} (${totalProcessed}/${totalUnits} units processed)`);
       }
       
       // Bulk update database with all results
@@ -344,15 +381,21 @@ class PricingJobManager {
   
   private async processBatch(
     units: RentRollData[], 
-    context: any
+    context: any,
+    progressCallback?: (processedInBatch: number) => void
   ): Promise<Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>> {
     const updates = [];
     const { getWeightsForUnit, serviceLineOccupancy, serviceLineMedians, stockMarketChange, guardrailsData, targetMonth } = context;
+    
+    console.log(`[Batch] Processing batch with ${units.length} units...`);
+    let processedInBatch = 0;
+    let skippedCount = 0;
     
     for (const unit of units) {
       try {
         const unitWeights = getWeightsForUnit(unit);
         if (!unitWeights || unitWeights.enableWeights === false) {
+          skippedCount++;
           continue; // Skip units with disabled weights
         }
         
@@ -443,12 +486,19 @@ class PricingJobManager {
           moduloCalculationDetails: JSON.stringify(calculationDetails)
         });
         
+        // Report progress within batch every 50 units for large batches
+        processedInBatch++;
+        if (progressCallback && processedInBatch % 50 === 0) {
+          progressCallback(processedInBatch);
+        }
+        
       } catch (error) {
         console.error(`Error processing unit ${unit.id}:`, error);
         // Continue with next unit
       }
     }
     
+    console.log(`[Batch] Batch completed: ${updates.length} units processed, ${skippedCount} skipped`);
     return updates;
   }
   
