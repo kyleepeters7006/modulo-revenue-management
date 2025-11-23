@@ -3666,20 +3666,38 @@ Keep recommendations specific and quantitative when possible.`;
       // Log the actual portfolio size for monitoring
       console.log(`Trilogy Portfolio (${mostRecentMonth}): ${allRentRollData.length} total units across ${uniqueCampuses} campuses`);
 
-      // Calculate room type statistics for filtered data
+      // Calculate room type statistics with service line breakdown for filtered data
       const roomTypeStats = rentRollDataFiltered.reduce((acc: any, unit: any) => {
+        // Initialize room type if not exists
         if (!acc[unit.roomType]) {
-          acc[unit.roomType] = { occupied: 0, total: 0 };
+          acc[unit.roomType] = { 
+            overall: { occupied: 0, total: 0 },
+            byServiceLine: {}
+          };
         }
-        acc[unit.roomType].total++;
+        
+        // Overall stats for room type
+        acc[unit.roomType].overall.total++;
         if (unit.occupiedYN) {
-          acc[unit.roomType].occupied++;
+          acc[unit.roomType].overall.occupied++;
         }
+        
+        // Service line specific stats within room type
+        if (!acc[unit.roomType].byServiceLine[unit.serviceLine]) {
+          acc[unit.roomType].byServiceLine[unit.serviceLine] = { occupied: 0, total: 0 };
+        }
+        acc[unit.roomType].byServiceLine[unit.serviceLine].total++;
+        if (unit.occupiedYN) {
+          acc[unit.roomType].byServiceLine[unit.serviceLine].occupied++;
+        }
+        
         return acc;
       }, {});
 
       const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
         const roomTypeUnits = rentRollDataFiltered.filter(u => u.roomType === roomType);
+        
+        // Calculate overall stats for the room type
         const avgRate = roomTypeUnits.length > 0 ? 
           roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
         const avgCompetitorRate = roomTypeUnits.length > 0 ? 
@@ -3701,20 +3719,61 @@ Keep recommendations specific and quantitative when possible.`;
         }
         
         // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
-        const currentMonthlyRevenue = avgRate * stats.occupied;
-        const targetOccupancy = Math.round(stats.total * 0.95);
+        const currentMonthlyRevenue = avgRate * stats.overall.occupied;
+        const targetOccupancy = Math.round(stats.overall.total * 0.95);
         const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
         const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
+        // Calculate service line breakdown for this room type
+        const serviceLineBreakdown = Object.entries(stats.byServiceLine).map(([serviceLine, slStats]: [string, any]) => {
+          const slUnits = roomTypeUnits.filter(u => u.serviceLine === serviceLine);
+          const slAvgRate = slUnits.length > 0 ?
+            slUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / slUnits.length : 0;
+          const slAvgCompetitorRate = slUnits.length > 0 ?
+            slUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / slUnits.length : 0;
+          
+          // Calculate modulo rate for this service line
+          let slAvgModuloSuggested = 0;
+          if (slUnits.length > 0) {
+            const slModuloRates = slUnits
+              .map(u => u.moduloSuggestedRate || 0)
+              .filter(rate => rate > 0);
+            
+            if (slModuloRates.length > 0) {
+              slAvgModuloSuggested = slModuloRates.reduce((sum, rate) => sum + rate, 0) / slModuloRates.length;
+            } else {
+              slAvgModuloSuggested = slAvgRate;
+            }
+          }
+          
+          // Calculate monthly remainder for this service line
+          const slCurrentMonthlyRevenue = slAvgRate * slStats.occupied;
+          const slTargetOccupancy = Math.round(slStats.total * 0.95);
+          const slPotentialMonthlyRevenue = slAvgModuloSuggested * slTargetOccupancy;
+          const slMonthlyRemainder = slPotentialMonthlyRevenue - slCurrentMonthlyRevenue;
+          
+          return {
+            serviceLine,
+            occupied: slStats.occupied,
+            total: slStats.total,
+            occupancyRate: slStats.total > 0 ? Math.round((slStats.occupied / slStats.total) * 100) : 0,
+            avgRate: slAvgRate,
+            avgCompetitorRate: slAvgCompetitorRate,
+            avgModuloRate: slAvgModuloSuggested,
+            monthlyRemainder: slMonthlyRemainder
+          };
+        });
+        
         return {
           roomType,
-          occupied: stats.occupied,
-          total: stats.total,
-          occupancyRate: Math.round((stats.occupied / stats.total) * 100),
+          occupied: stats.overall.occupied,
+          total: stats.overall.total,
+          occupancyRate: Math.round((stats.overall.occupied / stats.overall.total) * 100),
           avgRate,
           avgCompetitorRate,
           avgModuloRate: avgModuloSuggested,
-          monthlyRemainder
+          monthlyRemainder,
+          serviceLineBreakdown  // New field containing breakdown by service line
         };
       });
 
