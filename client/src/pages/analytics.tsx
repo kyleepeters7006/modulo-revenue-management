@@ -61,7 +61,19 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
             {data.division && (
               <p className="text-gray-700 dark:text-gray-300">Division: {data.division}</p>
             )}
-            {data.avgRate && (
+            {/* Show rates by service line type instead of blended average */}
+            {data.avgHcDailyRate > 0 && (
+              <p className="text-gray-700 dark:text-gray-300">
+                HC Daily Rate: ${Math.round(data.avgHcDailyRate).toLocaleString()}/day
+              </p>
+            )}
+            {data.avgSeniorHousingMonthlyRate > 0 && (
+              <p className="text-gray-700 dark:text-gray-300">
+                Senior Housing: ${Math.round(data.avgSeniorHousingMonthlyRate).toLocaleString()}/mo
+              </p>
+            )}
+            {/* Only show blended rate if specifically needed */}
+            {!data.avgHcDailyRate && !data.avgSeniorHousingMonthlyRate && data.avgRate && (
               <p className="text-gray-700 dark:text-gray-300">
                 Avg Rate: ${Math.round(data.avgRate).toLocaleString()}
               </p>
@@ -432,13 +444,22 @@ export function Analytics() {
           data-testid="card-avg-rate"
         >
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Portfolio Average Rate</CardTitle>
+            <CardTitle className="text-sm font-medium">Portfolio Average Rates</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              ${Math.round(analyticsData?.summary?.avgPortfolioRate || 0).toLocaleString()}
+            <div className="space-y-1">
+              {analyticsData?.summary?.avgHcDailyRate > 0 && (
+                <div className="text-sm">
+                  <span className="font-semibold">HC:</span> ${Math.round(analyticsData.summary.avgHcDailyRate).toLocaleString()}/day
+                </div>
+              )}
+              {analyticsData?.summary?.avgSeniorHousingMonthlyRate > 0 && (
+                <div className="text-sm">
+                  <span className="font-semibold">SH:</span> ${Math.round(analyticsData.summary.avgSeniorHousingMonthlyRate).toLocaleString()}/mo
+                </div>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">Per day • Click for details</p>
+            <p className="text-xs text-muted-foreground mt-1">By service line • Click for details</p>
           </CardContent>
         </Card>
         

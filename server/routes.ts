@@ -2701,6 +2701,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const occupancy = metrics.occupiedUnits / metrics.totalUnits;
         const avgRate = metrics.occupiedUnits > 0 ? metrics.totalRent / metrics.occupiedUnits : 0;
         
+        // Calculate rates by service line type for meaningful display
+        let hcUnits = 0;
+        let hcRate = 0;
+        let seniorHousingUnits = 0;
+        let seniorHousingRate = 0;
+        
+        metrics.units.forEach((unit: any) => {
+          const rate = unit.streetRate || unit.inHouseRate || 0;
+          if (unit.serviceLine === 'HC' || unit.serviceLine === 'HC/MC') {
+            // HC rates are daily
+            if (rate > 0) {
+              hcRate += rate;
+              hcUnits++;
+            }
+          } else {
+            // Senior Housing rates are monthly (AL, IL, MC, SL, VIL)
+            if (rate > 0) {
+              seniorHousingRate += rate;
+              seniorHousingUnits++;
+            }
+          }
+        });
+        
+        // Calculate average rates by type
+        const avgHcDailyRate = hcUnits > 0 ? hcRate / hcUnits : 0;
+        const avgSeniorHousingMonthlyRate = seniorHousingUnits > 0 ? seniorHousingRate / seniorHousingUnits : 0;
+        
         // Calculate market position using adjusted competitor rates from rent roll data
         // Use competitorFinalRate which already has all adjustments applied
         let totalTrilogyRate = 0;
@@ -2769,6 +2796,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           division: campusDivision,
           serviceLine: primaryServiceLine,
           avgRate: Math.round(avgRate),
+          avgHcDailyRate: Math.round(avgHcDailyRate), // HC daily rate
+          avgSeniorHousingMonthlyRate: Math.round(avgSeniorHousingMonthlyRate), // Senior Housing monthly rate
+          hcUnits,
+          seniorHousingUnits,
           occupancy,
           occupiedUnits: metrics.occupiedUnits,  // Add occupied units for weighted avg
           competitorAvgRate: Math.round(avgCompetitorRate), // Use adjusted competitor rate
@@ -2799,10 +2830,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
       
+      // Calculate average rates by service line type for portfolio summary
+      const totalHcUnits = campusesData.reduce((sum, c) => sum + (c.hcUnits || 0), 0);
+      const totalSeniorHousingUnits = campusesData.reduce((sum, c) => sum + (c.seniorHousingUnits || 0), 0);
+      
+      const avgHcDailyRate = totalHcUnits > 0 ?
+        campusesData.reduce((sum, c) => sum + (c.avgHcDailyRate * (c.hcUnits || 0)), 0) / totalHcUnits : 0;
+      
+      const avgSeniorHousingMonthlyRate = totalSeniorHousingUnits > 0 ?
+        campusesData.reduce((sum, c) => sum + (c.avgSeniorHousingMonthlyRate * (c.seniorHousingUnits || 0)), 0) / totalSeniorHousingUnits : 0;
+      
       const summary = {
         avgPortfolioRate: totalOccupiedUnits > 0 
           ? Math.round(totalRentRevenue / totalOccupiedUnits)
           : 0,
+        avgHcDailyRate: Math.round(avgHcDailyRate),  // HC daily rate average
+        avgSeniorHousingMonthlyRate: Math.round(avgSeniorHousingMonthlyRate),  // Senior Housing monthly rate average
         avgOccupancy: totalUnits > 0
           ? campusesData.reduce((sum, c) => sum + (c.occupiedUnits || 0), 0) / totalUnits
           : 0,
