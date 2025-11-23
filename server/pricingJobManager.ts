@@ -60,8 +60,13 @@ class PricingJobManager {
     this.jobs.set(jobId, job);
     console.log(`[PricingJob ${jobId}] Created new pricing job for month: ${params.month}`);
     
-    // Start processing immediately but don't await
-    setImmediate(() => this.processJob(jobId));
+    // Start processing asynchronously without blocking
+    this.processJob(jobId).catch(error => {
+      console.error(`[PricingJob ${jobId}] Failed to process job:`, error);
+      job.status = 'failed';
+      job.error = error instanceof Error ? error.message : 'Unknown error';
+      job.completedAt = new Date();
+    });
     
     return jobId;
   }
@@ -90,12 +95,18 @@ class PricingJobManager {
   
   private async processJob(jobId: string): Promise<void> {
     const job = this.jobs.get(jobId);
-    if (!job) return;
+    if (!job) {
+      console.error(`[PricingJob ${jobId}] Job not found in map`);
+      return;
+    }
     
     try {
       console.log(`[PricingJob ${jobId}] Starting processing...`);
       job.status = 'processing';
       this.processingJobs.add(jobId);
+      
+      // Add initial progress update
+      this.updateProgress(jobId, 0, 1, 0, 1);
       
       const startTime = Date.now();
       const { month } = job.params;
@@ -132,11 +143,12 @@ class PricingJobManager {
       const totalUnits = units.length;
       
       console.log(`[PricingJob ${jobId}] Total units to process: ${totalUnits}`);
-      job.progress.total = totalUnits;
       
       // Calculate total batches
       const totalBatches = Math.ceil(totalUnits / this.BATCH_SIZE);
-      job.progress.totalBatches = totalBatches;
+      
+      // Update job progress with actual counts
+      this.updateProgress(jobId, 0, totalUnits, 0, totalBatches);
       
       // Pre-compute shared data (similar to original)
       const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
@@ -283,9 +295,13 @@ class PricingJobManager {
           allUpdates.push(...updates);
         }
         
-        // Update progress
-        const processedCount = Math.min(endBatchIndex * this.BATCH_SIZE, totalUnits);
-        this.updateProgress(jobId, processedCount, totalUnits, endBatchIndex, totalBatches);
+        // Update progress - use actual count of processed items
+        const processedCount = allUpdates.length;
+        const completedBatches = endBatchIndex;
+        this.updateProgress(jobId, processedCount, totalUnits, completedBatches, totalBatches);
+        
+        // Log batch completion
+        console.log(`[PricingJob ${jobId}] Completed batches ${batchIndex + 1}-${endBatchIndex} (${processedCount}/${totalUnits} units processed)`);
       }
       
       // Bulk update database with all results
