@@ -4046,26 +4046,19 @@ Keep recommendations specific and quantitative when possible.`;
       const locationsWithData = uniqueCampuses;
       const occupiedUnits = actualUnits.filter(u => u.occupiedYN).length;
       
+      // Import rate normalization service
+      const { calculateUnitAnnualRevenue } = await import('./services/rateNormalization');
+      
       // IMPORTANT: Use allRentRollData for revenue calculations to include B-bed revenue
       // B-beds are excluded from occupancy counts but their revenue should be counted
+      // HC rates are stored as DAILY rates and need conversion to monthly
       const currentAnnualRevenue = allRentRollData.reduce((sum, u) => {
-        if (u.occupiedYN) {
-          // For occupied units, use inHouseRate if available, otherwise streetRate
-          // (In production data, inHouseRate may be 0, so we fall back to streetRate)
-          const baseRent = u.inHouseRate > 0 ? u.inHouseRate : (u.streetRate || 0);
-          const careRate = u.careFee || u.careRate || 0;
-          return sum + (baseRent + careRate) * 12;
-        }
-        // Vacant units contribute 0 to current revenue
-        return sum;
+        return sum + calculateUnitAnnualRevenue(u, true); // occupied revenue
       }, 0);
       
       // Potential revenue also includes ALL units including B-beds
       const potentialAnnualRevenue = allRentRollData.reduce((sum, u) => {
-        // For potential revenue, use streetRate for ALL units (100% occupancy scenario)
-        const baseRent = u.streetRate || 0;
-        const careRate = u.careRate || u.careFee || 0;
-        return sum + (baseRent + careRate) * 12;
+        return sum + calculateUnitAnnualRevenue(u, false); // potential revenue at 100% occupancy
       }, 0);
 
       res.json({
