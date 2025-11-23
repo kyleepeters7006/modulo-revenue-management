@@ -3839,8 +3839,23 @@ Keep recommendations specific and quantitative when possible.`;
         // Calculate overall stats for the room type
         const avgRate = roomTypeUnits.length > 0 ? 
           roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
-        const avgCompetitorRate = roomTypeUnits.length > 0 ? 
-          roomTypeUnits.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / roomTypeUnits.length : 0;
+        
+        // Calculate competitor rate - normalize HC daily rates to monthly before averaging
+        let avgCompetitorRate = 0;
+        if (roomTypeUnits.length > 0) {
+          const unitsWithCompetitorData = roomTypeUnits.filter(u => u.competitorRate && u.competitorRate > 0);
+          if (unitsWithCompetitorData.length > 0) {
+            const normalizedRates = unitsWithCompetitorData.map(u => {
+              let rate = u.competitorRate || 0;
+              // Convert HC daily rates to monthly (HC rates below $1000 are daily)
+              if ((u.serviceLine === 'HC' || u.serviceLine === 'HC/MC') && rate > 0 && rate < 1000) {
+                rate = rate * 30.44; // Convert daily to monthly
+              }
+              return rate;
+            });
+            avgCompetitorRate = normalizedRates.reduce((sum, rate) => sum + rate, 0) / normalizedRates.length;
+          }
+        }
         
         // Use stored Modulo rates - same logic as rate card generation
         let avgModuloSuggested = 0;
@@ -3977,12 +3992,20 @@ Keep recommendations specific and quantitative when possible.`;
         const avgRate = serviceLineUnits.length > 0 ? 
           serviceLineUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / serviceLineUnits.length : 0;
         
-        // Calculate competitor rate - only average units WITH competitor data
+        // Calculate competitor rate - normalize HC daily rates to monthly before averaging
         let avgCompetitorRate = 0;
         if (serviceLineUnits.length > 0) {
           const unitsWithCompetitorData = serviceLineUnits.filter(u => u.competitorRate && u.competitorRate > 0);
           if (unitsWithCompetitorData.length > 0) {
-            avgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + (u.competitorRate || 0), 0) / unitsWithCompetitorData.length;
+            const normalizedRates = unitsWithCompetitorData.map(u => {
+              let rate = u.competitorRate || 0;
+              // Convert HC daily rates to monthly (HC rates below $1000 are daily)
+              if ((serviceLine === 'HC' || serviceLine === 'HC/MC') && rate > 0 && rate < 1000) {
+                rate = rate * 30.44; // Convert daily to monthly
+              }
+              return rate;
+            });
+            avgCompetitorRate = normalizedRates.reduce((sum, rate) => sum + rate, 0) / normalizedRates.length;
           }
         }
         
