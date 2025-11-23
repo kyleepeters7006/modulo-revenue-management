@@ -31,7 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
 import AICalculationDialog from "./ai-calculation-dialog";
-import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
+import { formatNumber, formatCurrency, formatPercentage, formatRateByServiceLine, convertToDisplayRate, isDailyRateServiceLine } from "@/lib/formatters";
 
 interface RateCardTableProps {
   selectedServiceLine?: string;
@@ -227,8 +227,14 @@ export default function RateCardTable({
       return "No Modulo suggestions available";
     }
 
-    const change = unit.moduloSuggestedRate - unit.streetRate;
-    const changePercent = Math.round((change / unit.streetRate) * 100);
+    const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
+    const displayModulo = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
+    const displayCompetitor = convertToDisplayRate(unit.competitorFinalRate, unit.serviceLine) || 0;
+    const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
+    const rateSuffix = isDailyRate ? '/day' : '';
+    
+    const change = displayModulo - displayStreet;
+    const changePercent = Math.round((change / displayStreet) * 100);
     
     let factors = [];
     
@@ -253,19 +259,19 @@ export default function RateCardTable({
       factors.push(`⭐ Premium features: +${attributeBonus}% (${unit.view ? 'View' : ''}${unit.view && unit.renovated ? ', ' : ''}${unit.renovated ? 'Renovated' : ''})`);
     }
     
-    // Competitor factor
-    if (unit.competitorFinalRate && Math.abs(unit.competitorFinalRate - unit.streetRate) > 50) {
-      const competitorDiff = unit.competitorFinalRate - unit.streetRate;
-      const adjustment = Math.round(competitorDiff / unit.streetRate * 50);
-      factors.push(`🏢 Competitor rate $${unit.competitorFinalRate?.toLocaleString()}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
+    // Competitor factor - use proper display rates
+    if (displayCompetitor > 0 && Math.abs(displayCompetitor - displayStreet) > (isDailyRate ? 2 : 50)) {
+      const competitorDiff = displayCompetitor - displayStreet;
+      const adjustment = Math.round(competitorDiff / displayStreet * 50);
+      factors.push(`🏢 Competitor rate $${Math.round(displayCompetitor).toLocaleString()}${rateSuffix}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
     }
 
     return `Modulo Algorithm Calculation:
     
-Base Rate: $${unit.streetRate?.toLocaleString()}
+Base Rate: $${Math.round(displayStreet).toLocaleString()}${rateSuffix}
 ${factors.join('\n')}
 
-Final Rate: $${unit.moduloSuggestedRate?.toLocaleString()} (${change > 0 ? '+' : ''}${changePercent}%)
+Final Rate: $${Math.round(displayModulo).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
 
 The Modulo algorithm considers occupancy pressure, vacancy duration, unit attributes, and competitor positioning to optimize pricing.`;
   };
@@ -276,13 +282,18 @@ The Modulo algorithm considers occupancy pressure, vacancy duration, unit attrib
       return "No AI suggestions available";
     }
 
-    const change = unit.aiSuggestedRate - unit.streetRate;
-    const changePercent = Math.round((change / unit.streetRate) * 100);
+    const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
+    const displayAI = convertToDisplayRate(unit.aiSuggestedRate, unit.serviceLine) || 0;
+    const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
+    const rateSuffix = isDailyRate ? '/day' : '';
+
+    const change = displayAI - displayStreet;
+    const changePercent = Math.round((change / displayStreet) * 100);
     
     return `AI Pricing Analysis:
 
-Base Rate: $${unit.streetRate?.toLocaleString()}
-AI Suggested: $${unit.aiSuggestedRate?.toLocaleString()} (${change > 0 ? '+' : ''}${changePercent}%)
+Base Rate: $${Math.round(displayStreet).toLocaleString()}${rateSuffix}
+AI Suggested: $${Math.round(displayAI).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
 
 Analysis Factors:
 🧠 Market intelligence and patterns
@@ -582,12 +593,12 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         {formatNumber(row.occupancyCount)}/{formatNumber(row.totalUnits)} <span className="text-base font-bold">({formatPercentage(row.occupancyCount / row.totalUnits)})</span>
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatCurrency(Math.round(row.averageStreetRate || 0))}</TableCell>
+                    <TableCell>{formatRateByServiceLine(Math.round(row.averageStreetRate || 0), row.serviceLine)}</TableCell>
                     <TableCell>
-                      {row.averageModuloRate ? formatCurrency(Math.round(row.averageModuloRate)) : '-'}
+                      {row.averageModuloRate ? formatRateByServiceLine(Math.round(row.averageModuloRate), row.serviceLine) : '-'}
                     </TableCell>
                     <TableCell>
-                      {row.averageAiRate ? formatCurrency(Math.round(row.averageAiRate)) : '-'}
+                      {row.averageAiRate ? formatRateByServiceLine(Math.round(row.averageAiRate), row.serviceLine) : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -717,7 +728,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
                         </Badge>
                       </TableCell>
-                      <TableCell>{formatCurrency(Math.round(unit.streetRate || 0))}</TableCell>
+                      <TableCell>{formatRateByServiceLine(Math.round(unit.streetRate || 0), unit.serviceLine)}</TableCell>
                       <TableCell>
                         {unit.appliedRuleName ? (
                           <Badge variant="default" className="text-xs bg-green-600">
@@ -752,10 +763,10 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                   data-testid={`tooltip-modulo-${unit.roomNumber}`}
                                 >
                                   <span>
-                                    {formatCurrency(Math.round(unit.ruleAdjustedRate || unit.moduloSuggestedRate))}
+                                    {formatRateByServiceLine(Math.round(unit.ruleAdjustedRate || unit.moduloSuggestedRate), unit.serviceLine)}
                                     {unit.ruleAdjustedRate && unit.moduloSuggestedRate && (
                                       <span className="text-xs text-gray-500 ml-1">
-                                        (was {formatCurrency(Math.round(unit.moduloSuggestedRate))})
+                                        (was {formatRateByServiceLine(Math.round(unit.moduloSuggestedRate), unit.serviceLine)})
                                       </span>
                                     )}
                                   </span>
@@ -782,11 +793,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 </button>
                               </ModuloCalculationDialog>
                               {(() => {
-                                const change = Math.round(unit.moduloSuggestedRate - unit.streetRate);
-                                const changePercent = Math.round((change / unit.streetRate) * 100);
+                                const displayModulo = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
+                                const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
+                                const change = Math.round(displayModulo - displayStreet);
+                                const changePercent = Math.round((change / displayStreet) * 100);
+                                const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
                                 return (
                                   <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {change > 0 ? '+' : ''}{formatCurrency(change)} ({change > 0 ? '+' : ''}{changePercent}%)
+                                    {change > 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change > 0 ? '+' : ''}{changePercent}%)
                                   </span>
                                 );
                               })()}
@@ -822,15 +836,18 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 }}
                                 data-testid={`tooltip-ai-${unit.roomNumber}`}
                               >
-                                <span>{formatCurrency(Math.round(unit.aiSuggestedRate))}</span>
+                                <span>{formatRateByServiceLine(Math.round(unit.aiSuggestedRate), unit.serviceLine)}</span>
                                 <Info className="h-3 w-3" />
                               </button>
                               {(() => {
-                                const change = Math.round(unit.aiSuggestedRate - unit.streetRate);
-                                const changePercent = Math.round((change / unit.streetRate) * 100);
+                                const displayAI = convertToDisplayRate(unit.aiSuggestedRate, unit.serviceLine) || 0;
+                                const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
+                                const change = Math.round(displayAI - displayStreet);
+                                const changePercent = Math.round((change / displayStreet) * 100);
+                                const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
                                 return (
                                   <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {change > 0 ? '+' : ''}{formatCurrency(change)} ({change > 0 ? '+' : ''}{changePercent}%)
+                                    {change > 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change > 0 ? '+' : ''}{changePercent}%)
                                   </span>
                                 );
                               })()}
@@ -859,13 +876,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                             competitorMedManagementAdjustment={unit.competitorMedManagementAdjustment}
                             competitorAdjustmentExplanation={unit.competitorAdjustmentExplanation}
                             adjustedRate={unit.competitorFinalRate}
+                            serviceLine={unit.serviceLine}
                           >
                             <Button
                               variant="link"
                               className="text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] p-0 h-auto font-medium"
                               data-testid={`button-competitor-rate-${unit.roomNumber}`}
                             >
-                              {formatCurrency(Math.round(unit.competitorFinalRate))}
+                              {formatRateByServiceLine(Math.round(unit.competitorFinalRate), unit.serviceLine)}
                             </Button>
                           </CompetitorAdjustmentDialog>
                         ) : (

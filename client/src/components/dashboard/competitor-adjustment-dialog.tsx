@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency } from "@/lib/formatters";
+import { formatCurrency, formatRateByServiceLine } from "@/lib/formatters";
 import { ExternalLink, Calculator } from "lucide-react";
 import { Link } from "wouter";
 
@@ -13,6 +13,7 @@ interface CompetitorAdjustmentDialogProps {
   competitorMedManagementAdjustment?: number;
   competitorAdjustmentExplanation?: string;
   adjustedRate?: number;
+  serviceLine?: string;
   children: React.ReactNode;
 }
 
@@ -24,6 +25,7 @@ export function CompetitorAdjustmentDialog({
   competitorMedManagementAdjustment = 0,
   competitorAdjustmentExplanation,
   adjustedRate,
+  serviceLine,
   children
 }: CompetitorAdjustmentDialogProps) {
   if (!competitorName || !competitorBaseRate) {
@@ -67,14 +69,14 @@ export function CompetitorAdjustmentDialog({
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Base Competitor Rate</span>
-                <span className="font-medium">{formatCurrency(competitorBaseRate)}</span>
+                <span className="font-medium">{formatRateByServiceLine(competitorBaseRate, serviceLine)}</span>
               </div>
               
               {competitorCareLevel2Adjustment > 0 && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">Care Level 2 Adjustment</span>
                   <span className="font-medium text-green-600">
-                    +{formatCurrency(competitorCareLevel2Adjustment)}
+                    +{formatRateByServiceLine(competitorCareLevel2Adjustment, serviceLine)}
                   </span>
                 </div>
               )}
@@ -83,7 +85,7 @@ export function CompetitorAdjustmentDialog({
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600 dark:text-gray-400">Medication Management</span>
                   <span className="font-medium text-green-600">
-                    +{formatCurrency(competitorMedManagementAdjustment)}
+                    +{formatRateByServiceLine(competitorMedManagementAdjustment, serviceLine)}
                   </span>
                 </div>
               )}
@@ -92,7 +94,7 @@ export function CompetitorAdjustmentDialog({
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Adjusted Competitor Rate</span>
                   <span className="font-bold text-lg text-[var(--trilogy-teal)]">
-                    {formatCurrency(adjustedRate || (competitorBaseRate + totalAdjustment))}
+                    {formatRateByServiceLine(adjustedRate || (competitorBaseRate + totalAdjustment), serviceLine)}
                   </span>
                 </div>
               </div>
