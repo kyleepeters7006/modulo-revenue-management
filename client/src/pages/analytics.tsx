@@ -167,7 +167,7 @@ export function Analytics() {
     return analyticsData.campuses.map((campus: any) => ({
       ...campus,
       pricePosition: campus.competitorAvgRate > 0 
-        ? ((campus.avgRate - campus.competitorAvgRate) / campus.competitorAvgRate) * 100
+        ? parseFloat((((campus.avgRate - campus.competitorAvgRate) / campus.competitorAvgRate) * 100).toFixed(2))
         : 0,
       size: Math.max(campus.unitsCount, 10), // Minimum size for visibility
       // Mock T6 rate growth for now - in production this would come from backend
@@ -882,19 +882,19 @@ export function Analytics() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
-                    dataKey="pricePosition" 
-                    name="Price Position"
-                    label={{ value: 'Price Differential from Market (%)', position: 'insideBottom', offset: -15 }}
-                    domain={['dataMin - 5', 'dataMax + 5']}
-                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value}%`}
+                    dataKey="occupancy" 
+                    name="Occupancy"
+                    label={{ value: 'Occupancy Rate (%)', position: 'insideBottom', offset: -15 }}
+                    domain={['dataMin - 0.05', 'dataMax + 0.05']}
+                    tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                   />
                   <YAxis 
                     type="number" 
-                    dataKey="occupancy" 
-                    name="Occupancy"
-                    label={{ value: 'Occupancy Rate (%)', angle: -90, position: 'center', dx: -35 }}
-                    domain={['dataMin - 0.05', 'dataMax + 0.05']}
-                    tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                    dataKey="pricePosition" 
+                    name="Price Position"
+                    label={{ value: 'Price Differential from Market (%)', angle: -90, position: 'center', dx: -35 }}
+                    domain={['dataMin - 5', 'dataMax + 5']}
+                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
