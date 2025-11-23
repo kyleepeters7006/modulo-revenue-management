@@ -150,6 +150,7 @@ export interface IStorage {
   // Competitors
   getCompetitors(): Promise<Competitor[]>;
   getCompetitorsByLocation(location: string): Promise<Competitor[]>;
+  getCompetitorsByLocationAndServiceLine(location: string, serviceLine: string): Promise<Competitor[]>;
   getCompetitorsWithFilters(filters: {
     regions?: string[];
     divisions?: string[];
@@ -901,6 +902,41 @@ export class DatabaseStorage implements IStorage {
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
         }
+      }
+    }
+    
+    return Array.from(competitorMap.values());
+  }
+
+  async getCompetitorsByLocationAndServiceLine(location: string, serviceLine: string): Promise<Competitor[]> {
+    // Query competitive survey data for specific location and service line
+    const surveyData = await db.select()
+      .from(competitiveSurveyData)
+      .where(and(
+        eq(competitiveSurveyData.keyStatsLocation, location),
+        eq(competitiveSurveyData.competitorType, serviceLine)
+      ));
+    
+    // Group and transform to Competitor format
+    const competitorMap = new Map<string, any>();
+    
+    for (const record of surveyData) {
+      const key = `${record.keyStatsLocation}|${record.competitorName}`;
+      
+      if (!competitorMap.has(key)) {
+        competitorMap.set(key, {
+          id: record.id,
+          name: record.competitorName,
+          location: record.keyStatsLocation,
+          locationId: null,
+          streetRate: record.monthlyRateAvg,
+          avgCareRate: record.careFeesAvg,
+          serviceLine: record.competitorType,
+          careLevel2Rate: record.careLevel2Rate,
+          medicationManagementFee: record.medicationManagementFee,
+          weight: record.weight || null,
+          distanceMiles: record.distanceMiles
+        });
       }
     }
     

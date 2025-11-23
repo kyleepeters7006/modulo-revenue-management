@@ -1,12 +1,38 @@
 import { randomUUID } from 'crypto';
 import { storage } from './storage';
 import { db } from './db';
-import { rentRollData } from '@shared/schema';
-import { eq, sql } from 'drizzle-orm';
+import { rentRollData, competitiveSurveyData, enquireData } from '@shared/schema';
+import { eq, sql, and } from 'drizzle-orm';
 import { calculateAttributedPrice, ensureCacheInitialized } from './pricingOrchestrator';
 import type { RentRollData, Guardrails, PricingWeights } from '@shared/schema';
 import type { PricingInputs } from './moduloPricingAlgorithm';
 import { getSentenceExplanation, generateOverallExplanation } from './sentenceExplanations';
+
+// Pre-computed pricing context to avoid per-unit async calls
+interface PricingContext {
+  // Weights caches
+  weightsCache: Map<string, PricingWeights>;
+  locationWeightsCache: Map<string, PricingWeights>;
+  globalWeights: PricingWeights;
+  
+  // Competitor data caches
+  competitorsByLocationService: Map<string, any[]>; // key: location|serviceLine
+  trilogyCareLevel2Cache: Map<string, number>; // key: location|serviceLine
+  competitorMediansByService: Map<string, number>; // serviceLine -> median rate
+  
+  // Demand and inquiry data
+  demandHistoryCache: Map<string, number[]>; // location -> demand history
+  inquiryMetricsCache: Map<string, any>; // location -> inquiry metrics
+  
+  // Service line metrics
+  serviceLineOccupancy: Map<string, number>;
+  
+  // Configuration data
+  guardrailsData: Guardrails | undefined;
+  stockMarketChange: number;
+  activeRules: any[];
+  targetMonth: string;
+}
 
 interface PricingJob {
   id: string;
@@ -40,6 +66,7 @@ class PricingJobManager {
   private processingJobs: Set<string> = new Set();
   private readonly BATCH_SIZE = 500; // Process 500 units at a time for faster processing
   private readonly MAX_PARALLEL_BATCHES = 10; // Process up to 10 batches in parallel for faster completion
+  private readonly BATCH_TIMEOUT_MS = 30000; // 30 second timeout per batch
   
   createJob(params: any): string {
     const jobId = randomUUID();
@@ -107,6 +134,215 @@ class PricingJobManager {
     }
   }
   
+  // Helper to get weights from cache with O(1) lookup
+  private getWeightsFromCache(unit: RentRollData, context: PricingContext): PricingWeights {
+    if (!unit.locationId) return context.globalWeights;
+    
+    const key = unit.serviceLine ? `${unit.locationId}|${unit.serviceLine}` : null;
+    
+    if (key && context.weightsCache.has(key)) {
+      return context.weightsCache.get(key)!;
+    }
+    
+    if (context.locationWeightsCache.has(unit.locationId)) {
+      return context.locationWeightsCache.get(unit.locationId)!;
+    }
+    
+    return context.globalWeights;
+  }
+  
+  // Build pricing context with all pre-fetched data to avoid per-unit DB queries
+  private async buildPricingContext(
+    units: RentRollData[], 
+    targetMonth: string,
+    jobId: string
+  ): Promise<PricingContext> {
+    const startTime = Date.now();
+    console.log(`[PricingJob ${jobId}] Building pricing context with pre-fetched data...`);
+    
+    // 1. Fetch configuration data
+    console.log(`[PricingJob ${jobId}] Fetching configuration...`);
+    const defaultWeights = {
+      occupancyPressure: 25,
+      daysVacantDecay: 20,
+      seasonality: 10,
+      competitorRates: 10,
+      stockMarket: 10,
+      enableWeights: true,
+      inquiryTourVolume: 0
+    };
+    const globalWeights = await storage.getCurrentWeights() || defaultWeights;
+    const guardrailsData = await storage.getCurrentGuardrails();
+    const activeRules = await storage.getAdjustmentRules ? 
+      (await storage.getAdjustmentRules()).filter((r: any) => r.isActive) : [];
+    
+    // 2. Fetch stock market data
+    console.log(`[PricingJob ${jobId}] Fetching market data...`);
+    const { fetchSP500Data } = await import('./routes');
+    const stockMarketChange = await fetchSP500Data();
+    
+    // 3. Pre-fetch all weights
+    console.log(`[PricingJob ${jobId}] Pre-fetching all weights...`);
+    const weightsCache = new Map<string, PricingWeights>();
+    const locationWeightsCache = new Map<string, PricingWeights>();
+    const uniqueLocations = new Set<string>();
+    const uniqueCombinations = new Set<string>();
+    
+    units.forEach(unit => {
+      if (unit.locationId) {
+        uniqueLocations.add(unit.locationId);
+        if (unit.serviceLine) {
+          const key = `${unit.locationId}|${unit.serviceLine}`;
+          uniqueCombinations.add(key);
+        }
+      }
+    });
+    
+    // Batch fetch location weights
+    const locationWeightsPromises = Array.from(uniqueLocations).map(async locationId => {
+      const locationWeights = await storage.getWeightsByFilter(locationId, null);
+      if (locationWeights) {
+        locationWeightsCache.set(locationId, locationWeights);
+      }
+    });
+    await Promise.all(locationWeightsPromises);
+    
+    // Batch fetch location+serviceLine weights
+    const comboWeightsPromises = Array.from(uniqueCombinations).map(async combo => {
+      const [locationId, serviceLine] = combo.split('|');
+      if (locationId && serviceLine) {
+        const specificWeights = await storage.getWeightsByFilter(locationId, serviceLine);
+        if (specificWeights) {
+          weightsCache.set(combo, specificWeights);
+        }
+      }
+    });
+    await Promise.all(comboWeightsPromises);
+    
+    // 4. Pre-fetch all competitor data
+    console.log(`[PricingJob ${jobId}] Pre-fetching competitor data...`);
+    const competitorsByLocationService = new Map<string, any[]>();
+    const trilogyCareLevel2Cache = new Map<string, number>();
+    const uniqueLocationServices = new Set<string>();
+    
+    units.forEach(unit => {
+      if (unit.campus && unit.serviceLine) {
+        uniqueLocationServices.add(`${unit.campus}|${unit.serviceLine}`);
+      }
+    });
+    
+    // Batch fetch all competitor data
+    const competitorPromises = Array.from(uniqueLocationServices).map(async key => {
+      const [location, serviceLine] = key.split('|');
+      
+      // Get competitors for this location/service
+      const competitors = await storage.getCompetitorsByLocationAndServiceLine(location, serviceLine);
+      competitorsByLocationService.set(key, competitors);
+      
+      // Get Trilogy care level 2 rate
+      try {
+        const careLevel2Rate = await storage.getTrilogyCareLevel2Rate(location, serviceLine);
+        if (careLevel2Rate) {
+          trilogyCareLevel2Cache.set(key, careLevel2Rate);
+        }
+      } catch (err) {
+        // Continue without care level 2 rate
+      }
+    });
+    await Promise.all(competitorPromises);
+    
+    // 5. Calculate competitor medians by service line
+    console.log(`[PricingJob ${jobId}] Calculating competitor medians...`);
+    const competitorMediansByService = new Map<string, number>();
+    const allCompetitors = await storage.getCompetitors();
+    
+    const serviceLines = [...new Set(units.map(u => u.serviceLine).filter(Boolean))];
+    for (const serviceLine of serviceLines) {
+      const serviceLineCompetitors = allCompetitors.filter((c: any) => c.serviceLine === serviceLine);
+      const rates = serviceLineCompetitors
+        .map((c: any) => c.streetRate)
+        .filter((r: number) => r > 0)
+        .sort((a: number, b: number) => a - b);
+      
+      if (rates.length > 0) {
+        const midIndex = Math.floor(rates.length / 2);
+        const median = rates.length % 2 === 0
+          ? (rates[midIndex - 1] + rates[midIndex]) / 2
+          : rates[midIndex];
+        competitorMediansByService.set(serviceLine, median);
+      } else {
+        competitorMediansByService.set(serviceLine, 3500); // Default
+      }
+    }
+    
+    // 6. Pre-fetch inquiry metrics and demand history
+    console.log(`[PricingJob ${jobId}] Pre-fetching demand history...`);
+    const demandHistoryCache = new Map<string, number[]>();
+    const inquiryMetricsCache = new Map<string, any>();
+    
+    // Get inquiry metrics for the month
+    const inquiryMetrics = await storage.getInquiryMetricsByMonth(targetMonth);
+    inquiryMetrics.forEach((metric: any) => {
+      if (metric.location) {
+        inquiryMetricsCache.set(metric.location, metric);
+        // Mock demand history for now (could be fetched from historical data)
+        demandHistoryCache.set(metric.location, [45, 42, 48, 50, 43, 46]);
+      }
+    });
+    
+    // Default demand history for locations without specific data
+    const defaultDemandHistory = [45, 42, 48, 50, 43, 46];
+    units.forEach(unit => {
+      if (unit.campus && !demandHistoryCache.has(unit.campus)) {
+        demandHistoryCache.set(unit.campus, defaultDemandHistory);
+      }
+    });
+    
+    // 7. Calculate service line occupancy
+    console.log(`[PricingJob ${jobId}] Calculating occupancy metrics...`);
+    const serviceLineOccupancy = new Map<string, number>();
+    const serviceLineStats = await db.select({
+      serviceLine: rentRollData.serviceLine,
+      occupied: sql`SUM(CASE WHEN occupied_yn = true THEN 1 ELSE 0 END)`.as('occupied'),
+      total: sql`COUNT(*)`.as('total')
+    })
+    .from(rentRollData)
+    .where(eq(rentRollData.uploadMonth, targetMonth))
+    .groupBy(rentRollData.serviceLine);
+    
+    for (const stats of serviceLineStats) {
+      const serviceLine = stats.serviceLine || 'Unknown';
+      const { occupied, total } = stats as { occupied: number; total: number };
+      serviceLineOccupancy.set(serviceLine, total > 0 ? occupied / total : 0);
+    }
+    
+    const buildTime = Date.now() - startTime;
+    console.log(`[PricingJob ${jobId}] Pricing context built in ${buildTime}ms with:
+      - ${weightsCache.size} location+service weights
+      - ${locationWeightsCache.size} location weights  
+      - ${competitorsByLocationService.size} competitor groups
+      - ${trilogyCareLevel2Cache.size} care level 2 rates
+      - ${competitorMediansByService.size} competitor medians
+      - ${demandHistoryCache.size} demand histories
+      - ${serviceLineOccupancy.size} occupancy rates`);
+    
+    return {
+      weightsCache,
+      locationWeightsCache,
+      globalWeights,
+      competitorsByLocationService,
+      trilogyCareLevel2Cache,
+      competitorMediansByService,
+      demandHistoryCache,
+      inquiryMetricsCache,
+      serviceLineOccupancy,
+      guardrailsData,
+      stockMarketChange,
+      activeRules,
+      targetMonth
+    };
+  }
+  
   private async processJob(jobId: string): Promise<void> {
     const job = this.jobs.get(jobId);
     if (!job) {
@@ -124,29 +360,8 @@ class PricingJobManager {
       const targetMonth = month || '2025-10';
       
       // Initialize cache once for all batches
-      console.log(`[PricingJob ${jobId}] Initializing cache for month: ${targetMonth}`);
+      console.log(`[PricingJob ${jobId}] Initializing attribute pricing cache for month: ${targetMonth}`);
       await ensureCacheInitialized(targetMonth);
-      
-      // Get all necessary data upfront (similar to original implementation)
-      console.log(`[PricingJob ${jobId}] Fetching pricing configuration...`);
-      const defaultWeights = {
-        occupancyPressure: 25,
-        daysVacantDecay: 20,
-        seasonality: 10,
-        competitorRates: 10,
-        stockMarket: 10,
-        enableWeights: true,
-        inquiryTourVolume: 0
-      };
-      const globalWeights = await storage.getCurrentWeights() || defaultWeights;
-      const guardrailsData = await storage.getCurrentGuardrails();
-      const activeRules = await storage.getAdjustmentRules ? 
-        (await storage.getAdjustmentRules()).filter((r: any) => r.isActive) : [];
-      
-      // Fetch S&P 500 data
-      console.log(`[PricingJob ${jobId}] Fetching market data...`);
-      const { fetchSP500Data } = await import('./routes');
-      const stockMarketChange = await fetchSP500Data();
       
       // Get all units for the month
       console.log(`[PricingJob ${jobId}] Fetching units for month: ${targetMonth}`);
@@ -161,110 +376,8 @@ class PricingJobManager {
       // Update job progress with actual counts
       this.updateProgress(jobId, 0, totalUnits, 0, totalBatches);
       
-      // Pre-compute shared data (similar to original)
-      const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
-      const allUnitsForOccupancy = units.filter(unit => {
-        if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
-          const roomNumber = unit.roomNumber || '';
-          if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
-            return false;
-          }
-        }
-        return true;
-      });
-      
-      // Pre-fetch all weights (optimization from original)
-      console.log(`[PricingJob ${jobId}] Pre-fetching weights for all locations...`);
-      const weightsCache = new Map<string, any>();
-      const locationWeightsCache = new Map<string, any>();
-      const uniqueLocations = new Set<string>();
-      const uniqueCombinations = new Set<string>();
-      
-      units.forEach(unit => {
-        if (unit.locationId) {
-          uniqueLocations.add(unit.locationId);
-          if (unit.serviceLine) {
-            const key = `${unit.locationId}|${unit.serviceLine}`;
-            uniqueCombinations.add(key);
-          }
-        }
-      });
-      
-      // Cache location-level weights
-      for (const locationId of uniqueLocations) {
-        const locationWeights = await storage.getWeightsByFilter(locationId, null);
-        if (locationWeights) {
-          locationWeightsCache.set(locationId, locationWeights);
-        }
-      }
-      
-      // Cache location+serviceLine-specific weights
-      for (const combo of uniqueCombinations) {
-        const [locationId, serviceLine] = combo.split('|');
-        if (locationId && serviceLine) {
-          const specificWeights = await storage.getWeightsByFilter(locationId, serviceLine);
-          if (specificWeights) {
-            weightsCache.set(combo, specificWeights);
-          }
-        }
-      }
-      
-      // Helper function to get weights for a unit (from original)
-      const getWeightsForUnit = (unit: RentRollData) => {
-        if (!unit.locationId) return globalWeights;
-        
-        const key = unit.serviceLine ? `${unit.locationId}|${unit.serviceLine}` : null;
-        
-        if (key && weightsCache.has(key)) {
-          return weightsCache.get(key);
-        }
-        
-        if (locationWeightsCache.has(unit.locationId)) {
-          return locationWeightsCache.get(unit.locationId);
-        }
-        
-        return globalWeights;
-      };
-      
-      // Calculate service line occupancy (from original)
-      console.log(`[PricingJob ${jobId}] Calculating occupancy metrics...`);
-      const serviceLineOccupancy: Record<string, number> = {};
-      const serviceLineStats = await db.select({
-        serviceLine: rentRollData.serviceLine,
-        occupied: sql`SUM(CASE WHEN occupied_yn = true THEN 1 ELSE 0 END)`.as('occupied'),
-        total: sql`COUNT(*)`.as('total')
-      })
-      .from(rentRollData)
-      .where(eq(rentRollData.uploadMonth, targetMonth))
-      .groupBy(rentRollData.serviceLine);
-      
-      for (const stats of serviceLineStats) {
-        const serviceLine = stats.serviceLine || 'Unknown';
-        const { occupied, total } = stats as { occupied: number; total: number };
-        serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0;
-      }
-      
-      // Calculate service line competitor medians (from original)
-      console.log(`[PricingJob ${jobId}] Calculating competitor medians...`);
-      const serviceLineMedians: Record<string, number> = {};
-      const competitors = await storage.getCompetitors();
-      
-      for (const serviceLine of Object.keys(serviceLineOccupancy)) {
-        const serviceLineCompetitors = competitors.filter(c => c.serviceLine === serviceLine);
-        const rates = serviceLineCompetitors
-          .map(c => c.streetRate)
-          .filter(r => r > 0)
-          .sort((a, b) => a - b);
-        
-        if (rates.length > 0) {
-          const midIndex = Math.floor(rates.length / 2);
-          serviceLineMedians[serviceLine] = rates.length % 2 === 0
-            ? (rates[midIndex - 1] + rates[midIndex]) / 2
-            : rates[midIndex];
-        } else {
-          serviceLineMedians[serviceLine] = 3500;
-        }
-      }
+      // Build pricing context with all pre-fetched data (MAJOR OPTIMIZATION)
+      const pricingContext = await this.buildPricingContext(units, targetMonth, jobId);
       
       // Process units in batches
       console.log(`[PricingJob ${jobId}] Starting batch processing (${totalBatches} batches of ${this.BATCH_SIZE} units)...`);
@@ -287,26 +400,23 @@ class PricingJobManager {
           
           console.log(`[PricingJob ${jobId}] Processing batch ${currentBatchIndex + 1}/${totalBatches} (units ${startIdx + 1}-${endIdx})...`);
           
-          // Wrap batch processing to include batch index for progress tracking
-          const batchPromise = this.processBatch(
-            batchUnits,
-            {
-              getWeightsForUnit,
-              serviceLineOccupancy,
-              serviceLineMedians,
-              stockMarketChange,
-              guardrailsData,
-              activeRules,
-              targetMonth
-            },
-            // Intra-batch progress callback for large batches
-            (processedInBatch) => {
-              // Calculate approximate progress including partial batch
-              const baseProcessed = totalProcessed;
-              const approxProcessed = baseProcessed + processedInBatch;
-              this.updateProgress(jobId, approxProcessed, totalUnits, currentBatchIndex + 1, totalBatches);
-            }
-          ).then(updates => {
+          // Wrap batch processing with timeout to prevent stuck operations
+          const batchPromise = Promise.race([
+            this.processBatch(
+              batchUnits,
+              pricingContext,
+              // Intra-batch progress callback for large batches
+              (processedInBatch) => {
+                // Calculate approximate progress including partial batch
+                const baseProcessed = totalProcessed;
+                const approxProcessed = baseProcessed + processedInBatch;
+                this.updateProgress(jobId, approxProcessed, totalUnits, currentBatchIndex + 1, totalBatches);
+              }
+            ),
+            new Promise<Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>>((_, reject) => 
+              setTimeout(() => reject(new Error(`Batch ${currentBatchIndex + 1} timed out after ${this.BATCH_TIMEOUT_MS}ms`)), this.BATCH_TIMEOUT_MS)
+            )
+          ]).then(updates => {
             // Store the number of units processed in this batch
             completedBatches.set(currentBatchIndex, updates.length);
             
@@ -321,6 +431,11 @@ class PricingJobManager {
             console.log(`[PricingJob ${jobId}] Batch ${currentBatchIndex + 1} completed: ${updates.length} units processed`);
             
             return { batchIndex: currentBatchIndex, updates };
+          }).catch(error => {
+            console.error(`[PricingJob ${jobId}] Batch ${currentBatchIndex + 1} failed:`, error);
+            // Return empty updates for failed batch but continue processing
+            completedBatches.set(currentBatchIndex, 0);
+            return { batchIndex: currentBatchIndex, updates: [] };
           });
           
           batchPromises.push(batchPromise);
@@ -381,51 +496,67 @@ class PricingJobManager {
   
   private async processBatch(
     units: RentRollData[], 
-    context: any,
+    context: PricingContext,
     progressCallback?: (processedInBatch: number) => void
   ): Promise<Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>> {
     const updates = [];
-    const { getWeightsForUnit, serviceLineOccupancy, serviceLineMedians, stockMarketChange, guardrailsData, targetMonth } = context;
+    const batchStartTime = Date.now();
     
-    console.log(`[Batch] Processing batch with ${units.length} units...`);
+    console.log(`[Batch] Processing batch with ${units.length} units using cached context...`);
     let processedInBatch = 0;
     let skippedCount = 0;
     
+    // Import competitor adjustments module once
+    const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
+    
     for (const unit of units) {
       try {
-        const unitWeights = getWeightsForUnit(unit);
+        // Get weights from cache (O(1) lookup)
+        const unitWeights = this.getWeightsFromCache(unit, context);
         if (!unitWeights || unitWeights.enableWeights === false) {
           skippedCount++;
           continue; // Skip units with disabled weights
         }
         
-        // Prepare pricing inputs (from original implementation)
-        const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
+        // Get cached occupancy (O(1) lookup)
+        const serviceLineOcc = context.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
         const daysVacant = unit.daysVacant || 0;
-        const monthIndex = new Date(targetMonth).getMonth() + 1;
+        const monthIndex = new Date(context.targetMonth).getMonth() + 1;
         
-        // Get competitor prices
+        // Get competitor prices from cache (O(1) lookups, NO async DB calls)
         let competitorPrices: number[] = [];
-        const serviceLineMedian = serviceLineMedians[unit.serviceLine];
+        
+        // Use cached median
+        const serviceLineMedian = context.competitorMediansByService.get(unit.serviceLine);
         if (serviceLineMedian) {
           competitorPrices.push(serviceLineMedian);
+        }
+        
+        // Get cached competitor and care level data (NO async DB calls)
+        if (unit.campus && unit.serviceLine) {
+          const cacheKey = `${unit.campus}|${unit.serviceLine}`;
+          const cachedCompetitors = context.competitorsByLocationService.get(cacheKey);
+          const cachedCareLevel2 = context.trilogyCareLevel2Cache.get(cacheKey);
           
-          // Try to get adjusted competitor rate
-          try {
-            const topCompetitor = await storage.getTopCompetitorByWeight(unit.campus, unit.serviceLine);
-            const trilogyCareLevel2Rate = await storage.getTrilogyCareLevel2Rate(unit.campus, unit.serviceLine);
+          if (cachedCompetitors && cachedCompetitors.length > 0) {
+            // Get top competitor from cached data
+            const topCompetitor = cachedCompetitors
+              .filter((c: any) => c.streetRate > 0)
+              .sort((a: any, b: any) => (b.weight || 0) - (a.weight || 0))[0];
             
             if (topCompetitor && topCompetitor.streetRate > 0) {
-              const adjustedRate = await (await import('./services/competitorAdjustments')).calculateAdjustedCompetitorRate(
-                topCompetitor,
-                trilogyCareLevel2Rate || 0
-              );
-              if (adjustedRate > 0) {
-                competitorPrices.push(adjustedRate);
+              // Calculate adjusted rate using cached data (synchronous now!)
+              const adjustmentResult = calculateAdjustedCompetitorRate({
+                competitorBaseRate: topCompetitor.streetRate,
+                competitorCareLevel2Rate: topCompetitor.careLevel2Rate,
+                competitorMedicationManagementFee: topCompetitor.medicationManagementFee,
+                trilogyCareLevel2Rate: cachedCareLevel2
+              });
+              
+              if (adjustmentResult.adjustedRate > 0) {
+                competitorPrices.push(adjustmentResult.adjustedRate);
               }
             }
-          } catch (err) {
-            // Fallback to median
           }
         }
         
@@ -433,23 +564,26 @@ class PricingJobManager {
           competitorPrices = [3500]; // Default fallback
         }
         
-        // Get demand data
-        const demandCurrent = (unit.inquiryCount || 0) + (unit.tourCount || 0);
-        const demandHistory = [45, 42, 48, 50, 43, 46]; // Mock history
+        // Get demand data from cache (O(1) lookup)
+        const demandHistory = context.demandHistoryCache.get(unit.campus) || [45, 42, 48, 50, 43, 46];
+        const inquiryMetric = context.inquiryMetricsCache.get(unit.campus);
+        const demandCurrent = inquiryMetric ? 
+          (inquiryMetric.inquiries || 0) + (inquiryMetric.tours || 0) : 
+          (unit.inquiryCount || 0) + (unit.tourCount || 0);
         
         const pricingInputs: PricingInputs = {
           occupancy: serviceLineOcc,
           daysVacant,
           monthIndex,
           competitorPrices,
-          marketReturn: stockMarketChange / 100,
+          marketReturn: context.stockMarketChange / 100,
           demandCurrent,
           demandHistory,
           serviceLine: unit.serviceLine
         };
         
-        // Calculate pricing
-        const orchestratorResult = await calculateAttributedPrice(unit, unitWeights, pricingInputs, guardrailsData || undefined);
+        // Calculate pricing (should be much faster now with cached data)
+        const orchestratorResult = await calculateAttributedPrice(unit, unitWeights, pricingInputs, context.guardrailsData);
         
         // Build calculation details
         const calculationDetails = {
@@ -498,7 +632,9 @@ class PricingJobManager {
       }
     }
     
-    console.log(`[Batch] Batch completed: ${updates.length} units processed, ${skippedCount} skipped`);
+    const batchTime = Date.now() - batchStartTime;
+    const avgTimePerUnit = updates.length > 0 ? Math.round(batchTime / updates.length) : 0;
+    console.log(`[Batch] Batch completed: ${updates.length} units processed, ${skippedCount} skipped in ${batchTime}ms (avg ${avgTimePerUnit}ms per unit)`);
     return updates;
   }
   
