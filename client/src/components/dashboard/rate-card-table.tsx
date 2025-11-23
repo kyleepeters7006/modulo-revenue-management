@@ -480,7 +480,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
                 <Button
                   onClick={() => {
-                    const unitsWithModulo = filteredUnits.filter((u: any) => u.moduloSuggestedRate && !u.occupiedYN);
+                    const unitsWithModulo = filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate) && !u.occupiedYN);
                     if (unitsWithModulo.length === 0) {
                       toast({ 
                         title: "No Modulo suggestions", 
@@ -500,7 +500,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-modulo"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Modulo ({filteredUnits.filter((u: any) => u.moduloSuggestedRate && !u.occupiedYN).length})
+                  Accept All Modulo ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate) && !u.occupiedYN).length})
                 </Button>
                 
                 <Button
@@ -719,28 +719,16 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       </TableCell>
                       <TableCell>{formatCurrency(Math.round(unit.streetRate || 0))}</TableCell>
                       <TableCell>
-                        {(() => {
-                          try {
-                            // Show only manual adjustment rules that were applied, not automatic Modulo calculations
-                            const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;
-                            const appliedRules = details?.appliedRules || [];
-                            
-                            return appliedRules.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {appliedRules.map((rule: string, i: number) => (
-                                  <Badge key={i} variant="default" className="text-xs bg-blue-800">
-                                    {rule}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : <span className="text-muted-foreground text-xs">-</span>;
-                          } catch {
-                            return <span className="text-muted-foreground text-xs">-</span>;
-                          }
-                        })()}
+                        {unit.appliedRuleName ? (
+                          <Badge variant="default" className="text-xs bg-green-600">
+                            {unit.appliedRuleName}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
-                        {unit.moduloSuggestedRate && !unit.occupiedYN ? (
+                        {(unit.ruleAdjustedRate || unit.moduloSuggestedRate) && !unit.occupiedYN ? (
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <ModuloCalculationDialog
@@ -763,7 +751,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                   type="button"
                                   data-testid={`tooltip-modulo-${unit.roomNumber}`}
                                 >
-                                  <span>{formatCurrency(Math.round(unit.moduloSuggestedRate))}</span>
+                                  <span>
+                                    {formatCurrency(Math.round(unit.ruleAdjustedRate || unit.moduloSuggestedRate))}
+                                    {unit.ruleAdjustedRate && unit.moduloSuggestedRate && (
+                                      <span className="text-xs text-gray-500 ml-1">
+                                        (was {formatCurrency(Math.round(unit.moduloSuggestedRate))})
+                                      </span>
+                                    )}
+                                  </span>
                                   {(() => {
                                     try {
                                       const details = unit.moduloCalculationDetails ? JSON.parse(unit.moduloCalculationDetails) : null;

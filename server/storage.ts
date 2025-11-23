@@ -1627,7 +1627,10 @@ export class DatabaseStorage implements IStorage {
       const [unit] = await db.select().from(rentRollData).where(eq(rentRollData.id, unitId));
       
       if (unit) {
-        const newRate = suggestionType === 'modulo' ? unit.moduloSuggestedRate : unit.aiSuggestedRate;
+        // For modulo type, use ruleAdjustedRate if available, otherwise use moduloSuggestedRate
+        const newRate = suggestionType === 'modulo' 
+          ? (unit.ruleAdjustedRate || unit.moduloSuggestedRate) 
+          : unit.aiSuggestedRate;
         
         if (newRate) {
           await db.update(rentRollData)
