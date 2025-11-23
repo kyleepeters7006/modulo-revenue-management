@@ -663,10 +663,10 @@ export class DatabaseStorage implements IStorage {
         sql`WHEN id = ${u.id} THEN ${u.moduloCalculationDetails}::text`
       );
       const ruleRateCases = batch.map(u => 
-        sql`WHEN id = ${u.id} THEN ${u.ruleAdjustedRate}`
+        sql`WHEN id = ${u.id} THEN ${u.ruleAdjustedRate !== undefined ? u.ruleAdjustedRate : null}`
       );
       const ruleNameCases = batch.map(u => 
-        sql`WHEN id = ${u.id} THEN ${u.appliedRuleName}`
+        sql`WHEN id = ${u.id} THEN ${u.appliedRuleName !== undefined ? u.appliedRuleName : null}`
       );
       
       // Execute single bulk update query
