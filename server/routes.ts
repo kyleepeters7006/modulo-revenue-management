@@ -2868,6 +2868,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Vacancy scatter plot data endpoint
+  app.get("/api/analytics/vacancy-scatter", async (req, res) => {
+    try {
+      const { location, serviceLine } = req.query;
+      const uploadMonth = 'November 2025';
+      
+      // Get all rent roll data
+      const allRentRollData = await storage.getRentRollDataFiltered({
+        uploadMonth,
+        location: location as string,
+        serviceLine: serviceLine as string
+      });
+      
+      // Calculate campus occupancy by location
+      const campusMetrics = new Map<string, { occupied: number; total: number; occupancy: number }>();
+      
+      allRentRollData.forEach(unit => {
+        const campus = unit.location;
+        if (!campusMetrics.has(campus)) {
+          campusMetrics.set(campus, { occupied: 0, total: 0, occupancy: 0 });
+        }
+        const metrics = campusMetrics.get(campus)!;
+        
+        // For senior housing, count units (A-beds only), for HC count all beds
+        const isHC = unit.serviceLine === 'HC' || unit.serviceLine === 'HC/MC';
+        const isBBed = unit.roomNumber?.toString().toUpperCase().endsWith('B');
+        
+        if (isHC || !isBBed) {  // Count all HC beds, but only A-beds for senior housing
+          metrics.total++;
+          if (unit.occupiedYN) {
+            metrics.occupied++;
+          }
+        }
+      });
+      
+      // Calculate occupancy for each campus
+      campusMetrics.forEach((metrics, campus) => {
+        metrics.occupancy = metrics.total > 0 ? (metrics.occupied / metrics.total) : 0;
+      });
+      
+      // Get vacant units and B-beds
+      const vacancyData: any[] = [];
+      
+      allRentRollData.forEach(unit => {
+        const isHC = unit.serviceLine === 'HC' || unit.serviceLine === 'HC/MC';
+        const isBBed = unit.roomNumber?.toString().toUpperCase().endsWith('B');
+        
+        // Include if:
+        // 1. Unit is vacant (not occupied)
+        // 2. OR it's a B-bed in HC (always show B-beds)
+        if (!unit.occupiedYN || (isHC && isBBed)) {
+          const campusOccupancy = campusMetrics.get(unit.location)?.occupancy || 0;
+          
+          vacancyData.push({
+            id: `${unit.location}-${unit.roomNumber}`,
+            location: unit.location,
+            serviceLine: unit.serviceLine,
+            roomNumber: unit.roomNumber,
+            roomType: unit.roomType,
+            daysVacant: unit.daysVacant || 0,
+            campusOccupancy: campusOccupancy * 100, // Convert to percentage
+            streetRate: unit.streetRate || 0,
+            isBBed,
+            isVacant: !unit.occupiedYN,
+            unitType: isBBed ? 'B-Bed' : 'A-Bed'
+          });
+        }
+      });
+      
+      // Sort by days vacant descending for better visualization
+      vacancyData.sort((a, b) => b.daysVacant - a.daysVacant);
+      
+      res.json({
+        units: vacancyData,
+        summary: {
+          totalVacantUnits: vacancyData.filter(u => u.isVacant && !u.isBBed).length,
+          totalBBeds: vacancyData.filter(u => u.isBBed).length,
+          avgDaysVacant: vacancyData.length > 0 
+            ? vacancyData.reduce((sum, u) => sum + u.daysVacant, 0) / vacancyData.length 
+            : 0,
+          maxDaysVacant: Math.max(...vacancyData.map(u => u.daysVacant), 0)
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching vacancy scatter data:", error);
+      res.status(500).json({ error: "Failed to fetch vacancy scatter data" });
+    }
+  });
+
   // AI Insights
   app.post("/api/ai/suggest", async (req, res) => {
     try {
