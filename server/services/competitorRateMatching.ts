@@ -178,15 +178,43 @@ async function getBestCompetitorRate(
       }
     }
     
+    // Convert daily rates to monthly rates for HC service lines
+    // HC competitor data is stored as daily rates, not monthly
+    let baseRate = bestRecord.monthlyRateAvg || 0;
+    let careFeesAvg = bestRecord.careFeesAvg || 0;
+    let careLevel1Rate = bestRecord.careLevel1Rate;
+    let careLevel2Rate = bestRecord.careLevel2Rate;
+    let careLevel3Rate = bestRecord.careLevel3Rate;
+    let careLevel4Rate = bestRecord.careLevel4Rate;
+    let medicationManagementFee = bestRecord.medicationManagementFee;
+    
+    // Check if this is HC or SMC data (daily rates) - convert to monthly
+    // HC and SMC (Skilled Memory Care) rates are stored as daily rates
+    if ((competitorType === 'HC' || competitorType === 'SMC') && baseRate > 0 && baseRate < 1000) {
+      // Rates below $1000 are likely daily - convert to monthly
+      const daysPerMonth = 30.44; // Average days per month
+      baseRate = baseRate * daysPerMonth;
+      
+      // Convert care level rates if they exist
+      if (careFeesAvg) careFeesAvg = careFeesAvg * daysPerMonth;
+      if (careLevel1Rate) careLevel1Rate = careLevel1Rate * daysPerMonth;
+      if (careLevel2Rate) careLevel2Rate = careLevel2Rate * daysPerMonth;
+      if (careLevel3Rate) careLevel3Rate = careLevel3Rate * daysPerMonth;
+      if (careLevel4Rate) careLevel4Rate = careLevel4Rate * daysPerMonth;
+      if (medicationManagementFee) medicationManagementFee = medicationManagementFee * daysPerMonth;
+      
+      console.log(`Converted ${competitorType} daily rate $${(bestRecord.monthlyRateAvg || 0).toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
+    }
+    
     return {
       competitorName: bestRecord.competitorName,
-      baseRate: bestRecord.monthlyRateAvg || 0,
-      careFeesAvg: bestRecord.careFeesAvg || 0,
-      careLevel1Rate: bestRecord.careLevel1Rate || null,
-      careLevel2Rate: bestRecord.careLevel2Rate || null,
-      careLevel3Rate: bestRecord.careLevel3Rate || null,
-      careLevel4Rate: bestRecord.careLevel4Rate || null,
-      medicationManagementFee: bestRecord.medicationManagementFee || null,
+      baseRate,
+      careFeesAvg,
+      careLevel1Rate,
+      careLevel2Rate,
+      careLevel3Rate,
+      careLevel4Rate,
+      medicationManagementFee,
       surveyData: bestRecord
     };
     
