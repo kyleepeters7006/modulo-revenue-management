@@ -2873,7 +2873,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/analytics/vacancy-scatter", async (req, res) => {
     try {
       const { location, serviceLine } = req.query;
-      const uploadMonth = 'November 2025';
+      
+      // Get the most recent month's data from the database
+      const mostRecentMonthResult = await db
+        .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
+        .from(rentRollData);
+      const uploadMonth = mostRecentMonthResult[0]?.month || '2025-11';
+      
+      console.log('Vacancy analysis using upload month:', uploadMonth);
       
       // Get all rent roll data - getRentRollDataFiltered expects month as first param, filters as second
       const filters: any = {};
