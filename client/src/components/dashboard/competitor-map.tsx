@@ -341,10 +341,33 @@ export function CompetitorMap({
           icon: competitorMarkerIcon
         }).addTo(mapInstanceRef.current);
         
+        // Determine if this is HC (Health Center) which uses daily rates
+        // Check both serviceLine and serviceLines array (competitors can have multiple service lines)
+        const isHC = competitor.serviceLine === 'HC' || 
+                     competitor.serviceLine === 'HC/MC' ||
+                     competitor.competitorType === 'HC' ||
+                     (competitor.serviceLines && competitor.serviceLines.some((sl: string) => 
+                       sl === 'HC' || sl === 'HC/MC'));
+        
         // Calculate comparison to portfolio
         const avgPortfolioRate = currentProperty.avgRate || 3500;
-        const avgCompetitorRate = competitor.streetRate || competitor.avgRate || 3500;
+        let avgCompetitorRate = competitor.streetRate || competitor.avgRate || 3500;
         const avgCareRate = competitor.avgCareRate || 500;
+        
+        // For HC, convert monthly rate to daily for display
+        let displayRate = avgCompetitorRate;
+        let displayCareRate = avgCareRate;
+        let displayTotalRate = avgCompetitorRate + avgCareRate;
+        let rateLabel = isHC ? 'Daily' : 'Monthly';
+        
+        if (isHC) {
+          // Convert monthly to daily for HC display
+          displayRate = Math.round(avgCompetitorRate / 30.44);
+          displayCareRate = Math.round(avgCareRate / 30.44);
+          displayTotalRate = displayRate + displayCareRate;
+        }
+        
+        // Keep comparison in monthly terms for consistency
         const totalRate = avgCompetitorRate + avgCareRate;
         const totalPortfolioRate = avgPortfolioRate + (currentProperty.avgCareRate || 500);
         const comparison = totalRate - totalPortfolioRate;
@@ -352,9 +375,9 @@ export function CompetitorMap({
         const comparisonColor = comparison > 0 ? '#10b981' : comparison < 0 ? '#ef4444' : '#6b7280';
 
         // Format room rates more elegantly
-        let primaryRate = avgCompetitorRate;
-        let roomTypeLabel = 'Avg Rate';
-        if (competitor.rates && typeof competitor.rates === 'object') {
+        let primaryRate = displayRate;
+        let roomTypeLabel = isHC ? 'HC Rate' : 'Avg Rate';
+        if (!isHC && competitor.rates && typeof competitor.rates === 'object') {
           if (competitor.rates.Studio || competitor.rates.studio) {
             primaryRate = competitor.rates.Studio || competitor.rates.studio;
             roomTypeLabel = 'Studio';
@@ -382,6 +405,17 @@ export function CompetitorMap({
             
             <!-- Main content with key metrics -->
             <div style="padding: 20px;">
+              <!-- Service Line Badge -->
+              ${isHC ? `
+              <div style="display: inline-block; background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px;">
+                HC - Daily Rates
+              </div>
+              ` : `
+              <div style="display: inline-block; background: #dbeafe; border: 1px solid #60a5fa; color: #1e3a8a; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px;">
+                ${competitor.serviceLine || 'AL'} - Monthly Rates
+              </div>
+              `}
+              
               <!-- Rate Section -->
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
                 <!-- Room Rate -->
@@ -394,15 +428,15 @@ export function CompetitorMap({
                 <!-- Care Rate -->
                 <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
                   <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">CARE</p>
-                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${avgCareRate.toLocaleString()}</p>
-                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Average</p>
+                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${displayCareRate.toLocaleString()}</p>
+                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${rateLabel}</p>
                 </div>
                 
                 <!-- Total -->
                 <div style="text-align: center;">
                   <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">TOTAL</p>
-                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${totalRate.toLocaleString()}</p>
-                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Combined</p>
+                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${displayTotalRate.toLocaleString()}</p>
+                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${rateLabel}</p>
                 </div>
               </div>
               
