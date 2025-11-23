@@ -10,9 +10,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { ArrowLeft, Settings, Bed, Bath, Square, MapPin, Search, X, ChevronDown, Filter, AlertCircle } from "lucide-react";
+import { ArrowLeft, Settings, Bed, Bath, Square, MapPin, Search, X, ChevronDown, Filter, AlertCircle, Edit3 } from "lucide-react";
 import Highlighter from "react-highlight-words";
 import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
+import FloorPlanEditor from "@/components/floor-plans/FloorPlanEditor";
 import type { locations, campusMaps, rentRollData } from "@shared/schema";
 
 // Type definitions for components
@@ -144,6 +145,7 @@ export default function FloorPlansPage() {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState<number>(0);
   const [isFilterOpen, setIsFilterOpen] = useState(true); // For desktop collapsible
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false); // For mobile sheet
+  const [isEditMode, setIsEditMode] = useState(false); // For floor plan edit mode
   const [, setLocation] = useLocation();
   const unitListRef = useRef<HTMLDivElement>(null);
 
@@ -539,6 +541,24 @@ export default function FloorPlansPage() {
             {/* Left Column - Floor Plan Viewer (60% width on desktop) */}
             <div className="flex-1 lg:flex-[1.5] order-2 lg:order-1">
               <Card className="shadow-sm h-full min-h-[400px] lg:min-h-[calc(100vh-12rem)]">
+                {/* Edit Mode Toggle Button */}
+                {campusMap && !isLoadingMap && (
+                  <div className="flex justify-between items-center p-3 border-b">
+                    <h3 className="text-base font-medium text-gray-900">
+                      Floor Plan {isEditMode ? 'Editor' : 'Viewer'}
+                    </h3>
+                    <Button
+                      variant={isEditMode ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsEditMode(!isEditMode)}
+                      className="gap-2"
+                      data-testid="toggle-edit-mode"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                      {isEditMode ? 'Exit Edit Mode' : 'Edit Floor Plan'}
+                    </Button>
+                  </div>
+                )}
                 <CardContent className="p-0 h-full">
                   {isLoadingMap ? (
                     <div className="h-full flex items-center justify-center bg-gray-50">
@@ -548,7 +568,15 @@ export default function FloorPlansPage() {
                       </div>
                     </div>
                   ) : campusMap ? (
-                    <InteractiveFloorPlanViewer campusMap={campusMap} />
+                    isEditMode ? (
+                      <FloorPlanEditor 
+                        campusMap={campusMap}
+                        units={filteredUnits}
+                        onClose={() => setIsEditMode(false)}
+                      />
+                    ) : (
+                      <InteractiveFloorPlanViewer campusMap={campusMap} />
+                    )
                   ) : (
                     <div className="h-full flex items-center justify-center bg-gray-50">
                       <div className="text-center">
