@@ -38,6 +38,7 @@ import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./s
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
+import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -4796,10 +4797,39 @@ Keep recommendations specific and quantitative when possible.`;
         });
       }
       
-      console.log(`Calculated ${updates.length} Modulo suggestions, starting bulk update...`);
+      console.log(`Calculated ${updates.length} Modulo suggestions, applying adjustment rules...`);
       
-      // Perform bulk update in batches
-      await storage.bulkUpdateModuloRates(updates);
+      // Apply adjustment rules to Modulo rates
+      const unitsWithModuloRates = updates.map((update) => {
+        const unit = units.find(u => u.id === update.id);
+        return {
+          id: update.id,
+          unit: unit,
+          moduloSuggestedRate: update.moduloSuggestedRate
+        };
+      });
+      
+      const adjustmentResults = await fetchAndApplyAdjustmentRules(unitsWithModuloRates);
+      
+      // Merge adjustment results with Modulo updates
+      const finalUpdates = updates.map((update, index) => {
+        const adjustment = adjustmentResults[index];
+        return {
+          ...update,
+          ruleAdjustedRate: adjustment.ruleAdjustedRate,
+          appliedRuleName: adjustment.appliedRuleName
+        };
+      });
+      
+      // Count how many units had rules applied
+      const rulesAppliedCount = adjustmentResults.filter(r => r.ruleAdjustedRate !== null).length;
+      if (rulesAppliedCount > 0) {
+        console.log(`Applied adjustment rules to ${rulesAppliedCount} units`);
+      }
+      
+      // Perform bulk update in batches with adjustment rules
+      console.log(`Starting bulk database update with Modulo rates and adjustment rules...`);
+      await storage.bulkUpdateModuloRates(finalUpdates);
       
       console.log(`Modulo bulk update complete, regenerating rate card...`);
       

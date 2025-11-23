@@ -6,6 +6,7 @@ import { fetchSP500Data } from "./routes";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
+import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
 
 interface PrecomputedSignals {
   stockMarketChange: number;
@@ -442,10 +443,36 @@ export async function generateModuloOptimized(req: any, res: any) {
       console.log(`Calculation progress: ${progress.processed}/${progress.total} units (${progress.percentage}%)`);
     }
     
-    console.log(`Calculated ${allUpdates.length} Modulo suggestions, starting bulk database update...`);
+    console.log(`Calculated ${allUpdates.length} Modulo suggestions, applying adjustment rules...`);
     
-    // Step 5: Perform optimized bulk database update
-    await storage.bulkUpdateModuloRates(allUpdates);
+    // Step 5: Apply adjustment rules to Modulo rates
+    const unitsWithModuloRates = allUpdates.map((update, index) => ({
+      id: update.id,
+      unit: units[index], // Get the corresponding unit data
+      moduloSuggestedRate: update.moduloSuggestedRate
+    }));
+    
+    const adjustmentResults = await fetchAndApplyAdjustmentRules(unitsWithModuloRates);
+    
+    // Merge adjustment results with Modulo updates
+    const finalUpdates = allUpdates.map((update, index) => {
+      const adjustment = adjustmentResults[index];
+      return {
+        ...update,
+        ruleAdjustedRate: adjustment.ruleAdjustedRate,
+        appliedRuleName: adjustment.appliedRuleName
+      };
+    });
+    
+    // Count how many units had rules applied
+    const rulesAppliedCount = adjustmentResults.filter(r => r.ruleAdjustedRate !== null).length;
+    if (rulesAppliedCount > 0) {
+      console.log(`Applied adjustment rules to ${rulesAppliedCount} units`);
+    }
+    
+    // Step 6: Perform optimized bulk database update with adjustment rules
+    console.log(`Starting bulk database update with Modulo rates and adjustment rules...`);
+    await storage.bulkUpdateModuloRates(finalUpdates);
     
     console.log('Regenerating rate card...');
     await storage.generateRateCard(targetMonth);

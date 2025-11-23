@@ -633,7 +633,13 @@ export class DatabaseStorage implements IStorage {
     await db.update(rentRollData).set(data).where(eq(rentRollData.id, id));
   }
 
-  async bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void> {
+  async bulkUpdateModuloRates(updates: Array<{ 
+    id: string; 
+    moduloSuggestedRate: number; 
+    moduloCalculationDetails: string;
+    ruleAdjustedRate?: number | null;
+    appliedRuleName?: string | null;
+  }>): Promise<void> {
     // Optimized bulk update using single SQL query with CASE statements
     // Process in batches of 500 for optimal performance
     const batchSize = 500;
@@ -656,6 +662,12 @@ export class DatabaseStorage implements IStorage {
       const detailsCases = batch.map(u => 
         sql`WHEN id = ${u.id} THEN ${u.moduloCalculationDetails}::text`
       );
+      const ruleRateCases = batch.map(u => 
+        sql`WHEN id = ${u.id} THEN ${u.ruleAdjustedRate}`
+      );
+      const ruleNameCases = batch.map(u => 
+        sql`WHEN id = ${u.id} THEN ${u.appliedRuleName}`
+      );
       
       // Execute single bulk update query
       await db.execute(sql`
@@ -668,6 +680,14 @@ export class DatabaseStorage implements IStorage {
           modulo_calculation_details = CASE
             ${sql.join(detailsCases, sql.raw(' '))}
             ELSE modulo_calculation_details
+          END,
+          rule_adjusted_rate = CASE
+            ${sql.join(ruleRateCases, sql.raw(' '))}
+            ELSE rule_adjusted_rate
+          END,
+          applied_rule_name = CASE
+            ${sql.join(ruleNameCases, sql.raw(' '))}
+            ELSE applied_rule_name
           END
         WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})
       `);
