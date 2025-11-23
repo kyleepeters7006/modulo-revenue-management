@@ -54,16 +54,36 @@ export async function calculateAttributedPrice(
   
   const attributedRate = baseRate * attributeMultiplier;
   
+  // Calculate normalized attribute score (0-1) from the totalMultiplier
+  // A multiplier of 1.0 (neutral) maps to 0.5, with range from 0.7-1.3 mapping to 0-1
+  // This ensures units with no attributes (multiplier = 1.0) get a neutral score
+  const normalizeAttrScore = (multiplier: number): number => {
+    // Typical range is 0.7 to 1.3 (±30% adjustment)
+    const minMultiplier = 0.7;
+    const maxMultiplier = 1.3;
+    const clampedMultiplier = Math.max(minMultiplier, Math.min(maxMultiplier, multiplier));
+    const normalizedScore = (clampedMultiplier - minMultiplier) / (maxMultiplier - minMultiplier);
+    return normalizedScore;
+  };
+  
+  // Add the normalized attribute score to inputs
+  const attrScore = normalizeAttrScore(attributeMultiplier);
+  const moduloInputs: PricingInputs = {
+    ...inputs,
+    attrScore
+  };
+  
   const moduloWeights: ModuloPricingWeights = {
     occupancy: weights.occupancyPressure,
     daysVacant: weights.daysVacantDecay,
+    roomAttributes: weights.roomAttributes || 10, // Default weight for room attributes
     seasonality: weights.seasonality,
     competitors: weights.competitorRates,
     market: weights.stockMarket,
     demand: weights.inquiryTourVolume || 0
   };
   
-  const moduloResult = calculateModuloPrice(attributedRate, moduloWeights, inputs);
+  const moduloResult = calculateModuloPrice(attributedRate, moduloWeights, moduloInputs);
   const moduloRate = moduloResult.finalPrice;
   
   let finalPrice = moduloRate;

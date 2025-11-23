@@ -19,6 +19,12 @@ interface BaseRateSegment {
   averageMultiplier: number;
   unitCount: number;
   lastUpdated: Date;
+  // Issue #2 fix: Track attributed vs non-attributed segments
+  hasAttributes: boolean;  // true if any unit has non-neutral attributes
+  attributedUnitCount: number;  // Count of units with actual attributes
+  nonAttributedUnitCount: number;  // Count of units with neutral/missing attributes
+  attributedBaseRate: number | null;  // Base rate calculated from attributed units only
+  nonAttributedBaseRate: number | null;  // Base rate calculated from non-attributed units only
 }
 
 class AttributePricingService {
@@ -49,6 +55,13 @@ class AttributePricingService {
     
     const key = `${attributeType}:${ratingLevel}`;
     return this.attributeRatingCache.get(key) || 0;
+  }
+
+  // Issue #2 fix: Check if unit has any non-neutral attributes
+  hasConfiguredAttributes(unit: RentRollData): boolean {
+    // A unit has configured attributes if any rating is not null
+    return !!(unit.locationRating || unit.sizeRating || unit.viewRating || 
+             unit.renovationRating || unit.amenityRating);
   }
 
   calculateAttributeMultiplier(unit: RentRollData): number {
@@ -103,7 +116,20 @@ class AttributePricingService {
       return;
     }
 
-    const segments = new Map<string, { totalStreetRate: number; totalMultiplier: number; count: number; units: RentRollData[] }>();
+    // Issue #2 fix: Separate attributed and non-attributed units
+    const segments = new Map<string, {
+      totalStreetRate: number;
+      totalMultiplier: number;
+      count: number;
+      units: RentRollData[];
+      // Track attributed vs non-attributed
+      attributedUnits: RentRollData[];
+      nonAttributedUnits: RentRollData[];
+      attributedTotalRate: number;
+      nonAttributedTotalRate: number;
+      attributedTotalMultiplier: number;
+      nonAttributedTotalMultiplier: number;
+    }>();
 
     for (const unit of units) {
       if (unit.streetRate === 0) {
@@ -113,16 +139,39 @@ class AttributePricingService {
       const key = this.getSegmentKey(unit.location, unit.serviceLine, unit.roomType);
       
       if (!segments.has(key)) {
-        segments.set(key, { totalStreetRate: 0, totalMultiplier: 0, count: 0, units: [] });
+        segments.set(key, {
+          totalStreetRate: 0,
+          totalMultiplier: 0,
+          count: 0,
+          units: [],
+          attributedUnits: [],
+          nonAttributedUnits: [],
+          attributedTotalRate: 0,
+          nonAttributedTotalRate: 0,
+          attributedTotalMultiplier: 0,
+          nonAttributedTotalMultiplier: 0
+        });
       }
 
       const segment = segments.get(key)!;
       const multiplier = this.calculateAttributeMultiplier(unit);
+      const hasAttributes = this.hasConfiguredAttributes(unit);
       
       segment.totalStreetRate += unit.streetRate;
       segment.totalMultiplier += multiplier;
       segment.count += 1;
       segment.units.push(unit);
+      
+      // Issue #2 fix: Separate attributed vs non-attributed tracking
+      if (hasAttributes) {
+        segment.attributedUnits.push(unit);
+        segment.attributedTotalRate += unit.streetRate;
+        segment.attributedTotalMultiplier += multiplier;
+      } else {
+        segment.nonAttributedUnits.push(unit);
+        segment.nonAttributedTotalRate += unit.streetRate;
+        segment.nonAttributedTotalMultiplier += multiplier;
+      }
     }
 
     this.baseRateCache.clear();
@@ -134,17 +183,45 @@ class AttributePricingService {
       const averageStreetRate = data.totalStreetRate / data.count;
       const averageMultiplier = data.totalMultiplier / data.count;
       
-      const baseRate = averageMultiplier > 0 ? averageStreetRate / averageMultiplier : averageStreetRate;
+      // Issue #2 fix: Calculate separate base rates for attributed vs non-attributed units
+      let attributedBaseRate: number | null = null;
+      let nonAttributedBaseRate: number | null = null;
+      
+      // Calculate base rate for attributed units (if any)
+      if (data.attributedUnits.length > 0) {
+        const avgAttributedStreetRate = data.attributedTotalRate / data.attributedUnits.length;
+        const avgAttributedMultiplier = data.attributedTotalMultiplier / data.attributedUnits.length;
+        attributedBaseRate = avgAttributedMultiplier > 0 ? avgAttributedStreetRate / avgAttributedMultiplier : avgAttributedStreetRate;
+      }
+      
+      // Calculate base rate for non-attributed units (if any)
+      if (data.nonAttributedUnits.length > 0) {
+        const avgNonAttributedStreetRate = data.nonAttributedTotalRate / data.nonAttributedUnits.length;
+        const avgNonAttributedMultiplier = data.nonAttributedTotalMultiplier / data.nonAttributedUnits.length;
+        nonAttributedBaseRate = avgNonAttributedMultiplier > 0 ? avgNonAttributedStreetRate / avgNonAttributedMultiplier : avgNonAttributedStreetRate;
+      }
+      
+      // Use attributed base rate if available, otherwise fall back to non-attributed
+      // This ensures buildings with attributes get accurate base rates
+      const primaryBaseRate = attributedBaseRate !== null ? attributedBaseRate : 
+                             nonAttributedBaseRate !== null ? nonAttributedBaseRate : 
+                             averageStreetRate;
 
       this.baseRateCache.set(key, {
         location,
         serviceLine,
         roomType,
-        baseRate,
+        baseRate: primaryBaseRate,
         averageStreetRate,
         averageMultiplier,
         unitCount: data.count,
-        lastUpdated: new Date()
+        lastUpdated: new Date(),
+        // Issue #2 fix: Include metadata about attributed vs non-attributed
+        hasAttributes: data.attributedUnits.length > 0,
+        attributedUnitCount: data.attributedUnits.length,
+        nonAttributedUnitCount: data.nonAttributedUnits.length,
+        attributedBaseRate,
+        nonAttributedBaseRate
       });
     }
 
@@ -177,25 +254,61 @@ class AttributePricingService {
       : validRates[medianIndex];
   }
 
-  async getUnitBaseRate(unit: RentRollData, options?: { defaultFloor?: number }): Promise<{ rate: number; source: string }> {
+  async getUnitBaseRate(unit: RentRollData, options?: { defaultFloor?: number }): Promise<{ rate: number; source: string; hasAttributeData: boolean }> {
     const defaultFloor = options?.defaultFloor || 2500;
     
     const segmentKey = this.getSegmentKey(unit.location, unit.serviceLine, unit.roomType);
     const segment = this.baseRateCache.get(segmentKey);
     
-    if (segment && segment.baseRate > 0) {
-      return { rate: segment.baseRate, source: 'segment' };
+    // Issue #2 fix: Use attributed base rate for units with attributes, non-attributed otherwise
+    if (segment) {
+      const unitHasAttributes = this.hasConfiguredAttributes(unit);
+      
+      // If unit has attributes and we have attributed base rate, use that
+      if (unitHasAttributes && segment.attributedBaseRate !== null && segment.attributedBaseRate > 0) {
+        return { 
+          rate: segment.attributedBaseRate, 
+          source: 'attributed_segment',
+          hasAttributeData: true
+        };
+      }
+      
+      // If unit has no attributes and we have non-attributed base rate, use that
+      if (!unitHasAttributes && segment.nonAttributedBaseRate !== null && segment.nonAttributedBaseRate > 0) {
+        return {
+          rate: segment.nonAttributedBaseRate,
+          source: 'non_attributed_segment',
+          hasAttributeData: false
+        };
+      }
+      
+      // Fall back to overall segment base rate if specific type not available
+      if (segment.baseRate > 0) {
+        return {
+          rate: segment.baseRate,
+          source: 'segment',
+          hasAttributeData: segment.hasAttributes
+        };
+      }
     }
 
     console.warn(`No segment base rate found for ${segmentKey}, trying campus/service-line median`);
     const campusMedian = await this.getCampusServiceLineMedian(unit.location, unit.serviceLine);
     
     if (campusMedian && campusMedian > 0) {
-      return { rate: campusMedian, source: 'campus_median' };
+      return {
+        rate: campusMedian,
+        source: 'campus_median',
+        hasAttributeData: false  // Median doesn't consider attributes
+      };
     }
 
     console.warn(`No campus median found for ${unit.location}/${unit.serviceLine}, using default floor`);
-    return { rate: defaultFloor, source: 'default_floor' };
+    return {
+      rate: defaultFloor,
+      source: 'default_floor',
+      hasAttributeData: false
+    };
   }
 
   getBaseRate(location: string, serviceLine: string, roomType: string): number | null {
@@ -231,6 +344,81 @@ class AttributePricingService {
       cached: this.baseRateCache.size,
       timestamp: this.cacheTimestamp,
       month: this.cacheMonth // Issue 3 fix: Include month in cache status
+    };
+  }
+  
+  // Issue #2 fix: Get attribute configuration status for UI display
+  getAttributeConfigurationStatus(): {
+    locations: Array<{
+      location: string;
+      serviceLine: string;
+      hasAttributes: boolean;
+      attributedUnitCount: number;
+      nonAttributedUnitCount: number;
+      attributeCoverage: number;  // percentage
+    }>;
+    summary: {
+      totalLocations: number;
+      locationsWithAttributes: number;
+      totalUnits: number;
+      attributedUnits: number;
+      overallCoverage: number;  // percentage
+    };
+  } {
+    const locationStats = new Map<string, {
+      hasAttributes: boolean;
+      attributedUnitCount: number;
+      nonAttributedUnitCount: number;
+    }>();
+    
+    // Aggregate stats from all segments
+    for (const segment of this.baseRateCache.values()) {
+      const key = `${segment.location}|${segment.serviceLine}`;
+      
+      if (!locationStats.has(key)) {
+        locationStats.set(key, {
+          hasAttributes: false,
+          attributedUnitCount: 0,
+          nonAttributedUnitCount: 0
+        });
+      }
+      
+      const stats = locationStats.get(key)!;
+      stats.hasAttributes = stats.hasAttributes || segment.hasAttributes;
+      stats.attributedUnitCount += segment.attributedUnitCount;
+      stats.nonAttributedUnitCount += segment.nonAttributedUnitCount;
+    }
+    
+    // Convert to array format for UI
+    const locations = Array.from(locationStats.entries()).map(([key, stats]) => {
+      const [location, serviceLine] = key.split('|');
+      const totalUnits = stats.attributedUnitCount + stats.nonAttributedUnitCount;
+      
+      return {
+        location,
+        serviceLine,
+        hasAttributes: stats.hasAttributes,
+        attributedUnitCount: stats.attributedUnitCount,
+        nonAttributedUnitCount: stats.nonAttributedUnitCount,
+        attributeCoverage: totalUnits > 0 ? (stats.attributedUnitCount / totalUnits) * 100 : 0
+      };
+    });
+    
+    // Calculate summary stats
+    const totalUnits = locations.reduce((sum, loc) => 
+      sum + loc.attributedUnitCount + loc.nonAttributedUnitCount, 0);
+    const attributedUnits = locations.reduce((sum, loc) => sum + loc.attributedUnitCount, 0);
+    const locationsWithAttributes = locations.filter(loc => loc.hasAttributes).length;
+    
+    return {
+      locations,
+      summary: {
+        totalLocations: locations.length,
+        locationsWithAttributes,
+        totalUnits,
+        attributedUnits,
+        overallCoverage: totalUnits > 0 ? (attributedUnits / totalUnits) * 100 : 0
+      }
     };
   }
 }

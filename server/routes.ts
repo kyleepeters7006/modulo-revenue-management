@@ -5023,6 +5023,126 @@ Keep recommendations specific and quantitative when possible.`;
       res.status(500).json({ error: 'Failed to update attribute rating' });
     }
   });
+  
+  // Issue #3 fix: Preview attribute weight changes
+  app.post("/api/attribute-ratings/preview", async (req, res) => {
+    try {
+      const { proposedRatings } = req.body; // Array of { attributeType, ratingLevel, adjustmentPercent }
+      
+      // Get sample units to show impact
+      const sampleUnits = await db.select()
+        .from(rentRollData)
+        .limit(20); // Get a sample of units
+      
+      const previews = [];
+      
+      for (const unit of sampleUnits) {
+        // Calculate current attributed rate
+        const currentMultiplier = attributePricingService.calculateAttributeMultiplier(unit);
+        const currentAttributedRate = unit.streetRate * currentMultiplier;
+        
+        // Calculate proposed attributed rate using proposed ratings
+        let proposedMultiplier = 1.0;
+        const attributes = ['location', 'size', 'view', 'renovation', 'amenity'];
+        
+        for (const attr of attributes) {
+          const ratingKey = `${attr}Rating` as keyof typeof unit;
+          const rating = unit[ratingKey] as string | null;
+          
+          if (rating) {
+            const proposed = proposedRatings.find((r: any) => 
+              r.attributeType === attr && r.ratingLevel === rating
+            );
+            
+            if (proposed) {
+              proposedMultiplier += proposed.adjustmentPercent / 100;
+            } else {
+              // Use existing rating if not in proposed changes
+              const currentAdj = attributePricingService.getAttributeAdjustmentPercent(attr, rating);
+              proposedMultiplier += currentAdj / 100;
+            }
+          }
+        }
+        
+        const proposedAttributedRate = unit.streetRate * proposedMultiplier;
+        
+        previews.push({
+          unitId: unit.id,
+          roomNumber: unit.roomNumber,
+          location: unit.location,
+          serviceLine: unit.serviceLine,
+          roomType: unit.roomType,
+          streetRate: unit.streetRate,
+          currentMultiplier: Math.round(currentMultiplier * 1000) / 1000,
+          currentAttributedRate: Math.round(currentAttributedRate),
+          proposedMultiplier: Math.round(proposedMultiplier * 1000) / 1000,
+          proposedAttributedRate: Math.round(proposedAttributedRate),
+          changeAmount: Math.round(proposedAttributedRate - currentAttributedRate),
+          changePercent: Math.round(((proposedAttributedRate - currentAttributedRate) / currentAttributedRate) * 100)
+        });
+      }
+      
+      // Calculate summary statistics
+      const totalCurrentRevenue = previews.reduce((sum, p) => sum + p.currentAttributedRate, 0);
+      const totalProposedRevenue = previews.reduce((sum, p) => sum + p.proposedAttributedRate, 0);
+      const avgChangePercent = previews.reduce((sum, p) => sum + p.changePercent, 0) / previews.length;
+      
+      res.json({
+        previews,
+        summary: {
+          unitsAnalyzed: previews.length,
+          totalCurrentRevenue: Math.round(totalCurrentRevenue),
+          totalProposedRevenue: Math.round(totalProposedRevenue),
+          totalChangeAmount: Math.round(totalProposedRevenue - totalCurrentRevenue),
+          avgChangePercent: Math.round(avgChangePercent * 10) / 10
+        }
+      });
+    } catch (error) {
+      console.error('Error previewing attribute ratings:', error);
+      res.status(500).json({ error: 'Failed to preview attribute ratings' });
+    }
+  });
+  
+  // Issue #3 fix: Accept proposed attribute weights and refresh pricing
+  app.post("/api/attribute-ratings/accept", async (req, res) => {
+    try {
+      const { proposedRatings } = req.body; // Array of { attributeType, ratingLevel, adjustmentPercent, description }
+      
+      // Update all proposed ratings
+      for (const rating of proposedRatings) {
+        await storage.updateAttributeRating(
+          rating.attributeType,
+          rating.ratingLevel,
+          rating.adjustmentPercent,
+          rating.description
+        );
+      }
+      
+      // Refresh the pricing cache to reflect new weights
+      await attributePricingService.initializeAttributeRatings(); // Reload ratings from DB
+      await invalidateCache(); // Refresh base rate calculations
+      
+      res.json({
+        success: true,
+        message: 'Attribute ratings updated and pricing cache refreshed',
+        updatedCount: proposedRatings.length
+      });
+    } catch (error) {
+      console.error('Error accepting attribute ratings:', error);
+      res.status(500).json({ error: 'Failed to accept attribute ratings' });
+    }
+  });
+  
+  // Issue #3 fix: Get attribute configuration status
+  app.get("/api/attribute-ratings/status", async (req, res) => {
+    try {
+      const status = attributePricingService.getAttributeConfigurationStatus();
+      res.json(status);
+    } catch (error) {
+      console.error('Error getting attribute configuration status:', error);
+      res.status(500).json({ error: 'Failed to get attribute configuration status' });
+    }
+  });
 
   // Analysis endpoint
   app.get("/api/analysis", async (req, res) => {

@@ -24,7 +24,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { DollarSign, Home, Layers, TrendingUp } from "lucide-react";
+import { DollarSign, Home, Layers, TrendingUp, Eye, Check, X, AlertCircle, TrendingDown } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface RoomTypePrice {
   roomType: string;
@@ -61,6 +69,12 @@ export default function RoomAttributes() {
   const [selectedLocation, setSelectedLocation] = useState<string>("All");
   const [editingRoomType, setEditingRoomType] = useState<string | null>(null);
   const [newBasePrice, setNewBasePrice] = useState<string>("");
+  
+  // Issue #3 fix: State for attribute weight management workflow
+  const [proposedRatings, setProposedRatings] = useState<AttributeRating[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Fetch rent roll data for units
   const { data: rentRollData = [] } = useQuery<UnitWithAttributes[]>({
@@ -68,7 +82,7 @@ export default function RoomAttributes() {
   });
 
   // Fetch attribute ratings
-  const { data: attributeRatings = [] } = useQuery<AttributeRating[]>({
+  const { data: attributeRatings = [], refetch: refetchRatings } = useQuery<AttributeRating[]>({
     queryKey: ['/api/attribute-ratings'],
   });
 
@@ -78,6 +92,62 @@ export default function RoomAttributes() {
   });
   
   const locations = (locationsData as any)?.locations || [];
+  
+  // Issue #3 fix: Fetch attribute configuration status
+  const { data: attributeStatus } = useQuery({
+    queryKey: ['/api/attribute-ratings/status'],
+  });
+  
+  // Issue #3 fix: Mutation to preview attribute weight changes
+  const previewMutation = useMutation({
+    mutationFn: async (ratings: AttributeRating[]) => {
+      return await apiRequest('/api/attribute-ratings/preview', {
+        method: 'POST',
+        body: JSON.stringify({ proposedRatings: ratings }),
+      });
+    },
+    onSuccess: (data) => {
+      setPreviewData(data);
+      setShowPreview(true);
+    },
+    onError: (error) => {
+      toast({
+        title: "Preview Failed",
+        description: "Failed to preview attribute weight changes",
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Issue #3 fix: Mutation to accept attribute weight changes
+  const acceptMutation = useMutation({
+    mutationFn: async (ratings: AttributeRating[]) => {
+      return await apiRequest('/api/attribute-ratings/accept', {
+        method: 'POST',
+        body: JSON.stringify({ proposedRatings: ratings }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Changes Accepted",
+        description: "Attribute weights have been updated and pricing cache refreshed",
+        variant: "default",
+      });
+      setProposedRatings([]);
+      setShowPreview(false);
+      setIsEditing(false);
+      refetchRatings();
+      queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Update Failed",
+        description: "Failed to accept attribute weight changes",
+        variant: "destructive",
+      });
+    }
+  });
 
   // Get unique service lines
   const serviceLines = Array.from(new Set(rentRollData.map(unit => unit.serviceLine))).filter(Boolean).sort();
@@ -244,6 +314,247 @@ export default function RoomAttributes() {
 
           {/* Attribute Management Section */}
           <AttributeManagement />
+          
+          {/* Issue #3 fix: Attribute Weight Management Workflow */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <TrendingUp className="h-5 w-5" />
+                  <span>Attribute Weight Management</span>
+                </div>
+                {!isEditing && (
+                  <Button 
+                    onClick={() => {
+                      setIsEditing(true);
+                      setProposedRatings(attributeRatings);
+                    }}
+                    variant="outline"
+                  >
+                    Propose New Weights
+                  </Button>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {isEditing 
+                  ? "Adjust attribute weights and preview their impact before applying"
+                  : "Configure pricing adjustments for each attribute rating level"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Status Alert */}
+              {attributeStatus && (
+                <Alert className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <div className="flex justify-between">
+                      <span>
+                        <strong>Coverage:</strong> {Math.round((attributeStatus as any).summary?.overallCoverage || 0)}% of units have attributes configured
+                      </span>
+                      <span>
+                        <strong>Locations with Attributes:</strong> {(attributeStatus as any).summary?.locationsWithAttributes || 0}/{(attributeStatus as any).summary?.totalLocations || 0}
+                      </span>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+              
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    {['location', 'size', 'view', 'renovation', 'amenity'].map(attrType => (
+                      <div key={attrType} className="border rounded-lg p-4">
+                        <h4 className="font-medium capitalize mb-3">{attrType}</h4>
+                        {['A', 'B', 'C'].map(level => {
+                          const currentRating = proposedRatings.find(
+                            r => r.attributeType === attrType && r.ratingLevel === level
+                          );
+                          return (
+                            <div key={level} className="flex items-center gap-2 mb-2">
+                              <Badge className={getRatingColor(level)} variant="outline">
+                                {level}
+                              </Badge>
+                              <Input
+                                type="number"
+                                className="w-20"
+                                value={currentRating?.adjustmentPercent || 0}
+                                onChange={(e) => {
+                                  const newValue = parseFloat(e.target.value) || 0;
+                                  setProposedRatings(prev => {
+                                    const updated = [...prev];
+                                    const idx = updated.findIndex(
+                                      r => r.attributeType === attrType && r.ratingLevel === level
+                                    );
+                                    if (idx >= 0) {
+                                      updated[idx] = { ...updated[idx], adjustmentPercent: newValue };
+                                    }
+                                    return updated;
+                                  });
+                                }}
+                              />
+                              <span className="text-sm text-gray-500">%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsEditing(false);
+                        setProposedRatings([]);
+                      }}
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => previewMutation.mutate(proposedRatings)}
+                      disabled={previewMutation.isPending}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      Preview Impact
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Attribute Type</TableHead>
+                        <TableHead className="text-center">Rating A</TableHead>
+                        <TableHead className="text-center">Rating B</TableHead>
+                        <TableHead className="text-center">Rating C</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {['location', 'size', 'view', 'renovation', 'amenity'].map(attrType => (
+                        <TableRow key={attrType}>
+                          <TableCell className="font-medium capitalize">{attrType}</TableCell>
+                          {['A', 'B', 'C'].map(level => {
+                            const rating = attributeRatings.find(
+                              r => r.attributeType === attrType && r.ratingLevel === level
+                            );
+                            return (
+                              <TableCell key={level} className="text-center">
+                                <Badge variant="secondary">
+                                  {rating ? `+${rating.adjustmentPercent}%` : '0%'}
+                                </Badge>
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          
+          {/* Preview Dialog */}
+          <Dialog open={showPreview} onOpenChange={setShowPreview}>
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Preview Attribute Weight Changes</DialogTitle>
+                <DialogDescription>
+                  Review the impact of your proposed changes before applying them
+                </DialogDescription>
+              </DialogHeader>
+              
+              {previewData && (
+                <div className="space-y-4">
+                  <Alert>
+                    <TrendingUp className="h-4 w-4" />
+                    <AlertDescription>
+                      <div className="grid grid-cols-2 gap-4 mt-2">
+                        <div>
+                          <span className="font-medium">Units Analyzed:</span> {previewData.summary.unitsAnalyzed}
+                        </div>
+                        <div>
+                          <span className="font-medium">Avg Change:</span>{" "}
+                          <span className={previewData.summary.avgChangePercent > 0 ? "text-green-600" : "text-red-600"}>
+                            {previewData.summary.avgChangePercent > 0 ? "+" : ""}{previewData.summary.avgChangePercent}%
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-medium">Total Revenue Impact:</span>{" "}
+                          <span className={previewData.summary.totalChangeAmount > 0 ? "text-green-600" : "text-red-600"}>
+                            {previewData.summary.totalChangeAmount > 0 ? "+" : ""}${previewData.summary.totalChangeAmount.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                  
+                  <div className="rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Room</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead className="text-right">Current Rate</TableHead>
+                          <TableHead className="text-right">Proposed Rate</TableHead>
+                          <TableHead className="text-right">Change</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {previewData.previews.slice(0, 10).map((preview: any) => (
+                          <TableRow key={preview.unitId}>
+                            <TableCell>{preview.roomNumber}</TableCell>
+                            <TableCell>{preview.location}</TableCell>
+                            <TableCell>{preview.roomType}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              ${preview.currentAttributedRate.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">
+                              ${preview.proposedAttributedRate.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span className={preview.changePercent > 0 ? "text-green-600" : "text-red-600"}>
+                                {preview.changePercent > 0 ? "+" : ""}{preview.changePercent}%
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {previewData.previews.length > 10 && (
+                      <div className="p-4 text-center text-sm text-gray-500 border-t">
+                        Showing 10 of {previewData.previews.length} affected units
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowPreview(false);
+                        setPreviewData(null);
+                      }}
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Reject Changes
+                    </Button>
+                    <Button
+                      variant="default"
+                      onClick={() => acceptMutation.mutate(proposedRatings)}
+                      disabled={acceptMutation.isPending}
+                    >
+                      <Check className="h-4 w-4 mr-2" />
+                      Accept Changes
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Unit-Level Detail */}
           <Card>
