@@ -733,7 +733,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         })()}
                       </TableCell>
                       <TableCell>
-                        {unit.moduloSuggestedRate ? (
+                        {unit.moduloSuggestedRate && !unit.occupiedYN ? (
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <ModuloCalculationDialog
@@ -804,7 +804,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        {unit.aiSuggestedRate ? (
+                        {unit.aiSuggestedRate && !unit.occupiedYN ? (
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <button 
@@ -848,7 +848,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        {unit.competitorRate ? (
+                        {unit.competitorFinalRate ? (
                           <CompetitorAdjustmentDialog
                             competitorName={unit.competitorName}
                             competitorWeight={unit.competitorWeight}
@@ -856,14 +856,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                             competitorCareLevel2Adjustment={unit.competitorCareLevel2Adjustment}
                             competitorMedManagementAdjustment={unit.competitorMedManagementAdjustment}
                             competitorAdjustmentExplanation={unit.competitorAdjustmentExplanation}
-                            adjustedRate={unit.competitorRate}
+                            adjustedRate={unit.competitorFinalRate}
                           >
                             <Button
                               variant="link"
                               className="text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] p-0 h-auto font-medium"
                               data-testid={`button-competitor-rate-${unit.roomNumber}`}
                             >
-                              {formatCurrency(Math.round(unit.competitorRate))}
+                              {formatCurrency(Math.round(unit.competitorFinalRate))}
                             </Button>
                           </CompetitorAdjustmentDialog>
                         ) : (
