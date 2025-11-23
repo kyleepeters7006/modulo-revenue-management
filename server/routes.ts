@@ -4046,7 +4046,9 @@ Keep recommendations specific and quantitative when possible.`;
       const locationsWithData = uniqueCampuses;
       const occupiedUnits = actualUnits.filter(u => u.occupiedYN).length;
       
-      const currentAnnualRevenue = actualUnits.reduce((sum, u) => {
+      // IMPORTANT: Use allRentRollData for revenue calculations to include B-bed revenue
+      // B-beds are excluded from occupancy counts but their revenue should be counted
+      const currentAnnualRevenue = allRentRollData.reduce((sum, u) => {
         if (u.occupiedYN) {
           // For occupied units, use inHouseRate if available, otherwise streetRate
           // (In production data, inHouseRate may be 0, so we fall back to streetRate)
@@ -4057,7 +4059,9 @@ Keep recommendations specific and quantitative when possible.`;
         // Vacant units contribute 0 to current revenue
         return sum;
       }, 0);
-      const potentialAnnualRevenue = actualUnits.reduce((sum, u) => {
+      
+      // Potential revenue also includes ALL units including B-beds
+      const potentialAnnualRevenue = allRentRollData.reduce((sum, u) => {
         // For potential revenue, use streetRate for ALL units (100% occupancy scenario)
         const baseRent = u.streetRate || 0;
         const careRate = u.careRate || u.careFee || 0;
