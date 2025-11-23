@@ -298,37 +298,40 @@ export function CompetitorMap({
       competitorData.items.forEach((competitor: any) => {
         if (!competitor.lat || !competitor.lng || !mounted) return;
         
-        // Enhanced color and styling based on A/B/C rating
-        const getRatingStyle = (rating: string) => {
-          switch (rating?.toUpperCase()) {
-            case 'A': return { 
-              color: '#22c55e', 
-              size: '28px', 
-              gradient: 'linear-gradient(135deg, #22c55e, #16a34a)',
-              emoji: '⭐'
-            };
-            case 'B': return { 
-              color: '#f59e0b', 
-              size: '26px', 
-              gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              emoji: '👍'
-            };
-            case 'C': return { 
-              color: '#ef4444', 
-              size: '24px', 
-              gradient: 'linear-gradient(135deg, #ef4444, #dc2626)',
-              emoji: '⚠️'
-            };
-            default: return { 
+        // Style based on distance (closer = larger/more prominent)
+        const getDistanceStyle = (distanceMiles: number | undefined) => {
+          if (!distanceMiles) {
+            return { 
               color: '#6b7280', 
-              size: '24px', 
-              gradient: 'linear-gradient(135deg, #6b7280, #4b5563)',
-              emoji: '📍'
+              size: '24px'
+            };
+          }
+          
+          // Color and size based on proximity
+          if (distanceMiles <= 1) {
+            return { 
+              color: '#ef4444', // Red for very close competitors
+              size: '28px'
+            };
+          } else if (distanceMiles <= 3) {
+            return { 
+              color: '#f97316', // Orange for nearby
+              size: '26px'
+            };
+          } else if (distanceMiles <= 5) {
+            return { 
+              color: '#3b82f6', // Blue for moderate distance
+              size: '24px'
+            };
+          } else {
+            return { 
+              color: '#6b7280', // Gray for far away
+              size: '22px'
             };
           }
         };
         
-        const style = getRatingStyle(competitor.rating);
+        const style = getDistanceStyle(competitor.distanceMiles);
         
         const competitorMarkerIcon = window.L.icon({
           iconUrl: "/attached_assets/image_1756857075316.png",
@@ -398,7 +401,11 @@ export function CompetitorMap({
             <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 20px; position: relative;">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                 <h3 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.5px;">${competitor.name}</h3>
-                <span style="background: ${style.color}20; color: ${style.color}; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">${competitor.rating || 'N/A'}</span>
+                ${competitor.distanceMiles ? `
+                <span style="background: #3b82f620; color: #2563eb; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">
+                  ${competitor.distanceMiles.toFixed(1)} mi
+                </span>
+                ` : ''}
               </div>
               <p style="margin: 0; font-size: 13px; opacity: 0.85; font-weight: 300;">Competitor Location</p>
             </div>
