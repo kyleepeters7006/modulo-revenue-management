@@ -3890,7 +3890,7 @@ Keep recommendations specific and quantitative when possible.`;
         : allRentRollData;
       
       // Get unique campus count
-      const uniqueCampuses = new Set(allRentRollData.map(u => u.location)).size;
+      const uniqueCampuses = new Set(allRentRollData.map((u: any) => u.location)).size;
       
       // Log the actual portfolio size for monitoring
       console.log(`Trilogy Portfolio (${mostRecentMonth}): ${allRentRollData.length} total units across ${uniqueCampuses} campuses`);
@@ -4174,6 +4174,45 @@ Keep recommendations specific and quantitative when possible.`;
         return sum + calculateUnitAnnualRevenue(u, false); // potential revenue at 100% occupancy
       }, 0);
 
+      // Calculate split rates for HC and Senior Housing
+      const hcServiceLines = ['HC', 'HC/MC', 'SMC'];
+      const seniorServiceLines = ['AL', 'AL/MC', 'SL', 'VIL', 'IL'];
+      
+      // HC rates
+      const hcUnits = allRentRollData.filter((u: any) => hcServiceLines.includes(u.serviceLine));
+      const avgHcRate = hcUnits.length > 0
+        ? hcUnits.reduce((sum: number, u: any) => sum + (u.streetRate || 0), 0) / hcUnits.length
+        : 0;
+      
+      const hcUnitsWithCompetitor = hcUnits.filter((u: any) => u.competitorRate && u.competitorRate > 0);
+      const avgHcCompetitorRate = hcUnitsWithCompetitor.length > 0
+        ? hcUnitsWithCompetitor.reduce((sum: number, u: any) => {
+            let rate = u.competitorRate || 0;
+            // Convert HC daily rates to monthly
+            if (rate > 0 && rate < 1000) {
+              rate = rate * 30.44;
+            }
+            return sum + rate;
+          }, 0) / hcUnitsWithCompetitor.length
+        : 0;
+      
+      // Senior Housing rates
+      const shUnits = allRentRollData.filter((u: any) => {
+        if (!seniorServiceLines.includes(u.serviceLine)) return false;
+        // Exclude B beds for senior housing
+        if (u.roomNumber && u.roomNumber.endsWith('/B')) return false;
+        return true;
+      });
+      
+      const avgSeniorHousingRate = shUnits.length > 0
+        ? shUnits.reduce((sum: number, u: any) => sum + (u.streetRate || 0), 0) / shUnits.length
+        : 0;
+      
+      const shUnitsWithCompetitor = shUnits.filter((u: any) => u.competitorRate && u.competitorRate > 0);
+      const avgSeniorHousingCompetitorRate = shUnitsWithCompetitor.length > 0
+        ? shUnitsWithCompetitor.reduce((sum: number, u: any) => sum + (u.competitorRate || 0), 0) / shUnitsWithCompetitor.length
+        : 0;
+
       res.json({
         occupancyByRoomType,
         occupancyByServiceLine,
@@ -4184,7 +4223,12 @@ Keep recommendations specific and quantitative when possible.`;
         totalLocations: portfolioTotalLocations,  // Total campuses in portfolio
         locationsWithData,  // Campuses with rent roll data
         occupiedUnits,
-        mostRecentMonth  // Include the month for context
+        mostRecentMonth,  // Include the month for context
+        // Split rates for dashboard display
+        avgHcRate,
+        avgSeniorHousingRate,
+        avgHcCompetitorRate,
+        avgSeniorHousingCompetitorRate
       });
 
     } catch (error) {
@@ -5542,6 +5586,37 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Error getting attribute configuration status:', error);
       res.status(500).json({ error: 'Failed to get attribute configuration status' });
+    }
+  });
+  
+  // Add the missing room-attributes endpoint
+  app.get("/api/room-attributes", async (req, res) => {
+    try {
+      // Get attribute configuration status from the attribute pricing service
+      const status = attributePricingService.getAttributeConfigurationStatus();
+      
+      // Get attribute ratings for display
+      const ratings = await storage.getAttributeRatings();
+      
+      // Get rent roll data with attribute information
+      const rentRollData = await storage.getRentRollData();
+      
+      // Transform the data for the frontend
+      const response = {
+        summary: status.summary,
+        locations: status.locations,
+        attributeRatings: ratings,
+        totalUnits: rentRollData.length,
+        unitsWithAttributes: rentRollData.filter(unit => 
+          unit.sizeRating || unit.viewRating || unit.renovationRating || 
+          unit.locationRating || unit.amenityRating
+        ).length
+      };
+      
+      res.json(response);
+    } catch (error) {
+      console.error('Error fetching room attributes:', error);
+      res.status(500).json({ error: 'Failed to fetch room attributes' });
     }
   });
 
