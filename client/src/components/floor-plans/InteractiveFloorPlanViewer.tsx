@@ -11,6 +11,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface InteractiveFloorPlanViewerProps {
   campusMap: any;
+  units?: any[];
+  highlightedUnitId?: string | null;
+  selectedUnitId?: string | null;
+  onUnitClick?: (unitId: string) => void;
 }
 
 interface UnitDetails {
@@ -22,6 +26,7 @@ interface UnitDetails {
   moduloSuggestedRate?: number;
   rentAndCareRate?: number;
   size: string;
+  serviceLine?: string;
 }
 
 interface UnitPolygon {
@@ -32,7 +37,13 @@ interface UnitPolygon {
   rentRollDataId: string;
 }
 
-export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFloorPlanViewerProps) {
+export default function InteractiveFloorPlanViewer({ 
+  campusMap,
+  units = [],
+  highlightedUnitId: propHighlightedUnitId,
+  selectedUnitId: propSelectedUnitId,
+  onUnitClick: propOnUnitClick
+}: InteractiveFloorPlanViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [hoveredUnitId, setHoveredUnitId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
@@ -43,7 +54,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempPolygonPosition, setTempPolygonPosition] = useState<{[key: string]: {x: number, y: number}}>({});
   const [showBookingDialog, setShowBookingDialog] = useState(false);
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(propSelectedUnitId || null);
   const isDraggingRef = useRef(false);
   const draggingPolygonIdRef = useRef<string | null>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
@@ -201,6 +212,11 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
   const handlePolygonClick = async (rentRollDataId: string) => {
     if (draggingPolygonId) return;
     
+    // Call parent callback if provided
+    if (propOnUnitClick) {
+      propOnUnitClick(rentRollDataId);
+    }
+    
     // In edit mode: open edit form
     if (editMode) {
       try {
@@ -217,8 +233,8 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
           variant: "destructive",
         });
       }
-    } else {
-      // In view mode: open booking dialog
+    } else if (!propOnUnitClick) {
+      // Only show booking dialog if no parent click handler provided
       setSelectedUnitId(rentRollDataId);
       setShowBookingDialog(true);
     }
@@ -457,12 +473,34 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
     return labels[type] || type;
   };
 
-  // Get color based on occupancy status for customer-facing view
+  // Get color based on care level and occupancy status
   const getOccupancyColor = (rentRollDataId: string): string => {
-    const unit = allUnits.find((u: any) => u.id === rentRollDataId);
+    // First check in passed units (from filters)
+    const unit = units.find((u: any) => u.id === rentRollDataId) || 
+                 allUnits.find((u: any) => u.id === rentRollDataId);
     if (!unit) return '#9ca3af'; // Grey default
     
-    // Green for vacant, Grey for occupied
+    // Check if this unit is highlighted or selected
+    if (rentRollDataId === propHighlightedUnitId || rentRollDataId === propSelectedUnitId) {
+      return '#fbbf24'; // Amber color for highlighted/selected
+    }
+    
+    // If care-level based coloring is desired (when units are passed)
+    if (units.length > 0 && unit.serviceLine) {
+      const isVacant = !unit.occupiedYN || unit.occupiedYn?.toLowerCase() !== 'y';
+      // Use care level colors with different opacity for occupied/vacant
+      switch(unit.serviceLine) {
+        case 'IL': return isVacant ? '#60a5fa' : '#94a3b8'; // Blue variants
+        case 'AL': return isVacant ? '#4ade80' : '#94a3b8'; // Green variants
+        case 'AL/MC': return isVacant ? '#c084fc' : '#94a3b8'; // Purple variants
+        case 'HC': return isVacant ? '#fb923c' : '#94a3b8'; // Orange variants
+        case 'HC/MC': return isVacant ? '#f87171' : '#94a3b8'; // Red variants
+        case 'SL': return isVacant ? '#2dd4bf' : '#94a3b8'; // Teal variants
+        default: return isVacant ? '#6bcf7f' : '#9ca3af'; // Default green/grey
+      }
+    }
+    
+    // Fallback to simple occupancy colors
     return unit.occupiedYN ? '#9ca3af' : '#6bcf7f';
   };
 
@@ -692,7 +730,7 @@ export default function InteractiveFloorPlanViewer({ campusMap }: InteractiveFlo
                   <div className="flex justify-between">
                     <span className="text-slate-600">Current Rate:</span>
                     <span className="font-semibold text-[var(--trilogy-teal)]">
-                      {formatCurrency(hoveredUnit.streetRate)}
+                      {formatCurrency(hoveredUnit.streetRate || 0)}
                     </span>
                   </div>
                   {!hoveredUnit.occupiedYN && hoveredUnit.daysVacant > 0 && (

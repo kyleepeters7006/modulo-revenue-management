@@ -752,7 +752,13 @@ export default function FloorPlansPage() {
                         onClose={() => setIsEditMode(false)}
                       />
                     ) : (
-                      <InteractiveFloorPlanViewer campusMap={campusMap} />
+                      <InteractiveFloorPlanViewer 
+                        campusMap={campusMap}
+                        units={filteredUnits}
+                        highlightedUnitId={highlightedUnitId}
+                        selectedUnitId={selectedUnitId}
+                        onUnitClick={handleUnitClick}
+                      />
                     )
                   ) : (
                     <div className="h-full flex items-center justify-center bg-gray-50">
