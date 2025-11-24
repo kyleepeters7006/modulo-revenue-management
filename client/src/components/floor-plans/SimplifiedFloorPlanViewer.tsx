@@ -33,9 +33,23 @@ export default function SimplifiedFloorPlanViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  // Initialize unit positions in a simple grid layout
+  // Initialize unit positions - try to load saved positions first
   useEffect(() => {
     if (units.length > 0 && Object.keys(unitPositions).length === 0) {
+      // Check if campusMap has saved positions
+      if (campusMap?.svgContent) {
+        try {
+          const savedData = JSON.parse(campusMap.svgContent);
+          if (savedData.type === 'simplified' && savedData.positions) {
+            setUnitPositions(savedData.positions);
+            return;
+          }
+        } catch (e) {
+          // Not JSON or different format, use default grid
+        }
+      }
+      
+      // Default grid layout if no saved positions
       const positions: {[key: string]: {x: number, y: number}} = {};
       const cols = Math.ceil(Math.sqrt(units.length));
       const rows = Math.ceil(units.length / cols);
@@ -51,7 +65,7 @@ export default function SimplifiedFloorPlanViewer({
       
       setUnitPositions(positions);
     }
-  }, [units, unitPositions]);
+  }, [units, unitPositions, campusMap]);
 
   const handleDragStart = (unitId: string, e: React.MouseEvent | React.TouchEvent) => {
     if (!isEditMode) return;

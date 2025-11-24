@@ -7986,6 +7986,38 @@ Respond in JSON format:
     }
   });
   
+  // Save unit positions for simplified floor plan
+  app.post("/api/campus-maps/unit-positions", async (req, res) => {
+    try {
+      const { campusMapId, positions } = req.body;
+      
+      if (!campusMapId || !positions) {
+        return res.status(400).json({ error: "Missing required fields: campusMapId, positions" });
+      }
+      
+      // Store positions in the campus map metadata or a separate table
+      // For now, we'll store it in the campusMap svgContent as a JSON string
+      const positionsJson = JSON.stringify({
+        type: 'simplified',
+        positions: positions,
+        updatedAt: new Date()
+      });
+      
+      await storage.updateCampusMap(campusMapId, {
+        svgContent: positionsJson,
+        updatedAt: new Date()
+      });
+      
+      res.json({
+        success: true,
+        message: "Unit positions saved successfully"
+      });
+    } catch (error) {
+      console.error('Error saving unit positions:', error);
+      res.status(500).json({ error: "Failed to save unit positions" });
+    }
+  });
+  
   // Clear uploaded floor plan images and regenerate as SVG
   app.post("/api/campus-maps/clear-and-regenerate", async (req, res) => {
     try {
