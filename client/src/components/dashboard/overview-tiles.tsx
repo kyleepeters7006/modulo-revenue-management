@@ -239,12 +239,12 @@ export default function OverviewTiles() {
                 {/* Rate Information */}
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400 font-medium">Avg Rate:</span>
-                    <span className="font-semibold text-gray-800 dark:text-gray-200">{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
+                    <span className="text-gray-800 dark:text-gray-300 font-semibold">Avg Rate:</span>
+                    <span className="font-bold text-gray-900 dark:text-gray-100">{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400 font-medium">Competitor Rate:</span>
-                    <span className="font-semibold text-gray-800 dark:text-gray-200">{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
+                    <span className="text-gray-800 dark:text-gray-300 font-semibold">Competitor Rate:</span>
+                    <span className="font-bold text-gray-900 dark:text-gray-100">{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
                   </div>
                   {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
                 </div>
@@ -335,10 +335,10 @@ export default function OverviewTiles() {
                           <tbody className="divide-y divide-[var(--dashboard-border)]">
                             {roomType.serviceLineBreakdown?.map((serviceLine) => (
                               <tr key={serviceLine.serviceLine} className="hover:bg-gray-100 dark:hover:bg-gray-800">
-                                <td className="py-1.5 font-semibold text-[var(--dashboard-text)]">
+                                <td className="py-1.5 font-bold text-gray-900 dark:text-gray-100">
                                   {serviceLine.serviceLine}
                                 </td>
-                                <td className="py-1.5 text-center text-[var(--dashboard-muted)]">
+                                <td className="py-1.5 text-center font-medium text-gray-700 dark:text-gray-300">
                                   {formatNumber(serviceLine.total)}
                                 </td>
                                 <td className="py-1.5 text-right">
