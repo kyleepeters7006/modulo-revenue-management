@@ -503,6 +503,119 @@ export default function FloorPlansPage() {
     </>
   );
 
+  // Unit Detail Card Component
+  const UnitDetailCard = ({ unit }: { unit: RentRollUnit }) => {
+    const details = parseUnitDetails(unit.size);
+    const isVacant = unit.occupiedYn?.toLowerCase() !== 'y';
+    
+    return (
+      <Card className="border-2 border-primary">
+        <CardHeader className="pb-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="text-xl font-bold">Unit {unit.roomNumber}</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                {getServiceLineDisplay(unit.serviceLine)} | {unit.roomType}
+              </p>
+            </div>
+            <Badge variant={isVacant ? "success" : "secondary"}>
+              {isVacant ? "Available" : "Occupied"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Unit Features */}
+          <div className="flex gap-4">
+            <div className="flex items-center gap-1.5 text-sm">
+              <Bed className="h-4 w-4 text-gray-500" />
+              <span className="font-medium">{details.beds}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <Bath className="h-4 w-4 text-gray-500" />
+              <span className="font-medium">{details.baths}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <Square className="h-4 w-4 text-gray-500" />
+              <span className="font-medium">{details.sqft} sq ft</span>
+            </div>
+          </div>
+
+          {/* Pricing Information */}
+          <div className="space-y-2 pt-3 border-t">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">Street Rate:</span>
+              <span className="font-semibold text-lg">
+                {formatRateByServiceLine(unit.streetRate, unit.serviceLine)}
+              </span>
+            </div>
+            {unit.moduloRate && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">Modulo Rate:</span>
+                <span className="font-semibold text-lg text-primary">
+                  {formatRateByServiceLine(unit.moduloRate, unit.serviceLine)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Occupancy Information */}
+          {!isVacant && unit.residentName && (
+            <div className="space-y-2 pt-3 border-t">
+              <div className="flex items-center gap-2">
+                <Home className="h-4 w-4 text-gray-500" />
+                <span className="text-sm font-medium">Current Resident</span>
+              </div>
+              <p className="text-sm text-gray-600 pl-6">{unit.residentName}</p>
+              {unit.moveInDate && (
+                <div className="flex items-center gap-2 pl-6">
+                  <Calendar className="h-4 w-4 text-gray-400" />
+                  <span className="text-sm text-gray-600">
+                    Move-in: {new Date(unit.moveInDate).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Additional Details */}
+          {unit.attribute && (
+            <div className="space-y-2 pt-3 border-t">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-gray-500" />
+                <span className="text-sm font-medium">Attributes</span>
+              </div>
+              <p className="text-sm text-gray-600 pl-6">{unit.attribute}</p>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="pt-3 border-t flex gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="flex-1"
+              onClick={() => setSelectedUnitId(null)}
+              data-testid="close-detail"
+            >
+              Close
+            </Button>
+            <Button 
+              size="sm" 
+              className="flex-1"
+              data-testid="view-rate-card"
+              onClick={() => {
+                // Navigate to rate card with this unit highlighted
+                setLocation(`/rate-card?campus=${selectedCampus}&unit=${unit.roomNumber}`);
+              }}
+            >
+              View in Rate Card
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -683,6 +796,13 @@ export default function FloorPlansPage() {
                     </Collapsible>
                   </Card>
                 </div>
+
+                {/* Show unit detail card when unit is selected */}
+                {selectedUnit && (
+                  <div className="mb-4">
+                    <UnitDetailCard unit={selectedUnit} />
+                  </div>
+                )}
 
                 {/* Unit List Section */}
                 <Card className="shadow-sm h-full">
