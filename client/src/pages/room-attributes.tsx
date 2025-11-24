@@ -24,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { DollarSign, Home, Layers, TrendingUp, Eye, Check, X, AlertCircle, TrendingDown } from "lucide-react";
+import { DollarSign, Home, Layers, TrendingUp, Eye, Check, X, AlertCircle, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -70,6 +70,10 @@ export default function RoomAttributes() {
   const [editingRoomType, setEditingRoomType] = useState<string | null>(null);
   const [newBasePrice, setNewBasePrice] = useState<string>("");
   
+  // Sorting state for the unit-level table
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  
   // Issue #3 fix: State for attribute weight management workflow
   const [proposedRatings, setProposedRatings] = useState<AttributeRating[]>([]);
   const [showPreview, setShowPreview] = useState(false);
@@ -101,10 +105,7 @@ export default function RoomAttributes() {
   // Issue #3 fix: Mutation to preview attribute weight changes
   const previewMutation = useMutation({
     mutationFn: async (ratings: AttributeRating[]) => {
-      return await apiRequest('/api/attribute-ratings/preview', {
-        method: 'POST',
-        body: JSON.stringify({ proposedRatings: ratings }),
-      });
+      return await apiRequest('/api/attribute-ratings/preview', 'POST', { proposedRatings: ratings });
     },
     onSuccess: (data) => {
       setPreviewData(data);
@@ -122,10 +123,7 @@ export default function RoomAttributes() {
   // Issue #3 fix: Mutation to accept attribute weight changes
   const acceptMutation = useMutation({
     mutationFn: async (ratings: AttributeRating[]) => {
-      return await apiRequest('/api/attribute-ratings/accept', {
-        method: 'POST',
-        body: JSON.stringify({ proposedRatings: ratings }),
-      });
+      return await apiRequest('/api/attribute-ratings/accept', 'POST', { proposedRatings: ratings });
     },
     onSuccess: () => {
       toast({
@@ -193,6 +191,86 @@ export default function RoomAttributes() {
     if (isSeniorHousing && isBBed) return false;
     
     return true;
+  });
+
+  // Sorting logic for the unit-level table
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+  
+  // Apply sorting to filtered units
+  const sortedUnits = [...filteredUnits].sort((a, b) => {
+    if (!sortColumn) return 0;
+    
+    let aValue: any;
+    let bValue: any;
+    
+    switch (sortColumn) {
+      case 'location':
+        aValue = a.location || '';
+        bValue = b.location || '';
+        break;
+      case 'room':
+        aValue = a.roomNumber || '';
+        bValue = b.roomNumber || '';
+        break;
+      case 'type':
+        aValue = a.roomType || '';
+        bValue = b.roomType || '';
+        break;
+      case 'serviceLine':
+        aValue = a.serviceLine || '';
+        bValue = b.serviceLine || '';
+        break;
+      case 'size':
+        aValue = a.sizeRating || '';
+        bValue = b.sizeRating || '';
+        break;
+      case 'view':
+        aValue = a.viewRating || '';
+        bValue = b.viewRating || '';
+        break;
+      case 'renovation':
+        aValue = a.renovationRating || '';
+        bValue = b.renovationRating || '';
+        break;
+      case 'locationRating':
+        aValue = a.locationRating || '';
+        bValue = b.locationRating || '';
+        break;
+      case 'amenity':
+        aValue = a.amenityRating || '';
+        bValue = b.amenityRating || '';
+        break;
+      case 'currentRate':
+        aValue = a.streetRate || 0;
+        bValue = b.streetRate || 0;
+        break;
+      case 'attributedPrice':
+        aValue = calculateAttributedPrice(a);
+        bValue = calculateAttributedPrice(b);
+        break;
+      case 'difference':
+        aValue = calculateAttributedPrice(a) - (a.streetRate || 0);
+        bValue = calculateAttributedPrice(b) - (b.streetRate || 0);
+        break;
+      default:
+        return 0;
+    }
+    
+    // Handle numeric vs string comparison
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+      return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+    } else {
+      // String comparison
+      const compareResult = String(aValue).localeCompare(String(bValue));
+      return sortDirection === 'asc' ? compareResult : -compareResult;
+    }
   });
 
   // Get unique room types from filtered data
@@ -351,10 +429,10 @@ export default function RoomAttributes() {
                   <AlertDescription>
                     <div className="flex justify-between">
                       <span>
-                        <strong>Coverage:</strong> {Math.round((attributeStatus as any).summary?.overallCoverage || 0)}% of units have attributes configured
+                        <strong>Coverage:</strong> {Math.round((attributeStatus as any)?.summary?.overallCoverage || 0)}% of units have attributes configured
                       </span>
                       <span>
-                        <strong>Locations with Attributes:</strong> {(attributeStatus as any).summary?.locationsWithAttributes || 0}/{(attributeStatus as any).summary?.totalLocations || 0}
+                        <strong>Locations with Attributes:</strong> {(attributeStatus as any)?.summary?.locationsWithAttributes || 0}/{(attributeStatus as any)?.summary?.totalLocations || 0}
                       </span>
                     </div>
                   </AlertDescription>
@@ -559,7 +637,7 @@ export default function RoomAttributes() {
           </Dialog>
 
           {/* Unit-Level Detail */}
-          <Card>
+          <Card data-testid="unit-level-pricing-card">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
@@ -591,32 +669,196 @@ export default function RoomAttributes() {
             </CardHeader>
             <CardContent>
               <div className="rounded-lg border">
-                <Table>
+                <Table data-testid="unit-level-pricing-table" aria-label="Unit-Level Attributed Pricing">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Room</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Service Line</TableHead>
-                      <TableHead className="text-center">Size</TableHead>
-                      <TableHead className="text-center">View</TableHead>
-                      <TableHead className="text-center">Reno.</TableHead>
-                      <TableHead className="text-center">Loc.</TableHead>
-                      <TableHead className="text-center">Amen.</TableHead>
-                      <TableHead className="text-right">Current Rate</TableHead>
-                      <TableHead className="text-right">Attributed Price</TableHead>
-                      <TableHead className="text-right">Difference</TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleSort('location')}
+                        aria-sort={sortColumn === 'location' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        role="columnheader"
+                        data-testid="header-location"
+                      >
+                        <div className="flex items-center">
+                          Location
+                          {sortColumn === 'location' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleSort('room')}
+                        aria-sort={sortColumn === 'room' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        role="columnheader"
+                        data-testid="header-room"
+                      >
+                        <div className="flex items-center">
+                          Room
+                          {sortColumn === 'room' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleSort('type')}
+                        aria-sort={sortColumn === 'type' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center">
+                          Type
+                          {sortColumn === 'type' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleSort('serviceLine')}
+                        aria-sort={sortColumn === 'serviceLine' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center">
+                          Service Line
+                          {sortColumn === 'serviceLine' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-center"
+                        onClick={() => handleSort('size')}
+                        aria-sort={sortColumn === 'size' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center justify-center">
+                          Size
+                          {sortColumn === 'size' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-center"
+                        onClick={() => handleSort('view')}
+                        aria-sort={sortColumn === 'view' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center justify-center">
+                          View
+                          {sortColumn === 'view' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-center"
+                        onClick={() => handleSort('renovation')}
+                        aria-sort={sortColumn === 'renovation' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center justify-center">
+                          Reno.
+                          {sortColumn === 'renovation' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-center"
+                        onClick={() => handleSort('locationRating')}
+                        aria-sort={sortColumn === 'locationRating' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center justify-center">
+                          Loc.
+                          {sortColumn === 'locationRating' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-center"
+                        onClick={() => handleSort('amenity')}
+                        aria-sort={sortColumn === 'amenity' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center justify-center">
+                          Amen.
+                          {sortColumn === 'amenity' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-right"
+                        onClick={() => handleSort('currentRate')}
+                        aria-sort={sortColumn === 'currentRate' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        role="columnheader"
+                        data-testid="header-currentRate"
+                      >
+                        <div className="flex items-center justify-end">
+                          Current Rate
+                          {sortColumn === 'currentRate' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-right"
+                        onClick={() => handleSort('attributedPrice')}
+                        aria-sort={sortColumn === 'attributedPrice' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <div className="flex items-center justify-end">
+                          Attributed Price
+                          {sortColumn === 'attributedPrice' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-right"
+                        onClick={() => handleSort('difference')}
+                        aria-sort={sortColumn === 'difference' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        role="columnheader"
+                        data-testid="header-difference"
+                      >
+                        <div className="flex items-center justify-end">
+                          Difference
+                          {sortColumn === 'difference' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredUnits.length === 0 ? (
+                    {sortedUnits.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={12} className="text-center py-8 text-gray-500">
                           No units match the selected filters
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredUnits.slice(0, 100).map(unit => {
+                      sortedUnits.slice(0, 100).map(unit => {
                         const attributedPrice = calculateAttributedPrice(unit);
                         const difference = attributedPrice - unit.streetRate;
                         const percentDiff = unit.streetRate > 0 ? (difference / unit.streetRate * 100) : 0;
@@ -684,9 +926,9 @@ export default function RoomAttributes() {
                     )}
                   </TableBody>
                 </Table>
-                {filteredUnits.length > 100 && (
+                {sortedUnits.length > 100 && (
                   <div className="p-4 text-center text-sm text-gray-500 border-t">
-                    Showing first 100 of {filteredUnits.length} units
+                    Showing first 100 of {sortedUnits.length} units
                   </div>
                 )}
               </div>
