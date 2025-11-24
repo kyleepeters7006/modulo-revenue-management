@@ -15,6 +15,7 @@ import path from "path";
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import * as fs from 'fs';
+import * as cron from 'node-cron';
 import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageParser";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -4512,6 +4513,98 @@ Keep recommendations specific and quantitative when possible.`;
     return generateModuloOptimized(req, res);
   });
   
+  // Scheduled calculation endpoint - for automated daily runs at 6am
+  app.post("/api/pricing/scheduled-calculation", async (req, res) => {
+    try {
+      // Get the current date to determine target month
+      const now = new Date();
+      const targetMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
+      console.log(`[Scheduled Calculation] Starting scheduled calculation for month: ${targetMonth}`);
+      
+      // Check if we already have a completed calculation today
+      const existingCalc = await storage.getLatestCalculationHistory(null);
+      if (existingCalc) {
+        const calcDate = new Date(existingCalc.startedAt);
+        const today = new Date();
+        if (calcDate.toDateString() === today.toDateString() && existingCalc.status === 'completed') {
+          console.log(`[Scheduled Calculation] Already completed today at ${calcDate.toISOString()}`);
+          return res.json({
+            success: true,
+            message: 'Calculation already completed today',
+            calculationId: existingCalc.id,
+            completedAt: existingCalc.completedAt
+          });
+        }
+      }
+      
+      // Import the job manager
+      const { pricingJobManager } = await import('./pricingJobManager');
+      
+      // Create a calculation history entry for scheduled run
+      const historyEntry = await storage.createCalculationHistory({
+        calculationType: 'scheduled',
+        status: 'started',
+        startedAt: new Date(),
+        completedAt: null,
+        locationId: null, // Portfolio-wide calculation
+        uploadMonth: targetMonth,
+        totalUnits: null,
+        unitsCalculated: null,
+        averageModuloRate: null,
+        averageAIRate: null,
+        errorMessage: null,
+        metadata: { triggeredAt: new Date().toISOString() }
+      });
+      
+      // Create a new background job for portfolio-wide calculation
+      const jobId = pricingJobManager.createJob({
+        month: targetMonth,
+        calculationHistoryId: historyEntry.id
+      });
+      
+      console.log(`[Scheduled Calculation] Created pricing job ${jobId} for scheduled calculation`);
+      
+      res.json({
+        success: true,
+        message: 'Scheduled calculation started',
+        jobId,
+        calculationHistoryId: historyEntry.id,
+        targetMonth
+      });
+      
+    } catch (error) {
+      console.error('[Scheduled Calculation] Error:', error);
+      res.status(500).json({ 
+        error: 'Failed to start scheduled calculation',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+  
+  // Get calculation history endpoint
+  app.get("/api/pricing/calculation-history", async (req, res) => {
+    try {
+      const { month, locationId } = req.query;
+      
+      let history;
+      if (month) {
+        history = await storage.getCalculationHistoryByMonth(month as string);
+      } else {
+        history = await storage.getLatestCalculationHistory(locationId as string || null);
+        history = history ? [history] : [];
+      }
+      
+      res.json({
+        success: true,
+        history
+      });
+    } catch (error) {
+      console.error('Error fetching calculation history:', error);
+      res.status(500).json({ error: 'Failed to fetch calculation history' });
+    }
+  });
+  
   // Original Modulo endpoint (kept for reference, but not used)
   app.post("/api/pricing/generate-modulo-legacy", async (req, res) => {
     try {
@@ -7972,6 +8065,88 @@ Respond in JSON format:
     }
   });
 
+  // Set up scheduled daily calculation at 6am
+  const triggerScheduledCalculation = async () => {
+    try {
+      console.log('[Cron Job] Triggering scheduled calculation at:', new Date().toISOString());
+      
+      // Get the current date to determine target month
+      const now = new Date();
+      const targetMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Check if we already have a completed calculation today
+      const existingCalc = await storage.getLatestCalculationHistory(null);
+      if (existingCalc) {
+        const calcDate = new Date(existingCalc.startedAt);
+        const today = new Date();
+        if (calcDate.toDateString() === today.toDateString() && existingCalc.status === 'completed') {
+          console.log(`[Cron Job] Calculation already completed today at ${calcDate.toISOString()}`);
+          return;
+        }
+      }
+      
+      // Import the job manager
+      const { pricingJobManager } = await import('./pricingJobManager');
+      
+      // Create a calculation history entry for scheduled run
+      const historyEntry = await storage.createCalculationHistory({
+        calculationType: 'scheduled',
+        status: 'started',
+        startedAt: new Date(),
+        completedAt: null,
+        locationId: null, // Portfolio-wide calculation
+        uploadMonth: targetMonth,
+        totalUnits: null,
+        unitsCalculated: null,
+        averageModuloRate: null,
+        averageAIRate: null,
+        errorMessage: null,
+        metadata: { 
+          triggeredBy: 'cron',
+          triggeredAt: new Date().toISOString() 
+        }
+      });
+      
+      // Create a new background job for portfolio-wide calculation
+      const jobId = pricingJobManager.createJob({
+        month: targetMonth,
+        calculationHistoryId: historyEntry.id
+      });
+      
+      console.log(`[Cron Job] Created pricing job ${jobId} for scheduled calculation`);
+      
+    } catch (error) {
+      console.error('[Cron Job] Error triggering scheduled calculation:', error);
+    }
+  };
+  
+  // Schedule the job to run at 6:00 AM every day
+  // Format: minute hour day month dayOfWeek
+  // '0 6 * * *' = At 6:00 AM every day
+  const scheduledTask = cron.schedule('0 6 * * *', triggerScheduledCalculation, {
+    scheduled: true,
+    timezone: 'America/New_York' // Adjust timezone as needed
+  });
+  
+  console.log('✅ Daily portfolio calculation scheduled for 6:00 AM EST');
+  
+  // Optional: Run immediately on startup if no calculation exists for today
+  (async () => {
+    try {
+      const existingCalc = await storage.getLatestCalculationHistory(null);
+      if (!existingCalc) {
+        console.log('[Startup] No calculations found, running initial calculation...');
+        await triggerScheduledCalculation();
+      } else {
+        const calcDate = new Date(existingCalc.startedAt);
+        const hoursSinceLastCalc = (Date.now() - calcDate.getTime()) / (1000 * 60 * 60);
+        console.log(`[Startup] Last calculation was ${hoursSinceLastCalc.toFixed(1)} hours ago`);
+      }
+    } catch (error) {
+      console.error('[Startup] Error checking for existing calculations:', error);
+    }
+  })();
+  
   const httpServer = createServer(app);
   return httpServer;
 }
