@@ -457,7 +457,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRentRollDataByLocation(location: string): Promise<RentRollData[]> {
-    return await db.select().from(rentRollData).where(eq(rentRollData.location, location));
+    // First get the latest upload month for this location
+    const latestMonthResult = await db
+      .select({ maxMonth: sql<string>`MAX(${rentRollData.uploadMonth})` })
+      .from(rentRollData)
+      .where(eq(rentRollData.location, location));
+    
+    const latestMonth = latestMonthResult[0]?.maxMonth;
+    
+    if (!latestMonth) {
+      return [];
+    }
+    
+    // Return only units from the latest month for this location
+    return await db
+      .select()
+      .from(rentRollData)
+      .where(
+        and(
+          eq(rentRollData.location, location),
+          eq(rentRollData.uploadMonth, latestMonth)
+        )
+      );
   }
 
   async getRevenueByMonths(months: string[]): Promise<Record<string, number>> {
