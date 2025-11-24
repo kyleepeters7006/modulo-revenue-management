@@ -77,6 +77,7 @@ export default function FloorPlanEditor({ campusMap, units, onClose }: FloorPlan
   const svgRef = useRef<SVGSVGElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
   // Fetch existing unit polygons
@@ -112,6 +113,52 @@ export default function FloorPlanEditor({ campusMap, units, onClose }: FloorPlan
   // Convert points to polygon string
   const pointsToString = (points: Point[]): string => {
     return points.map(p => `${p.x},${p.y}`).join(' ');
+  };
+
+  // Upload site plan image mutation
+  const uploadImageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('name', campusMap.name || 'Site Plan');
+      formData.append('locationId', campusMap.locationId || '');
+      formData.append('width', '1920');
+      formData.append('height', '1080');
+      formData.append('isTemplate', 'false');
+      
+      const response = await fetch('/api/campus-maps/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) throw new Error('Upload failed');
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Image Uploaded",
+        description: "Site plan image uploaded successfully. Refreshing...",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/campus-maps/${campusMap.locationId}`] });
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    },
+    onError: (error) => {
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : "Failed to upload image",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Handle file selection
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      uploadImageMutation.mutate(file);
+    }
   };
 
   // Save polygon mutation
@@ -411,6 +458,31 @@ export default function FloorPlanEditor({ campusMap, units, onClose }: FloorPlan
                 )}
               </Button>
             </div>
+            
+            <Separator orientation="vertical" className="h-6" />
+            
+            {/* Upload Site Plan Image */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadImageMutation.isPending}
+              title="Upload site plan image"
+            >
+              {uploadImageMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : (
+                <Upload className="h-4 w-4 mr-1" />
+              )}
+              Upload Image
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
             
             <Separator orientation="vertical" className="h-6" />
             
