@@ -90,6 +90,7 @@ export async function getCampusMapForLocation(locationId: string): Promise<typeo
       eq(campusMaps.locationId, locationId),
       eq(campusMaps.isPublished, true)
     ))
+    .orderBy(desc(campusMaps.createdAt))
     .limit(1);
 
   if (locationSpecific[0]) {
@@ -103,6 +104,7 @@ export async function getCampusMapForLocation(locationId: string): Promise<typeo
       eq(campusMaps.isTemplate, true),
       eq(campusMaps.isPublished, true)
     ))
+    .orderBy(desc(campusMaps.createdAt))
     .limit(1);
 
   return globalTemplate[0] || null;

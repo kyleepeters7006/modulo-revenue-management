@@ -7085,7 +7085,7 @@ Respond in JSON format:
         width: parseInt(width) || 1024,
         height: parseInt(height) || 683,
         isTemplate: isTemplate === 'true' || isTemplate === true,
-        isPublished: false,
+        isPublished: true,
       };
 
       const map = await storage.createCampusMap(mapData);
