@@ -10,13 +10,19 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
 
+interface FileWithDate {
+  file: File;
+  uploadDate: string;
+  status: 'pending' | 'uploading' | 'success' | 'error';
+  error?: string;
+}
+
 export default function DataManagement() {
   const [uploadHistory, setUploadHistory] = useState<any[]>([]);
   const [isUploadingRentRoll, setIsUploadingRentRoll] = useState(false);
   const [isUploadingInquiry, setIsUploadingInquiry] = useState(false);
   const [isUploadingCompetitor, setIsUploadingCompetitor] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadDate, setUploadDate] = useState<string>('');
+  const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
@@ -237,35 +243,120 @@ export default function DataManagement() {
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
     
-    setSelectedFile(file);
+    // Convert FileList to array and create FileWithDate objects
+    const filesArray = Array.from(files).map(file => ({
+      file,
+      uploadDate: parseDateFromFilename(file.name),
+      status: 'pending' as const
+    }));
     
-    // Parse date from filename and pre-populate
-    const parsedDate = parseDateFromFilename(file.name);
-    setUploadDate(parsedDate);
+    setSelectedFiles(filesArray);
   };
 
-  const handleConfirmUpload = () => {
-    if (!selectedFile || !uploadDate) {
+  const handleUpdateFileDate = (index: number, newDate: string) => {
+    setSelectedFiles(prev => prev.map((f, idx) => 
+      idx === index ? { ...f, uploadDate: newDate } : f
+    ));
+  };
+
+  const handleConfirmUpload = async () => {
+    if (selectedFiles.length === 0) {
       toast({
-        title: "Missing Information",
-        description: "Please select a file and upload date.",
+        title: "No Files Selected",
+        description: "Please select at least one file to upload.",
         variant: "destructive",
       });
       return;
     }
     
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('uploadDate', uploadDate);
+    // Validate all file dates before uploading
+    const invalidFiles = selectedFiles.filter(f => !f.uploadDate || f.uploadDate.trim() === '');
+    if (invalidFiles.length > 0) {
+      // Mark invalid files with error status
+      setSelectedFiles(prev => prev.map(f => 
+        (!f.uploadDate || f.uploadDate.trim() === '') 
+          ? { ...f, status: 'error' as const, error: 'Upload date is required' } 
+          : f
+      ));
+      
+      toast({
+        title: "Invalid Upload Dates",
+        description: `${invalidFiles.length} file(s) have missing or invalid upload dates. Please correct them before uploading.`,
+        variant: "destructive",
+      });
+      return;
+    }
     
-    rentRollMutation.mutate(formData);
+    setIsUploadingRentRoll(true);
     
-    // Reset
-    setSelectedFile(null);
-    setUploadDate('');
+    // Track results in a local array
+    const results: Array<{ success: boolean; error?: string }> = [];
+    
+    // Process files sequentially
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const fileWithDate = selectedFiles[i];
+      
+      // Update status to uploading and clear any previous error
+      setSelectedFiles(prev => prev.map((f, idx) => 
+        idx === i ? { ...f, status: 'uploading' as const, error: undefined } : f
+      ));
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', fileWithDate.file);
+        formData.append('uploadDate', fileWithDate.uploadDate);
+        
+        const response = await fetch('/api/upload/rent-roll', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Upload failed');
+        }
+        
+        const data = await response.json();
+        
+        // Update status to success and clear any previous error
+        setSelectedFiles(prev => prev.map((f, idx) => 
+          idx === i ? { ...f, status: 'success' as const, error: undefined } : f
+        ));
+        
+        setUploadHistory(prev => [{ ...data, type: 'rent-roll', timestamp: new Date() }, ...prev.slice(0, 9)]);
+        results.push({ success: true });
+      } catch (error: any) {
+        // Update status to error
+        setSelectedFiles(prev => prev.map((f, idx) => 
+          idx === i ? { ...f, status: 'error' as const, error: error.message } : f
+        ));
+        results.push({ success: false, error: error.message });
+      }
+    }
+    
+    setIsUploadingRentRoll(false);
+    queryClient.invalidateQueries({ queryKey: ["/api"] });
+    
+    // Show summary toast with accurate counts
+    const successCount = results.filter(r => r.success).length;
+    const errorCount = results.filter(r => !r.success).length;
+    
+    toast({
+      title: "Batch Upload Complete",
+      description: `Successfully uploaded ${successCount} file(s). ${errorCount > 0 ? `${errorCount} failed.` : ''}`,
+      variant: errorCount > 0 ? "destructive" : "default",
+    });
+    
+    // Only clear successful files, keep failed ones visible for user review
+    setSelectedFiles(prev => prev.filter(f => f.status === 'error'));
+    
+    // Clear file input only if all files succeeded
+    if (errorCount === 0 && rentRollFileInputRef.current) {
+      rentRollFileInputRef.current.value = '';
+    }
   };
 
   const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor') => (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -315,7 +406,7 @@ export default function DataManagement() {
                 </AlertDescription>
               </Alert>
 
-              {!selectedFile ? (
+              {selectedFiles.length === 0 ? (
                 <div className="flex flex-col space-y-3">
                   <Button
                     onClick={() => handleDownloadTemplate('rent-roll')}
@@ -333,46 +424,79 @@ export default function DataManagement() {
                     data-testid="button-select-rent-roll-file"
                   >
                     <Upload className="w-4 h-4 mr-2" />
-                    Select Rent Roll File
+                    Select Rent Roll Files
                   </Button>
+                  <p className="text-xs text-gray-500 text-center">
+                    You can select multiple files at once for batch upload
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm font-medium text-blue-900 mb-1">Selected File:</p>
-                    <p className="text-sm text-blue-700">{selectedFile.name}</p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="upload-date" className="text-sm font-medium">
-                      Upload Date (YYYY-MM-DD)
-                    </Label>
-                    <Input
-                      id="upload-date"
-                      type="date"
-                      value={uploadDate}
-                      onChange={(e) => setUploadDate(e.target.value)}
-                      className="w-full"
-                      data-testid="input-upload-date"
-                    />
-                    <p className="text-xs text-gray-500">
-                      Date auto-detected from filename. You can change it if needed.
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg max-h-96 overflow-y-auto">
+                    <p className="text-sm font-medium text-blue-900 mb-3">
+                      Selected Files: {selectedFiles.length}
                     </p>
+                    <div className="space-y-2">
+                      {selectedFiles.map((fileWithDate, index) => (
+                        <div 
+                          key={index} 
+                          className={`p-3 rounded border text-sm ${
+                            fileWithDate.status === 'success' ? 'bg-green-50 border-green-200' :
+                            fileWithDate.status === 'error' ? 'bg-red-50 border-red-200' :
+                            fileWithDate.status === 'uploading' ? 'bg-yellow-50 border-yellow-200' :
+                            'bg-white border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-gray-900 truncate">
+                                {fileWithDate.file.name}
+                              </p>
+                              <div className="mt-2">
+                                <Input
+                                  type="date"
+                                  value={fileWithDate.uploadDate}
+                                  onChange={(e) => handleUpdateFileDate(index, e.target.value)}
+                                  disabled={isUploadingRentRoll}
+                                  className="text-xs h-7"
+                                  data-testid={`input-file-date-${index}`}
+                                />
+                              </div>
+                              {fileWithDate.error && (
+                                <p className="text-xs text-red-600 mt-1">
+                                  Error: {fileWithDate.error}
+                                </p>
+                              )}
+                            </div>
+                            <div className="ml-3 flex-shrink-0">
+                              {fileWithDate.status === 'success' && (
+                                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              )}
+                              {fileWithDate.status === 'error' && (
+                                <AlertCircle className="w-5 h-5 text-red-600" />
+                              )}
+                              {fileWithDate.status === 'uploading' && (
+                                <div className="w-5 h-5 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   
                   <div className="flex gap-3">
                     <Button
                       onClick={handleConfirmUpload}
-                      disabled={isUploadingRentRoll || !uploadDate}
+                      disabled={isUploadingRentRoll}
                       className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                       data-testid="button-confirm-upload"
                     >
-                      {isUploadingRentRoll ? 'Processing...' : 'Confirm Upload'}
+                      {isUploadingRentRoll ? 'Uploading...' : `Upload ${selectedFiles.length} File(s)`}
                     </Button>
                     <Button
                       onClick={() => {
-                        setSelectedFile(null);
-                        setUploadDate('');
+                        setSelectedFiles([]);
                         if (rentRollFileInputRef.current) {
                           rentRollFileInputRef.current.value = '';
                         }
@@ -391,6 +515,7 @@ export default function DataManagement() {
                 ref={rentRollFileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.csv"
+                multiple
                 className="hidden"
                 onChange={handleFileSelect}
                 data-testid="input-rent-roll-file"
