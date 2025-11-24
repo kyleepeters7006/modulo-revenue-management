@@ -3962,10 +3962,13 @@ Keep recommendations specific and quantitative when possible.`;
           }
         }
         
-        // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
+        // Calculate monthly remainder: Additional Revenue from filling vacant units to reach 95% occupancy
         const currentMonthlyRevenue = avgRate * stats.overall.occupied;
         const targetOccupancy = Math.round(stats.overall.total * 0.95);
-        const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
+        const additionalUnits = Math.max(0, targetOccupancy - stats.overall.occupied);
+        // Use the higher of avgModuloSuggested or avgRate for filling vacant units
+        const rateForVacantUnits = Math.max(avgModuloSuggested, avgRate);
+        const potentialMonthlyRevenue = currentMonthlyRevenue + (rateForVacantUnits * additionalUnits);
         const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
         // Calculate service line breakdown for this room type
@@ -4015,7 +4018,10 @@ Keep recommendations specific and quantitative when possible.`;
           // Calculate monthly remainder for this service line
           const slCurrentMonthlyRevenue = slAvgRate * slStats.occupied;
           const slTargetOccupancy = Math.round(slStats.total * 0.95);
-          const slPotentialMonthlyRevenue = slAvgModuloSuggested * slTargetOccupancy;
+          const slAdditionalUnits = Math.max(0, slTargetOccupancy - slStats.occupied);
+          // Use the higher of avgModuloSuggested or avgRate for filling vacant units
+          const slRateForVacantUnits = Math.max(slAvgModuloSuggested, slAvgRate);
+          const slPotentialMonthlyRevenue = slCurrentMonthlyRevenue + (slRateForVacantUnits * slAdditionalUnits);
           const slMonthlyRemainder = slPotentialMonthlyRevenue - slCurrentMonthlyRevenue;
           
           return {
@@ -4114,10 +4120,13 @@ Keep recommendations specific and quantitative when possible.`;
           }
         }
         
-        // Calculate monthly remainder: Potential Revenue (95% occupancy at Modulo rates) - Current Revenue
+        // Calculate monthly remainder: Additional Revenue from filling vacant units to reach 95% occupancy
         const currentMonthlyRevenue = avgRate * stats.occupied;
         const targetOccupancy = Math.round(stats.total * 0.95);
-        const potentialMonthlyRevenue = avgModuloSuggested * targetOccupancy;
+        const additionalUnits = Math.max(0, targetOccupancy - stats.occupied);
+        // Use the higher of avgModuloSuggested or avgRate for filling vacant units
+        const rateForVacantUnits = Math.max(avgModuloSuggested, avgRate);
+        const potentialMonthlyRevenue = currentMonthlyRevenue + (rateForVacantUnits * additionalUnits);
         const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
         return {
