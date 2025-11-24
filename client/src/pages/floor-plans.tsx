@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ArrowLeft, Settings, Bed, Bath, Square, MapPin, Search, X, ChevronDown, Filter, AlertCircle, Edit3, Calendar, DollarSign, Home, Tag } from "lucide-react";
 import Highlighter from "react-highlight-words";
-import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
+import SimplifiedFloorPlanViewer from "@/components/floor-plans/SimplifiedFloorPlanViewer";
 import FloorPlanEditor from "@/components/floor-plans/FloorPlanEditor";
 import type { locations, campusMaps, rentRollData } from "@shared/schema";
 
@@ -754,11 +754,9 @@ export default function FloorPlansPage() {
                         onClose={() => setIsEditMode(false)}
                       />
                     ) : (
-                      <InteractiveFloorPlanViewer 
+                      <SimplifiedFloorPlanViewer 
                         campusMap={campusMap}
                         units={filteredUnits}
-                        highlightedUnitId={highlightedUnitId}
-                        selectedUnitId={selectedUnitId}
                         onUnitClick={handleUnitClick}
                       />
                     )
