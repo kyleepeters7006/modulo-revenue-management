@@ -382,14 +382,34 @@ class PricingJobManager {
       return;
     }
     
+    // Create calculation history entry
+    let calculationHistoryId: string | undefined;
+    
     try {
       console.log(`[PricingJob ${jobId}] Starting processing...`);
       job.status = 'processing';
       this.processingJobs.add(jobId);
       
       const startTime = Date.now();
-      const { month } = job.params;
+      const { month, locationId } = job.params;
       const targetMonth = month || '2025-10';
+      
+      // Create calculation history entry
+      const historyEntry = await storage.createCalculationHistory({
+        calculationType: 'manual',
+        status: 'started',
+        startedAt: new Date(),
+        completedAt: null,
+        locationId: locationId || null,
+        uploadMonth: targetMonth,
+        totalUnits: null,
+        unitsCalculated: null,
+        averageModuloRate: null,
+        averageAIRate: null,
+        errorMessage: null,
+        metadata: null
+      });
+      calculationHistoryId = historyEntry.id;
       
       // Initialize cache once for all batches
       console.log(`[PricingJob ${jobId}] Initializing attribute pricing cache for month: ${targetMonth}`);
@@ -498,6 +518,11 @@ class PricingJobManager {
       console.log(`[PricingJob ${jobId}] Regenerating rate card for month: ${targetMonth}`);
       await storage.generateRateCard(targetMonth);
       
+      // Calculate average Modulo rate
+      const avgModuloRate = allUpdates.length > 0
+        ? allUpdates.reduce((sum, u) => sum + u.moduloSuggestedRate, 0) / allUpdates.length
+        : 0;
+      
       // Mark job as completed - ensure progress is 100%
       const processingTime = Date.now() - startTime;
       
@@ -512,6 +537,22 @@ class PricingJobManager {
         processingTimeMs: processingTime
       };
       
+      // Update calculation history to completed
+      if (calculationHistoryId) {
+        await storage.updateCalculationHistory(calculationHistoryId, {
+          status: 'completed',
+          completedAt: new Date(),
+          totalUnits,
+          unitsCalculated: allUpdates.length,
+          averageModuloRate: avgModuloRate,
+          averageAIRate: null, // AI rates are calculated separately
+          metadata: {
+            processingTimeMs: processingTime,
+            batchesProcessed: totalBatches
+          }
+        });
+      }
+      
       console.log(`[PricingJob ${jobId}] Completed! Processed ${totalUnits} units in ${processingTime}ms (${(processingTime / 1000).toFixed(2)}s)`);
       
     } catch (error) {
@@ -519,6 +560,15 @@ class PricingJobManager {
       job.status = 'failed';
       job.error = error instanceof Error ? error.message : 'Unknown error';
       job.completedAt = new Date();
+      
+      // Update calculation history to failed
+      if (calculationHistoryId) {
+        await storage.updateCalculationHistory(calculationHistoryId, {
+          status: 'failed',
+          completedAt: new Date(),
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     } finally {
       this.processingJobs.delete(jobId);
       
