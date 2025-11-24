@@ -89,42 +89,38 @@ export function isDailyRateServiceLine(serviceLine: string | null | undefined): 
 }
 
 /**
- * Convert monthly rate to daily rate for HC service lines
- * @param monthlyRate - The monthly rate value
+ * Get display rate from stored rate (no conversion needed - rates stored in display format)
+ * HC/HC-MC rates are stored as daily, AL/SL/VIL/AL-MC rates are stored as monthly
+ * @param storedRate - The rate value as stored in database
  * @param serviceLine - The service line (HC, HC/MC, AL, etc.)
- * @returns The appropriate rate (daily for HC/HC-MC, monthly for others)
+ * @returns The rate for display (already in correct format)
  */
-export function convertToDisplayRate(monthlyRate: number | null | undefined, serviceLine: string | null | undefined): number | null {
-  if (monthlyRate === null || monthlyRate === undefined) {
+export function convertToDisplayRate(storedRate: number | null | undefined, serviceLine: string | null | undefined): number | null {
+  if (storedRate === null || storedRate === undefined) {
     return null;
   }
   
-  if (isDailyRateServiceLine(serviceLine)) {
-    // Convert monthly to daily for HC and HC/MC
-    return monthlyRate / DAYS_IN_MONTH;
-  }
-  
-  // Return as-is for other service lines (AL, AL/MC, SL, VIL)
-  return monthlyRate;
+  // HC/HC-MC are stored as daily, others as monthly - return as-is
+  return storedRate;
 }
 
 /**
  * Format a rate as currency with appropriate suffix for service line
- * @param monthlyRate - The monthly rate value (as stored in database)
+ * @param storedRate - The rate value (as stored in database - daily for HC, monthly for others)
  * @param serviceLine - The service line (HC, HC/MC, AL, etc.)
  * @param includePerDay - Whether to include "/day" suffix for daily rates
  * @returns Formatted currency string with appropriate suffix
  */
 export function formatRateByServiceLine(
-  monthlyRate: number | null | undefined, 
+  storedRate: number | null | undefined, 
   serviceLine: string | null | undefined,
   includePerDay: boolean = true
 ): string {
-  if (monthlyRate === null || monthlyRate === undefined) {
+  if (storedRate === null || storedRate === undefined) {
     return "-";
   }
   
-  const displayRate = convertToDisplayRate(monthlyRate, serviceLine);
+  const displayRate = convertToDisplayRate(storedRate, serviceLine);
   if (displayRate === null) {
     return "-";
   }
