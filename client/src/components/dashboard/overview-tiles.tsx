@@ -332,17 +332,17 @@ export default function OverviewTiles() {
                               <th className="text-right font-medium text-[var(--dashboard-muted)] pb-1">Occupancy</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-[var(--dashboard-border)]">
+                          <tbody className="divide-y divide-gray-400/30">
                             {roomType.serviceLineBreakdown?.map((serviceLine) => (
-                              <tr key={serviceLine.serviceLine} className="hover:bg-gray-100 dark:hover:bg-gray-800">
-                                <td className="py-1.5 font-bold text-black dark:text-white">
+                              <tr key={serviceLine.serviceLine} className="hover:bg-gray-200/20 dark:hover:bg-gray-800">
+                                <td className="py-1.5 font-bold text-white">
                                   {serviceLine.serviceLine}
                                 </td>
-                                <td className="py-1.5 text-center font-medium text-black dark:text-gray-200">
+                                <td className="py-1.5 text-center font-medium text-white">
                                   {formatNumber(serviceLine.total)}
                                 </td>
                                 <td className="py-1.5 text-right">
-                                  <span className="font-bold text-[var(--trilogy-teal)]">
+                                  <span className="font-bold text-cyan-400">
                                     {formatPercentage(serviceLine.occupancyRate / 100, 0)}
                                   </span>
                                 </td>
@@ -352,9 +352,9 @@ export default function OverviewTiles() {
                         </table>
                         
                         {/* Summary of occupied units */}
-                        <div className="mt-2 pt-2 border-t border-[var(--dashboard-border)] flex justify-between text-xs">
-                          <span className="text-[var(--dashboard-muted)]">Total Occupied:</span>
-                          <span className="font-medium text-[var(--dashboard-text)]">
+                        <div className="mt-2 pt-2 border-t border-gray-400/30 flex justify-between text-xs">
+                          <span className="text-gray-200">Total Occupied:</span>
+                          <span className="font-medium text-white">
                             {formatNumber(roomType.serviceLineBreakdown?.reduce((sum, sl) => sum + sl.occupied, 0) || 0)} of {formatNumber(roomType.total)} units
                           </span>
                         </div>
