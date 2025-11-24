@@ -163,7 +163,7 @@ export default function RateCard() {
   const generateModuloMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest('/api/pricing/generate-modulo-optimized', 'POST', {
-        month: '2025-10', // Using October 2025 as default month with data
+        month: '2025-11', // Using November 2025 as it has the latest data
         serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
         regions: selectedRegions.length > 0 ? selectedRegions : undefined,
         divisions: selectedDivisions.length > 0 ? selectedDivisions : undefined,

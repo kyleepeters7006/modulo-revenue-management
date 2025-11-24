@@ -64,9 +64,9 @@ interface PricingJob {
 class PricingJobManager {
   private jobs: Map<string, PricingJob> = new Map();
   private processingJobs: Set<string> = new Set();
-  private readonly BATCH_SIZE = 500; // Process 500 units at a time for faster processing
-  private readonly MAX_PARALLEL_BATCHES = 10; // Process up to 10 batches in parallel for faster completion
-  private readonly BATCH_TIMEOUT_MS = 30000; // 30 second timeout per batch
+  private readonly BATCH_SIZE = 1000; // Process 1000 units at a time for even faster processing  
+  private readonly MAX_PARALLEL_BATCHES = 20; // Process up to 20 batches in parallel for maximum speed
+  private readonly BATCH_TIMEOUT_MS = 60000; // 60 second timeout per batch to prevent timeouts on larger batches
   
   createJob(params: any): string {
     const jobId = randomUUID();
