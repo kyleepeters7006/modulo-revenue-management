@@ -49,6 +49,9 @@ Preferred communication style: Simple, everyday language.
 - **Data Import System**: Transaction-safe CSV upload and parsing for rent roll data with duplicate prevention, fuzzy matching, and Unicode-safe column matching.
 - **Guardrails System**: Configurable pricing constraints and safety limits.
 - **Revenue Forecasting**: Real-time revenue calculations using actual in-house rates (including special rates) for occupied units and street rates for vacant units, displayed as time-series growth charts with S&P 500 comparison.
+- **Calculation History Tracking**: Persistent storage of all Modulo/AI rate calculations in `calculation_history` table, tracking start/completion times, units processed, average rates, calculation type (manual/scheduled), and error states.
+- **Automated Daily Calculations**: Portfolio-wide Modulo calculations run automatically at 6:00 AM EST daily using node-cron scheduler, ensuring fresh pricing recommendations each morning.
+- **Persistent Rate Storage**: All calculated rates (moduloSuggestedRate, aiSuggestedRate) are saved directly to the `rent_roll_data` table, automatically appearing in the rate card when loaded.
 - **Competitor Analysis**: Interactive Leaflet map integration with service line filtering. Fixed November 2025 - Now queries `competitive_survey_data` table (9,727 records), places competitors at actual geographic distances using improved geocoding, and shows all competitors for single location views.
 - **Explanation System**: Calculation dialogs present mathematical formulas and narrative explanations for pricing factors.
 - **Room Attributes & Pricing Page**: Manages and analyzes attribute-based pricing, including base pricing by room type and unit-level attributed pricing.
