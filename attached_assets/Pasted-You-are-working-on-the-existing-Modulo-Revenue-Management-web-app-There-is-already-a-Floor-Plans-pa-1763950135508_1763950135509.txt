@@ -1,0 +1,204 @@
+You are working on the existing Modulo Revenue Management web app.
+There is already a Floor Plans page at the /floor-plans route (see current implementation).
+
+Your task is to enhance this existing page so that it functions like Engrain’s SightMap for Senior Living (https://www.engrain.com/sightmap/industries/senior-living
+) while preserving the current styling and navigation.
+
+1. Understand and Reuse Existing Code
+
+Locate the existing Floor Plans page:
+
+Find the route or component that serves /floor-plans.
+
+Identify:
+
+How unit / floor-plan data is currently loaded (JSON, API, DB query, etc.).
+
+Existing filters (beds, sq ft, status, etc.).
+
+Any existing map or building images.
+
+Do not rebuild the app from scratch.
+Refactor and extend the current page so it stays consistent with the rest of Modulo (layout, header, theme, Tailwind classes, etc.).
+
+2. Target UX – “SightMap-style” Behavior
+
+Enhance /floor-plans to have two main panels:
+
+Left panel: Interactive campus map + floor selector
+
+Right panel: Filtered unit list
+
+The behavior should mirror SightMap:
+
+Filters (top bar)
+
+Reuse existing filters where possible.
+
+Ensure we have, at minimum:
+
+Bedrooms (Any, Studio, 1, 2, 3+)
+
+Floor Plan name (Any, specific plan names)
+
+Square Footage (Any, range buckets)
+
+Care Level (Any, IL / AL / MC / HC or whatever matches our data)
+
+Add Reset button to clear all filters.
+
+Add a search box for unit number or floor plan name.
+
+Floor selector
+
+Vertical control to choose floor (e.g., 1–5) if our data includes floors.
+
+Clicking a floor:
+
+Changes which units are drawn on the map overlay.
+
+Updates the unit list and “matches” count.
+
+Campus map + unit overlay
+
+Use our existing campus/floor images if available; otherwise create placeholder images and clearly comment where they should be replaced.
+
+On top of the background, render units as clickable shapes (SVG polygons or positioned overlays) based on our current data model.
+
+Each unit should have:
+
+A visual state for:
+
+Default
+
+Hover
+
+Selected
+
+Color based on care level (e.g., distinct colors for IL / AL / MC / HC).
+
+Hover: show a small tooltip with unit #, beds/baths, sq ft, and price.
+
+Click:
+
+Select that unit.
+
+Highlight it on the map.
+
+Scroll and highlight the corresponding unit row in the list.
+
+Unit list (right side)
+
+Show “X Matches – Floor Y” at the top.
+
+Below, a scrollable list of units that match the current filters + floor.
+
+Each row should show at least:
+
+Unit #
+
+Beds / baths
+
+Sq ft
+
+Care level
+
+Price / rent and availability date if present.
+
+Clicking a row:
+
+Selects and highlights the corresponding unit on the map.
+
+Unit detail card
+
+When a unit is selected (from map or list), show a detail card (e.g., bottom-left overlay or right panel section) with:
+
+Unit number and floor plan name
+
+Beds / baths
+
+Sq ft
+
+Price and any specials
+
+Care level
+
+Availability date
+
+Floor-plan thumbnail image if available
+
+Leave clear placeholders / comments where we can later add:
+
+“View pricing history”
+
+“Send to prospect / CRM”
+
+“Open in Modulo pricing screen”
+
+3. Data & Filtering
+
+Reuse the existing unit / floorplan data model. If we already have JSON or DB models, adapt them instead of inventing new ones.
+
+Ensure all filters apply consistently to:
+
+Map overlay
+
+Unit list
+
+Match count
+
+Keep performance in mind; filtering should be done in memory on the client if data volume is small, otherwise via API calls.
+
+4. Visual & Interaction Guidelines
+
+Keep styling consistent with the rest of Modulo (fonts, colors, spacing).
+
+Use subtle hover and selection effects (border, shadow, opacity).
+
+Animate floor changes with a quick fade or transition (nice but not required).
+
+Make the layout responsive:
+
+Desktop: map left, list right.
+
+Mobile/tablet: map on top, list underneath, same interactions.
+
+5. Code Organization
+
+Refactor the /floor-plans implementation into clear components (or views) such as:
+
+FloorPlansPage
+
+FilterBar
+
+FloorSelector
+
+CampusMap
+
+UnitOverlay / UnitPolygon
+
+UnitList
+
+UnitDetailCard
+
+Add comments explaining:
+
+Where to plug in live data from Modulo’s backend.
+
+Where to swap placeholder images with actual campus/floor images.
+
+How to add new care levels or buildings.
+
+6. Deliverables
+
+Updated /floor-plans page in the existing project, fully wired to current data sources.
+
+SightMap-style interactions:
+
+Filters + floor selector
+
+Map/list synchronization
+
+Unit detail card
+
+No regressions to existing navigation or other pages.
