@@ -47,6 +47,7 @@ Preferred communication style: Simple, everyday language.
 - **Floor Plan Auto-Mapping**: Batch generation endpoint creates floor plans for all locations at once, preserving existing image-based floor plans. Includes intelligent occupancy detection (boolean field validation), service line section metadata, and room number display.
 - **Interactive Floor Plan Booking System**: Drag-and-drop unit assignment, automatic polygon detection, visual feedback, interactive tooltips, and service line filtering capabilities.
 - **Data Import System**: Transaction-safe CSV upload and parsing for rent roll data with duplicate prevention, fuzzy matching, and Unicode-safe column matching.
+- **Multi-File Upload System (November 2025)**: Batch upload multiple rent roll CSV files (e.g., 24 monthly files) with per-file date editing, auto-detection from filenames, sequential processing with live progress tracking, smart error handling (keeps failed files visible for retry), and automatic state cleanup on success.
 - **Guardrails System**: Configurable pricing constraints and safety limits.
 - **Revenue Forecasting**: Real-time revenue calculations using actual in-house rates (including special rates) for occupied units and street rates for vacant units, displayed as time-series growth charts with S&P 500 comparison.
 - **Calculation History Tracking**: Persistent storage of all Modulo/AI rate calculations in `calculation_history` table, tracking start/completion times, units processed, average rates, calculation type (manual/scheduled), and error states.
