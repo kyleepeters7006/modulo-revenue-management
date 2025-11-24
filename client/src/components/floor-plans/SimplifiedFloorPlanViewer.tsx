@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Trash2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +35,7 @@ export default function SimplifiedFloorPlanViewer({
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [showUnplacedUnits, setShowUnplacedUnits] = useState(false);
+  const [lastClickPosition, setLastClickPosition] = useState<{x: number, y: number} | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -96,6 +97,24 @@ export default function SimplifiedFloorPlanViewer({
     });
   };
 
+  const handlePlaceUnit = (unitId: string, x: number, y: number) => {
+    setUnitPositions(prev => ({
+      ...prev,
+      [unitId]: {
+        x: Math.max(2, Math.min(98, x)),
+        y: Math.max(2, Math.min(98, y))
+      }
+    }));
+    
+    const unit = units.find(u => u.id === unitId);
+    toast({
+      title: "Unit placed",
+      description: `Unit ${unit?.roomNumber || 'unknown'} placed. Click Save to persist changes.`,
+    });
+    
+    // Stay in adding mode to allow placing more units
+  };
+
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (!isAddingMode || !containerRef.current) return;
     
@@ -103,22 +122,11 @@ export default function SimplifiedFloorPlanViewer({
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     
-    // Find first unplaced unit to add
-    if (unplacedUnits.length > 0) {
-      const unitToAdd = unplacedUnits[0];
-      setUnitPositions(prev => ({
-        ...prev,
-        [unitToAdd.id]: {
-          x: Math.max(2, Math.min(98, x)),
-          y: Math.max(2, Math.min(98, y))
-        }
-      }));
-      
-      toast({
-        title: "Unit placed",
-        description: `Unit ${unitToAdd.roomNumber} placed. Click Save to persist changes.`,
-      });
-    }
+    // Store click position for placement
+    setLastClickPosition({ x, y });
+    
+    // Open drawer to select which unit to place
+    setShowUnplacedUnits(true);
   };
 
   const handleDragStart = (unitId: string, e: React.MouseEvent | React.TouchEvent) => {
@@ -510,13 +518,66 @@ export default function SimplifiedFloorPlanViewer({
               <div className="flex items-center gap-2">
                 <Plus className="h-4 w-4 text-blue-700" />
                 <span className="text-sm font-medium text-blue-700">
-                  Click anywhere to place next unit ({unplacedUnits.length} remaining)
+                  Click anywhere to open unit selector ({unplacedUnits.length} units to place)
                 </span>
               </div>
             </div>
           )}
         </div>
       </Card>
+
+      {/* Sheet for selecting unplaced units */}
+      <Sheet open={showUnplacedUnits} onOpenChange={setShowUnplacedUnits}>
+        <SheetContent side="right" className="w-[400px]">
+          <SheetHeader>
+            <SheetTitle>Select Unit to Place</SheetTitle>
+          </SheetHeader>
+          <ScrollArea className="h-[calc(100vh-100px)] mt-4">
+            <div className="space-y-2 pr-4">
+              {unplacedUnits.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">
+                  All units have been placed on the floor plan
+                </p>
+              ) : (
+                unplacedUnits.map(unit => (
+                  <Card
+                    key={unit.id}
+                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => {
+                      // Place unit at the clicked position (or center if no position stored)
+                      const pos = lastClickPosition || { x: 50, y: 50 };
+                      handlePlaceUnit(unit.id, pos.x, pos.y);
+                      setShowUnplacedUnits(false);
+                      setLastClickPosition(null); // Clear for next placement
+                    }}
+                    data-testid={`unplaced-unit-${unit.roomNumber}`}
+                  >
+                    <CardContent className="p-3">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-semibold text-sm">
+                            Unit {unit.roomNumber}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            {unit.serviceLine} - {unit.size || 'Studio'}
+                          </div>
+                        </div>
+                        <div
+                          className="w-6 h-6 rounded-full border-2"
+                          style={{
+                            backgroundColor: getUnitColor(unit) + '40',
+                            borderColor: getUnitColor(unit)
+                          }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }
