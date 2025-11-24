@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Check } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Trash2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface DraggableUnit {
   id: string;
@@ -30,8 +32,15 @@ export default function SimplifiedFloorPlanViewer({
   const [draggedUnit, setDraggedUnit] = useState<string | null>(null);
   const [unitPositions, setUnitPositions] = useState<{[key: string]: {x: number, y: number}}>({});
   const [hoveredUnit, setHoveredUnit] = useState<string | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
+  const [isAddingMode, setIsAddingMode] = useState(false);
+  const [showUnplacedUnits, setShowUnplacedUnits] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  // Get unplaced units (units that don't have positions yet)
+  const unplacedUnits = units.filter(unit => !unitPositions[unit.id]);
+  const placedUnits = units.filter(unit => unitPositions[unit.id]);
 
   // Initialize unit positions - try to load saved positions first
   useEffect(() => {
@@ -67,9 +76,55 @@ export default function SimplifiedFloorPlanViewer({
     }
   }, [units, unitPositions, campusMap]);
 
+  const handleUnitSelect = (unitId: string) => {
+    if (isEditMode && !isAddingMode) {
+      setSelectedUnit(selectedUnit === unitId ? null : unitId);
+    }
+  };
+
+  const handleDeleteUnit = () => {
+    if (!selectedUnit || !isEditMode) return;
+    
+    const newPositions = { ...unitPositions };
+    delete newPositions[selectedUnit];
+    setUnitPositions(newPositions);
+    setSelectedUnit(null);
+    
+    toast({
+      title: "Unit removed",
+      description: "Unit marker removed. Click Save to persist changes.",
+    });
+  };
+
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    if (!isAddingMode || !containerRef.current) return;
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    // Find first unplaced unit to add
+    if (unplacedUnits.length > 0) {
+      const unitToAdd = unplacedUnits[0];
+      setUnitPositions(prev => ({
+        ...prev,
+        [unitToAdd.id]: {
+          x: Math.max(2, Math.min(98, x)),
+          y: Math.max(2, Math.min(98, y))
+        }
+      }));
+      
+      toast({
+        title: "Unit placed",
+        description: `Unit ${unitToAdd.roomNumber} placed. Click Save to persist changes.`,
+      });
+    }
+  };
+
   const handleDragStart = (unitId: string, e: React.MouseEvent | React.TouchEvent) => {
-    if (!isEditMode) return;
+    if (!isEditMode || isAddingMode) return;
     e.preventDefault();
+    e.stopPropagation();
     setDraggedUnit(unitId);
   };
 
@@ -117,6 +172,19 @@ export default function SimplifiedFloorPlanViewer({
       };
     }
   }, [draggedUnit]);
+
+  // Add keyboard support for Delete key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' && selectedUnit && isEditMode) {
+        e.preventDefault();
+        handleDeleteUnit();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedUnit, isEditMode]);
 
   const handleSavePositions = async () => {
     try {
@@ -184,83 +252,125 @@ export default function SimplifiedFloorPlanViewer({
   };
 
   return (
-    <Card className="relative overflow-hidden">
-      <div className="absolute top-4 right-4 z-20 flex gap-2">
-        <Button
-          onClick={() => setZoom(prev => Math.min(prev + 0.25, 3))}
-          size="sm"
-          variant="secondary"
-          className="shadow-md"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </Button>
-        <Button
-          onClick={() => setZoom(prev => Math.max(prev - 0.25, 0.5))}
-          size="sm"
-          variant="secondary"
-          className="shadow-md"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </Button>
-        <Button
-          onClick={() => setZoom(1)}
-          size="sm"
-          variant="secondary"
-          className="shadow-md"
-        >
-          <RotateCcw className="h-4 w-4" />
-        </Button>
-        {!isEditMode ? (
+    <>
+      <Card className="relative overflow-hidden">
+        <div className="absolute top-4 right-4 z-20 flex gap-2 flex-wrap justify-end max-w-md">
           <Button
-            onClick={() => setIsEditMode(true)}
+            onClick={() => setZoom(prev => Math.min(prev + 0.25, 3))}
             size="sm"
             variant="secondary"
             className="shadow-md"
+            data-testid="button-zoom-in"
           >
-            <Edit3 className="h-4 w-4 mr-1" />
-            Edit Layout
+            <ZoomIn className="h-4 w-4" />
           </Button>
-        ) : (
-          <>
+          <Button
+            onClick={() => setZoom(prev => Math.max(prev - 0.25, 0.5))}
+            size="sm"
+            variant="secondary"
+            className="shadow-md"
+            data-testid="button-zoom-out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <Button
+            onClick={() => setZoom(1)}
+            size="sm"
+            variant="secondary"
+            className="shadow-md"
+            data-testid="button-reset-zoom"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          {!isEditMode ? (
             <Button
-              onClick={handleSavePositions}
-              size="sm"
-              variant="default"
-              className="shadow-md"
-            >
-              <Save className="h-4 w-4 mr-1" />
-              Save
-            </Button>
-            <Button
-              onClick={handleResetPositions}
+              onClick={() => setIsEditMode(true)}
               size="sm"
               variant="secondary"
               className="shadow-md"
+              data-testid="button-edit-layout"
             >
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Reset
+              <Edit3 className="h-4 w-4 mr-1" />
+              Edit Layout
             </Button>
-            <Button
-              onClick={() => setIsEditMode(false)}
-              size="sm"
-              variant="outline"
-              className="shadow-md"
-            >
-              Cancel
-            </Button>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              {selectedUnit && (
+                <Button
+                  onClick={handleDeleteUnit}
+                  size="sm"
+                  variant="destructive"
+                  className="shadow-md"
+                  data-testid="button-delete-unit"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Delete
+                </Button>
+              )}
+              {unplacedUnits.length > 0 && (
+                <Button
+                  onClick={() => {
+                    setIsAddingMode(!isAddingMode);
+                    setSelectedUnit(null);
+                  }}
+                  size="sm"
+                  variant={isAddingMode ? "default" : "secondary"}
+                  className="shadow-md"
+                  data-testid="button-add-units"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Units ({unplacedUnits.length})
+                </Button>
+              )}
+              <Button
+                onClick={handleSavePositions}
+                size="sm"
+                variant="default"
+                className="shadow-md"
+                data-testid="button-save-positions"
+              >
+                <Save className="h-4 w-4 mr-1" />
+                Save
+              </Button>
+              <Button
+                onClick={handleResetPositions}
+                size="sm"
+                variant="secondary"
+                className="shadow-md"
+                data-testid="button-reset-positions"
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Reset
+              </Button>
+              <Button
+                onClick={() => {
+                  setIsEditMode(false);
+                  setSelectedUnit(null);
+                  setIsAddingMode(false);
+                }}
+                size="sm"
+                variant="outline"
+                className="shadow-md"
+                data-testid="button-cancel-edit"
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
 
-      <div
-        ref={containerRef}
-        className="relative bg-gray-50 h-[600px] cursor-grab active:cursor-grabbing overflow-hidden"
-        style={{
-          transform: `scale(${zoom})`,
-          transformOrigin: 'center',
-          transition: draggedUnit ? 'none' : 'transform 0.2s ease-out'
-        }}
-      >
+        <div
+          ref={containerRef}
+          className={`relative bg-gray-50 h-[600px] overflow-hidden ${
+            isAddingMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+          }`}
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: 'center',
+            transition: draggedUnit ? 'none' : 'transform 0.2s ease-out'
+          }}
+          onClick={handleCanvasClick}
+        >
         {/* Floor plan background image or gradient */}
         {campusMap?.baseImageUrl ? (
           <img 
@@ -285,47 +395,68 @@ export default function SimplifiedFloorPlanViewer({
           />
         )}
 
-        {/* Unit circles */}
-        {units.map(unit => {
-          const position = unitPositions[unit.id] || { x: 50, y: 50 };
-          const isBeingDragged = draggedUnit === unit.id;
-          const isHovered = hoveredUnit === unit.id;
+          {/* Unit circles - only render placed units */}
+          {placedUnits.map(unit => {
+            const position = unitPositions[unit.id];
+            if (!position) return null;
+            
+            const isBeingDragged = draggedUnit === unit.id;
+            const isHovered = hoveredUnit === unit.id;
+            const isSelected = selectedUnit === unit.id;
 
-          return (
-            <div
-              key={unit.id}
-              className={`absolute transition-all ${
-                isEditMode ? 'cursor-move' : 'cursor-pointer'
-              } ${isBeingDragged ? 'z-50' : 'z-10'}`}
-              style={{
-                left: `${position.x}%`,
-                top: `${position.y}%`,
-                transform: 'translate(-50%, -50%)',
-                transition: isBeingDragged ? 'none' : 'all 0.2s ease-out'
-              }}
-              onMouseDown={(e) => handleDragStart(unit.id, e)}
-              onTouchStart={(e) => handleDragStart(unit.id, e)}
-              onMouseEnter={() => setHoveredUnit(unit.id)}
-              onMouseLeave={() => setHoveredUnit(null)}
-              onClick={() => !isEditMode && onUnitClick?.(unit.id)}
-            >
-              {/* Circle with unit number */}
+            return (
               <div
-                className={`relative flex items-center justify-center rounded-full border-2 ${
-                  isHovered ? 'scale-110' : ''
-                } ${isBeingDragged ? 'scale-125 shadow-lg' : ''}`}
+                key={unit.id}
+                className={`absolute transition-all ${
+                  isEditMode && !isAddingMode ? 'cursor-move' : isEditMode ? 'cursor-not-allowed' : 'cursor-pointer'
+                } ${isBeingDragged ? 'z-50' : 'z-10'}`}
                 style={{
-                  width: '30px',
-                  height: '30px',
-                  backgroundColor: getUnitColor(unit) + '40', // 40 = 25% opacity
-                  borderColor: getUnitColor(unit),
+                  left: `${position.x}%`,
+                  top: `${position.y}%`,
+                  transform: 'translate(-50%, -50%)',
                   transition: isBeingDragged ? 'none' : 'all 0.2s ease-out'
                 }}
+                onMouseDown={(e) => {
+                  if (isEditMode && !isAddingMode) {
+                    handleDragStart(unit.id, e);
+                  }
+                }}
+                onTouchStart={(e) => {
+                  if (isEditMode && !isAddingMode) {
+                    handleDragStart(unit.id, e);
+                  }
+                }}
+                onMouseEnter={() => setHoveredUnit(unit.id)}
+                onMouseLeave={() => setHoveredUnit(null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isEditMode && !isAddingMode) {
+                    handleUnitSelect(unit.id);
+                  } else if (!isEditMode) {
+                    onUnitClick?.(unit.id);
+                  }
+                }}
+                data-testid={`unit-circle-${unit.roomNumber}`}
               >
-                <span className="font-semibold text-[10px] text-gray-900">
-                  {unit.roomNumber}
-                </span>
-              </div>
+                {/* Circle with unit number */}
+                <div
+                  className={`relative flex items-center justify-center rounded-full border-2 ${
+                    isHovered ? 'scale-110' : ''
+                  } ${isBeingDragged ? 'scale-125 shadow-lg' : ''} ${
+                    isSelected ? 'ring-4 ring-blue-500' : ''
+                  }`}
+                  style={{
+                    width: '30px',
+                    height: '30px',
+                    backgroundColor: getUnitColor(unit) + '40', // 40 = 25% opacity
+                    borderColor: getUnitColor(unit),
+                    transition: isBeingDragged ? 'none' : 'all 0.2s ease-out'
+                  }}
+                >
+                  <span className="font-semibold text-[10px] text-gray-900">
+                    {unit.roomNumber}
+                  </span>
+                </div>
 
               {/* Tooltip on hover */}
               {isHovered && !isEditMode && (
@@ -361,18 +492,31 @@ export default function SimplifiedFloorPlanViewer({
           </div>
         </div>
 
-        {/* Edit mode indicator */}
-        {isEditMode && (
-          <div className="absolute top-4 left-4 bg-yellow-100 border border-yellow-400 rounded-lg px-3 py-2 shadow-md">
-            <div className="flex items-center gap-2">
-              <Edit3 className="h-4 w-4 text-yellow-700" />
-              <span className="text-sm font-medium text-yellow-700">
-                Drag units to reposition them
-              </span>
+          {/* Edit mode indicator */}
+          {isEditMode && !isAddingMode && (
+            <div className="absolute top-4 left-4 bg-yellow-100 border border-yellow-400 rounded-lg px-3 py-2 shadow-md">
+              <div className="flex items-center gap-2">
+                <Edit3 className="h-4 w-4 text-yellow-700" />
+                <span className="text-sm font-medium text-yellow-700">
+                  {selectedUnit ? 'Click Delete or press Delete key to remove unit' : 'Drag units to reposition them'}
+                </span>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-    </Card>
+          )}
+
+          {/* Adding mode indicator */}
+          {isAddingMode && (
+            <div className="absolute top-4 left-4 bg-blue-100 border border-blue-400 rounded-lg px-3 py-2 shadow-md">
+              <div className="flex items-center gap-2">
+                <Plus className="h-4 w-4 text-blue-700" />
+                <span className="text-sm font-medium text-blue-700">
+                  Click anywhere to place next unit ({unplacedUnits.length} remaining)
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+    </>
   );
 }

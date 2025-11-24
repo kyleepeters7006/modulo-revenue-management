@@ -355,6 +355,13 @@ export default function FloorPlansPage() {
   }, []);
 
   const handleUnitClick = useCallback((unitId: string) => {
+    // Guard against missing unit IDs (can happen during initial load or with filters)
+    const unit = filteredUnits.find((u: RentRollUnit) => u.id === unitId);
+    if (!unit) {
+      console.warn(`Unit ${unitId} not found in filtered units`);
+      return;
+    }
+    
     setHighlightedUnitId(unitId);
     setSelectedUnitId(unitId); // Set selected unit for detail card
     const index = filteredUnits.findIndex((u: RentRollUnit) => u.id === unitId);
