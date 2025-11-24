@@ -261,17 +261,26 @@ export default function SimplifiedFloorPlanViewer({
           transition: draggedUnit ? 'none' : 'transform 0.2s ease-out'
         }}
       >
-        {/* Simple gradient background to represent the floor plan */}
-        <div 
-          className="absolute inset-0 bg-gradient-to-br from-slate-100 via-gray-100 to-stone-100"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px)
-            `,
-            backgroundSize: '40px 40px'
-          }}
-        />
+        {/* Floor plan background image or gradient */}
+        {campusMap?.baseImageUrl ? (
+          <img 
+            src={campusMap.baseImageUrl}
+            alt="Floor Plan"
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ opacity: 0.9 }}
+          />
+        ) : (
+          <div 
+            className="absolute inset-0 bg-gradient-to-br from-slate-100 via-gray-100 to-stone-100"
+            style={{
+              backgroundImage: `
+                linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px)
+              `,
+              backgroundSize: '40px 40px'
+            }}
+          />
+        )}
 
         {/* Unit circles */}
         {units.map(unit => {
@@ -303,14 +312,14 @@ export default function SimplifiedFloorPlanViewer({
                   isHovered ? 'scale-110' : ''
                 } ${isBeingDragged ? 'scale-125 shadow-lg' : ''}`}
                 style={{
-                  width: '50px',
-                  height: '50px',
+                  width: '30px',
+                  height: '30px',
                   backgroundColor: getUnitColor(unit) + '40', // 40 = 25% opacity
                   borderColor: getUnitColor(unit),
                   transition: isBeingDragged ? 'none' : 'all 0.2s ease-out'
                 }}
               >
-                <span className="font-semibold text-xs text-gray-900">
+                <span className="font-semibold text-[10px] text-gray-900">
                   {unit.roomNumber}
                 </span>
               </div>

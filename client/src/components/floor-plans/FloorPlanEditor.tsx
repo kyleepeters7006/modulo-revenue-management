@@ -28,7 +28,8 @@ import {
   Home,
   Bed,
   Eye,
-  EyeOff
+  EyeOff,
+  Search
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
