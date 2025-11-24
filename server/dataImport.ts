@@ -15,7 +15,6 @@ import {
 } from '@shared/schema';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { normalizeRoomType } from '@shared/roomTypes';
-import { normalizeToMonthlyRate } from './services/rateNormalization';
 
 export interface ImportStats {
   totalRecords: number;
@@ -914,18 +913,12 @@ export async function importMatrixCareRentRollCSV(
                 // Parse BedTypeDesc
                 const { size, view, viewRating, locationRating, sizeRating } = parseBedTypeDesc(row['BedTypeDesc']);
 
-                // Parse rates (these come as daily rates for HC, monthly for others)
+                // Parse rates - HC/HC-MC are daily, others are monthly
+                // Store as-is without conversion (mixed storage model)
                 const roomRate = parseCurrency(row['Room_Rate']);
                 const locRate = parseCurrency(row['LOC_Rate']);
                 const finalRate = parseCurrency(row['FinalRate']);
                 const billedRate = parseCurrency(row['BilledRate']);
-
-                // Convert HC daily rates to monthly for storage
-                // All rates stored as monthly in database per system design
-                const streetRateMonthly = normalizeToMonthlyRate(roomRate, serviceLine);
-                const inHouseRateMonthly = normalizeToMonthlyRate(billedRate || roomRate, serviceLine);
-                const careRateMonthly = normalizeToMonthlyRate(locRate, serviceLine);
-                const finalRateMonthly = finalRate ? normalizeToMonthlyRate(finalRate, serviceLine) : (streetRateMonthly + careRateMonthly);
 
                 const normalizedRoomType = normalizeRoomType(size);
 
@@ -949,12 +942,12 @@ export async function importMatrixCareRentRollCSV(
                   viewRating,
                   renovationRating: null,
                   amenityRating: null,
-                  streetRate: streetRateMonthly,
-                  inHouseRate: inHouseRateMonthly,
+                  streetRate: roomRate,
+                  inHouseRate: billedRate || roomRate,
                   discountToStreetRate: null,
                   careLevel: row['LevelOfCare1'] || row['ActualLevel1'] || null,
-                  careRate: careRateMonthly,
-                  rentAndCareRate: finalRateMonthly,
+                  careRate: locRate,
+                  rentAndCareRate: finalRate || (roomRate + locRate),
                   competitorRate: null,
                   competitorAvgCareRate: null,
                   competitorFinalRate: null,
