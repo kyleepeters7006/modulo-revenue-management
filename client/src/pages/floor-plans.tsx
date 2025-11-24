@@ -212,6 +212,27 @@ export default function FloorPlansPage() {
     }
   }, []);
 
+  // Helper function to get bedroom/bath count from size string - moved before usage
+  const parseUnitDetails = useCallback((size: string) => {
+    const lowerSize = size?.toLowerCase() || '';
+    const beds = 
+      lowerSize.includes('studio') || lowerSize.includes('companion') ? 'Studio' :
+      lowerSize.includes('one bedroom') || lowerSize.includes('1 bedroom') ? '1 Bed' :
+      lowerSize.includes('two bedroom') || lowerSize.includes('2 bedroom') ? '2 Bed' :
+      lowerSize.includes('three bedroom') || lowerSize.includes('3 bedroom') ? '3 Bed' : 'Studio';
+    
+    const baths = beds === 'Studio' ? '1 Bath' :
+                  beds === '1 Bed' ? '1 Bath' :
+                  beds === '2 Bed' ? '2 Bath' : '2 Bath';
+    
+    const sqft = 
+      beds === 'Studio' ? '450' :
+      beds === '1 Bed' ? '750' :
+      beds === '2 Bed' ? '1,180' : '1,500';
+    
+    return { beds, baths, sqft };
+  }, []);
+
   // Calculate active filter count for badge
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -341,27 +362,6 @@ export default function FloorPlansPage() {
       setSelectedUnitIndex(index);
     }
   }, [filteredUnits]);
-
-  // Helper function to get bedroom/bath count from size string - memoized
-  const parseUnitDetails = useCallback((size: string) => {
-    const lowerSize = size?.toLowerCase() || '';
-    const beds = 
-      lowerSize.includes('studio') || lowerSize.includes('companion') ? 'Studio' :
-      lowerSize.includes('one bedroom') || lowerSize.includes('1 bedroom') ? '1 Bed' :
-      lowerSize.includes('two bedroom') || lowerSize.includes('2 bedroom') ? '2 Bed' :
-      lowerSize.includes('three bedroom') || lowerSize.includes('3 bedroom') ? '3 Bed' : 'Studio';
-    
-    const baths = beds === 'Studio' ? '1 Bath' :
-                  beds === '1 Bed' ? '1 Bath' :
-                  beds === '2 Bed' ? '2 Bath' : '2 Bath';
-    
-    const sqft = 
-      beds === 'Studio' ? '450' :
-      beds === '1 Bed' ? '750' :
-      beds === '2 Bed' ? '1,180' : '1,500';
-    
-    return { beds, baths, sqft };
-  }, []);
 
   // Get selected unit for detail card
   const selectedUnit = useMemo(() => {
