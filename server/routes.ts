@@ -7884,6 +7884,44 @@ Respond in JSON format:
     }
   });
   
+  // Clear uploaded floor plan images and regenerate as SVG
+  app.post("/api/campus-maps/clear-and-regenerate", async (req, res) => {
+    try {
+      // First, clear all baseImageUrl values to force SVG generation
+      const allMaps = await storage.getCampusMaps();
+      let clearedCount = 0;
+      
+      for (const map of allMaps) {
+        if (map.baseImageUrl && !map.isTemplate) {
+          await storage.updateCampusMap(map.id, {
+            baseImageUrl: null,
+            updatedAt: new Date()
+          });
+          clearedCount++;
+        }
+      }
+      
+      // Now regenerate all floor plans as SVG
+      const { autoGenerateAllFloorPlans } = await import('./autoGenerateFloorMaps');
+      const results = await autoGenerateAllFloorPlans();
+      const totalCreated = results.reduce((sum, r) => sum + r.created, 0);
+      
+      res.json({
+        success: true,
+        message: `Cleared ${clearedCount} uploaded images and generated ${totalCreated} SVG floor plans`,
+        clearedImages: clearedCount,
+        generatedFloorPlans: totalCreated,
+        results
+      });
+    } catch (error) {
+      console.error('Error clearing and regenerating floor plans:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Failed to clear and regenerate floor plans' 
+      });
+    }
+  });
+  
   // Generate floor plans for all campuses at once
   app.post("/api/campus-maps/auto-generate-all", async (req, res) => {
     try {
