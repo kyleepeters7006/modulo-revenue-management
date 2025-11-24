@@ -219,14 +219,14 @@ export default function OverviewTiles() {
                 className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
               >
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-bold !text-black dark:!text-white" style={{ color: '#000000' }}>
+                  <h4 className="font-bold text-gray-900 dark:text-white">
                     {serviceLine.serviceLine}
                   </h4>
                   <span className="text-sm font-bold text-[var(--trilogy-teal)]">
                     {formatPercentage(serviceLine.occupancyRate / 100, 0)}
                   </span>
                 </div>
-                <div className="text-sm !text-black dark:!text-gray-200 font-medium mb-2" style={{ color: '#000000' }}>
+                <div className="text-sm text-gray-700 dark:text-gray-200 font-medium mb-2">
                   {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
                 </div>
                 <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
@@ -239,12 +239,12 @@ export default function OverviewTiles() {
                 {/* Rate Information */}
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between">
-                    <span className="!text-black dark:!text-gray-200 font-semibold" style={{ color: '#000000' }}>Avg Rate:</span>
-                    <span className="font-bold !text-black dark:!text-white" style={{ color: '#000000' }}>{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
+                    <span className="text-gray-700 dark:text-gray-200 font-semibold">Avg Rate:</span>
+                    <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="!text-black dark:!text-gray-200 font-semibold" style={{ color: '#000000' }}>Competitor Rate:</span>
-                    <span className="font-bold !text-black dark:!text-white" style={{ color: '#000000' }}>{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
+                    <span className="text-gray-700 dark:text-gray-200 font-semibold">Competitor Rate:</span>
+                    <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
                   </div>
                   {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
                 </div>
