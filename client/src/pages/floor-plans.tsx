@@ -678,11 +678,13 @@ export default function FloorPlansPage() {
                 <SelectValue placeholder="Select campus..." />
               </SelectTrigger>
               <SelectContent>
-                {locations.map((location: Location) => (
-                  <SelectItem key={location.id} value={location.id}>
-                    {location.name}
-                  </SelectItem>
-                ))}
+                {locations
+                  .sort((a: Location, b: Location) => (a.name || '').localeCompare(b.name || ''))
+                  .map((location: Location) => (
+                    <SelectItem key={location.id} value={location.id}>
+                      {location.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

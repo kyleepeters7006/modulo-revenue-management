@@ -242,11 +242,13 @@ export default function RoomAttributes() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">All Campuses</SelectItem>
-                  {Array.isArray(locations) && locations.map((loc: any) => (
-                    <SelectItem key={loc.id} value={loc.name || loc.id}>
-                      {loc.name}
-                    </SelectItem>
-                  ))}
+                  {Array.isArray(locations) && locations
+                    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
+                    .map((loc: any) => (
+                      <SelectItem key={loc.id} value={loc.name || loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
