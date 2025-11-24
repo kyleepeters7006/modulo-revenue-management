@@ -267,7 +267,10 @@ export default function SimplifiedFloorPlanViewer({
             src={campusMap.baseImageUrl}
             alt="Floor Plan"
             className="absolute inset-0 w-full h-full object-contain"
-            style={{ opacity: 0.9 }}
+            style={{ 
+              opacity: 0.9,
+              pointerEvents: 'none'
+            }}
           />
         ) : (
           <div 
