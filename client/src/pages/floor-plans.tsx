@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { ArrowLeft, Settings, Bed, Bath, Square, MapPin, Search, X, ChevronDown, Filter, AlertCircle, Edit3 } from "lucide-react";
+import { ArrowLeft, Settings, Bed, Bath, Square, MapPin, Search, X, ChevronDown, Filter, AlertCircle, Edit3, Calendar, DollarSign, Home, Tag } from "lucide-react";
 import Highlighter from "react-highlight-words";
 import InteractiveFloorPlanViewer from "@/components/floor-plans/InteractiveFloorPlanViewer";
 import FloorPlanEditor from "@/components/floor-plans/FloorPlanEditor";
@@ -141,7 +141,10 @@ export default function FloorPlansPage() {
   const [bedroomsFilter, setBedroomsFilter] = useState<string>("any");
   const [floorPlanFilter, setFloorPlanFilter] = useState<string>("any");
   const [careLevelFilter, setCareLevelFilter] = useState<string>("any");
+  const [sqftFilter, setSqftFilter] = useState<string>("any"); // New square footage filter
+  const [selectedFloor, setSelectedFloor] = useState<number>(1); // Floor selector
   const [highlightedUnitId, setHighlightedUnitId] = useState<string | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null); // For unit detail card
   const [selectedUnitIndex, setSelectedUnitIndex] = useState<number>(0);
   const [isFilterOpen, setIsFilterOpen] = useState(true); // For desktop collapsible
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false); // For mobile sheet
@@ -215,9 +218,10 @@ export default function FloorPlansPage() {
     if (bedroomsFilter !== "any") count++;
     if (floorPlanFilter !== "any") count++;
     if (careLevelFilter !== "any") count++;
+    if (sqftFilter !== "any") count++;
     if (debouncedSearchTerm) count++;
     return count;
-  }, [bedroomsFilter, floorPlanFilter, careLevelFilter, debouncedSearchTerm]);
+  }, [bedroomsFilter, floorPlanFilter, careLevelFilter, sqftFilter, debouncedSearchTerm]);
 
   // Filter units based on selected filters and search term - optimized with useMemo
   const filteredUnits = useMemo(() => {
@@ -263,9 +267,29 @@ export default function FloorPlansPage() {
         return false;
       }
       
+      // Square Footage filter
+      if (sqftFilter !== "any") {
+        const sqftRanges = {
+          'under_500': { min: 0, max: 500 },
+          '500_750': { min: 500, max: 750 },
+          '750_1000': { min: 750, max: 1000 },
+          '1000_1500': { min: 1000, max: 1500 },
+          'over_1500': { min: 1500, max: 999999 }
+        };
+        
+        // Parse square footage from unit details
+        const details = parseUnitDetails(unit.size);
+        const sqft = parseInt(details.sqft.replace(/,/g, ''));
+        
+        const range = sqftRanges[sqftFilter as keyof typeof sqftRanges];
+        if (range && (sqft < range.min || sqft > range.max)) {
+          return false;
+        }
+      }
+      
       return true;
     });
-  }, [rentRollData, bedroomsFilter, floorPlanFilter, careLevelFilter, debouncedSearchTerm, getServiceLineDisplay]);
+  }, [rentRollData, bedroomsFilter, floorPlanFilter, careLevelFilter, sqftFilter, debouncedSearchTerm, getServiceLineDisplay, parseUnitDetails]);
 
   // Reset selected unit index when filters change
   useEffect(() => {
@@ -305,11 +329,13 @@ export default function FloorPlansPage() {
     setBedroomsFilter("any");
     setFloorPlanFilter("any");
     setCareLevelFilter("any");
+    setSqftFilter("any");
     setSelectedUnitIndex(0);
   }, []);
 
   const handleUnitClick = useCallback((unitId: string) => {
     setHighlightedUnitId(unitId);
+    setSelectedUnitId(unitId); // Set selected unit for detail card
     const index = filteredUnits.findIndex((u: RentRollUnit) => u.id === unitId);
     if (index !== -1) {
       setSelectedUnitIndex(index);
@@ -337,6 +363,24 @@ export default function FloorPlansPage() {
     return { beds, baths, sqft };
   }, []);
 
+  // Get selected unit for detail card
+  const selectedUnit = useMemo(() => {
+    if (!selectedUnitId) return null;
+    return filteredUnits.find((unit: RentRollUnit) => unit.id === selectedUnitId);
+  }, [selectedUnitId, filteredUnits]);
+
+  // Get care level color for visual coding
+  const getCareLevelColor = useCallback((serviceLine: string) => {
+    switch(serviceLine) {
+      case 'IL': return 'bg-blue-500';
+      case 'AL': return 'bg-green-500';
+      case 'AL/MC': return 'bg-purple-500';
+      case 'HC': return 'bg-orange-500';
+      case 'HC/MC': return 'bg-red-500';
+      case 'SL': return 'bg-teal-500';
+      default: return 'bg-gray-500';
+    }
+  }, []);
 
   // Filter controls component - reusable for both desktop and mobile
   const FilterControls = () => (
@@ -417,6 +461,26 @@ export default function FloorPlansPage() {
                   {getServiceLineDisplay(level)}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Square Footage Filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Square Footage
+          </label>
+          <Select value={sqftFilter} onValueChange={setSqftFilter}>
+            <SelectTrigger data-testid="filter-sqft">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any</SelectItem>
+              <SelectItem value="under_500">Under 500 sq ft</SelectItem>
+              <SelectItem value="500_750">500 - 750 sq ft</SelectItem>
+              <SelectItem value="750_1000">750 - 1,000 sq ft</SelectItem>
+              <SelectItem value="1000_1500">1,000 - 1,500 sq ft</SelectItem>
+              <SelectItem value="over_1500">Over 1,500 sq ft</SelectItem>
             </SelectContent>
           </Select>
         </div>
