@@ -59,6 +59,7 @@ Preferred communication style: Simple, everyday language.
 - **Smart Location Filtering**: Location/region/division dropdowns automatically filter to show only locations that have both rent roll data AND complete region/division mappings, ensuring data integrity across all views.
 
 ## Recent Fixes (November 2025 - Latest)
+- **Rate Card Default Sort**: Updated rate card to show vacant rooms first by default, sorting by occupancy status in ascending order
 - **Room Attributes Status API**: Fixed `/api/attribute-ratings/status` returning zeros by adding default values when cache is empty (180 locations, 17,216 units)
 - **Room Attributes Endpoint**: Optimized `/api/room-attributes` to use sampling approach instead of loading all 391K units, preventing timeouts
 - **Dashboard Rate Display**: Added split rate display showing HC rates in daily format and Senior Housing rates in monthly format in Average Rate Comparison card

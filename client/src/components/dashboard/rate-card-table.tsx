@@ -53,7 +53,7 @@ export default function RateCardTable({
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
   const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortColumn, setSortColumn] = useState<string | null>('status');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const { toast } = useToast();
   const queryClient = useQueryClient();
