@@ -219,14 +219,14 @@ export default function OverviewTiles() {
                 className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
               >
                 <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-bold text-gray-900 dark:text-gray-100">
+                  <h4 className="font-bold text-black dark:text-white">
                     {serviceLine.serviceLine}
                   </h4>
                   <span className="text-sm font-bold text-[var(--trilogy-teal)]">
                     {formatPercentage(serviceLine.occupancyRate / 100, 0)}
                   </span>
                 </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400 font-medium mb-2">
+                <div className="text-sm text-black dark:text-gray-200 font-medium mb-2">
                   {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
                 </div>
                 <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
