@@ -734,6 +734,32 @@ export const insertUnitPolygonSchema = createInsertSchema(unitPolygons).omit({
   updatedAt: true,
 });
 
+// Calculation history to track rate generation runs
+export const calculationHistory = pgTable("calculation_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  calculationType: text("calculation_type").notNull(), // 'manual' or 'scheduled'
+  status: text("status").notNull(), // 'started', 'completed', 'failed'
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  locationId: varchar("location_id"), // null for portfolio-wide calculations
+  uploadMonth: text("upload_month"), // YYYY-MM format for which month's data was used
+  totalUnits: integer("total_units"),
+  unitsCalculated: integer("units_calculated"),
+  averageModuloRate: real("average_modulo_rate"),
+  averageAIRate: real("average_ai_rate"),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata"), // Additional details like service line breakdowns
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCalculationHistorySchema = createInsertSchema(calculationHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCalculationHistory = z.infer<typeof insertCalculationHistorySchema>;
+export type CalculationHistory = typeof calculationHistory.$inferSelect;
+
 // Pricing change history for revert functionality
 export const pricingHistory = pgTable("pricing_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

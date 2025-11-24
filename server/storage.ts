@@ -26,6 +26,7 @@ import {
   locationMappings,
   competitiveSurveyData,
   inquiryMetrics,
+  calculationHistory,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -73,7 +74,9 @@ import {
   type LocationMapping,
   type InsertLocationMapping,
   type InquiryMetrics,
-  type InsertInquiryMetrics
+  type InsertInquiryMetrics,
+  type CalculationHistory,
+  type InsertCalculationHistory
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, isNull, inArray, or } from "drizzle-orm";
@@ -127,6 +130,12 @@ export interface IStorage {
   
   // Upload history
   createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory>;
+  
+  // Calculation history
+  createCalculationHistory(data: InsertCalculationHistory): Promise<CalculationHistory>;
+  updateCalculationHistory(id: string, data: Partial<InsertCalculationHistory>): Promise<void>;
+  getLatestCalculationHistory(locationId?: string | null): Promise<CalculationHistory | undefined>;
+  getCalculationHistoryByMonth(uploadMonth: string): Promise<CalculationHistory[]>;
   
   // Inquiry metrics
   bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[]): Promise<void>;
@@ -798,6 +807,46 @@ export class DatabaseStorage implements IStorage {
   async createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory> {
     const [history] = await db.insert(uploadHistory).values(data).returning();
     return history;
+  }
+  
+  // Calculation history implementation
+  async createCalculationHistory(data: InsertCalculationHistory): Promise<CalculationHistory> {
+    const [history] = await db.insert(calculationHistory).values(data).returning();
+    return history;
+  }
+  
+  async updateCalculationHistory(id: string, data: Partial<InsertCalculationHistory>): Promise<void> {
+    await db.update(calculationHistory)
+      .set(data)
+      .where(eq(calculationHistory.id, id));
+  }
+  
+  async getLatestCalculationHistory(locationId?: string | null): Promise<CalculationHistory | undefined> {
+    const conditions = [];
+    conditions.push(eq(calculationHistory.status, 'completed'));
+    
+    if (locationId) {
+      conditions.push(eq(calculationHistory.locationId, locationId));
+    } else {
+      conditions.push(isNull(calculationHistory.locationId));
+    }
+    
+    const [result] = await db
+      .select()
+      .from(calculationHistory)
+      .where(and(...conditions))
+      .orderBy(desc(calculationHistory.completedAt))
+      .limit(1);
+    
+    return result;
+  }
+  
+  async getCalculationHistoryByMonth(uploadMonth: string): Promise<CalculationHistory[]> {
+    return await db
+      .select()
+      .from(calculationHistory)
+      .where(eq(calculationHistory.uploadMonth, uploadMonth))
+      .orderBy(desc(calculationHistory.startedAt));
   }
 
   // Inquiry metrics
