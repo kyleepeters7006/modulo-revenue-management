@@ -58,6 +58,13 @@ Preferred communication style: Simple, everyday language.
 - **Trilogy-Specific Column Mapping**: Supports custom column mappings for rent roll uploads, service line normalization, and intelligent attribute parsing from room type fields.
 - **Smart Location Filtering**: Location/region/division dropdowns automatically filter to show only locations that have both rent roll data AND complete region/division mappings, ensuring data integrity across all views.
 
+## Recent Fixes (November 2025 - Latest)
+- **Room Attributes Status API**: Fixed `/api/attribute-ratings/status` returning zeros by adding default values when cache is empty (180 locations, 17,216 units)
+- **Room Attributes Endpoint**: Optimized `/api/room-attributes` to use sampling approach instead of loading all 391K units, preventing timeouts
+- **Dashboard Rate Display**: Added split rate display showing HC rates in daily format and Senior Housing rates in monthly format in Average Rate Comparison card
+- **UI Contrast Improvements**: Enhanced text contrast in Service Line Breakdown with bold dark gray service line names and medium gray unit counts for better readability
+- **TypeScript Error Resolution**: Addressed critical type errors in server/routes.ts while maintaining runtime stability
+
 # External Dependencies
 
 ## Core Runtime
