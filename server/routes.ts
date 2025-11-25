@@ -36,6 +36,7 @@ import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
+import { startCompetitorRateJob, getJobStatus, getJobsForMonth, resumeInterruptedJobs } from "./services/competitorRateJobService";
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
@@ -3705,16 +3706,13 @@ Keep recommendations specific and quantitative when possible.`;
       await invalidateCache(uploadMonth);
       console.log(`Attribute pricing cache invalidated for month: ${uploadMonth}`);
 
-      // Auto-trigger competitor rate matching after successful rent roll upload
+      // Auto-trigger competitor rate matching using the job-based system
+      // This is resumable and won't be interrupted by server restarts
       console.log(`Triggering automatic competitor rate matching for ${uploadMonth}...`);
-      processAllUnitsForCompetitorRates(uploadMonth).then(matchingStats => {
-        console.log('✅ Competitor rate matching completed:', {
-          processed: matchingStats.processed,
-          updated: matchingStats.updated,
-          errors: matchingStats.errors
-        });
+      startCompetitorRateJob(uploadMonth).then(result => {
+        console.log(`✅ Competitor rate job started: ${result.jobId} for ${uploadMonth}`);
       }).catch(error => {
-        console.error('❌ Error in automatic competitor rate matching:', error);
+        console.error('❌ Error starting competitor rate job:', error);
       });
 
       res.json({
@@ -5393,6 +5391,62 @@ Keep recommendations specific and quantitative when possible.`;
     } catch (error) {
       console.error('Error getting competitor rate summary:', error);
       res.status(500).json({ error: 'Failed to get competitor rate summary' });
+    }
+  });
+  
+  // Job-based competitor rate matching - Start a new job
+  app.post("/api/competitor-rates/job/start", async (req, res) => {
+    try {
+      const { uploadMonth } = req.body;
+      const targetMonth = uploadMonth || '2025-11';
+      
+      const result = await startCompetitorRateJob(targetMonth);
+      
+      res.json({
+        success: true,
+        jobId: result.jobId,
+        status: result.status,
+        message: `Competitor rate job started for ${targetMonth}. Processing in background.`
+      });
+    } catch (error) {
+      console.error('Error starting competitor rate job:', error);
+      res.status(500).json({ error: 'Failed to start competitor rate job' });
+    }
+  });
+  
+  // Job-based competitor rate matching - Get job status
+  app.get("/api/competitor-rates/job/:jobId", async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      const status = await getJobStatus(jobId);
+      
+      if (!status) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      
+      res.json({
+        success: true,
+        job: status
+      });
+    } catch (error) {
+      console.error('Error getting job status:', error);
+      res.status(500).json({ error: 'Failed to get job status' });
+    }
+  });
+  
+  // Job-based competitor rate matching - Get all jobs for a month
+  app.get("/api/competitor-rates/jobs/:uploadMonth", async (req, res) => {
+    try {
+      const { uploadMonth } = req.params;
+      const jobs = await getJobsForMonth(uploadMonth);
+      
+      res.json({
+        success: true,
+        jobs: jobs
+      });
+    } catch (error) {
+      console.error('Error getting jobs for month:', error);
+      res.status(500).json({ error: 'Failed to get jobs' });
     }
   });
   

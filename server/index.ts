@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { backfillRoomTypes } from "./backfillRoomTypes";
+import { resumeInterruptedJobs } from "./services/competitorRateJobService";
 
 const app = express();
 app.use(express.json());
@@ -55,6 +56,16 @@ app.use((req, res, next) => {
       log(`Room type backfill error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, 5000); // Start backfill 5 seconds after server starts
+
+  // Resume any interrupted competitor rate jobs after server restart
+  setTimeout(async () => {
+    try {
+      log("Checking for interrupted competitor rate jobs...");
+      await resumeInterruptedJobs();
+    } catch (error) {
+      log(`Error resuming competitor rate jobs: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, 3000); // Check for interrupted jobs 3 seconds after server starts
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

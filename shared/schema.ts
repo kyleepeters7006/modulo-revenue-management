@@ -803,6 +803,30 @@ export const insertInquiryMetricsSchema = createInsertSchema(inquiryMetrics).omi
   createdAt: true,
 });
 
+// Competitor Rate Jobs - For tracking background competitor rate matching
+export const competitorRateJobs = pgTable("competitor_rate_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  uploadMonth: text("upload_month").notNull(),
+  status: text("status").notNull().default('pending'), // pending, running, completed, failed
+  totalUnits: integer("total_units").default(0),
+  processedUnits: integer("processed_units").default(0),
+  updatedUnits: integer("updated_units").default(0),
+  skippedUnits: integer("skipped_units").default(0),
+  errorCount: integer("error_count").default(0),
+  lastProcessedId: varchar("last_processed_id"), // For resumable processing
+  errorDetails: text("error_details"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCompetitorRateJobSchema = createInsertSchema(competitorRateJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -856,3 +880,5 @@ export type CompetitiveSurveyData = typeof competitiveSurveyData.$inferSelect;
 export type InsertCompetitiveSurveyData = z.infer<typeof insertCompetitiveSurveyDataSchema>;
 export type InquiryMetrics = typeof inquiryMetrics.$inferSelect;
 export type InsertInquiryMetrics = z.infer<typeof insertInquiryMetricsSchema>;
+export type CompetitorRateJob = typeof competitorRateJobs.$inferSelect;
+export type InsertCompetitorRateJob = z.infer<typeof insertCompetitorRateJobSchema>;
