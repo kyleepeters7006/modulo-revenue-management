@@ -352,9 +352,9 @@ export function calculateModuloPrice(
     
     return {
       factor: key.charAt(0).toUpperCase() + key.slice(1),
-      adjustment: adjustmentPct * 100,
+      adjustment: adjustmentPct,  // Keep as decimal (0.0364 = 3.64%)
       weight: weights0To100[key as keyof PricingWeights],
-      weightedAdjustment: factorAdjustment * 100,
+      weightedAdjustment: factorAdjustment,  // Keep as decimal (0.0276 = 2.76%)
       impact: basePrice * factorAdjustment,
       description: getFactorDescription(key, inputs, adjustmentPct, basePrice),
       calculation: getCalculationString(key, inputs, signal, adjustmentPct, basePrice),
