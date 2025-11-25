@@ -3705,6 +3705,18 @@ Keep recommendations specific and quantitative when possible.`;
       await invalidateCache(uploadMonth);
       console.log(`Attribute pricing cache invalidated for month: ${uploadMonth}`);
 
+      // Auto-trigger competitor rate matching after successful rent roll upload
+      console.log(`Triggering automatic competitor rate matching for ${uploadMonth}...`);
+      processAllUnitsForCompetitorRates(uploadMonth).then(matchingStats => {
+        console.log('✅ Competitor rate matching completed:', {
+          processed: matchingStats.processed,
+          updated: matchingStats.updated,
+          errors: matchingStats.errors
+        });
+      }).catch(error => {
+        console.error('❌ Error in automatic competitor rate matching:', error);
+      });
+
       res.json({
         message: 'Upload successful',
         recordsProcessed: processedRecords.length,
