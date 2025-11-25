@@ -72,6 +72,7 @@ export default function FloorPlanEditor({ campusMap, units, onClose }: FloorPlan
     open: false,
     polygon: null
   });
+  const [deleteAllDialog, setDeleteAllDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -518,10 +519,26 @@ export default function FloorPlanEditor({ campusMap, units, onClose }: FloorPlan
                     setSelectedPolygon(null);
                   }}
                   className="text-destructive"
+                  title="Delete selected unit"
+                  data-testid="delete-unit-button"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </>
+            )}
+            
+            {roomPolygons.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteAllDialog(true)}
+                className="text-destructive"
+                title="Delete all units"
+                data-testid="delete-all-button"
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Delete All
+              </Button>
             )}
             
             <div className="ml-auto">
@@ -724,6 +741,42 @@ export default function FloorPlanEditor({ campusMap, units, onClose }: FloorPlan
               ))}
             </div>
           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Delete All Confirmation Dialog */}
+      <Dialog open={deleteAllDialog} onOpenChange={setDeleteAllDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete All Units?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete all {roomPolygons.length} unit{roomPolygons.length !== 1 ? 's' : ''} from this floor plan? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteAllDialog(false)}
+              data-testid="cancel-delete-all-button"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setRoomPolygons([]);
+                setSelectedPolygon(null);
+                setDeleteAllDialog(false);
+                toast({
+                  title: "Units Deleted",
+                  description: "All units have been removed from the floor plan.",
+                });
+              }}
+              data-testid="confirm-delete-all-button"
+            >
+              Delete All
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
