@@ -37,6 +37,7 @@ import { importProductionData } from "./importProductionData";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { startCompetitorRateJob, getJobStatus, getJobsForMonth, resumeInterruptedJobs } from "./services/competitorRateJobService";
+import { getGitHubUser, listRepositories, createRepository, getRepository } from "./github-export";
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
@@ -8160,6 +8161,59 @@ Respond in JSON format:
     } catch (error) {
       console.error('Error fetching import status:', error);
       res.status(500).json({ error: "Failed to fetch import status" });
+    }
+  });
+
+  // GitHub Export Endpoints
+  app.get("/api/github/user", async (req, res) => {
+    try {
+      const user = await getGitHubUser();
+      res.json({ success: true, user });
+    } catch (error: any) {
+      console.error('Error getting GitHub user:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to get GitHub user' });
+    }
+  });
+
+  app.get("/api/github/repositories", async (req, res) => {
+    try {
+      const repos = await listRepositories();
+      res.json({ success: true, repositories: repos });
+    } catch (error: any) {
+      console.error('Error listing repositories:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to list repositories' });
+    }
+  });
+
+  app.post("/api/github/create-repository", async (req, res) => {
+    try {
+      const { name, description, isPrivate } = req.body;
+      
+      if (!name) {
+        return res.status(400).json({ success: false, error: 'Repository name is required' });
+      }
+      
+      const repo = await createRepository(name, description || 'Modulo Revenue Management Dashboard', isPrivate !== false);
+      res.json({ success: true, repository: repo });
+    } catch (error: any) {
+      console.error('Error creating repository:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to create repository' });
+    }
+  });
+
+  app.get("/api/github/repository/:owner/:repo", async (req, res) => {
+    try {
+      const { owner, repo } = req.params;
+      const repository = await getRepository(owner, repo);
+      
+      if (!repository) {
+        return res.status(404).json({ success: false, error: 'Repository not found' });
+      }
+      
+      res.json({ success: true, repository });
+    } catch (error: any) {
+      console.error('Error getting repository:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to get repository' });
     }
   });
 
