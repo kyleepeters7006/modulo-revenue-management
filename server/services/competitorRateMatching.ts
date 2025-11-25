@@ -72,14 +72,15 @@ const ROOM_TYPE_MAPPING = {
 } as const;
 
 // Service line mapping: Maps Trilogy service lines to competitive survey types
-// Based on actual competitor_type values in competitive_survey_data: 'HC' and 'SMC'
-const SERVICE_LINE_MAPPING: Record<string, string> = {
-  'AL': 'AL',      // No AL data in current survey
-  'AL/MC': 'SMC',  // Skilled Memory Care
-  'HC': 'HC',      // Health Center (was incorrectly mapped to 'SNF')
-  'HC/MC': 'SMC',  // Skilled Memory Care
-  'SL': 'IL',      // No IL data in current survey
-  'VIL': 'IL'      // No IL data in current survey
+// Survey data has: AL, HC, SMC competitor types only
+// VIL and SL use AL competitor data (no IL data exists)
+const SERVICE_LINE_MAPPING: Record<string, string[]> = {
+  'AL': ['AL'],
+  'AL/MC': ['SMC', 'AL'],
+  'HC': ['HC'],
+  'HC/MC': ['SMC', 'HC'],
+  'SL': ['AL'],
+  'VIL': ['AL']
 };
 
 /**
@@ -179,30 +180,37 @@ async function getBestCompetitorRate(
       return null;
     }
     
-    // Map the service line to competitor type
-    const competitorType = SERVICE_LINE_MAPPING[serviceLine];
+    // Map the service line to competitor types (with fallbacks)
+    const competitorTypes = SERVICE_LINE_MAPPING[serviceLine] || [serviceLine];
     
-    // Build query conditions
-    const conditions: any[] = [
-      eq(competitiveSurveyData.keyStatsLocation, location),
-      eq(competitiveSurveyData.roomType, mappedRoomType),
-      sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-    ];
+    // Try each competitor type in order until we find a match
+    let surveyRecords: any[] = [];
+    let usedCompetitorType: string | null = null;
     
-    // Add survey month filter if provided
-    if (surveyMonth) {
-      conditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+    for (const competitorType of competitorTypes) {
+      // Build query conditions
+      const conditions: any[] = [
+        eq(competitiveSurveyData.keyStatsLocation, location),
+        eq(competitiveSurveyData.roomType, mappedRoomType),
+        sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`,
+        eq(competitiveSurveyData.competitorType, competitorType)
+      ];
+      
+      // Add survey month filter if provided
+      if (surveyMonth) {
+        conditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+      }
+      
+      // Query competitive survey data for this location
+      surveyRecords = await db.select()
+        .from(competitiveSurveyData)
+        .where(and(...conditions));
+      
+      if (surveyRecords.length > 0) {
+        usedCompetitorType = competitorType;
+        break;
+      }
     }
-    
-    // Add competitor type filter if available
-    if (competitorType) {
-      conditions.push(eq(competitiveSurveyData.competitorType, competitorType));
-    }
-    
-    // Query competitive survey data for this location
-    const surveyRecords = await db.select()
-      .from(competitiveSurveyData)
-      .where(and(...conditions));
     
     if (surveyRecords.length === 0) {
       return null;
@@ -241,7 +249,7 @@ async function getBestCompetitorRate(
     const daysPerMonth = 30.44; // Average days per month
     let isConvertedFromDaily = false;
     
-    if (competitorType === 'HC' || competitorType === 'SMC') {
+    if (usedCompetitorType === 'HC' || usedCompetitorType === 'SMC') {
       // HC and SMC rates below $1000 are daily rates
       if (baseRate > 0 && baseRate < 1000) {
         isConvertedFromDaily = true;
@@ -256,10 +264,10 @@ async function getBestCompetitorRate(
         if (careLevel4Rate) careLevel4Rate = careLevel4Rate * daysPerMonth;
         if (medicationManagementFee) medicationManagementFee = medicationManagementFee * daysPerMonth;
         
-        console.log(`✓ Converted ${competitorType} daily rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
+        console.log(`✓ Converted ${usedCompetitorType} daily rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
       }
-    } else if (competitorType === 'AL' || competitorType === 'SL' || competitorType === 'VIL' || competitorType === 'IL') {
-      // AL/SL/VIL/IL rates under $500 are clearly daily rates (monthly AL should be $2000+)
+    } else if (usedCompetitorType === 'AL') {
+      // AL rates under $500 are clearly daily rates (monthly AL should be $2000+)
       if (baseRate > 0 && baseRate < 500) {
         isConvertedFromDaily = true;
         const originalRate = baseRate;
@@ -273,15 +281,15 @@ async function getBestCompetitorRate(
         if (careLevel4Rate && careLevel4Rate < 500) careLevel4Rate = careLevel4Rate * daysPerMonth;
         if (medicationManagementFee && medicationManagementFee < 100) medicationManagementFee = medicationManagementFee * daysPerMonth;
         
-        console.log(`⚠️  WARNING: Converting suspiciously low ${competitorType} rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
+        console.log(`⚠️  WARNING: Converting suspiciously low ${usedCompetitorType} rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month for ${bestRecord.competitorName}`);
       }
     }
     
     // Validate the final rate is reasonable
     if (baseRate > 0) {
-      const isReasonable = validateRateReasonability(competitorType || 'Unknown', baseRate, isConvertedFromDaily);
+      const isReasonable = validateRateReasonability(usedCompetitorType || 'Unknown', baseRate, isConvertedFromDaily);
       if (!isReasonable) {
-        console.warn(`⚠️  Suspicious rate for ${bestRecord.competitorName} at ${location}: ${competitorType} ${mappedRoomType} = $${baseRate.toFixed(2)}/month`);
+        console.warn(`⚠️  Suspicious rate for ${bestRecord.competitorName} at ${location}: ${usedCompetitorType} ${mappedRoomType} = $${baseRate.toFixed(2)}/month`);
       }
     }
     

@@ -13,13 +13,15 @@ interface JobProgress {
 }
 
 // Service line mapping for matching
+// Survey data has: AL, HC, SMC competitor types only
+// VIL and SL use AL competitor data (no IL data exists)
 const SERVICE_LINE_MAPPING: Record<string, string[]> = {
   'AL': ['AL'],
-  'AL/MC': ['SMC', 'AL/MC'],
+  'AL/MC': ['SMC', 'AL'],
   'HC': ['HC'],
-  'HC/MC': ['SMC', 'HC/MC'],
-  'SL': ['IL', 'SL'],
-  'VIL': ['IL', 'VIL']
+  'HC/MC': ['SMC', 'HC'],
+  'SL': ['AL'],
+  'VIL': ['AL']
 };
 
 // Room type normalization
