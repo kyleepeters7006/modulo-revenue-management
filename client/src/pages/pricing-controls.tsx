@@ -54,13 +54,17 @@ export default function PricingControls() {
     saveFiltersToStorage(filters);
   }, [selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations]);
 
-  const { data: locationsData } = useQuery({
+  const { data: locationsData } = useQuery<{
+    locations?: Array<{ id: string; name: string }>;
+    regions?: string[];
+    divisions?: string[];
+  }>({
     queryKey: ["/api/locations"],
   });
 
   const regions = locationsData?.regions || [];
   const divisions = locationsData?.divisions || [];
-  const locations = locationsData?.locations?.map((loc: any) => loc.name) || [];
+  const locations = locationsData?.locations?.map((loc) => loc.name) || [];
 
   const serviceLines = ["All", "AL", "HC", "IL", "AL/MC", "HC/MC", "SL"];
 
@@ -83,6 +87,25 @@ export default function PricingControls() {
   const selectedLocationId = selectedLocations.length === 1 
     ? locationsData?.locations?.find((loc: any) => loc.name === selectedLocations[0])?.id 
     : undefined;
+
+  const getScopeDescription = () => {
+    if (selectedLocations.length === 0 && selectedServiceLine === "All") {
+      return "Portfolio-wide defaults (applies to all locations and service lines)";
+    }
+    if (selectedLocations.length === 0 && selectedServiceLine !== "All") {
+      return `Defaults for ${selectedServiceLine} service line (all locations)`;
+    }
+    if (selectedLocations.length === 1 && selectedServiceLine === "All") {
+      return `All service lines at ${selectedLocations[0]}`;
+    }
+    if (selectedLocations.length === 1 && selectedServiceLine !== "All") {
+      return `${selectedServiceLine} at ${selectedLocations[0]}`;
+    }
+    if (selectedLocations.length > 1) {
+      return `${selectedLocations.length} locations selected - settings saved individually for each`;
+    }
+    return "Custom scope";
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -295,6 +318,21 @@ export default function PricingControls() {
                   </Button>
                 ))}
               </div>
+            </div>
+
+            {/* Scope Indicator */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Settings Scope:</span>
+                <Badge variant="secondary" className="text-sm" data-testid="badge-scope">
+                  {getScopeDescription()}
+                </Badge>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {selectedLocations.length > 1 
+                  ? "Note: Select a single location to configure specific settings. Currently showing portfolio defaults."
+                  : "Settings saved at this level will apply to matching units during rate calculations."}
+              </p>
             </div>
           </div>
         </div>

@@ -1,0 +1,58 @@
+On the Floor Plans page, when the user clicks “Edit Layout”, switch the unit markers into an editable mode with these features:
+
+Circle resize
+
+Each unit marker starts as a circle centered where it is now.
+
+Show a small handle on the circle’s edge.
+
+Dragging this handle changes the radius (so the user can make the circle larger or smaller).
+
+Keep the room number text centered inside the circle as it resizes.
+
+Convert circle → polygon
+
+Add a context menu or button for each marker labeled “Convert to polygon”.
+
+When clicked, replace the circle with a polygon that initially has 4 points (a simple rectangle) centered on the original circle position.
+
+Store polygons as an ordered list of points relative to the background image:
+points: [{ x, y }, ...].
+
+Polygon editing
+
+Show draggable corner handles at each polygon vertex.
+
+The user can drag each corner to match the room perimeter on the floor-plan image.
+
+Support:
+
+Adding a new corner by clicking on an edge (insert a new point between the two existing points on that edge).
+
+Deleting a corner by selecting a vertex and pressing Backspace/Delete or using a small “x” icon.
+
+Keep the room number label centered inside the polygon (use the polygon centroid).
+
+Data model & saving
+
+Extend the existing layout JSON to support both shapes:
+
+type UnitShape = {
+  id: string;          // unit id (room number)
+  type: 'circle' | 'polygon';
+  center?: { x: number; y: number }; // for circles
+  radius?: number;                    // for circles
+  points?: { x: number; y: number }[]; // for polygons
+  status: 'available' | 'occupied';
+}
+
+
+When the user clicks Save Layout, persist the updated positions/sizes/points so the view mode uses the new shapes.
+
+View vs Edit
+
+In normal (non-edit) mode, shapes are not draggable and there are no corner/resize handles.
+
+Only Edit Layout mode shows the resize handles and polygon vertices.
+
+Use whatever is simplest (e.g., SVG or HTML5 canvas) so that dragging vertices and resizing is smooth and works well on desktop browsers.
