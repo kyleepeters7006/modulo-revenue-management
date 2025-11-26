@@ -10,13 +10,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 const weightConfigs = [
-  { key: "occupancyPressure", label: "Occupancy Pressure", default: 30 },
+  { key: "occupancyPressure", label: "Occupancy Pressure", default: 44 },
   { key: "daysVacantDecay", label: "Days Vacant Decay", default: 10 },
-  { key: "roomAttributes", label: "Room Attributes", default: 15 },
   { key: "seasonality", label: "Seasonality", default: 10 },
-  { key: "competitorRates", label: "Competitor Rates", default: 15 },
-  { key: "stockMarket", label: "Stock Market", default: 5 },
-  { key: "inquiryTourVolume", label: "Inquiry & Tour Volume", default: 15 },
+  { key: "competitorRates", label: "Competitor Rates", default: 12 },
+  { key: "stockMarket", label: "Stock Market", default: 10 },
+  { key: "inquiryTourVolume", label: "Inquiry & Tour Volume", default: 14 },
 ];
 
 const weightDetails: Record<string, {
@@ -91,31 +90,6 @@ const weightDetails: Record<string, {
         "Weighted Seasonal = 5% × 10% weight = 0.5%",
         "For stronger effect, assume 6% seasonal boost",
         "Dollar Impact = $5,000 × 6% = $300"
-      ]
-    }
-  },
-  roomAttributes: {
-    title: "Room Attributes",
-    description: "Adjusts pricing based on unit-specific features like location within building, size, view quality, renovation status, and amenities.",
-    calculation: "Attribute Score = weighted average of location/size/view/renovation/amenity ratings, scaled to ±10% max adjustment",
-    dataSource: "Unit attribute ratings (A/B/C grades) from rent_roll_data for location, size, view, renovation, and amenities",
-    example: {
-      scenario: "Premium unit with A ratings across attributes",
-      baseRate: 5000,
-      adjustment: 250,
-      finalRate: 5250,
-      calculationSteps: [
-        "Location Rating = A (1.0)",
-        "Size Rating = A (1.0)",
-        "View Rating = A (1.0)",
-        "Renovation Rating = B (0.5)",
-        "Amenity Rating = A (1.0)",
-        "Average Score = (1.0+1.0+1.0+0.5+1.0)/5 = 0.9",
-        "Signal = (0.9 - 0.5) / 0.5 = 0.8 (above midpoint)",
-        "Max Adjustment = ±10%",
-        "Raw Adjustment = 0.8 × 10% = +8%",
-        "Weighted (15% weight) = 8% × 0.15 = 1.2%",
-        "Dollar Impact = $5,000 × 5% = $250"
       ]
     }
   },
@@ -239,13 +213,12 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       setEnableWeights(apiWeights.enable_weights !== false); // Default to true if not present
       
       const loadedWeights = {
-        occupancyPressure: apiWeights.occupancy_pressure ?? 25,
-        daysVacantDecay: apiWeights.days_vacant_decay ?? 15,
-        roomAttributes: apiWeights.room_attributes ?? 20,
+        occupancyPressure: apiWeights.occupancy_pressure ?? 44,
+        daysVacantDecay: apiWeights.days_vacant_decay ?? 10,
         seasonality: apiWeights.seasonality ?? 10,
-        competitorRates: apiWeights.competitor_rates ?? 10,
+        competitorRates: apiWeights.competitor_rates ?? 12,
         stockMarket: apiWeights.stock_market ?? 10,
-        inquiryTourVolume: apiWeights.inquiry_tour_volume ?? 10,
+        inquiryTourVolume: apiWeights.inquiry_tour_volume ?? 14,
       };
       
       // Verify weights total 100 (they should from backend)
@@ -278,7 +251,6 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
         enable_weights: enableWeights,
         occupancy_pressure: weightsData.occupancyPressure,
         days_vacant_decay: weightsData.daysVacantDecay,
-        room_attributes: weightsData.roomAttributes,
         seasonality: weightsData.seasonality,
         competitor_rates: weightsData.competitorRates,
         stock_market: weightsData.stockMarket,
