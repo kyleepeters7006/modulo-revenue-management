@@ -14,6 +14,9 @@ interface ModuloCalculationDialogProps {
   unitId: string;
   children: React.ReactNode;
   calculationDetails?: string; // JSON string with calculation details
+  ruleAdjustedRate?: number | null; // Rate after manual rules are applied
+  appliedRuleName?: string | null; // Name of the applied rule
+  serviceLine?: string | null; // Service line for rate formatting
 }
 
 export default function ModuloCalculationDialog({ 
@@ -21,7 +24,10 @@ export default function ModuloCalculationDialog({
   currentRate, 
   unitId,
   children,
-  calculationDetails
+  calculationDetails,
+  ruleAdjustedRate,
+  appliedRuleName,
+  serviceLine
 }: ModuloCalculationDialogProps) {
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<any>(null);
@@ -99,7 +105,7 @@ export default function ModuloCalculationDialog({
                   <CardTitle className="text-sm">Rate Summary</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
                       <p className="text-xs text-muted-foreground">Base Rate</p>
                       <p className="text-lg font-bold">{formatCurrency(calcDetails.baseRate || currentRate)}</p>
@@ -121,8 +127,23 @@ export default function ModuloCalculationDialog({
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Final Rate</p>
-                      <p className="text-lg font-bold text-primary">{formatCurrency(getFinalRate(calcDetails))}</p>
+                      <p className="text-xs text-muted-foreground">Modulo Rate</p>
+                      <p className={`text-lg font-bold ${ruleAdjustedRate ? 'text-muted-foreground line-through' : 'text-primary'}`}>
+                        {formatCurrency(getFinalRate(calcDetails))}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        {appliedRuleName ? 'Applied Rate' : 'Final Rate'}
+                      </p>
+                      <p className="text-lg font-bold text-primary">
+                        {formatCurrency(ruleAdjustedRate || getFinalRate(calcDetails))}
+                      </p>
+                      {appliedRuleName && (
+                        <Badge variant="default" className="mt-1 text-xs bg-green-600">
+                          {appliedRuleName}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </CardContent>
