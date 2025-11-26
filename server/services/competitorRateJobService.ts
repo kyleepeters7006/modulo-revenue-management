@@ -35,6 +35,22 @@ function normalizeRoomType(roomType: string): string {
   return roomType;
 }
 
+// Check if service line uses daily rates
+function isDailyRateServiceLine(serviceLine: string | null): boolean {
+  if (!serviceLine) return false;
+  const upper = serviceLine.toUpperCase();
+  return upper === 'HC' || upper === 'HC/MC';
+}
+
+// Convert monthly rate to daily for HC service lines
+const DAYS_PER_MONTH = 30.44;
+function convertToStoredRate(monthlyRate: number, serviceLine: string | null): number {
+  if (isDailyRateServiceLine(serviceLine)) {
+    return Math.round((monthlyRate / DAYS_PER_MONTH) * 100) / 100; // Daily rate with 2 decimal places
+  }
+  return monthlyRate; // Keep as monthly for AL, SL, VIL
+}
+
 /**
  * Create a new competitor rate job
  */
@@ -195,11 +211,17 @@ async function processBatch(
       }
 
       if (matchedCompetitor) {
-        // Calculate final rate with care adjustments
-        const baseRate = matchedCompetitor.monthlyRateAvg || 0;
-        const careAdjustment = matchedCompetitor.careLevel2Rate || 0;
-        const medManagement = matchedCompetitor.medicationManagementFee || 0;
-        const finalRate = baseRate + careAdjustment + medManagement;
+        // Calculate final rate with care adjustments (all values from survey are monthly)
+        const baseRateMonthly = matchedCompetitor.monthlyRateAvg || 0;
+        const careAdjustmentMonthly = matchedCompetitor.careLevel2Rate || 0;
+        const medManagementMonthly = matchedCompetitor.medicationManagementFee || 0;
+        const finalRateMonthly = baseRateMonthly + careAdjustmentMonthly + medManagementMonthly;
+
+        // Convert to stored rate (daily for HC/HC-MC, monthly for others)
+        const baseRate = convertToStoredRate(baseRateMonthly, serviceLine);
+        const finalRate = convertToStoredRate(finalRateMonthly, serviceLine);
+        const careAdjustment = convertToStoredRate(careAdjustmentMonthly, serviceLine);
+        const medManagement = convertToStoredRate(medManagementMonthly, serviceLine);
 
         await db.update(rentRollData)
           .set({
