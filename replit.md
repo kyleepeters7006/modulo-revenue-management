@@ -71,6 +71,20 @@ Preferred communication style: Simple, everyday language.
 - **UI Contrast Improvements**: Enhanced text contrast in Service Line Breakdown with bold dark gray service line names and medium gray unit counts for better readability
 - **TypeScript Error Resolution**: Addressed critical type errors in server/routes.ts while maintaining runtime stability
 
+## New Features (November 2025)
+- **Analytics Division Highlighting**: Clickable division badges in scatter plot legends with teal highlighting. Multiple divisions can be selected; non-selected divisions appear muted at 15% opacity. Clear button appears when filtering is active.
+- **Analytics Performance Caching**: Added 5-minute staleTime and 10-minute gcTime caching to campus-metrics and vacancy-scatter queries, reducing unnecessary API calls.
+- **AI Insights Persistence**: localStorage persistence saves last generated AI insights and filters. Content is restored on page load, with edit mode for modifying saved content.
+- **AI Insights Filter System**: Location and service line filter dropdowns scope AI analysis to specific subsets of data. Backend `/api/ai/suggest` endpoint accepts location and serviceLine parameters.
+- **Flexible Import Mapping Service**: Comprehensive column mapping system for CSV/Excel uploads with:
+  - 3 built-in profiles: Trilogy Format (default), Standard Industry Format, MatrixCare Export
+  - Fuzzy matching using Levenshtein distance (0.7 threshold)
+  - Field alias system supporting variations (e.g., "Room Number" → "room_number" → "Unit ID")
+  - Value transformations for booleans, service lines, currency parsing
+  - Preview UI showing detected mappings with confidence badges (Exact/Alias/Fuzzy)
+  - Custom profile saving to database (`import_mapping_profiles` table)
+  - API endpoints: GET/POST/PUT/DELETE `/api/import-mappings`, POST `/api/import-mappings/preview`, POST `/api/upload-rent-roll-mapped`
+
 # External Dependencies
 
 ## Core Runtime
