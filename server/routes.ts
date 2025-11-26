@@ -1019,6 +1019,184 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Import Mapping Profiles CRUD
+  app.get("/api/import-mappings", async (req, res) => {
+    try {
+      const { importMappingService } = await import('./services/importMappingService');
+      const profiles = await importMappingService.getAllProfiles();
+      res.json({ profiles });
+    } catch (error) {
+      console.error("Error fetching import mappings:", error);
+      res.status(500).json({ error: "Failed to fetch import mappings" });
+    }
+  });
+
+  app.get("/api/import-mappings/:id", async (req, res) => {
+    try {
+      const { importMappingService } = await import('./services/importMappingService');
+      const profile = await importMappingService.getProfileById(req.params.id);
+      if (!profile) {
+        return res.status(404).json({ error: "Import mapping profile not found" });
+      }
+      res.json({ profile });
+    } catch (error) {
+      console.error("Error fetching import mapping:", error);
+      res.status(500).json({ error: "Failed to fetch import mapping" });
+    }
+  });
+
+  app.post("/api/import-mappings", async (req, res) => {
+    try {
+      const { importMappingService } = await import('./services/importMappingService');
+      const profile = await importMappingService.createProfile(req.body);
+      res.json({ profile });
+    } catch (error) {
+      console.error("Error creating import mapping:", error);
+      res.status(500).json({ error: "Failed to create import mapping" });
+    }
+  });
+
+  app.put("/api/import-mappings/:id", async (req, res) => {
+    try {
+      const { importMappingService } = await import('./services/importMappingService');
+      const profile = await importMappingService.updateProfile(req.params.id, req.body);
+      if (!profile) {
+        return res.status(404).json({ error: "Import mapping profile not found" });
+      }
+      res.json({ profile });
+    } catch (error) {
+      console.error("Error updating import mapping:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to update import mapping" });
+    }
+  });
+
+  app.delete("/api/import-mappings/:id", async (req, res) => {
+    try {
+      const { importMappingService } = await import('./services/importMappingService');
+      await importMappingService.deleteProfile(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting import mapping:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to delete import mapping" });
+    }
+  });
+
+  // Preview column mappings for a CSV file
+  app.post("/api/import-mappings/preview", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const { importMappingService } = await import('./services/importMappingService');
+      const profileId = req.body.profileId;
+
+      const csvText = req.file.buffer.toString();
+      const results = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      
+      if (results.errors.length > 0) {
+        return res.status(400).json({ error: "CSV parsing failed", details: results.errors });
+      }
+
+      const sourceColumns = results.meta.fields || [];
+      const preview = await importMappingService.detectMappings(sourceColumns, profileId);
+      
+      const sampleRows = (results.data as any[]).slice(0, 5);
+
+      res.json({ 
+        preview,
+        sourceColumns,
+        sampleRows,
+        totalRows: results.data.length
+      });
+    } catch (error) {
+      console.error("Error previewing import mappings:", error);
+      res.status(500).json({ error: "Failed to preview import mappings" });
+    }
+  });
+
+  // Upload rent roll with flexible mapping
+  app.post("/api/upload-rent-roll-mapped", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const { importMappingService, DetectedMapping } = await import('./services/importMappingService');
+      const profileId = req.body.profileId;
+      const customMappings = req.body.customMappings ? JSON.parse(req.body.customMappings) : null;
+
+      const csvText = req.file.buffer.toString();
+      const results = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      
+      if (results.errors.length > 0) {
+        return res.status(400).json({ error: "CSV parsing failed", details: results.errors });
+      }
+
+      const sourceColumns = results.meta.fields || [];
+      let mappings: any[];
+
+      if (customMappings && Array.isArray(customMappings)) {
+        mappings = customMappings;
+      } else {
+        const preview = await importMappingService.detectMappings(sourceColumns, profileId);
+        mappings = preview.detectedMappings;
+      }
+
+      const unmappedRequired = mappings
+        .filter(m => m.isRequired && !m.targetField)
+        .map(m => m.sourceColumn);
+      
+      const requiredFields = importMappingService.getRequiredFields();
+      const mappedFields = new Set(mappings.filter(m => m.targetField).map(m => m.targetField));
+      const missingRequired = requiredFields.filter(f => !mappedFields.has(f));
+
+      if (missingRequired.length > 0) {
+        return res.status(400).json({ 
+          error: "Missing required field mappings",
+          missingFields: missingRequired
+        });
+      }
+
+      let processedRows = 0;
+      let errorRows = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < (results.data as any[]).length; i++) {
+        const row = (results.data as any[])[i];
+        try {
+          const mappedRow = importMappingService.applyMappings(row, mappings);
+          
+          if (!mappedRow.uploadMonth) {
+            mappedRow.uploadMonth = new Date().toISOString().substring(0, 7);
+          }
+          if (!mappedRow.date) {
+            mappedRow.date = new Date().toISOString().substring(0, 10);
+          }
+
+          const validatedData = insertRentRollDataSchema.parse(mappedRow);
+          await storage.createRentRollData(validatedData);
+          processedRows++;
+        } catch (error) {
+          errorRows++;
+          if (errors.length < 10) {
+            errors.push(`Row ${i + 2}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }
+
+      res.json({ 
+        success: true,
+        rows: processedRows,
+        errorRows,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } catch (error) {
+      console.error("Error uploading mapped rent roll:", error);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
   // Assumptions CRUD
   app.post("/api/assumptions", async (req, res) => {
     try {
@@ -2983,28 +3161,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
       }
 
-      const rentRollData = await storage.getRentRollData();
-      const competitors = await storage.getCompetitors();
+      const { location, serviceLine } = req.body || {};
       
-      // Create context for AI
+      let allRentRollData = await storage.getRentRollData();
+      let allCompetitors = await storage.getCompetitors();
+      
+      // Apply filters if provided
+      let filteredData = allRentRollData;
+      let filteredCompetitors = allCompetitors;
+      
+      if (location) {
+        filteredData = filteredData.filter(u => u.location === location);
+        filteredCompetitors = filteredCompetitors.filter(c => c.location === location);
+      }
+      
+      if (serviceLine) {
+        filteredData = filteredData.filter(u => u.serviceLine === serviceLine);
+        // Competitors may not have service line, so we keep all for the location
+      }
+      
+      // Calculate service line breakdown for context
+      const serviceLineBreakdown: Record<string, number> = {};
+      filteredData.forEach(u => {
+        const sl = u.serviceLine || 'Unknown';
+        serviceLineBreakdown[sl] = (serviceLineBreakdown[sl] || 0) + 1;
+      });
+      
+      // Calculate average rates by room type
+      const roomTypeRates: Record<string, { total: number; count: number }> = {};
+      filteredData.forEach(u => {
+        const rt = u.roomType || 'Unknown';
+        if (!roomTypeRates[rt]) {
+          roomTypeRates[rt] = { total: 0, count: 0 };
+        }
+        roomTypeRates[rt].total += u.baseRent || 0;
+        roomTypeRates[rt].count += 1;
+      });
+      
+      const roomTypeAvgRates = Object.entries(roomTypeRates)
+        .map(([type, data]) => `${type}: $${Math.round(data.total / data.count).toLocaleString()}`)
+        .join(', ');
+      
+      // Create context for AI with filtered data
+      const totalUnits = filteredData.length;
+      const occupiedUnits = filteredData.filter(u => u.occupiedYN).length;
+      const occupancyRate = totalUnits > 0 ? occupiedUnits / totalUnits : 0;
+      const avgRent = totalUnits > 0 
+        ? filteredData.reduce((sum, u) => sum + (u.baseRent || 0), 0) / totalUnits 
+        : 0;
+      
       const context = {
-        totalUnits: rentRollData.length,
-        occupancyRate: rentRollData.filter(u => u.occupiedYN).length / rentRollData.length,
-        averageRent: rentRollData.reduce((sum, u) => sum + u.baseRent, 0) / rentRollData.length,
-        vacantUnitsOver30Days: rentRollData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length,
-        competitorCount: competitors.length,
+        totalUnits,
+        occupancyRate,
+        averageRent: avgRent,
+        vacantUnitsOver30Days: filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length,
+        competitorCount: filteredCompetitors.length,
         marketSentiment: marketDataCache.lastMonthReturnPct > 1 ? "bullish" : marketDataCache.lastMonthReturnPct < -1 ? "bearish" : "neutral"
       };
 
+      // Build filter context string for the prompt
+      const filterContext = [];
+      if (location) filterContext.push(`Location: ${location}`);
+      if (serviceLine) filterContext.push(`Service Line: ${serviceLine}`);
+      const filterStr = filterContext.length > 0 
+        ? `\nFilters Applied: ${filterContext.join(', ')}`
+        : '\nScope: All locations and service lines';
+      
+      const serviceLineStr = Object.entries(serviceLineBreakdown)
+        .map(([sl, count]) => `${sl}: ${count} units`)
+        .join(', ');
+
       const prompt = `As a revenue management expert, analyze this senior living property data and provide 3-4 specific pricing recommendations:
 
-Property Context:
+Property Context:${filterStr}
 - Total Units: ${context.totalUnits}
 - Occupancy Rate: ${(context.occupancyRate * 100).toFixed(1)}%
 - Average Rent: $${context.averageRent.toFixed(0)}
 - Vacant Units (30+ days): ${context.vacantUnitsOver30Days}
 - Market Sentiment: ${context.marketSentiment}
 - Competitors Tracked: ${context.competitorCount}
+- Service Line Distribution: ${serviceLineStr || 'N/A'}
+- Avg Rates by Room Type: ${roomTypeAvgRates || 'N/A'}
 
 Provide actionable insights focusing on:
 1. Pricing strategy adjustments
@@ -3012,7 +3249,7 @@ Provide actionable insights focusing on:
 3. Market positioning recommendations
 4. Risk mitigation suggestions
 
-Keep recommendations specific and quantitative when possible.`;
+Keep recommendations specific and quantitative when possible.${location ? ` Focus your analysis on ${location}.` : ''}${serviceLine ? ` Consider ${serviceLine}-specific market dynamics.` : ''}`;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -3035,7 +3272,13 @@ Keep recommendations specific and quantitative when possible.`;
       const result = await response.json();
       res.json({ 
         ok: true, 
-        text: result.choices[0].message.content 
+        text: result.choices[0].message.content,
+        filters: { location, serviceLine },
+        context: {
+          totalUnits: context.totalUnits,
+          occupancyRate: context.occupancyRate,
+          competitorCount: context.competitorCount
+        }
       });
 
     } catch (error) {

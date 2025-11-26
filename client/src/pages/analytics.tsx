@@ -20,7 +20,44 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Download, TrendingUp, TrendingDown, Minus, Target, Building2, DollarSign, Users, ArrowLeft } from 'lucide-react';
-import type { SelectCampusData, SelectCompetitors } from '@shared/schema';
+
+interface ProcessedCampusData {
+  campusId: string;
+  campusName: string;
+  region: string;
+  division: string;
+  avgRate: number;
+  occupancy: number;
+  competitorAvgRate: number;
+  pricePosition: number;
+  revenueImpact: number;
+  potentialRevenue: number;
+  unitsCount: number;
+  vacantUnits: number;
+  occupiedUnits: number;
+  avgLOS: number;
+  marketShareScore: number;
+  size: number;
+  rateGrowthT6: number;
+  avgHcDailyRate?: number;
+  avgSeniorHousingMonthlyRate?: number;
+  serviceLine?: string;
+}
+
+interface ExportRow {
+  Campus: string;
+  Region: string;
+  'Avg Rate': number;
+  'Occupancy %': string;
+  'Market Rate': number;
+  'Price Position %': string;
+}
+
+interface BreakdownItem {
+  campus: string;
+  value: string;
+  detail: string;
+}
 
 interface CampusMetrics {
   campusId: string;
@@ -126,8 +163,9 @@ export function Analytics() {
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const tooltipTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isTooltipLocked, setIsTooltipLocked] = useState(false);
+  const [highlightedDivisions, setHighlightedDivisions] = useState<Set<string>>(new Set());
 
-  // Fetch campus analytics data
+  // Fetch campus analytics data with aggressive caching
   const { data: analyticsData, isLoading } = useQuery({
     queryKey: ['/api/analytics/campus-metrics', selectedRegion, selectedDivision, selectedServiceLine],
     queryFn: async () => {
@@ -140,24 +178,25 @@ export function Analytics() {
       const response = await fetch(`/api/analytics/campus-metrics${queryString}`);
       if (!response.ok) throw new Error('Failed to fetch analytics data');
       return response.json();
-    }
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in garbage collection for 10 minutes
   });
   
-  // Fetch vacancy scatter data
+  // Fetch vacancy scatter data with caching
   const { data: vacancyData, isLoading: isLoadingVacancy } = useQuery({
     queryKey: ['/api/analytics/vacancy-scatter', selectedRegion, selectedDivision, selectedServiceLine],
     queryFn: async () => {
       const params = new URLSearchParams();
-      // Note: The backend endpoint doesn't filter by region/division, 
-      // it only filters by specific location name or service line
-      // We could enhance the backend to support regional filtering if needed
       if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
       const queryString = params.toString() ? `?${params.toString()}` : '';
       
       const response = await fetch(`/api/analytics/vacancy-scatter${queryString}`);
       if (!response.ok) throw new Error('Failed to fetch vacancy data');
       return response.json();
-    }
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in garbage collection for 10 minutes
   });
 
   // Process data for scatter plots
@@ -188,29 +227,68 @@ export function Analytics() {
     return uniqueDivisions.filter(Boolean);
   }, [analyticsData]);
 
+  // Teal highlight color (Trilogy brand)
+  const HIGHLIGHT_COLOR = '#14B8A6';  // Trilogy Teal
+  const MUTED_OPACITY = 0.15;
+
   // Color scale for divisions - using grey, black, dark teal, light teal, dark orange, dark blue, hunter green
+  const divisionColors: Record<string, string> = {
+    'Central': '#6B7280',  // Grey
+    'Central Indiana': '#1F2937',  // Black
+    'Central Kentucky': '#0F766E',  // Dark Teal
+    'Indianapolis Metro': '#5EEAD4',  // Light Teal
+    'Lexington Metro': '#EA580C',  // Dark Orange
+    'Louisville Metro': '#1E40AF',  // Dark Blue
+    'Northeast': '#065F46',  // Hunter Green
+    'Northeast Ohio': '#DC2626',  // Red
+    'Northwest': '#9CA3AF',  // Medium Grey
+    'Northwest Ohio': '#059669',  // Emerald Green
+    'Southeast': '#EC4899',  // Pink
+    'Southeast Indiana': '#14B8A6',  // Teal
+    'Southwest': '#EF4444',  // Bright Red
+  };
+
   const getColor = (division: string) => {
-    const colors: Record<string, string> = {
-      'Central': '#6B7280',  // Grey
-      'Central Indiana': '#1F2937',  // Black
-      'Central Kentucky': '#0F766E',  // Dark Teal
-      'Indianapolis Metro': '#5EEAD4',  // Light Teal
-      'Lexington Metro': '#EA580C',  // Dark Orange
-      'Louisville Metro': '#1E40AF',  // Dark Blue
-      'Northeast': '#065F46',  // Hunter Green
-      'Northeast Ohio': '#DC2626',  // Red
-      'Northwest': '#9CA3AF',  // Medium Grey
-      'Northwest Ohio': '#059669',  // Emerald Green
-      'Southeast': '#EC4899',  // Pink
-      'Southeast Indiana': '#14B8A6',  // Teal
-      'Southwest': '#EF4444',  // Bright Red
-    };
-    return colors[division] || '#6B7280';
+    // If no divisions are highlighted, show all in their original colors
+    if (highlightedDivisions.size === 0) {
+      return divisionColors[division] || '#6B7280';
+    }
+    // If this division is highlighted, show in teal
+    if (highlightedDivisions.has(division)) {
+      return HIGHLIGHT_COLOR;
+    }
+    // Otherwise show muted
+    return divisionColors[division] || '#6B7280';
+  };
+
+  const getOpacity = (division: string) => {
+    // If no divisions are highlighted, show all at full opacity
+    if (highlightedDivisions.size === 0) return 1;
+    // If this division is highlighted, full opacity
+    if (highlightedDivisions.has(division)) return 1;
+    // Otherwise muted
+    return MUTED_OPACITY;
+  };
+
+  const toggleDivisionHighlight = (division: string) => {
+    setHighlightedDivisions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(division)) {
+        newSet.delete(division);
+      } else {
+        newSet.add(division);
+      }
+      return newSet;
+    });
+  };
+
+  const clearHighlights = () => {
+    setHighlightedDivisions(new Set());
   };
 
   const handleExportChart = () => {
     // In a real implementation, this would export the chart as PNG/SVG
-    const data = processedData.map(d => ({
+    const data: ExportRow[] = processedData.map((d: ProcessedCampusData) => ({
       Campus: d.campusName,
       Region: d.region,
       'Avg Rate': d.avgRate,
@@ -221,7 +299,7 @@ export function Analytics() {
     
     const csv = [
       Object.keys(data[0]).join(','),
-      ...data.map(row => Object.values(row).join(','))
+      ...data.map((row: ExportRow) => Object.values(row).join(','))
     ].join('\n');
     
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -592,19 +670,47 @@ export function Analytics() {
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
+                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getColor(entry.division)} 
+                        fillOpacity={getOpacity(entry.division)}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+              <div className="flex flex-wrap gap-2 mt-4 justify-center items-center">
                 {divisions.map(division => (
-                  <Badge key={division} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                  <Badge 
+                    key={division} 
+                    variant={highlightedDivisions.has(division) ? "default" : "outline"} 
+                    className={`gap-1 cursor-pointer transition-all hover:scale-105 ${
+                      highlightedDivisions.has(division) ? 'bg-[#14B8A6] border-[#14B8A6] text-white' : ''
+                    }`}
+                    onClick={() => toggleDivisionHighlight(division)}
+                    data-testid={`legend-division-${division.replace(/\s+/g, '-').toLowerCase()}`}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ 
+                        backgroundColor: highlightedDivisions.has(division) ? '#ffffff' : divisionColors[division] || '#6B7280'
+                      }} 
+                    />
                     {division}
                   </Badge>
                 ))}
+                {highlightedDivisions.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHighlights}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    data-testid="button-clear-highlights"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -657,19 +763,45 @@ export function Analytics() {
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
+                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getColor(entry.division)} 
+                        fillOpacity={getOpacity(entry.division)}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+              <div className="flex flex-wrap gap-2 mt-4 justify-center items-center">
                 {divisions.map(division => (
-                  <Badge key={division} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                  <Badge 
+                    key={division} 
+                    variant={highlightedDivisions.has(division) ? "default" : "outline"} 
+                    className={`gap-1 cursor-pointer transition-all hover:scale-105 ${
+                      highlightedDivisions.has(division) ? 'bg-[#14B8A6] border-[#14B8A6] text-white' : ''
+                    }`}
+                    onClick={() => toggleDivisionHighlight(division)}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ 
+                        backgroundColor: highlightedDivisions.has(division) ? '#ffffff' : divisionColors[division] || '#6B7280'
+                      }} 
+                    />
                     {division}
                   </Badge>
                 ))}
+                {highlightedDivisions.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHighlights}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -721,19 +853,45 @@ export function Analytics() {
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
+                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getColor(entry.division)} 
+                        fillOpacity={getOpacity(entry.division)}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+              <div className="flex flex-wrap gap-2 mt-4 justify-center items-center">
                 {divisions.map(division => (
-                  <Badge key={division} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                  <Badge 
+                    key={division} 
+                    variant={highlightedDivisions.has(division) ? "default" : "outline"} 
+                    className={`gap-1 cursor-pointer transition-all hover:scale-105 ${
+                      highlightedDivisions.has(division) ? 'bg-[#14B8A6] border-[#14B8A6] text-white' : ''
+                    }`}
+                    onClick={() => toggleDivisionHighlight(division)}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ 
+                        backgroundColor: highlightedDivisions.has(division) ? '#ffffff' : divisionColors[division] || '#6B7280'
+                      }} 
+                    />
                     {division}
                   </Badge>
                 ))}
+                {highlightedDivisions.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHighlights}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -785,19 +943,45 @@ export function Analytics() {
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
+                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getColor(entry.division)} 
+                        fillOpacity={getOpacity(entry.division)}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+              <div className="flex flex-wrap gap-2 mt-4 justify-center items-center">
                 {divisions.map(division => (
-                  <Badge key={division} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                  <Badge 
+                    key={division} 
+                    variant={highlightedDivisions.has(division) ? "default" : "outline"} 
+                    className={`gap-1 cursor-pointer transition-all hover:scale-105 ${
+                      highlightedDivisions.has(division) ? 'bg-[#14B8A6] border-[#14B8A6] text-white' : ''
+                    }`}
+                    onClick={() => toggleDivisionHighlight(division)}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ 
+                        backgroundColor: highlightedDivisions.has(division) ? '#ffffff' : divisionColors[division] || '#6B7280'
+                      }} 
+                    />
                     {division}
                   </Badge>
                 ))}
+                {highlightedDivisions.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHighlights}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -849,19 +1033,45 @@ export function Analytics() {
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
+                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getColor(entry.division)} 
+                        fillOpacity={getOpacity(entry.division)}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+              <div className="flex flex-wrap gap-2 mt-4 justify-center items-center">
                 {divisions.map(division => (
-                  <Badge key={division} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                  <Badge 
+                    key={division} 
+                    variant={highlightedDivisions.has(division) ? "default" : "outline"} 
+                    className={`gap-1 cursor-pointer transition-all hover:scale-105 ${
+                      highlightedDivisions.has(division) ? 'bg-[#14B8A6] border-[#14B8A6] text-white' : ''
+                    }`}
+                    onClick={() => toggleDivisionHighlight(division)}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ 
+                        backgroundColor: highlightedDivisions.has(division) ? '#ffffff' : divisionColors[division] || '#6B7280'
+                      }} 
+                    />
                     {division}
                   </Badge>
                 ))}
+                {highlightedDivisions.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHighlights}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -914,19 +1124,45 @@ export function Analytics() {
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={getColor(entry.division)} />
+                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={getColor(entry.division)} 
+                        fillOpacity={getOpacity(entry.division)}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+              <div className="flex flex-wrap gap-2 mt-4 justify-center items-center">
                 {divisions.map(division => (
-                  <Badge key={division} variant="outline" className="gap-1">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(division) }} />
+                  <Badge 
+                    key={division} 
+                    variant={highlightedDivisions.has(division) ? "default" : "outline"} 
+                    className={`gap-1 cursor-pointer transition-all hover:scale-105 ${
+                      highlightedDivisions.has(division) ? 'bg-[#14B8A6] border-[#14B8A6] text-white' : ''
+                    }`}
+                    onClick={() => toggleDivisionHighlight(division)}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ 
+                        backgroundColor: highlightedDivisions.has(division) ? '#ffffff' : divisionColors[division] || '#6B7280'
+                      }} 
+                    />
                     {division}
                   </Badge>
                 ))}
+                {highlightedDivisions.size > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearHighlights}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1101,7 +1337,7 @@ export function Analytics() {
                     Campus Breakdown (Top 10):
                   </h4>
                   <div className="space-y-1">
-                    {calculationDetails.breakdown.map((campus, idx) => (
+                    {calculationDetails.breakdown.map((campus: BreakdownItem, idx: number) => (
                       <div 
                         key={idx} 
                         className="flex justify-between items-start p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded text-sm"

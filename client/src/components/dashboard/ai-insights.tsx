@@ -1,26 +1,142 @@
-import { useState, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Brain, Upload, Lightbulb, Activity } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Brain, Upload, Lightbulb, Activity, Filter, MapPin, Edit3, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
+const AI_INSIGHTS_STORAGE_KEY = 'ai-insights-content';
+const AI_INSIGHTS_FILTERS_KEY = 'ai-insights-filters';
+
+interface StoredInsights {
+  content: string;
+  generatedAt: string;
+  filters: {
+    location: string;
+    serviceLine: string;
+  };
+}
+
+const saveInsightsToStorage = (insights: StoredInsights) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(AI_INSIGHTS_STORAGE_KEY, JSON.stringify(insights));
+  } catch (error) {
+    console.warn('Failed to save AI insights to localStorage:', error);
+  }
+};
+
+const loadInsightsFromStorage = (): StoredInsights | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(AI_INSIGHTS_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.warn('Failed to load AI insights from localStorage:', error);
+    return null;
+  }
+};
+
+const saveFiltersToStorage = (filters: { location: string; serviceLine: string }) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(AI_INSIGHTS_FILTERS_KEY, JSON.stringify(filters));
+  } catch (error) {
+    console.warn('Failed to save filters to localStorage:', error);
+  }
+};
+
+const loadFiltersFromStorage = (): { location: string; serviceLine: string } | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(AI_INSIGHTS_FILTERS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.warn('Failed to load filters from localStorage:', error);
+    return null;
+  }
+};
+
 export default function AiInsights() {
-  const [suggestions, setSuggestions] = useState("AI insights will appear here after analysis...");
+  const [suggestions, setSuggestions] = useState(
+    "AI insights will appear here after analysis..."
+  );
+  const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState("AI insights will appear here after analysis...");
   const [trainingStatus, setTrainingStatus] = useState("Upload data to begin training");
   const [modelMetrics, setModelMetrics] = useState<{ r2?: number; rows?: number } | null>(null);
+  
+  const [selectedLocation, setSelectedLocation] = useState<string>("all");
+  const [selectedServiceLine, setSelectedServiceLine] = useState<string>("all");
+  const [isHydrated, setIsHydrated] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const { data: locationsData } = useQuery({
+    queryKey: ["/api/locations"],
+  });
+
+  const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a: string, b: string) => a.localeCompare(b));
+  const serviceLines = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
+
+  useEffect(() => {
+    const savedFilters = loadFiltersFromStorage();
+    const savedInsights = loadInsightsFromStorage();
+    
+    if (savedFilters) {
+      setSelectedLocation(savedFilters.location || "all");
+      setSelectedServiceLine(savedFilters.serviceLine || "all");
+    }
+    
+    if (savedInsights) {
+      setSuggestions(savedInsights.content || "AI insights will appear here after analysis...");
+      setLastGeneratedAt(savedInsights.generatedAt || null);
+      setEditedContent(savedInsights.content || "AI insights will appear here after analysis...");
+    }
+    
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    saveFiltersToStorage({ location: selectedLocation, serviceLine: selectedServiceLine });
+  }, [selectedLocation, selectedServiceLine, isHydrated]);
+
   const aiSuggestMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('/api/ai/suggest', 'POST');
+      return apiRequest('/api/ai/suggest', 'POST', {
+        location: selectedLocation !== 'all' ? selectedLocation : undefined,
+        serviceLine: selectedServiceLine !== 'all' ? selectedServiceLine : undefined
+      });
     },
     onSuccess: async (response) => {
       const data = await response.json();
       if (data.ok) {
+        const generatedAt = new Date().toISOString();
         setSuggestions(data.text);
+        setLastGeneratedAt(generatedAt);
+        setEditedContent(data.text);
+        
+        saveInsightsToStorage({
+          content: data.text,
+          generatedAt,
+          filters: {
+            location: selectedLocation,
+            serviceLine: selectedServiceLine
+          }
+        });
+        
         toast({
           title: "Analysis Complete",
           description: "New insights generated successfully",
@@ -112,6 +228,36 @@ export default function AiInsights() {
     }
   };
 
+  const handleEditClick = () => {
+    setEditedContent(suggestions);
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = () => {
+    setSuggestions(editedContent);
+    setIsEditing(false);
+    
+    const generatedAt = lastGeneratedAt || new Date().toISOString();
+    saveInsightsToStorage({
+      content: editedContent,
+      generatedAt,
+      filters: {
+        location: selectedLocation,
+        serviceLine: selectedServiceLine
+      }
+    });
+    
+    toast({
+      title: "Changes Saved",
+      description: "Your edits have been saved locally",
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditedContent(suggestions);
+    setIsEditing(false);
+  };
+
   const getStatusColor = () => {
     if (trainModelMutation.isPending) return "text-[var(--trilogy-warning)]";
     if (modelMetrics) return "text-[var(--trilogy-success)]";
@@ -122,6 +268,13 @@ export default function AiInsights() {
     if (trainModelMutation.isPending) return <div className="w-2 h-2 bg-[var(--trilogy-warning)] rounded-full animate-pulse" />;
     if (modelMetrics) return <div className="w-2 h-2 bg-[var(--trilogy-success)] rounded-full" />;
     return <div className="w-2 h-2 bg-gray-500 rounded-full" />;
+  };
+
+  const getFilterDescription = () => {
+    const parts = [];
+    if (selectedLocation !== 'all') parts.push(selectedLocation);
+    if (selectedServiceLine !== 'all') parts.push(selectedServiceLine);
+    return parts.length > 0 ? parts.join(' • ') : 'All locations and service lines';
   };
 
   return (
@@ -141,7 +294,6 @@ export default function AiInsights() {
       </div>
 
       <div className="max-w-4xl">
-        {/* AI Recommendations */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -151,6 +303,36 @@ export default function AiInsights() {
             <CardDescription>AI-powered insights and suggestions</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center gap-2 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <Filter className="w-4 h-4 text-slate-500" />
+              <span className="text-sm font-medium text-slate-600">Filters:</span>
+              
+              <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+                <SelectTrigger className="w-[200px]" data-testid="select-ai-location">
+                  <MapPin className="w-4 h-4 mr-2 text-slate-400" />
+                  <SelectValue placeholder="All Locations" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  {locations.map((location: string) => (
+                    <SelectItem key={location} value={location}>{location}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <Select value={selectedServiceLine} onValueChange={setSelectedServiceLine}>
+                <SelectTrigger className="w-[160px]" data-testid="select-ai-serviceline">
+                  <SelectValue placeholder="All Service Lines" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Service Lines</SelectItem>
+                  {serviceLines.map((sl) => (
+                    <SelectItem key={sl} value={sl}>{sl}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
             <Button
               onClick={handleGenerateInsights}
               className="w-full bg-purple-500 hover:bg-purple-600 text-white"
@@ -160,10 +342,64 @@ export default function AiInsights() {
               {aiSuggestMutation.isPending ? "Analyzing..." : "Generate AI Insights"}
             </Button>
             
-            <div className="p-4 bg-[var(--dashboard-bg)] rounded-lg border border-[var(--dashboard-border)]">
-              <div className="text-xs text-[var(--dashboard-text)] whitespace-pre-wrap" data-testid="text-smart-suggestions">
-                {suggestions}
+            {lastGeneratedAt && (
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  Last generated: {new Date(lastGeneratedAt).toLocaleString()}
+                </span>
+                <span className="text-slate-400">
+                  {getFilterDescription()}
+                </span>
               </div>
+            )}
+            
+            <div className="p-4 bg-[var(--dashboard-bg)] rounded-lg border border-[var(--dashboard-border)]">
+              {isEditing ? (
+                <div className="space-y-3">
+                  <Textarea
+                    value={editedContent}
+                    onChange={(e) => setEditedContent(e.target.value)}
+                    className="min-h-[200px] text-xs font-mono"
+                    data-testid="textarea-edit-insights"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelEdit}
+                      data-testid="button-cancel-edit"
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveEdit}
+                      data-testid="button-save-edit"
+                    >
+                      <Save className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative group">
+                  <div className="text-xs text-[var(--dashboard-text)] whitespace-pre-wrap" data-testid="text-smart-suggestions">
+                    {suggestions}
+                  </div>
+                  {suggestions !== "AI insights will appear here after analysis..." && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={handleEditClick}
+                      data-testid="button-edit-insights"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
 
           </CardContent>

@@ -827,6 +827,30 @@ export const insertCompetitorRateJobSchema = createInsertSchema(competitorRateJo
   updatedAt: true,
 });
 
+// Import Mapping Profiles - For flexible CSV import column mapping
+export const importMappingProfiles = pgTable("import_mapping_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  isBuiltIn: boolean("is_built_in").default(false),
+  isDefault: boolean("is_default").default(false),
+  columnMappings: jsonb("column_mappings").notNull(), // JSON object mapping source columns to target fields
+  fieldAliases: jsonb("field_aliases"), // JSON object with field name variations for fuzzy matching
+  dataTransformations: jsonb("data_transformations"), // Optional transformations per field
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertImportMappingProfileSchema = createInsertSchema(importMappingProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ImportMappingProfile = typeof importMappingProfiles.$inferSelect;
+export type InsertImportMappingProfile = z.infer<typeof insertImportMappingProfileSchema>;
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
