@@ -12,17 +12,40 @@ interface JobProgress {
   errors: number;
 }
 
-// Service line mapping for matching
-// Survey data has: AL, HC, SMC competitor types only
-// VIL and SL use AL competitor data (no IL data exists)
+// Service line mapping for matching based on Competitive Survey Mapping document
+// Maps Trilogy service lines to competitor survey types
+// Survey data has: AL, HC, SMC, IL competitor types
 const SERVICE_LINE_MAPPING: Record<string, string[]> = {
-  'AL': ['AL'],
-  'AL/MC': ['SMC', 'AL'],
-  'HC': ['HC'],
-  'HC/MC': ['SMC', 'HC'],
-  'SL': ['AL'],
-  'VIL': ['AL']
+  'AL': ['AL'],           // AL → AL
+  'AL/MC': ['AL'],        // AL/MC → AL (not SMC, per mapping doc)
+  'HC': ['HC'],           // HC → HC
+  'HC/MC': ['SMC'],       // HC/MC → SMC
+  'SL': ['IL'],           // SL → IL (Independent Living)
+  'VIL': ['IL']           // VIL → IL (Independent Living)
 };
+
+// Care Level 2 applies only to HC and AL service lines
+const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
+  'HC': true,
+  'HC/MC': true,
+  'AL': true,
+  'AL/MC': true,
+  'SL': false,
+  'VIL': false
+};
+
+// Medication Management applies only to AL service lines (Trilogy charges $0)
+const MED_MGMT_APPLIES: Record<string, boolean> = {
+  'HC': false,
+  'HC/MC': false,
+  'AL': true,
+  'AL/MC': true,
+  'SL': false,
+  'VIL': false
+};
+
+// Trilogy's default Care Level 2 rate ($55/day)
+const TRILOGY_CARE_LEVEL_2_DAILY = 55;
 
 // Room type normalization
 function normalizeRoomType(roomType: string): string {
@@ -211,25 +234,58 @@ async function processBatch(
       }
 
       if (matchedCompetitor) {
-        // Calculate final rate with care adjustments (all values from survey are monthly)
-        const baseRateMonthly = matchedCompetitor.monthlyRateAvg || 0;
-        const careAdjustmentMonthly = matchedCompetitor.careLevel2Rate || 0;
-        const medManagementMonthly = matchedCompetitor.medicationManagementFee || 0;
-        const finalRateMonthly = baseRateMonthly + careAdjustmentMonthly + medManagementMonthly;
+        // Get competitor type to determine if rates are daily or monthly in survey
+        const competitorType = surveyTypes[0]; // First matching type
+        const isHCOrSMC = competitorType === 'HC' || competitorType === 'SMC';
+        
+        // Survey data: HC/SMC rates are stored as DAILY, AL/IL rates are MONTHLY
+        let baseRateMonthly = matchedCompetitor.monthlyRateAvg || 0;
+        let competitorCareLevel2Monthly = matchedCompetitor.careLevel2Rate || 0;
+        let competitorMedMgmtMonthly = matchedCompetitor.medicationManagementFee || 0;
+        
+        // Convert HC/SMC survey rates from daily to monthly for calculations
+        if (isHCOrSMC && baseRateMonthly > 0 && baseRateMonthly < 1000) {
+          baseRateMonthly = baseRateMonthly * DAYS_PER_MONTH;
+          if (competitorCareLevel2Monthly > 0 && competitorCareLevel2Monthly < 500) {
+            competitorCareLevel2Monthly = competitorCareLevel2Monthly * DAYS_PER_MONTH;
+          }
+          if (competitorMedMgmtMonthly > 0 && competitorMedMgmtMonthly < 100) {
+            competitorMedMgmtMonthly = competitorMedMgmtMonthly * DAYS_PER_MONTH;
+          }
+        }
+        
+        // Calculate adjustments based on service line rules
+        let careLevel2Adjustment = 0;
+        let medMgmtAdjustment = 0;
+        
+        // Care Level 2 Adjustment (HC/AL only): Competitor - Trilogy ($55/day = $1674.20/month)
+        if (CARE_LEVEL_2_APPLIES[serviceLine] && competitorCareLevel2Monthly > 0) {
+          const trilogyCareLevel2Monthly = TRILOGY_CARE_LEVEL_2_DAILY * DAYS_PER_MONTH;
+          careLevel2Adjustment = competitorCareLevel2Monthly - trilogyCareLevel2Monthly;
+        }
+        
+        // Medication Management Adjustment (AL only): Competitor - Trilogy ($0)
+        if (MED_MGMT_APPLIES[serviceLine] && competitorMedMgmtMonthly > 0) {
+          medMgmtAdjustment = competitorMedMgmtMonthly; // Trilogy charges $0
+        }
+        
+        // Final rate = Base + Care Level 2 Adjustment + Med Mgmt Adjustment
+        const finalRateMonthly = baseRateMonthly + careLevel2Adjustment + medMgmtAdjustment;
 
-        // Convert to stored rate (daily for HC/HC-MC, monthly for others)
+        // Convert to stored rate format (daily for HC/HC-MC, monthly for others)
         const baseRate = convertToStoredRate(baseRateMonthly, serviceLine);
         const finalRate = convertToStoredRate(finalRateMonthly, serviceLine);
-        const careAdjustment = convertToStoredRate(careAdjustmentMonthly, serviceLine);
-        const medManagement = convertToStoredRate(medManagementMonthly, serviceLine);
+        const careAdjustmentStored = convertToStoredRate(careLevel2Adjustment, serviceLine);
+        const medMgmtStored = convertToStoredRate(medMgmtAdjustment, serviceLine);
 
         await db.update(rentRollData)
           .set({
             competitorName: matchedCompetitor.competitorName,
             competitorBaseRate: baseRate,
             competitorFinalRate: finalRate,
-            competitorCareLevel2Adjustment: careAdjustment,
-            competitorMedManagementAdjustment: medManagement,
+            competitorCareLevel2Adjustment: careAdjustmentStored,
+            competitorMedManagementAdjustment: medMgmtStored,
+            competitorWeight: matchedCompetitor.weight || null,
           })
           .where(eq(rentRollData.id, unit.id));
 
@@ -272,15 +328,45 @@ export async function processJob(jobId: string): Promise<void> {
     .where(eq(competitorRateJobs.id, jobId));
 
   // Load competitive survey data into memory for fast lookup
+  // For each location+type+roomType, keep the best competitor (by weight, then distance)
   console.log('[CompetitorJob] Loading competitive survey data...');
   const surveyRecords = await db.select().from(competitiveSurveyData);
   
   const surveyData = new Map<string, any>();
   for (const record of surveyRecords) {
     const key = `${record.keyStatsLocation}|${record.competitorType}|${record.roomType}`;
-    surveyData.set(key, record);
+    
+    // Extract weight from notes JSON if available
+    let weight: number | null = null;
+    if (record.notes) {
+      try {
+        const parsed = JSON.parse(record.notes);
+        weight = parseFloat(parsed.weight);
+        if (isNaN(weight)) weight = null;
+      } catch { /* ignore */ }
+    }
+    
+    const existingRecord = surveyData.get(key);
+    if (!existingRecord) {
+      surveyData.set(key, { ...record, weight });
+    } else {
+      // Keep the better competitor: higher weight wins, else closer distance
+      const existingWeight = existingRecord.weight || 0;
+      const newWeight = weight || 0;
+      
+      if (newWeight > existingWeight) {
+        surveyData.set(key, { ...record, weight });
+      } else if (newWeight === existingWeight) {
+        // Same weight (or both null) - use closer distance
+        const existingDist = existingRecord.distanceMiles || 999;
+        const newDist = record.distanceMiles || 999;
+        if (newDist < existingDist) {
+          surveyData.set(key, { ...record, weight });
+        }
+      }
+    }
   }
-  console.log(`[CompetitorJob] Loaded ${surveyRecords.length} survey records`);
+  console.log(`[CompetitorJob] Loaded ${surveyRecords.length} survey records, ${surveyData.size} unique location/type/room combinations`);
 
   try {
     let hasMoreUnits = true;
