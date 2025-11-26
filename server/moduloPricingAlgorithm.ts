@@ -1,5 +1,58 @@
-// Advanced Modulo Pricing Algorithm for Senior Housing
-// Based on the provided Python implementation with multi-signal blending
+/**
+ * ============================================================================
+ * MODULO PRICING ALGORITHM FOR SENIOR HOUSING
+ * ============================================================================
+ * 
+ * A sophisticated multi-factor pricing algorithm that calculates optimal rates
+ * by blending 7 pricing signals with configurable weights.
+ * 
+ * ALGORITHM OVERVIEW:
+ * 1. Each factor generates a "signal" normalized to [-1, +1] range
+ * 2. Signals are weighted and blended based on operator preferences
+ * 3. The blended signal is converted to a percentage adjustment (±25% max)
+ * 4. Final price = Base Price × (1 + Total Adjustment)
+ * 
+ * PRICING FACTORS:
+ * ┌─────────────────────┬─────────────┬──────────────────────────────────────┐
+ * │ Factor              │ Max Impact  │ Description                          │
+ * ├─────────────────────┼─────────────┼──────────────────────────────────────┤
+ * │ Occupancy           │ -12% to +6% │ Campus-level occupancy pressure      │
+ * │ Days Vacant         │ -15% to 0%  │ Unit-level vacancy decay (7-day grace│
+ * │ Room Attributes     │ ±10%        │ Location, size, view, renovations    │
+ * │ Seasonality         │ ±5%         │ Monthly demand patterns              │
+ * │ Competitors         │ ±8%         │ Market positioning vs median         │
+ * │ Market              │ ±3%         │ Economic indicators (S&P 500)        │
+ * │ Demand              │ ±15%        │ Inquiry/tour volume z-score          │
+ * └─────────────────────┴─────────────┴──────────────────────────────────────┘
+ * 
+ * SERVICE LINE PREMIUM TARGETS (above competitor median):
+ * - AL (Assisted Living): 25% - Premium positioning for higher care
+ * - HC (Health Care): 20% - Skilled nursing clinical value
+ * - AL/MC, HC/MC: 20% - Memory care premium
+ * - SL (Supportive Living): 10% - Moderate positioning
+ * - VIL (Village/Independent): 10% - Lifestyle competitive positioning
+ * - Default: 18% - Balanced positioning
+ * 
+ * SIGNAL CALCULATION:
+ * Each signal function maps its input to [-1, +1]:
+ * - Negative signals → Price reduction recommended
+ * - Zero signal → No adjustment needed
+ * - Positive signals → Price increase recommended
+ * 
+ * WEIGHT BLENDING:
+ * Weights are normalized to sum to 1.0, then multiplied by signals.
+ * Example: If occupancy has weight 25 (of 100 total), and signal is +0.5,
+ * its contribution to the blended signal is 0.25 × 0.5 = 0.125
+ * 
+ * EXPLAINABILITY:
+ * The algorithm provides detailed breakdowns including:
+ * - Raw signal values for each factor
+ * - Factor descriptions in plain language
+ * - Calculation formulas and intermediate values
+ * - Dollar impact per factor
+ * 
+ * ============================================================================
+ */
 
 interface ModuloPricingConfig {
   // Global caps on the final blended adjustment
@@ -170,6 +223,24 @@ function signalSeasonality(monthIndex: number, cfg: ModuloPricingConfig): number
   return clamp(base / cfg.seasonalitySpan, -1.0, 1.0);
 }
 
+/**
+ * Service Line Premium Targets (above competitor median):
+ * - AL (Assisted Living): 25% premium - Higher care, premium positioning
+ * - HC (Health Care): 20% premium - Skilled nursing, clinical services
+ * - AL/MC (Memory Care): 20% premium - Specialized dementia care
+ * - HC/MC: 20% premium - Combined skilled nursing and memory care
+ * - SL (Supportive Living): 10% premium - Light assistance, moderate positioning
+ * - VIL (Village/Independent): 10% premium - Lifestyle focus, competitive positioning
+ * - Default: 18% premium - Balanced positioning for unspecified service lines
+ */
+export function getTargetPremium(serviceLine?: string): number {
+  if (serviceLine === 'AL') return 0.25;
+  if (serviceLine === 'SL') return 0.10;
+  if (serviceLine === 'VIL') return 0.10;
+  if (serviceLine === 'HC' || serviceLine === 'AL/MC' || serviceLine === 'HC/MC') return 0.20;
+  return 0.18; // Default
+}
+
 function signalCompetitors(basePrice: number, competitorPrices: number[], cfg: ModuloPricingConfig, serviceLine?: string): number {
   if (!competitorPrices || competitorPrices.length === 0) {
     return 0.0;
@@ -182,17 +253,8 @@ function signalCompetitors(basePrice: number, competitorPrices: number[], cfg: M
     return 0.0;
   }
   
-  // Define target premium above competitors based on service line
-  let targetPremium = 0.18;  // Default: 18% above competitors
-  if (serviceLine === 'AL') {
-    targetPremium = 0.25;  // AL units should be 25% above competitors
-  } else if (serviceLine === 'SL') {
-    targetPremium = 0.10;  // SL units should be 10% above competitors
-  } else if (serviceLine === 'VIL') {
-    targetPremium = 0.10;  // VIL units should be 10% above competitors
-  } else if (serviceLine === 'HC' || serviceLine === 'AL/MC') {
-    targetPremium = 0.20;  // HC and AL/MC should be 20% above
-  }
+  // Get target premium based on service line (see getTargetPremium for documentation)
+  const targetPremium = getTargetPremium(serviceLine);
   
   // Calculate how far we are from the target premium
   const currentPremium = (basePrice - compMed) / compMed;
@@ -386,20 +448,26 @@ function getFactorDescription(factor: string, inputs: PricingInputs, adjustment:
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return `${months[inputs.monthIndex - 1]} seasonal adjustment`;
     case 'competitors':
-      const sortedComp = inputs.competitorPrices.sort((a, b) => a - b);
+      if (!inputs.competitorPrices || inputs.competitorPrices.length === 0) {
+        return 'No competitor data available';
+      }
+      const sortedComp = [...inputs.competitorPrices].sort((a, b) => a - b);
       const medianComp = sortedComp[Math.floor(sortedComp.length / 2)];
-      let targetPremComp = 0.18;
-      if (inputs.serviceLine === 'AL') targetPremComp = 0.25;
-      else if (inputs.serviceLine === 'SL') targetPremComp = 0.10;
-      else if (inputs.serviceLine === 'VIL') targetPremComp = 0.10;
-      else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremComp = 0.20;
+      if (medianComp <= 0) {
+        return 'Invalid competitor rates';
+      }
+      const targetPremComp = getTargetPremium(inputs.serviceLine);
       const currentPremComp = (basePrice - medianComp) / medianComp;
       const gapComp = targetPremComp - currentPremComp;
       return `Currently ${(currentPremComp * 100).toFixed(1)}% ${currentPremComp >= 0 ? 'above' : 'below'} market, target ${(targetPremComp * 100).toFixed(0)}% above (${gapComp > 0 ? '+' : ''}${(gapComp * 100).toFixed(1)}% gap)`;
     case 'market':
       return `Market return: ${(inputs.marketReturn * 100).toFixed(1)}%`;
     case 'demand':
-      return `Current demand: ${inputs.demandCurrent} (historical avg: ${(inputs.demandHistory.reduce((a, b) => a + b, 0) / inputs.demandHistory.length).toFixed(1)})`;
+      if (!inputs.demandHistory || inputs.demandHistory.length === 0) {
+        return `Current demand: ${inputs.demandCurrent} (no historical data)`;
+      }
+      const avgDemand = inputs.demandHistory.reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
+      return `Current demand: ${inputs.demandCurrent} (historical avg: ${avgDemand.toFixed(1)})`;
     default:
       return '';
   }
@@ -420,22 +488,28 @@ function getCalculationString(factor: string, inputs: PricingInputs, signal: num
     case 'seasonality':
       return `Monthly factor → ${(adjustment * 100).toFixed(2)}%`;
     case 'competitors':
-      const sortedCalc = inputs.competitorPrices.sort((a, b) => a - b);
+      if (!inputs.competitorPrices || inputs.competitorPrices.length === 0) {
+        return 'No competitor data → 0% adjustment';
+      }
+      const sortedCalc = [...inputs.competitorPrices].sort((a, b) => a - b);
       const medianCalc = sortedCalc[Math.floor(sortedCalc.length / 2)];
-      let targetPremCalc = 0.18;
-      if (inputs.serviceLine === 'AL') targetPremCalc = 0.25;
-      else if (inputs.serviceLine === 'SL') targetPremCalc = 0.10;
-      else if (inputs.serviceLine === 'VIL') targetPremCalc = 0.10;
-      else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremCalc = 0.20;
+      if (medianCalc <= 0) {
+        return 'Invalid competitor rates → 0% adjustment';
+      }
+      const targetPremCalc = getTargetPremium(inputs.serviceLine);
       const currentPremCalc = (basePrice - medianCalc) / medianCalc;
       const gapCalc = targetPremCalc - currentPremCalc;
       return `Target ${(targetPremCalc * 100).toFixed(0)}% - Current ${(currentPremCalc * 100).toFixed(1)}% = ${(gapCalc * 100).toFixed(1)}% gap → ${(adjustment * 100).toFixed(2)}% adjustment`;
     case 'market':
       return `Market sentiment adjustment → ${(adjustment * 100).toFixed(2)}%`;
     case 'demand':
+      if (!inputs.demandHistory || inputs.demandHistory.length === 0) {
+        return 'No historical data → 0% adjustment';
+      }
       const mean = inputs.demandHistory.reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
-      const z = inputs.demandHistory.length > 1 ? 
-        (inputs.demandCurrent - mean) / Math.sqrt(inputs.demandHistory.map(v => Math.pow(v - mean, 2)).reduce((a, b) => a + b, 0) / inputs.demandHistory.length) : 0;
+      const variance = inputs.demandHistory.map(v => Math.pow(v - mean, 2)).reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
+      const stdDev = Math.sqrt(variance);
+      const z = stdDev > 0 ? (inputs.demandCurrent - mean) / stdDev : 0;
       return `Z-score: ${z.toFixed(2)} → ${(adjustment * 100).toFixed(2)}%`;
     default:
       return '';
@@ -473,15 +547,26 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
         'Seasonal Pattern': 'Winter=Low, Spring/Fall=Moderate, Summer=Peak'
       };
     case 'competitors':
-      const sorted = inputs.competitorPrices.sort((a, b) => a - b);
+      if (!inputs.competitorPrices || inputs.competitorPrices.length === 0) {
+        return {
+          'Base Price': `$${basePrice.toFixed(0)}`,
+          'Competitor Data': 'No competitor rates available',
+          'Service Line': inputs.serviceLine || 'Default'
+        };
+      }
+      const sorted = [...inputs.competitorPrices].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
       
-      // Calculate target premium based on service line
-      let targetPremium = 0.18;
-      if (inputs.serviceLine === 'AL') targetPremium = 0.25;
-      else if (inputs.serviceLine === 'SL') targetPremium = 0.10;
-      else if (inputs.serviceLine === 'VIL') targetPremium = 0.10;
-      else if (inputs.serviceLine === 'HC' || inputs.serviceLine === 'AL/MC') targetPremium = 0.20;
+      if (median <= 0) {
+        return {
+          'Base Price': `$${basePrice.toFixed(0)}`,
+          'Competitor Data': 'Invalid competitor rates',
+          'Service Line': inputs.serviceLine || 'Default'
+        };
+      }
+      
+      // Use the centralized target premium function
+      const targetPremium = getTargetPremium(inputs.serviceLine);
       
       const currentPremium = (basePrice - median) / median;
       const premiumGap = targetPremium - currentPremium;
@@ -501,16 +586,23 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
         'Max Influence': '±5%'
       };
     case 'demand':
-      const mean = inputs.demandHistory.reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
-      const variance = inputs.demandHistory.map(v => Math.pow(v - mean, 2)).reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
-      const stdDev = Math.sqrt(variance);
-      const z = inputs.demandHistory.length > 1 ? (inputs.demandCurrent - mean) / stdDev : 0;
+      if (!inputs.demandHistory || inputs.demandHistory.length === 0) {
+        return {
+          'Current Demand': inputs.demandCurrent,
+          'Historical Data': 'No historical data available',
+          'Interpretation': 'Cannot calculate z-score without history'
+        };
+      }
+      const demandMean = inputs.demandHistory.reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
+      const demandVariance = inputs.demandHistory.map(v => Math.pow(v - demandMean, 2)).reduce((a, b) => a + b, 0) / inputs.demandHistory.length;
+      const demandStdDev = Math.sqrt(demandVariance);
+      const demandZ = demandStdDev > 0 ? (inputs.demandCurrent - demandMean) / demandStdDev : 0;
       return {
         'Current Demand': inputs.demandCurrent,
-        'Historical Average': mean.toFixed(1),
-        'Standard Deviation': stdDev.toFixed(1),
-        'Z-Score': z.toFixed(2),
-        'Interpretation': z > 1 ? 'High demand' : z < -1 ? 'Low demand' : 'Normal demand'
+        'Historical Average': demandMean.toFixed(1),
+        'Standard Deviation': demandStdDev.toFixed(1),
+        'Z-Score': demandZ.toFixed(2),
+        'Interpretation': demandZ > 1 ? 'High demand' : demandZ < -1 ? 'Low demand' : 'Normal demand'
       };
     default:
       return {};
@@ -520,19 +612,19 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
 function getSignalExplanation(factor: string, signal: number, adjustment: number): string {
   switch(factor) {
     case 'occupancy':
-      return `The campus occupancy signal (${signal.toFixed(3)}) was normalized to -1 to +1 range based on proximity to the 90% target, then scaled to a ${(adjustment * 100).toFixed(1)}% price adjustment.`;
+      return `The campus occupancy signal (${signal.toFixed(3)}) was normalized to -1 to +1 range based on proximity to the 90% target, then scaled to a ${(adjustment * 100).toFixed(1)}% price adjustment. Above 90% triggers premium pricing; below 85% triggers aggressive discounting.`;
     case 'daysVacant':
-      return `The vacancy duration signal (${signal.toFixed(3)}) represents the exponential decay after the 7-day grace period, scaled to a ${(adjustment * 100).toFixed(1)}% adjustment with a -15% maximum discount.`;
+      return `The vacancy duration signal (${signal.toFixed(3)}) represents the exponential decay after the 7-day grace period, scaled to a ${(adjustment * 100).toFixed(1)}% adjustment with a -15% maximum discount to accelerate leasing for long-vacant units.`;
     case 'roomAttributes':
       return `The room attributes signal (${signal.toFixed(3)}) reflects the unit's desirability based on location, size, view, renovation, and amenity ratings, scaled to a ${(adjustment * 100).toFixed(1)}% adjustment with ±10% maximum impact.`;
     case 'seasonality':
-      return `The seasonal signal (${signal.toFixed(3)}) reflects typical senior housing demand patterns, with peaks in summer months and valleys in winter.`;
+      return `The seasonal signal (${signal.toFixed(3)}) reflects typical senior housing demand patterns: spring/summer (Mar-Aug) peaks at +2-5%, while late fall/winter (Oct-Dec) sees -2-3% adjustments.`;
     case 'competitors':
-      return `The market positioning signal (${signal.toFixed(3)}) drives pricing toward your target premium above competitors (18% default, 25% AL, 10% SL/VIL, 20% HC/AL-MC), with adjustments capped at ${Math.abs(adjustment * 100).toFixed(1)}% per calculation cycle.`;
+      return `The market positioning signal (${signal.toFixed(3)}) drives pricing toward your target premium above competitors. Target premiums by service line: AL=25%, HC/AL-MC/HC-MC=20%, SL/VIL=10%, Default=18%. Adjustments capped at ±8% per cycle.`;
     case 'market':
-      return `The economic indicator signal (${signal.toFixed(3)}) reflects broader market conditions with limited ${(Math.abs(adjustment) * 100).toFixed(1)}% influence on senior housing pricing.`;
+      return `The economic indicator signal (${signal.toFixed(3)}) reflects broader market conditions based on S&P 500 returns, with limited ±3% influence on senior housing pricing to maintain stability.`;
     case 'demand':
-      return `The demand signal (${signal.toFixed(3)}) uses statistical z-score analysis to detect unusual inquiry/tour volume relative to historical patterns, adjusting prices by up to ${(Math.abs(adjustment) * 100).toFixed(1)}%.`;
+      return `The demand signal (${signal.toFixed(3)}) uses statistical z-score analysis to detect unusual inquiry/tour volume relative to historical patterns, adjusting prices by up to ±15% for significant demand shifts.`;
     default:
       return 'Signal normalized to -1 to +1 range and converted to percentage adjustment.';
   }
@@ -540,5 +632,6 @@ function getSignalExplanation(factor: string, signal: number, adjustment: number
 
 export const moduloPricingAlgorithm = {
   calculatePrice: calculateModuloPrice,
-  defaultConfig
+  defaultConfig,
+  getTargetPremium
 };

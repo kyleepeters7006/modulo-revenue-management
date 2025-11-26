@@ -94,12 +94,12 @@ export class PricingAlgorithm {
     };
     
     const moduloWeights: ModuloPricingWeights = {
-      occupancy: activeWeights.occupancyPressure,
-      daysVacant: activeWeights.daysVacantDecay,
-      attributes: activeWeights.roomAttributes,
-      seasonality: activeWeights.seasonality,
-      competitors: activeWeights.competitorRates,
-      market: activeWeights.stockMarket,
+      occupancy: activeWeights.occupancyPressure || 25,
+      daysVacant: activeWeights.daysVacantDecay || 15,
+      roomAttributes: activeWeights.roomAttributes || 20,
+      seasonality: activeWeights.seasonality || 5,
+      competitors: activeWeights.competitorRates || 10,
+      market: activeWeights.stockMarket || 5,
       demand: activeWeights.inquiryTourVolume || 20
     };
     
@@ -121,10 +121,11 @@ export class PricingAlgorithm {
     }
     
     // Map the new result format to the expected format
+    // Factor names are capitalized versions of the weight keys
     const adjustments = result.adjustments || [];
     const occupancyAdj = adjustments.find(a => a.factor === 'Occupancy');
-    const vacancyAdj = adjustments.find(a => a.factor === 'Daysvacant');
-    const attrAdj = adjustments.find(a => a.factor === 'Attributes');
+    const vacancyAdj = adjustments.find(a => a.factor === 'DaysVacant');
+    const attrAdj = adjustments.find(a => a.factor === 'RoomAttributes');
     const seasonalAdj = adjustments.find(a => a.factor === 'Seasonality');
     const competitorAdj = adjustments.find(a => a.factor === 'Competitors');
     const marketAdj = adjustments.find(a => a.factor === 'Market');
