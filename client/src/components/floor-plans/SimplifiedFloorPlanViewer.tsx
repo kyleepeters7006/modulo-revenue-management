@@ -129,13 +129,16 @@ export default function SimplifiedFloorPlanViewer({
     }
   };
 
-  const handleDeleteUnit = () => {
-    if (!selectedUnit || !isEditMode) return;
+  const handleDeleteUnit = (unitIdToDelete?: string) => {
+    const targetId = unitIdToDelete || selectedUnit;
+    if (!targetId || !isEditMode) return;
     
     const newShapes = { ...unitShapes };
-    delete newShapes[selectedUnit];
+    delete newShapes[targetId];
     setUnitShapes(newShapes);
-    setSelectedUnit(null);
+    if (selectedUnit === targetId) {
+      setSelectedUnit(null);
+    }
     
     toast({
       title: "Unit removed",
@@ -197,16 +200,18 @@ export default function SimplifiedFloorPlanViewer({
     const shape = unitShapes[unitId];
     if (!shape) return;
     
+    const pos = getMousePosition(e.nativeEvent as MouseEvent);
+    
     setDragState({
       type,
       unitId,
       vertexIndex,
-      startPos: shape.center
+      startPos: pos || shape.center
     });
   };
 
   const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
-    if (!dragState.type || !dragState.unitId) return;
+    if (!dragState.type || !dragState.unitId || !dragState.startPos) return;
     
     const pos = getMousePosition(e);
     if (!pos) return;
@@ -215,16 +220,37 @@ export default function SimplifiedFloorPlanViewer({
     if (!shape) return;
     
     if (dragState.type === 'move') {
-      setUnitShapes(prev => ({
-        ...prev,
-        [dragState.unitId!]: {
-          ...prev[dragState.unitId!],
-          center: { 
-            x: Math.max(5, Math.min(95, pos.x)), 
-            y: Math.max(5, Math.min(95, pos.y)) 
+      const dx = pos.x - dragState.startPos.x;
+      const dy = pos.y - dragState.startPos.y;
+      
+      const newCenterX = Math.max(5, Math.min(95, shape.center.x + dx));
+      const newCenterY = Math.max(5, Math.min(95, shape.center.y + dy));
+      
+      if (shape.type === 'polygon' && shape.points) {
+        const newPoints = shape.points.map(p => ({
+          x: Math.max(0, Math.min(100, p.x + dx)),
+          y: Math.max(0, Math.min(100, p.y + dy))
+        }));
+        
+        setUnitShapes(prev => ({
+          ...prev,
+          [dragState.unitId!]: {
+            ...prev[dragState.unitId!],
+            center: { x: newCenterX, y: newCenterY },
+            points: newPoints
           }
-        }
-      }));
+        }));
+      } else {
+        setUnitShapes(prev => ({
+          ...prev,
+          [dragState.unitId!]: {
+            ...prev[dragState.unitId!],
+            center: { x: newCenterX, y: newCenterY }
+          }
+        }));
+      }
+      
+      setDragState(prev => ({ ...prev, startPos: pos }));
     } else if (dragState.type === 'resize' && shape.type === 'circle') {
       const dx = pos.x - shape.center.x;
       const dy = pos.y - shape.center.y;
@@ -700,7 +726,7 @@ export default function SimplifiedFloorPlanViewer({
                   <Pentagon className="h-4 w-4 mr-2" />
                   Convert to Polygon
                 </ContextMenuItem>
-                <ContextMenuItem onClick={() => handleDeleteUnit()} className="text-red-600">
+                <ContextMenuItem onClick={() => handleDeleteUnit(shape.id)} className="text-red-600">
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete Unit
                 </ContextMenuItem>
@@ -727,10 +753,7 @@ export default function SimplifiedFloorPlanViewer({
                 <Circle className="h-4 w-4 mr-2" />
                 Convert to Circle
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => {
-                setSelectedUnit(shape.id);
-                handleDeleteUnit();
-              }} className="text-red-600">
+              <ContextMenuItem onClick={() => handleDeleteUnit(shape.id)} className="text-red-600">
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete Unit
               </ContextMenuItem>
