@@ -1,18 +1,31 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Trash2, Plus } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Trash2, Plus, Pentagon, Circle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
-interface DraggableUnit {
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface UnitShape {
   id: string;
   roomNumber: string;
-  x: number; // percentage position (0-100)
-  y: number; // percentage position (0-100)
-  occupied: boolean;
+  type: 'circle' | 'polygon';
+  center: Point;
+  radius?: number;
+  points?: Point[];
+  status: 'available' | 'occupied';
   serviceLine: string;
 }
 
@@ -22,6 +35,10 @@ interface SimplifiedFloorPlanViewerProps {
   onUnitClick?: (unitId: string) => void;
 }
 
+const DEFAULT_RADIUS = 2.5;
+const MIN_RADIUS = 1;
+const MAX_RADIUS = 8;
+
 export default function SimplifiedFloorPlanViewer({ 
   campusMap, 
   units = [],
@@ -29,53 +46,82 @@ export default function SimplifiedFloorPlanViewer({
 }: SimplifiedFloorPlanViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [draggedUnit, setDraggedUnit] = useState<string | null>(null);
-  const [unitPositions, setUnitPositions] = useState<{[key: string]: {x: number, y: number}}>({});
+  const [unitShapes, setUnitShapes] = useState<{[key: string]: UnitShape}>({});
   const [hoveredUnit, setHoveredUnit] = useState<string | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [showUnplacedUnits, setShowUnplacedUnits] = useState(false);
-  const [lastClickPosition, setLastClickPosition] = useState<{x: number, y: number} | null>(null);
+  const [lastClickPosition, setLastClickPosition] = useState<Point | null>(null);
+  
+  const [dragState, setDragState] = useState<{
+    type: 'move' | 'resize' | 'vertex' | null;
+    unitId: string | null;
+    vertexIndex?: number;
+    startPos?: Point;
+  }>({ type: null, unitId: null });
+  
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  // Get unplaced units (units that don't have positions yet)
-  const unplacedUnits = units.filter(unit => !unitPositions[unit.id]);
-  const placedUnits = units.filter(unit => unitPositions[unit.id]);
+  const unplacedUnits = units.filter(unit => !unitShapes[unit.id]);
+  const placedUnits = units.filter(unit => unitShapes[unit.id]);
 
-  // Initialize unit positions - try to load saved positions first
   useEffect(() => {
-    if (units.length > 0 && Object.keys(unitPositions).length === 0) {
-      // Check if campusMap has saved positions
+    if (units.length > 0 && Object.keys(unitShapes).length === 0) {
       if (campusMap?.svgContent) {
         try {
           const savedData = JSON.parse(campusMap.svgContent);
+          if (savedData.type === 'enhanced' && savedData.shapes) {
+            setUnitShapes(savedData.shapes);
+            return;
+          }
           if (savedData.type === 'simplified' && savedData.positions) {
-            setUnitPositions(savedData.positions);
+            const shapes: {[key: string]: UnitShape} = {};
+            Object.entries(savedData.positions).forEach(([id, pos]: [string, any]) => {
+              const unit = units.find(u => u.id === id);
+              if (unit) {
+                shapes[id] = {
+                  id,
+                  roomNumber: unit.roomNumber,
+                  type: 'circle',
+                  center: { x: pos.x, y: pos.y },
+                  radius: DEFAULT_RADIUS,
+                  status: unit.occupiedYN ? 'occupied' : 'available',
+                  serviceLine: unit.serviceLine
+                };
+              }
+            });
+            setUnitShapes(shapes);
             return;
           }
         } catch (e) {
-          // Not JSON or different format, use default grid
         }
       }
       
-      // Default grid layout if no saved positions
-      const positions: {[key: string]: {x: number, y: number}} = {};
+      const shapes: {[key: string]: UnitShape} = {};
       const cols = Math.ceil(Math.sqrt(units.length));
       const rows = Math.ceil(units.length / cols);
       
       units.forEach((unit, index) => {
         const col = index % cols;
         const row = Math.floor(index / cols);
-        positions[unit.id] = {
-          x: (col * 100 / cols) + (50 / cols), // Center in column
-          y: (row * 100 / rows) + (50 / rows)  // Center in row
+        shapes[unit.id] = {
+          id: unit.id,
+          roomNumber: unit.roomNumber,
+          type: 'circle',
+          center: {
+            x: (col * 100 / cols) + (50 / cols),
+            y: (row * 100 / rows) + (50 / rows)
+          },
+          radius: DEFAULT_RADIUS,
+          status: unit.occupiedYN ? 'occupied' : 'available',
+          serviceLine: unit.serviceLine
         };
       });
       
-      setUnitPositions(positions);
+      setUnitShapes(shapes);
     }
-  }, [units, unitPositions, campusMap]);
+  }, [units, unitShapes, campusMap]);
 
   const handleUnitSelect = (unitId: string) => {
     if (isEditMode && !isAddingMode) {
@@ -86,9 +132,9 @@ export default function SimplifiedFloorPlanViewer({
   const handleDeleteUnit = () => {
     if (!selectedUnit || !isEditMode) return;
     
-    const newPositions = { ...unitPositions };
-    delete newPositions[selectedUnit];
-    setUnitPositions(newPositions);
+    const newShapes = { ...unitShapes };
+    delete newShapes[selectedUnit];
+    setUnitShapes(newShapes);
     setSelectedUnit(null);
     
     toast({
@@ -98,21 +144,26 @@ export default function SimplifiedFloorPlanViewer({
   };
 
   const handlePlaceUnit = (unitId: string, x: number, y: number) => {
-    setUnitPositions(prev => ({
+    const unit = units.find(u => u.id === unitId);
+    if (!unit) return;
+    
+    setUnitShapes(prev => ({
       ...prev,
       [unitId]: {
-        x: Math.max(2, Math.min(98, x)),
-        y: Math.max(2, Math.min(98, y))
+        id: unitId,
+        roomNumber: unit.roomNumber,
+        type: 'circle',
+        center: { x: Math.max(5, Math.min(95, x)), y: Math.max(5, Math.min(95, y)) },
+        radius: DEFAULT_RADIUS,
+        status: unit.occupiedYN ? 'occupied' : 'available',
+        serviceLine: unit.serviceLine
       }
     }));
     
-    const unit = units.find(u => u.id === unitId);
     toast({
       title: "Unit placed",
-      description: `Unit ${unit?.roomNumber || 'unknown'} placed. Click Save to persist changes.`,
+      description: `Unit ${unit.roomNumber} placed. Click Save to persist changes.`,
     });
-    
-    // Stay in adding mode to allow placing more units
   };
 
   const handleCanvasClick = (e: React.MouseEvent) => {
@@ -122,49 +173,99 @@ export default function SimplifiedFloorPlanViewer({
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     
-    // Store click position for placement
     setLastClickPosition({ x, y });
-    
-    // Open drawer to select which unit to place
     setShowUnplacedUnits(true);
   };
 
-  const handleDragStart = (unitId: string, e: React.MouseEvent | React.TouchEvent) => {
+  const getMousePosition = useCallback((e: MouseEvent | TouchEvent): Point | null => {
+    if (!containerRef.current) return null;
+    const rect = containerRef.current.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0]?.clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0]?.clientY : e.clientY;
+    if (clientX === undefined || clientY === undefined) return null;
+    return {
+      x: ((clientX - rect.left) / rect.width) * 100,
+      y: ((clientY - rect.top) / rect.height) * 100
+    };
+  }, []);
+
+  const handleDragStart = (unitId: string, type: 'move' | 'resize' | 'vertex', e: React.MouseEvent | React.TouchEvent, vertexIndex?: number) => {
     if (!isEditMode || isAddingMode) return;
     e.preventDefault();
     e.stopPropagation();
-    setDraggedUnit(unitId);
+    
+    const shape = unitShapes[unitId];
+    if (!shape) return;
+    
+    setDragState({
+      type,
+      unitId,
+      vertexIndex,
+      startPos: shape.center
+    });
   };
 
-  const handleDragMove = (e: MouseEvent | TouchEvent) => {
-    if (!draggedUnit || !containerRef.current) return;
+  const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
+    if (!dragState.type || !dragState.unitId) return;
     
-    const rect = containerRef.current.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const pos = getMousePosition(e);
+    if (!pos) return;
     
-    const x = ((clientX - rect.left) / rect.width) * 100;
-    const y = ((clientY - rect.top) / rect.height) * 100;
+    const shape = unitShapes[dragState.unitId];
+    if (!shape) return;
     
-    setUnitPositions(prev => ({
-      ...prev,
-      [draggedUnit]: { 
-        x: Math.max(2, Math.min(98, x)), 
-        y: Math.max(2, Math.min(98, y)) 
-      }
-    }));
-  };
+    if (dragState.type === 'move') {
+      setUnitShapes(prev => ({
+        ...prev,
+        [dragState.unitId!]: {
+          ...prev[dragState.unitId!],
+          center: { 
+            x: Math.max(5, Math.min(95, pos.x)), 
+            y: Math.max(5, Math.min(95, pos.y)) 
+          }
+        }
+      }));
+    } else if (dragState.type === 'resize' && shape.type === 'circle') {
+      const dx = pos.x - shape.center.x;
+      const dy = pos.y - shape.center.y;
+      const newRadius = Math.sqrt(dx * dx + dy * dy);
+      
+      setUnitShapes(prev => ({
+        ...prev,
+        [dragState.unitId!]: {
+          ...prev[dragState.unitId!],
+          radius: Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, newRadius))
+        }
+      }));
+    } else if (dragState.type === 'vertex' && shape.type === 'polygon' && shape.points && dragState.vertexIndex !== undefined) {
+      const newPoints = [...shape.points];
+      newPoints[dragState.vertexIndex] = {
+        x: Math.max(0, Math.min(100, pos.x)),
+        y: Math.max(0, Math.min(100, pos.y))
+      };
+      
+      setUnitShapes(prev => ({
+        ...prev,
+        [dragState.unitId!]: {
+          ...prev[dragState.unitId!],
+          points: newPoints
+        }
+      }));
+    }
+  }, [dragState, unitShapes, getMousePosition]);
 
-  const handleDragEnd = () => {
-    setDraggedUnit(null);
-  };
+  const handleDragEnd = useCallback(() => {
+    setDragState({ type: null, unitId: null });
+  }, []);
 
-  // Add event listeners for drag
   useEffect(() => {
-    if (draggedUnit) {
+    if (dragState.type) {
       const handleMouseMove = (e: MouseEvent) => handleDragMove(e);
       const handleMouseUp = () => handleDragEnd();
-      const handleTouchMove = (e: TouchEvent) => handleDragMove(e);
+      const handleTouchMove = (e: TouchEvent) => {
+        e.preventDefault();
+        handleDragMove(e);
+      };
       const handleTouchEnd = () => handleDragEnd();
       
       document.addEventListener('mousemove', handleMouseMove);
@@ -179,12 +280,11 @@ export default function SimplifiedFloorPlanViewer({
         document.removeEventListener('touchend', handleTouchEnd);
       };
     }
-  }, [draggedUnit]);
+  }, [dragState.type, handleDragMove, handleDragEnd]);
 
-  // Add keyboard support for Delete key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Delete' && selectedUnit && isEditMode) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedUnit && isEditMode) {
         e.preventDefault();
         handleDeleteUnit();
       }
@@ -194,70 +294,455 @@ export default function SimplifiedFloorPlanViewer({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [selectedUnit, isEditMode]);
 
+  const convertToPolygon = (unitId: string) => {
+    const shape = unitShapes[unitId];
+    if (!shape || shape.type !== 'circle') return;
+    
+    const r = (shape.radius || DEFAULT_RADIUS) * 1.2;
+    const cx = shape.center.x;
+    const cy = shape.center.y;
+    
+    const points: Point[] = [
+      { x: cx - r, y: cy - r * 0.6 },
+      { x: cx + r, y: cy - r * 0.6 },
+      { x: cx + r, y: cy + r * 0.6 },
+      { x: cx - r, y: cy + r * 0.6 }
+    ];
+    
+    setUnitShapes(prev => ({
+      ...prev,
+      [unitId]: {
+        ...prev[unitId],
+        type: 'polygon',
+        points,
+        radius: undefined
+      }
+    }));
+    
+    toast({
+      title: "Converted to polygon",
+      description: "Drag corners to match the room shape. Right-click edges to add points.",
+    });
+  };
+
+  const convertToCircle = (unitId: string) => {
+    const shape = unitShapes[unitId];
+    if (!shape || shape.type !== 'polygon') return;
+    
+    setUnitShapes(prev => ({
+      ...prev,
+      [unitId]: {
+        ...prev[unitId],
+        type: 'circle',
+        radius: DEFAULT_RADIUS,
+        points: undefined
+      }
+    }));
+    
+    toast({
+      title: "Converted to circle",
+      description: "Drag the edge handle to resize.",
+    });
+  };
+
+  const addPolygonVertex = (unitId: string, edgeIndex: number, clickPos: Point) => {
+    const shape = unitShapes[unitId];
+    if (!shape || shape.type !== 'polygon' || !shape.points) return;
+    
+    const newPoints = [...shape.points];
+    newPoints.splice(edgeIndex + 1, 0, clickPos);
+    
+    setUnitShapes(prev => ({
+      ...prev,
+      [unitId]: {
+        ...prev[unitId],
+        points: newPoints
+      }
+    }));
+    
+    toast({
+      title: "Vertex added",
+      description: "Drag the new vertex to position it.",
+    });
+  };
+
+  const deletePolygonVertex = (unitId: string, vertexIndex: number) => {
+    const shape = unitShapes[unitId];
+    if (!shape || shape.type !== 'polygon' || !shape.points || shape.points.length <= 3) return;
+    
+    const newPoints = shape.points.filter((_, i) => i !== vertexIndex);
+    
+    setUnitShapes(prev => ({
+      ...prev,
+      [unitId]: {
+        ...prev[unitId],
+        points: newPoints
+      }
+    }));
+    
+    toast({
+      title: "Vertex deleted",
+      description: "Vertex removed from polygon.",
+    });
+  };
+
+  const getPolygonCentroid = (points: Point[]): Point => {
+    if (!points || points.length === 0) return { x: 50, y: 50 };
+    const sum = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+    return { x: sum.x / points.length, y: sum.y / points.length };
+  };
+
   const handleSavePositions = async () => {
     try {
-      // Save positions to backend
+      const saveData = {
+        type: 'enhanced',
+        shapes: unitShapes,
+        version: 2
+      };
+      
       await apiRequest('/api/campus-maps/unit-positions', 'POST', {
         campusMapId: campusMap.id,
-        positions: unitPositions
+        positions: saveData
       });
       
       toast({
         title: "Success",
-        description: "Unit positions saved successfully",
+        description: "Floor plan layout saved successfully",
       });
       
       setIsEditMode(false);
+      setSelectedUnit(null);
       queryClient.invalidateQueries({ queryKey: [`/api/campus-maps/${campusMap.id}`] });
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to save unit positions",
+        description: "Failed to save floor plan layout",
         variant: "destructive"
       });
     }
   };
 
   const handleResetPositions = () => {
-    const positions: {[key: string]: {x: number, y: number}} = {};
+    const shapes: {[key: string]: UnitShape} = {};
     const cols = Math.ceil(Math.sqrt(units.length));
     const rows = Math.ceil(units.length / cols);
     
     units.forEach((unit, index) => {
       const col = index % cols;
       const row = Math.floor(index / cols);
-      positions[unit.id] = {
-        x: (col * 100 / cols) + (50 / cols),
-        y: (row * 100 / rows) + (50 / rows)
+      shapes[unit.id] = {
+        id: unit.id,
+        roomNumber: unit.roomNumber,
+        type: 'circle',
+        center: {
+          x: (col * 100 / cols) + (50 / cols),
+          y: (row * 100 / rows) + (50 / rows)
+        },
+        radius: DEFAULT_RADIUS,
+        status: unit.occupiedYN ? 'occupied' : 'available',
+        serviceLine: unit.serviceLine
       };
     });
     
-    setUnitPositions(positions);
+    setUnitShapes(shapes);
+    setSelectedUnit(null);
     
     toast({
       title: "Reset",
-      description: "Unit positions reset to grid layout",
+      description: "Floor plan reset to grid layout",
     });
   };
 
-  const getUnitColor = (unit: any) => {
-    if (unit.occupiedYN) return '#94a3b8'; // Gray for occupied
+  const getUnitColor = (shape: UnitShape) => {
+    if (shape.status === 'occupied') return '#94a3b8';
     
-    // Green shades based on service line
-    switch(unit.serviceLine) {
+    switch(shape.serviceLine) {
       case 'AL':
       case 'AL/MC':
-        return '#22c55e'; // Bright green
+        return '#22c55e';
       case 'HC':
       case 'HC/MC':
-        return '#16a34a'; // Medium green  
+        return '#16a34a';
       case 'SL':
       case 'IL':
-        return '#15803d'; // Dark green
+        return '#15803d';
       default:
-        return '#84cc16'; // Light green
+        return '#84cc16';
     }
   };
+
+  const renderCircleShape = (shape: UnitShape, unit: any) => {
+    const isBeingDragged = dragState.unitId === shape.id;
+    const isHovered = hoveredUnit === shape.id;
+    const isSelected = selectedUnit === shape.id;
+    const radius = shape.radius || DEFAULT_RADIUS;
+    const sizePx = radius * 12;
+    
+    return (
+      <ContextMenuTrigger key={shape.id} asChild>
+        <div
+          className={`absolute transition-all ${
+            isEditMode && !isAddingMode ? 'cursor-move' : isEditMode ? 'cursor-not-allowed' : 'cursor-pointer'
+          } ${isBeingDragged ? 'z-50' : 'z-10'}`}
+          style={{
+            left: `${shape.center.x}%`,
+            top: `${shape.center.y}%`,
+            transform: 'translate(-50%, -50%)',
+            transition: isBeingDragged ? 'none' : 'all 0.15s ease-out'
+          }}
+          onMouseDown={(e) => {
+            if (isEditMode && !isAddingMode) {
+              handleDragStart(shape.id, 'move', e);
+            }
+          }}
+          onTouchStart={(e) => {
+            if (isEditMode && !isAddingMode) {
+              handleDragStart(shape.id, 'move', e);
+            }
+          }}
+          onMouseEnter={() => setHoveredUnit(shape.id)}
+          onMouseLeave={() => setHoveredUnit(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isEditMode && !isAddingMode) {
+              handleUnitSelect(shape.id);
+            } else if (!isEditMode) {
+              onUnitClick?.(shape.id);
+            }
+          }}
+          data-testid={`unit-circle-${shape.roomNumber}`}
+        >
+          <div
+            className={`relative flex items-center justify-center rounded-full border-2 ${
+              isHovered && !isEditMode ? 'scale-110' : ''
+            } ${isBeingDragged ? 'scale-110 shadow-lg' : ''} ${
+              isSelected ? 'ring-4 ring-blue-500 ring-offset-2' : ''
+            }`}
+            style={{
+              width: `${sizePx}px`,
+              height: `${sizePx}px`,
+              minWidth: '24px',
+              minHeight: '24px',
+              backgroundColor: getUnitColor(shape) + '40',
+              borderColor: getUnitColor(shape),
+              transition: isBeingDragged ? 'none' : 'all 0.15s ease-out'
+            }}
+          >
+            <span 
+              className="font-semibold text-gray-900 text-center leading-tight"
+              style={{ fontSize: `${Math.max(8, Math.min(12, sizePx / 3))}px` }}
+            >
+              {shape.roomNumber}
+            </span>
+          </div>
+
+          {isEditMode && !isAddingMode && isSelected && (
+            <div
+              className="absolute w-4 h-4 bg-blue-500 border-2 border-white rounded-full cursor-se-resize shadow-md hover:scale-125 transition-transform"
+              style={{
+                right: `-${sizePx / 2 + 4}px`,
+                top: '50%',
+                transform: 'translateY(-50%)'
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                handleDragStart(shape.id, 'resize', e);
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+                handleDragStart(shape.id, 'resize', e);
+              }}
+              data-testid={`resize-handle-${shape.roomNumber}`}
+            />
+          )}
+
+          {isHovered && !isEditMode && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+              <div className="bg-gray-900 text-white px-3 py-2 rounded-lg shadow-lg whitespace-nowrap text-sm">
+                <div className="font-semibold">Unit {shape.roomNumber}</div>
+                <div className="text-xs opacity-90">
+                  {shape.status === 'occupied' ? 'Occupied' : 'Available'}
+                </div>
+                <div className="text-xs opacity-90">
+                  {shape.serviceLine} - {unit?.size || 'Studio'}
+                </div>
+              </div>
+              <div className="w-2 h-2 bg-gray-900 transform rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1" />
+            </div>
+          )}
+        </div>
+      </ContextMenuTrigger>
+    );
+  };
+
+  const renderPolygonShape = (shape: UnitShape, unit: any) => {
+    if (!shape.points || shape.points.length < 3) return null;
+    
+    const isBeingDragged = dragState.unitId === shape.id;
+    const isHovered = hoveredUnit === shape.id;
+    const isSelected = selectedUnit === shape.id;
+    const centroid = getPolygonCentroid(shape.points);
+    
+    const minX = Math.min(...shape.points.map(p => p.x));
+    const maxX = Math.max(...shape.points.map(p => p.x));
+    const minY = Math.min(...shape.points.map(p => p.y));
+    const maxY = Math.max(...shape.points.map(p => p.y));
+    
+    const pathData = shape.points.map((p, i) => 
+      `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
+    ).join(' ') + ' Z';
+    
+    return (
+      <ContextMenuTrigger key={shape.id} asChild>
+        <g
+          className={`${isEditMode && !isAddingMode ? 'cursor-move' : isEditMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          onMouseEnter={() => setHoveredUnit(shape.id)}
+          onMouseLeave={() => setHoveredUnit(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isEditMode && !isAddingMode) {
+              handleUnitSelect(shape.id);
+            } else if (!isEditMode) {
+              onUnitClick?.(shape.id);
+            }
+          }}
+          data-testid={`unit-polygon-${shape.roomNumber}`}
+        >
+          <path
+            d={pathData}
+            fill={getUnitColor(shape) + '40'}
+            stroke={getUnitColor(shape)}
+            strokeWidth={isSelected ? 0.4 : 0.25}
+            className={`${isHovered && !isEditMode ? 'opacity-80' : ''} ${isSelected ? 'filter drop-shadow-md' : ''}`}
+            style={{ transition: 'all 0.15s ease-out' }}
+            onMouseDown={(e) => {
+              if (isEditMode && !isAddingMode) {
+                handleDragStart(shape.id, 'move', e as any);
+              }
+            }}
+          />
+          
+          <text
+            x={centroid.x}
+            y={centroid.y}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className="font-semibold fill-gray-900 pointer-events-none select-none"
+            style={{ fontSize: '0.9px' }}
+          >
+            {shape.roomNumber}
+          </text>
+
+          {isEditMode && !isAddingMode && isSelected && shape.points.map((point, index) => (
+            <circle
+              key={`vertex-${index}`}
+              cx={point.x}
+              cy={point.y}
+              r={0.6}
+              fill="#3b82f6"
+              stroke="white"
+              strokeWidth={0.15}
+              className="cursor-pointer hover:scale-150"
+              style={{ transition: 'transform 0.1s' }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                handleDragStart(shape.id, 'vertex', e as any, index);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (shape.points && shape.points.length > 3) {
+                  deletePolygonVertex(shape.id, index);
+                }
+              }}
+              data-testid={`vertex-handle-${shape.roomNumber}-${index}`}
+            />
+          ))}
+
+          {isEditMode && !isAddingMode && isSelected && shape.points.map((point, index) => {
+            const nextPoint = shape.points![(index + 1) % shape.points!.length];
+            const midX = (point.x + nextPoint.x) / 2;
+            const midY = (point.y + nextPoint.y) / 2;
+            
+            return (
+              <circle
+                key={`edge-${index}`}
+                cx={midX}
+                cy={midY}
+                r={0.4}
+                fill="#10b981"
+                stroke="white"
+                strokeWidth={0.1}
+                className="cursor-pointer opacity-60 hover:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addPolygonVertex(shape.id, index, { x: midX, y: midY });
+                }}
+                data-testid={`edge-add-${shape.roomNumber}-${index}`}
+              />
+            );
+          })}
+        </g>
+      </ContextMenuTrigger>
+    );
+  };
+
+  const renderShape = (shape: UnitShape) => {
+    const unit = units.find(u => u.id === shape.id);
+    
+    if (shape.type === 'circle') {
+      return (
+        <ContextMenu key={shape.id}>
+          {renderCircleShape(shape, unit)}
+          <ContextMenuContent>
+            {isEditMode && (
+              <>
+                <ContextMenuItem onClick={() => convertToPolygon(shape.id)}>
+                  <Pentagon className="h-4 w-4 mr-2" />
+                  Convert to Polygon
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => handleDeleteUnit()} className="text-red-600">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Unit
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
+      );
+    }
+    
+    return null;
+  };
+
+  const renderPolygonContextMenu = (shape: UnitShape) => {
+    const unit = units.find(u => u.id === shape.id);
+    
+    return (
+      <ContextMenu key={shape.id}>
+        {renderPolygonShape(shape, unit)}
+        <ContextMenuContent>
+          {isEditMode && (
+            <>
+              <ContextMenuItem onClick={() => convertToCircle(shape.id)}>
+                <Circle className="h-4 w-4 mr-2" />
+                Convert to Circle
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => {
+                setSelectedUnit(shape.id);
+                handleDeleteUnit();
+              }} className="text-red-600">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Unit
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  const circleShapes = Object.values(unitShapes).filter(s => s.type === 'circle');
+  const polygonShapes = Object.values(unitShapes).filter(s => s.type === 'polygon');
 
   return (
     <>
@@ -375,150 +860,79 @@ export default function SimplifiedFloorPlanViewer({
           style={{
             transform: `scale(${zoom})`,
             transformOrigin: 'center',
-            transition: draggedUnit ? 'none' : 'transform 0.2s ease-out'
+            transition: dragState.type ? 'none' : 'transform 0.2s ease-out'
           }}
           onClick={handleCanvasClick}
         >
-        {/* Floor plan background image or gradient */}
-        {campusMap?.baseImageUrl ? (
-          <img 
-            src={campusMap.baseImageUrl}
-            alt="Floor Plan"
-            className="absolute inset-0 w-full h-full object-contain"
-            style={{ 
-              opacity: 0.9,
-              pointerEvents: 'none'
-            }}
-          />
-        ) : (
-          <div 
-            className="absolute inset-0 bg-gradient-to-br from-slate-100 via-gray-100 to-stone-100"
-            style={{
-              backgroundImage: `
-                linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px)
-              `,
-              backgroundSize: '40px 40px'
-            }}
-          />
-        )}
+          {campusMap?.baseImageUrl ? (
+            <img 
+              src={campusMap.baseImageUrl}
+              alt="Floor Plan"
+              className="absolute inset-0 w-full h-full object-contain"
+              style={{ 
+                opacity: 0.9,
+                pointerEvents: 'none'
+              }}
+            />
+          ) : (
+            <div 
+              className="absolute inset-0 bg-gradient-to-br from-slate-100 via-gray-100 to-stone-100"
+              style={{
+                backgroundImage: `
+                  linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                  linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px)
+                `,
+                backgroundSize: '40px 40px'
+              }}
+            />
+          )}
 
-          {/* Unit circles - only render placed units */}
-          {placedUnits.map(unit => {
-            const position = unitPositions[unit.id];
-            if (!position) return null;
-            
-            const isBeingDragged = draggedUnit === unit.id;
-            const isHovered = hoveredUnit === unit.id;
-            const isSelected = selectedUnit === unit.id;
+          {circleShapes.map(shape => renderShape(shape))}
 
-            return (
-              <div
-                key={unit.id}
-                className={`absolute transition-all ${
-                  isEditMode && !isAddingMode ? 'cursor-move' : isEditMode ? 'cursor-not-allowed' : 'cursor-pointer'
-                } ${isBeingDragged ? 'z-50' : 'z-10'}`}
-                style={{
-                  left: `${position.x}%`,
-                  top: `${position.y}%`,
-                  transform: 'translate(-50%, -50%)',
-                  transition: isBeingDragged ? 'none' : 'all 0.2s ease-out'
-                }}
-                onMouseDown={(e) => {
-                  if (isEditMode && !isAddingMode) {
-                    handleDragStart(unit.id, e);
-                  }
-                }}
-                onTouchStart={(e) => {
-                  if (isEditMode && !isAddingMode) {
-                    handleDragStart(unit.id, e);
-                  }
-                }}
-                onMouseEnter={() => setHoveredUnit(unit.id)}
-                onMouseLeave={() => setHoveredUnit(null)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isEditMode && !isAddingMode) {
-                    handleUnitSelect(unit.id);
-                  } else if (!isEditMode) {
-                    onUnitClick?.(unit.id);
-                  }
-                }}
-                data-testid={`unit-circle-${unit.roomNumber}`}
-              >
-                {/* Circle with unit number */}
-                <div
-                  className={`relative flex items-center justify-center rounded-full border-2 ${
-                    isHovered ? 'scale-110' : ''
-                  } ${isBeingDragged ? 'scale-125 shadow-lg' : ''} ${
-                    isSelected ? 'ring-4 ring-blue-500' : ''
-                  }`}
-                  style={{
-                    width: '30px',
-                    height: '30px',
-                    backgroundColor: getUnitColor(unit) + '40', // 40 = 25% opacity
-                    borderColor: getUnitColor(unit),
-                    transition: isBeingDragged ? 'none' : 'all 0.2s ease-out'
-                  }}
-                >
-                  <span className="font-semibold text-[10px] text-gray-900">
-                    {unit.roomNumber}
-                  </span>
-                </div>
+          {polygonShapes.length > 0 && (
+            <svg 
+              className="absolute inset-0 w-full h-full pointer-events-auto"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              style={{ zIndex: 15 }}
+            >
+              {polygonShapes.map(shape => renderPolygonContextMenu(shape))}
+            </svg>
+          )}
 
-              {/* Tooltip on hover */}
-              {isHovered && !isEditMode && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
-                  <div className="bg-gray-900 text-white px-3 py-2 rounded-lg shadow-lg whitespace-nowrap text-sm">
-                    <div className="font-semibold">Unit {unit.roomNumber}</div>
-                    <div className="text-xs opacity-90">
-                      {unit.occupiedYN ? 'Occupied' : 'Available'}
-                    </div>
-                    <div className="text-xs opacity-90">
-                      {unit.serviceLine} - {unit.size || 'Studio'}
-                    </div>
-                  </div>
-                  <div className="w-2 h-2 bg-gray-900 transform rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Legend */}
-        <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-md">
-          <div className="text-xs font-semibold mb-2">Unit Status</div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-green-500/40 border border-green-500" />
-              <span className="text-xs">Available</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-gray-400/40 border border-gray-400" />
-              <span className="text-xs">Occupied</span>
+          <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-md z-20">
+            <div className="text-xs font-semibold mb-2">Unit Status</div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-green-500/40 border border-green-500" />
+                <span className="text-xs">Available</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-gray-400/40 border border-gray-400" />
+                <span className="text-xs">Occupied</span>
+              </div>
             </div>
           </div>
-        </div>
 
-          {/* Edit mode indicator */}
           {isEditMode && !isAddingMode && (
-            <div className="absolute top-4 left-4 bg-yellow-100 border border-yellow-400 rounded-lg px-3 py-2 shadow-md">
+            <div className="absolute top-4 left-4 bg-yellow-100 border border-yellow-400 rounded-lg px-3 py-2 shadow-md z-20">
               <div className="flex items-center gap-2">
                 <Edit3 className="h-4 w-4 text-yellow-700" />
                 <span className="text-sm font-medium text-yellow-700">
-                  {selectedUnit ? 'Click Delete or press Delete key to remove unit' : 'Drag units to reposition them'}
+                  {selectedUnit 
+                    ? 'Drag to move. Right-click for options. Press Delete to remove.' 
+                    : 'Click a unit to select. Drag to move. Right-click for shape options.'}
                 </span>
               </div>
             </div>
           )}
 
-          {/* Adding mode indicator */}
           {isAddingMode && (
-            <div className="absolute top-4 left-4 bg-blue-100 border border-blue-400 rounded-lg px-3 py-2 shadow-md">
+            <div className="absolute top-4 left-4 bg-blue-100 border border-blue-400 rounded-lg px-3 py-2 shadow-md z-20">
               <div className="flex items-center gap-2">
                 <Plus className="h-4 w-4 text-blue-700" />
                 <span className="text-sm font-medium text-blue-700">
-                  Click anywhere to open unit selector ({unplacedUnits.length} units to place)
+                  Click anywhere to place a unit ({unplacedUnits.length} remaining)
                 </span>
               </div>
             </div>
@@ -526,7 +940,6 @@ export default function SimplifiedFloorPlanViewer({
         </div>
       </Card>
 
-      {/* Sheet for selecting unplaced units */}
       <Sheet open={showUnplacedUnits} onOpenChange={setShowUnplacedUnits}>
         <SheetContent side="right" className="w-[400px]">
           <SheetHeader>
@@ -544,11 +957,10 @@ export default function SimplifiedFloorPlanViewer({
                     key={unit.id}
                     className="cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
-                      // Place unit at the clicked position (or center if no position stored)
                       const pos = lastClickPosition || { x: 50, y: 50 };
                       handlePlaceUnit(unit.id, pos.x, pos.y);
                       setShowUnplacedUnits(false);
-                      setLastClickPosition(null); // Clear for next placement
+                      setLastClickPosition(null);
                     }}
                     data-testid={`unplaced-unit-${unit.roomNumber}`}
                   >
@@ -565,8 +977,14 @@ export default function SimplifiedFloorPlanViewer({
                         <div
                           className="w-6 h-6 rounded-full border-2"
                           style={{
-                            backgroundColor: getUnitColor(unit) + '40',
-                            borderColor: getUnitColor(unit)
+                            backgroundColor: getUnitColor({
+                              status: unit.occupiedYN ? 'occupied' : 'available',
+                              serviceLine: unit.serviceLine
+                            } as UnitShape) + '40',
+                            borderColor: getUnitColor({
+                              status: unit.occupiedYN ? 'occupied' : 'available',
+                              serviceLine: unit.serviceLine
+                            } as UnitShape)
                           }}
                         />
                       </div>
