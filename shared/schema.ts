@@ -851,6 +851,95 @@ export const insertImportMappingProfileSchema = createInsertSchema(importMapping
 export type ImportMappingProfile = typeof importMappingProfiles.$inferSelect;
 export type InsertImportMappingProfile = z.infer<typeof insertImportMappingProfileSchema>;
 
+// AI Rate Outcomes - Track when AI rates are adopted and their success
+export const aiRateOutcomes = pgTable("ai_rate_outcomes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  rentRollDataId: varchar("rent_roll_data_id").references(() => rentRollData.id),
+  locationId: varchar("location_id").references(() => locations.id),
+  location: text("location").notNull(),
+  serviceLine: text("service_line").notNull(),
+  roomNumber: text("room_number").notNull(),
+  roomType: text("room_type"),
+  uploadMonth: text("upload_month").notNull(), // YYYY-MM when rate was suggested
+  aiSuggestedRate: real("ai_suggested_rate").notNull(),
+  streetRateAtSet: real("street_rate_at_set"), // Original street rate when AI rate was generated
+  wasAiAdopted: boolean("was_ai_adopted").default(false), // True if AI rate became street rate
+  adoptedAt: timestamp("adopted_at"), // When the AI rate was adopted as street rate
+  adoptedStreetRate: real("adopted_street_rate"), // The actual street rate that was set (may differ slightly)
+  soldAt: timestamp("sold_at"), // When the unit was sold/occupied
+  moveInDate: text("move_in_date"), // Date resident moved in
+  daysToSale: integer("days_to_sale"), // Days from adoption to sale
+  soldWithin30Days: boolean("sold_within_30_days").default(false), // True if sold within 30 days of adoption
+  weightsSnapshot: jsonb("weights_snapshot"), // JSON of the 6 factor weights used
+  calculationRunId: varchar("calculation_run_id").references(() => calculationHistory.id),
+  outcomeScore: real("outcome_score").default(0), // +2 if adopted+sold<30d, +1 if adopted only, 0 otherwise
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  roomMonthIdx: index("ai_outcomes_room_month_idx").on(table.location, table.roomNumber, table.uploadMonth),
+  adoptionIdx: index("ai_outcomes_adoption_idx").on(table.wasAiAdopted, table.soldWithin30Days),
+  serviceLineIdx: index("ai_outcomes_service_line_idx").on(table.serviceLine),
+}));
+
+export const insertAiRateOutcomesSchema = createInsertSchema(aiRateOutcomes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// AI Weight Versions - Track learned weights over time with audit trail
+export const aiWeightVersions = pgTable("ai_weight_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scope: text("scope").notNull(), // 'global', 'service_line', 'location'
+  scopeValue: text("scope_value"), // Service line name or location ID (null for global)
+  version: integer("version").notNull().default(1),
+  occupancyPressure: real("occupancy_pressure").notNull(),
+  daysVacantDecay: real("days_vacant_decay").notNull(),
+  seasonality: real("seasonality").notNull(),
+  competitorRates: real("competitor_rates").notNull(),
+  stockMarket: real("stock_market").notNull(),
+  inquiryTourVolume: real("inquiry_tour_volume").notNull(),
+  sampleSize: integer("sample_size").notNull(), // Number of outcomes used to train
+  adoptionRate: real("adoption_rate"), // % of AI rates that were adopted
+  saleWithin30Rate: real("sale_within_30_rate"), // % of adopted rates that sold within 30 days
+  averageOutcomeScore: real("average_outcome_score"), // Mean outcome score for this model
+  modelMetadata: jsonb("model_metadata"), // Training details, coefficients, etc.
+  isActive: boolean("is_active").default(true), // Whether this version is currently being used
+  activatedAt: timestamp("activated_at"),
+  deactivatedAt: timestamp("deactivated_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  scopeActiveIdx: uniqueIndex("ai_weights_scope_active_idx").on(table.scope, table.scopeValue, table.isActive),
+  versionIdx: index("ai_weights_version_idx").on(table.scope, table.scopeValue, table.version),
+}));
+
+export const insertAiWeightVersionsSchema = createInsertSchema(aiWeightVersions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// ML Training History - Track training runs
+export const mlTrainingHistory = pgTable("ml_training_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  trainedAt: timestamp("trained_at").defaultNow(),
+  trainingType: text("training_type").notNull(), // 'scheduled', 'manual', 'triggered'
+  samplesUsed: integer("samples_used").notNull(),
+  modelsUpdated: integer("models_updated").notNull(),
+  globalWeightsBefore: jsonb("global_weights_before"),
+  globalWeightsAfter: jsonb("global_weights_after"),
+  serviceLineUpdates: jsonb("service_line_updates"), // Array of {serviceLine, weightsBefore, weightsAfter}
+  trainingMetrics: jsonb("training_metrics"), // R², RMSE, etc.
+  status: text("status").notNull(), // 'completed', 'failed', 'partial'
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertMlTrainingHistorySchema = createInsertSchema(mlTrainingHistory).omit({
+  id: true,
+  trainedAt: true,
+  createdAt: true,
+});
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;
@@ -906,3 +995,9 @@ export type InquiryMetrics = typeof inquiryMetrics.$inferSelect;
 export type InsertInquiryMetrics = z.infer<typeof insertInquiryMetricsSchema>;
 export type CompetitorRateJob = typeof competitorRateJobs.$inferSelect;
 export type InsertCompetitorRateJob = z.infer<typeof insertCompetitorRateJobSchema>;
+export type AiRateOutcome = typeof aiRateOutcomes.$inferSelect;
+export type InsertAiRateOutcome = z.infer<typeof insertAiRateOutcomesSchema>;
+export type AiWeightVersion = typeof aiWeightVersions.$inferSelect;
+export type InsertAiWeightVersion = z.infer<typeof insertAiWeightVersionsSchema>;
+export type MlTrainingHistory = typeof mlTrainingHistory.$inferSelect;
+export type InsertMlTrainingHistory = z.infer<typeof insertMlTrainingHistorySchema>;
