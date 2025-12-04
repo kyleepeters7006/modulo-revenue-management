@@ -25,7 +25,7 @@ Preferred communication style: Simple, everyday language.
 ## Database
 - **Primary**: PostgreSQL (Neon serverless driver)
 - **Schema Management**: Drizzle Kit
-- **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`, `inquiry_metrics`.
+- **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`, `inquiry_metrics`, `ai_rate_outcomes`, `ai_weight_versions`.
 
 ## Performance Optimizations (November 2025)
 - **Database Indexing**: Added 7 indexes on critical columns (upload_month, location_id, location, service_line, occupied_yn, room_number, room_type) to accelerate queries on 17,216-unit dataset
@@ -62,6 +62,16 @@ Preferred communication style: Simple, everyday language.
 - **Inquiry Data Persistence**: Stores aggregated inquiry data by location, service line, and lead source in a dedicated `inquiry_metrics` table.
 - **Trilogy-Specific Column Mapping**: Supports custom column mappings for rent roll uploads, service line normalization, and intelligent attribute parsing from room type fields.
 - **Smart Location Filtering**: Location/region/division dropdowns automatically filter to show only locations that have both rent roll data AND complete region/division mappings, ensuring data integrity across all views.
+- **ML Learning System (December 2025)**: Self-improving pricing weights through supervised learning:
+  - **Outcome Tracking**: Records AI rate suggestions with `ai_rate_outcomes` table, capturing weights snapshot for each calculation
+  - **Adoption Detection**: Identifies when operators adopt AI-suggested rates (within 2% tolerance of street rate)
+  - **Sales Tracking**: Monitors if adopted rates lead to unit sales within 30 days
+  - **Outcome Scoring**: +2 points for adopted AND sold, +1 for adopted only, 0 otherwise
+  - **Regularized Regression Trainer**: Uses bandit-style safe updates with clamped weights (5-60% per factor, sum=100%)
+  - **Training Requirements**: Minimum 50 samples per service line before updating weights
+  - **Version Control**: Tracks weight versions in `ai_weight_versions` table with performance metrics
+  - **Automated Learning Loop**: Runs daily after 6:00 AM calculation (calculate → record outcomes → detect adoptions → track sales → train weights)
+  - **API Endpoints**: GET `/api/ml/statistics`, POST `/api/ml/train`, GET `/api/ml/weights/:serviceLine`, POST `/api/ml/detect-adoptions`, POST `/api/ml/update-sales`
 
 ## Recent Fixes (November 2025 - Latest)
 - **Rate Card Default Sort**: Updated rate card to show vacant rooms first by default, sorting by occupancy status in ascending order
