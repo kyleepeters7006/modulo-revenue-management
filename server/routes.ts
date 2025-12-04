@@ -5916,16 +5916,44 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   // Issue #3 fix: Preview attribute weight changes
   app.post("/api/attribute-ratings/preview", async (req, res) => {
     try {
-      const { proposedRatings } = req.body; // Array of { attributeType, ratingLevel, adjustmentPercent }
+      const { proposedRatings, filters } = req.body;
+      const locations = filters?.locations || [];
+      const serviceLine = filters?.serviceLine || "All";
       
-      // Get sample units to show impact
-      const sampleUnits = await db.select()
-        .from(rentRollData)
-        .limit(20); // Get a sample of units
+      // Build query conditions based on filters
+      const conditions = [];
+      if (locations.length > 0) {
+        conditions.push(inArray(rentRollData.location, locations));
+      }
+      if (serviceLine && serviceLine !== "All") {
+        conditions.push(eq(rentRollData.serviceLine, serviceLine));
+      }
       
-      const previews = [];
+      // Get units based on filters (limit to 500 for performance)
+      let query = db.select().from(rentRollData);
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+      const sampleUnits = await query.limit(500);
+      
+      const previews: Array<{
+        unitId: string;
+        roomNumber: string;
+        location: string;
+        serviceLine: string;
+        roomType: string;
+        currentPrice: number;
+        newPrice: number;
+        change: number;
+        changePercent: number;
+      }> = [];
+      
+      // Track by service line
+      const byServiceLine: Map<string, { count: number; totalChange: number }> = new Map();
       
       for (const unit of sampleUnits) {
+        if (!unit.streetRate || unit.streetRate <= 0) continue;
+        
         // Calculate current attributed rate
         const currentMultiplier = attributePricingService.calculateAttributeMultiplier(unit);
         const currentAttributedRate = unit.streetRate * currentMultiplier;
@@ -5946,7 +5974,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             if (proposed) {
               proposedMultiplier += proposed.adjustmentPercent / 100;
             } else {
-              // Use existing rating if not in proposed changes
               const currentAdj = attributePricingService.getAttributeAdjustmentPercent(attr, rating);
               proposedMultiplier += currentAdj / 100;
             }
@@ -5954,37 +5981,59 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         }
         
         const proposedAttributedRate = unit.streetRate * proposedMultiplier;
+        const change = proposedAttributedRate - currentAttributedRate;
+        const changePercent = currentAttributedRate > 0 ? (change / currentAttributedRate) * 100 : 0;
         
         previews.push({
           unitId: unit.id,
-          roomNumber: unit.roomNumber,
-          location: unit.location,
-          serviceLine: unit.serviceLine,
-          roomType: unit.roomType,
-          streetRate: unit.streetRate,
-          currentMultiplier: Math.round(currentMultiplier * 1000) / 1000,
-          currentAttributedRate: Math.round(currentAttributedRate),
-          proposedMultiplier: Math.round(proposedMultiplier * 1000) / 1000,
-          proposedAttributedRate: Math.round(proposedAttributedRate),
-          changeAmount: Math.round(proposedAttributedRate - currentAttributedRate),
-          changePercent: Math.round(((proposedAttributedRate - currentAttributedRate) / currentAttributedRate) * 100)
+          roomNumber: unit.roomNumber || '',
+          location: unit.location || '',
+          serviceLine: unit.serviceLine || '',
+          roomType: unit.roomType || '',
+          currentPrice: Math.round(currentAttributedRate),
+          newPrice: Math.round(proposedAttributedRate),
+          change: Math.round(change),
+          changePercent
         });
+        
+        // Aggregate by service line
+        const sl = unit.serviceLine || 'Unknown';
+        if (!byServiceLine.has(sl)) {
+          byServiceLine.set(sl, { count: 0, totalChange: 0 });
+        }
+        const slData = byServiceLine.get(sl)!;
+        slData.count++;
+        slData.totalChange += changePercent;
       }
       
       // Calculate summary statistics
-      const totalCurrentRevenue = previews.reduce((sum, p) => sum + p.currentAttributedRate, 0);
-      const totalProposedRevenue = previews.reduce((sum, p) => sum + p.proposedAttributedRate, 0);
-      const avgChangePercent = previews.reduce((sum, p) => sum + p.changePercent, 0) / previews.length;
+      const totalChangeAmount = previews.reduce((sum, p) => sum + p.change, 0);
+      const avgChangePercent = previews.length > 0 
+        ? previews.reduce((sum, p) => sum + p.changePercent, 0) / previews.length 
+        : 0;
+      const affectedUnits = previews.filter(p => Math.abs(p.change) > 0).length;
+      
+      // Format by service line
+      const byServiceLineArray = Array.from(byServiceLine.entries()).map(([sl, data]) => ({
+        serviceLine: sl,
+        count: data.count,
+        avgChange: data.count > 0 ? data.totalChange / data.count : 0
+      }));
+      
+      // Get top 10 changes (by absolute change amount)
+      const topChanges = [...previews]
+        .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+        .slice(0, 10);
       
       res.json({
-        previews,
         summary: {
           unitsAnalyzed: previews.length,
-          totalCurrentRevenue: Math.round(totalCurrentRevenue),
-          totalProposedRevenue: Math.round(totalProposedRevenue),
-          totalChangeAmount: Math.round(totalProposedRevenue - totalCurrentRevenue),
-          avgChangePercent: Math.round(avgChangePercent * 10) / 10
-        }
+          avgChangePercent: Math.round(avgChangePercent * 100) / 100,
+          totalChangeAmount: Math.round(totalChangeAmount),
+          affectedUnits
+        },
+        byServiceLine: byServiceLineArray,
+        topChanges
       });
     } catch (error) {
       console.error('Error previewing attribute ratings:', error);

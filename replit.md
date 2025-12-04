@@ -80,6 +80,7 @@ Preferred communication style: Simple, everyday language.
 - **Dashboard Rate Display**: Added split rate display showing HC rates in daily format and Senior Housing rates in monthly format in Average Rate Comparison card
 - **UI Contrast Improvements**: Enhanced text contrast in Service Line Breakdown with bold dark gray service line names and medium gray unit counts for better readability
 - **TypeScript Error Resolution**: Addressed critical type errors in server/routes.ts while maintaining runtime stability
+- **Room Attributes Unified Filter System (December 2025)**: Redesigned Room Attributes page with unified filter bar (Region, Division, Location, Service Line) matching Pricing Controls. Added Preview Impact functionality showing summary statistics (units analyzed, affected units, avg change %, total revenue impact) with filter support. Backend `/api/attribute-ratings/preview` endpoint enhanced to accept filters and return detailed impact breakdown by service line and top unit changes.
 
 ## New Features (November 2025)
 - **Analytics Division Highlighting**: Clickable division badges in scatter plot legends with teal highlighting. Multiple divisions can be selected; non-selected divisions appear muted at 15% opacity. Clear button appears when filtering is active.
