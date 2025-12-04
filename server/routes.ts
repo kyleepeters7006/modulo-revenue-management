@@ -777,6 +777,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Debug endpoint to test demand data retrieval
+  app.get("/api/debug/demand", async (req, res) => {
+    try {
+      const { location, serviceLine, month } = req.query;
+      if (!location || !month) {
+        return res.status(400).json({ error: 'location and month are required' });
+      }
+      
+      const demandData = await storage.getDemandDataByLocationServiceLine(
+        location as string,
+        serviceLine as string || '',
+        month as string
+      );
+      
+      res.json({
+        location,
+        serviceLine,
+        month,
+        demandData,
+        message: demandData.demandHistory.length > 0 
+          ? 'Real data found' 
+          : 'Using fallback defaults'
+      });
+    } catch (error) {
+      console.error("Error fetching demand data:", error);
+      res.status(500).json({ error: "Failed to fetch demand data" });
+    }
+  });
+
   // Inquiry Data template download endpoint
   app.get("/api/template/inquiry", async (req, res) => {
     try {
@@ -5099,13 +5128,16 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             }
           }
           
-          // Fetch real Enquire data for demand signals
-          // Note: Enquire data table may be empty - using fallback defaults if no data
-          let currentDemand = 0;
-          let historicalMonths = [];
+          // Fetch real inquiry data for demand signals
+          const demandData = await storage.getDemandDataByLocationServiceLine(
+            unit.location,
+            unit.serviceLine || '',
+            month
+          );
           
-          const demandHistory = historicalMonths.length > 0 ? historicalMonths : [10, 12, 15, 13, 14, 11];
-          const demandCurrent = currentDemand > 0 ? currentDemand : 12;
+          // Use actual data if available, otherwise fall back to neutral defaults
+          const demandHistory = demandData.demandHistory.length > 0 ? demandData.demandHistory : [10, 12, 15, 13, 14, 11];
+          const demandCurrent = demandData.currentDemand > 0 ? demandData.currentDemand : 12;
           
           // Use the pricing orchestrator with attribute-based pricing
           const pricingInputs: PricingInputs = {

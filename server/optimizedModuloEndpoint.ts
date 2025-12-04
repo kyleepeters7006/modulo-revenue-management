@@ -8,14 +8,20 @@ import { getSentenceExplanation, generateOverallExplanation } from "./sentenceEx
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
 
+interface DemandData {
+  currentDemand: number;
+  demandHistory: number[];
+}
+
 interface PrecomputedSignals {
   stockMarketChange: number;
   serviceLineOccupancy: Map<string, number>;
   locationOccupancy: Map<string, number>;
   serviceLineMedians: Map<string, number>;
   monthIndex: number;
-  demandHistory: number[];
-  demandCurrent: number;
+  demandCache: Map<string, DemandData>;
+  defaultDemandHistory: number[];
+  defaultDemandCurrent: number;
 }
 
 interface ProcessingProgress {
@@ -101,6 +107,14 @@ async function processUnitBatch(
             }
           }
           
+          // Get cached demand data for this location+serviceLine
+          const demandKey = `${unit.location}|${unit.serviceLine || ''}`;
+          const cachedDemand = precomputedSignals.demandCache.get(demandKey);
+          const demandCurrent = cachedDemand?.currentDemand || precomputedSignals.defaultDemandCurrent;
+          const demandHistory = cachedDemand?.demandHistory.length > 0 
+            ? cachedDemand.demandHistory 
+            : precomputedSignals.defaultDemandHistory;
+          
           // Build pricing inputs
           const pricingInputs: PricingInputs = {
             occupancy,
@@ -109,8 +123,8 @@ async function processUnitBatch(
             monthIndex: precomputedSignals.monthIndex,
             competitorPrices,
             marketReturn: precomputedSignals.stockMarketChange / 100,
-            demandCurrent: precomputedSignals.demandCurrent,
-            demandHistory: precomputedSignals.demandHistory,
+            demandCurrent,
+            demandHistory,
             serviceLine: unit.serviceLine
           };
           
@@ -383,6 +397,35 @@ export async function generateModuloOptimized(req: any, res: any) {
     console.log(`Precomputed: ${locationOccupancy.size} location occupancies, ${serviceLineOccupancy.size} service line occupancies`);
     console.log(`Weights cache: ${weightsCache.size} specific, ${locationWeightsCache.size} location-level`);
     
+    // Precompute demand data for all unique location+serviceLine combinations
+    const demandCache = new Map<string, DemandData>();
+    const uniqueLocationServiceLines = new Set<string>();
+    
+    units.forEach(unit => {
+      const key = `${unit.location}|${unit.serviceLine || ''}`;
+      uniqueLocationServiceLines.add(key);
+    });
+    
+    // Fetch demand data for all unique combinations in parallel
+    const demandPromises = Array.from(uniqueLocationServiceLines).map(async (key) => {
+      const [location, serviceLine] = key.split('|');
+      try {
+        const demandData = await storage.getDemandDataByLocationServiceLine(
+          location,
+          serviceLine,
+          targetMonth
+        );
+        if (demandData.demandHistory.length > 0 || demandData.currentDemand > 0) {
+          demandCache.set(key, demandData);
+        }
+      } catch (error) {
+        // Silently fail - will use defaults
+      }
+    });
+    
+    await Promise.all(demandPromises);
+    console.log(`Demand data cache: ${demandCache.size} location+service combinations with real data`);
+    
     // Build precomputed signals object
     const precomputedSignals: PrecomputedSignals = {
       stockMarketChange,
@@ -390,8 +433,9 @@ export async function generateModuloOptimized(req: any, res: any) {
       locationOccupancy,
       serviceLineMedians,
       monthIndex: new Date(targetMonth).getMonth() + 1,
-      demandHistory: [10, 12, 15, 13, 14, 11],
-      demandCurrent: 12
+      demandCache,
+      defaultDemandHistory: [10, 12, 15, 13, 14, 11],
+      defaultDemandCurrent: 12
     };
     
     // Step 4: Process units in batches with parallelization

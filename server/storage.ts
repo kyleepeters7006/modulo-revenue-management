@@ -140,6 +140,10 @@ export interface IStorage {
   // Inquiry metrics
   bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[]): Promise<void>;
   getInquiryMetricsByMonth(uploadMonth: string): Promise<InquiryMetrics[]>;
+  getDemandDataByLocationServiceLine(location: string, serviceLine: string, currentMonth: string): Promise<{
+    currentDemand: number;
+    demandHistory: number[];
+  }>;
   
   // Assumptions
   getAssumptions(): Promise<Assumptions[]>;
@@ -880,6 +884,49 @@ export class DatabaseStorage implements IStorage {
 
   async getInquiryMetricsByMonth(uploadMonth: string): Promise<InquiryMetrics[]> {
     return await db.select().from(inquiryMetrics).where(eq(inquiryMetrics.uploadMonth, uploadMonth));
+  }
+
+  async getDemandDataByLocationServiceLine(location: string, serviceLine: string, currentMonth: string): Promise<{
+    currentDemand: number;
+    demandHistory: number[];
+  }> {
+    const allMetrics = await db
+      .select()
+      .from(inquiryMetrics)
+      .where(
+        and(
+          eq(inquiryMetrics.location, location),
+          serviceLine ? eq(inquiryMetrics.serviceLine, serviceLine) : undefined
+        )
+      )
+      .orderBy(inquiryMetrics.uploadMonth);
+    
+    if (allMetrics.length === 0) {
+      return {
+        currentDemand: 0,
+        demandHistory: []
+      };
+    }
+    
+    const monthlyDemand: Record<string, number> = {};
+    for (const metric of allMetrics) {
+      const month = metric.uploadMonth;
+      if (!monthlyDemand[month]) {
+        monthlyDemand[month] = 0;
+      }
+      monthlyDemand[month] += (metric.inquiryCount || 0) + (metric.tourCount || 0);
+    }
+    
+    const sortedMonths = Object.keys(monthlyDemand).sort();
+    const currentDemand = monthlyDemand[currentMonth] || 0;
+    const demandHistory = sortedMonths
+      .filter(m => m !== currentMonth)
+      .map(m => monthlyDemand[m]);
+    
+    return {
+      currentDemand,
+      demandHistory
+    };
   }
 
   // Assumptions
