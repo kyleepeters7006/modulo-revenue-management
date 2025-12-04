@@ -521,6 +521,60 @@ export async function generateModuloOptimized(req: any, res: any) {
     console.log('Regenerating rate card...');
     await storage.generateRateCard(targetMonth);
     
+    // Record AI rate outcomes for ML learning
+    try {
+      const { recordAiRateOutcomes } = await import('./services/mlTrainingService');
+      
+      // Prepare outcome data with weights snapshot
+      const outcomeUnits = allUpdates.map((update, index) => {
+        const unit = units[index];
+        // Parse calculation details to extract weights
+        let weightsSnapshot = null;
+        if (update.moduloCalculationDetails) {
+          try {
+            const details = JSON.parse(update.moduloCalculationDetails);
+            weightsSnapshot = details.weightsUsed || {
+              occupancyPressure: 44,
+              daysVacantDecay: 10,
+              seasonality: 10,
+              competitorRates: 12,
+              stockMarket: 10,
+              inquiryTourVolume: 14
+            };
+          } catch (e) {
+            // Use defaults if parsing fails
+            weightsSnapshot = {
+              occupancyPressure: 44,
+              daysVacantDecay: 10,
+              seasonality: 10,
+              competitorRates: 12,
+              stockMarket: 10,
+              inquiryTourVolume: 14
+            };
+          }
+        }
+        
+        return {
+          id: update.id,
+          location: unit.location,
+          locationId: unit.locationId,
+          serviceLine: unit.serviceLine || '',
+          roomNumber: unit.roomNumber,
+          roomType: unit.roomType,
+          uploadMonth: targetMonth,
+          aiSuggestedRate: update.moduloSuggestedRate,
+          streetRate: unit.streetRate,
+          weightsSnapshot
+        };
+      });
+      
+      const recorded = await recordAiRateOutcomes(null, outcomeUnits);
+      console.log(`Recorded ${recorded} AI rate outcomes for ML learning`);
+    } catch (mlError) {
+      // Don't fail the calculation if ML recording fails
+      console.error('ML outcome recording error (non-fatal):', mlError);
+    }
+    
     const endTime = Date.now();
     const duration = (endTime - startTime) / 1000;
     

@@ -8492,6 +8492,136 @@ Respond in JSON format:
     }
   });
 
+  // ==========================================
+  // ML Learning API Endpoints
+  // ==========================================
+  
+  // Get ML learning statistics for dashboard
+  app.get("/api/ml/statistics", async (req, res) => {
+    try {
+      const { getMlStatistics } = await import('./services/mlTrainingService');
+      const statistics = await getMlStatistics();
+      res.json({ success: true, statistics });
+    } catch (error) {
+      console.error('Error fetching ML statistics:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch ML statistics' });
+    }
+  });
+  
+  // Get learned weights for a specific service line
+  app.get("/api/ml/weights/:serviceLine", async (req, res) => {
+    try {
+      const { getLearnedWeightsForUnit } = await import('./services/mlTrainingService');
+      const { serviceLine } = req.params;
+      const weights = await getLearnedWeightsForUnit(null, serviceLine);
+      res.json({ success: true, serviceLine, weights });
+    } catch (error) {
+      console.error('Error fetching learned weights:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch learned weights' });
+    }
+  });
+  
+  // Detect AI rate adoptions for a specific month
+  app.post("/api/ml/detect-adoptions", async (req, res) => {
+    try {
+      const { detectAiRateAdoptions } = await import('./services/mlTrainingService');
+      const { uploadMonth } = req.body;
+      
+      if (!uploadMonth || !/^\d{4}-\d{2}$/.test(uploadMonth)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid uploadMonth format. Expected YYYY-MM' 
+        });
+      }
+      
+      const adoptionsDetected = await detectAiRateAdoptions(uploadMonth);
+      res.json({ 
+        success: true, 
+        uploadMonth, 
+        adoptionsDetected,
+        message: `Detected ${adoptionsDetected} AI rate adoptions` 
+      });
+    } catch (error) {
+      console.error('Error detecting adoptions:', error);
+      res.status(500).json({ success: false, error: 'Failed to detect adoptions' });
+    }
+  });
+  
+  // Update sale tracking for adopted AI rates
+  app.post("/api/ml/update-sales", async (req, res) => {
+    try {
+      const { updateSaleTracking } = await import('./services/mlTrainingService');
+      const salesTracked = await updateSaleTracking();
+      res.json({ 
+        success: true, 
+        salesTracked,
+        message: `Tracked ${salesTracked} sales within 30 days` 
+      });
+    } catch (error) {
+      console.error('Error updating sale tracking:', error);
+      res.status(500).json({ success: false, error: 'Failed to update sale tracking' });
+    }
+  });
+  
+  // Manually trigger ML training
+  app.post("/api/ml/train", async (req, res) => {
+    try {
+      const { trainAndUpdateWeights } = await import('./services/mlTrainingService');
+      const trainingType = req.body.trainingType || 'manual';
+      
+      if (!['scheduled', 'manual', 'triggered'].includes(trainingType)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid trainingType. Expected scheduled, manual, or triggered' 
+        });
+      }
+      
+      const result = await trainAndUpdateWeights(trainingType);
+      res.json({ 
+        success: result.success, 
+        modelsUpdated: result.modelsUpdated,
+        message: result.message 
+      });
+    } catch (error) {
+      console.error('Error during ML training:', error);
+      res.status(500).json({ success: false, error: 'Failed to train ML model' });
+    }
+  });
+  
+  // Get active weight versions for all service lines
+  app.get("/api/ml/weight-versions", async (req, res) => {
+    try {
+      const { aiWeightVersions } = await import('@shared/schema');
+      const versions = await db.select()
+        .from(aiWeightVersions)
+        .where(eq(aiWeightVersions.isActive, true))
+        .orderBy(desc(aiWeightVersions.createdAt));
+      
+      res.json({ success: true, versions });
+    } catch (error) {
+      console.error('Error fetching weight versions:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch weight versions' });
+    }
+  });
+  
+  // Get training history
+  app.get("/api/ml/training-history", async (req, res) => {
+    try {
+      const { mlTrainingHistory } = await import('@shared/schema');
+      const limit = parseInt(req.query.limit as string) || 10;
+      
+      const history = await db.select()
+        .from(mlTrainingHistory)
+        .orderBy(desc(mlTrainingHistory.trainedAt))
+        .limit(limit);
+      
+      res.json({ success: true, history });
+    } catch (error) {
+      console.error('Error fetching training history:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch training history' });
+    }
+  });
+
   // Set up scheduled daily calculation at 6am
   const triggerScheduledCalculation = async () => {
     try {

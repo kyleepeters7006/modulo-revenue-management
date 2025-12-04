@@ -876,7 +876,7 @@ export const aiRateOutcomes = pgTable("ai_rate_outcomes", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
-  roomMonthIdx: index("ai_outcomes_room_month_idx").on(table.location, table.roomNumber, table.uploadMonth),
+  roomMonthUnique: uniqueIndex("ai_outcomes_room_month_unique").on(table.location, table.roomNumber, table.uploadMonth),
   adoptionIdx: index("ai_outcomes_adoption_idx").on(table.wasAiAdopted, table.soldWithin30Days),
   serviceLineIdx: index("ai_outcomes_service_line_idx").on(table.serviceLine),
 }));

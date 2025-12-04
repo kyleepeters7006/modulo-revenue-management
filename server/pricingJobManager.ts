@@ -518,6 +518,29 @@ class PricingJobManager {
       console.log(`[PricingJob ${jobId}] Regenerating rate card for month: ${targetMonth}`);
       await storage.generateRateCard(targetMonth);
       
+      // Run ML training pipeline after pricing calculation completes
+      // This detects AI rate adoptions, updates sale tracking, and trains the model
+      try {
+        console.log(`[PricingJob ${jobId}] Running ML training pipeline...`);
+        const { detectAiRateAdoptions, updateSaleTracking, trainAndUpdateWeights } = await import('./services/mlTrainingService');
+        
+        // 1. Detect AI rate adoptions (when AI rate became street rate)
+        const adoptionsDetected = await detectAiRateAdoptions(targetMonth);
+        console.log(`[PricingJob ${jobId}] ML: Detected ${adoptionsDetected} AI rate adoptions`);
+        
+        // 2. Update sale tracking (check if adopted units sold within 30 days)
+        const salesTracked = await updateSaleTracking();
+        console.log(`[PricingJob ${jobId}] ML: Tracked ${salesTracked} sales within 30 days`);
+        
+        // 3. Train and update weights if we have enough samples
+        const trainingResult = await trainAndUpdateWeights('scheduled');
+        console.log(`[PricingJob ${jobId}] ML: ${trainingResult.message}`);
+        
+      } catch (mlError) {
+        // ML training errors should not fail the pricing job
+        console.error(`[PricingJob ${jobId}] ML training error (non-fatal):`, mlError);
+      }
+      
       // Calculate average Modulo rate
       const avgModuloRate = allUpdates.length > 0
         ? allUpdates.reduce((sum, u) => sum + u.moduloSuggestedRate, 0) / allUpdates.length
