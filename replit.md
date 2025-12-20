@@ -52,7 +52,8 @@ Preferred communication style: Simple, everyday language.
 - **Smart Location Filtering**: Location/region/division dropdowns automatically filter to show only locations with relevant data.
 - **ML Learning System**: Self-improving pricing weights through supervised learning, including outcome tracking, adoption detection, sales tracking, regularized regression training, version control, and an automated daily learning loop.
 - **Flexible Import Mapping Service**: Comprehensive column mapping system for CSV/Excel uploads with built-in profiles, fuzzy matching, field aliases, value transformations, and custom profile saving.
-- **AI Integration**: Utilizes GPT-5 for AI Pricing Engine, Floor Plan Detection, MatrixCare Export Validation, Room Detection Service, AI Insights, and Pricing Rule Validation.
+- **AI Integration**: Utilizes GPT-5 (version 5.2) for AI Pricing Engine, Floor Plan Detection, MatrixCare Export Validation, Room Detection Service, AI Insights, Pricing Rule Validation, and Target Revenue Growth Generation.
+- **Target Annual Revenue Growth**: AI-powered settings generator on Pricing Controls page that analyzes portfolio metrics (occupancy, vacancy patterns, sales velocity, competitor rates, service line breakdown) and generates optimal pricing weights, guardrails, and attribute adjustments to achieve user-defined revenue growth targets per service line.
 - **Optimized Room Attributes**: Redesigned Room Attributes page with unified filter bar and "Preview Impact" functionality.
 
 # External Dependencies
