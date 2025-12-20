@@ -29,12 +29,27 @@ const loadCompetitorFiltersFromStorage = () => {
 };
 
 export default function CompetitorAnalysis() {
-  // Load initial state from localStorage or use defaults
+  // Check for URL parameters first
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlLocation = urlParams.get('location');
+  const urlServiceLine = urlParams.get('serviceLine');
+  
+  // Load initial state from URL params, then localStorage, or use defaults
   const savedFilters = loadCompetitorFiltersFromStorage();
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations || ['Sunrise Valley Senior Living']);
-  const [selectedServiceLines, setSelectedServiceLines] = useState<string[]>(savedFilters?.serviceLines || []);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(
+    urlLocation ? [urlLocation] : (savedFilters?.locations || [])
+  );
+  // Support both URL param, savedFilters.serviceLines array, and singular serviceLine from other pages
+  const initialServiceLines = urlServiceLine && urlServiceLine !== 'All' 
+    ? [urlServiceLine] 
+    : (savedFilters?.serviceLines?.length > 0 
+        ? savedFilters.serviceLines 
+        : (savedFilters?.serviceLine && savedFilters.serviceLine !== 'All' 
+            ? [savedFilters.serviceLine] 
+            : []));
+  const [selectedServiceLines, setSelectedServiceLines] = useState<string[]>(initialServiceLines);
 
   // Save filters to localStorage whenever they change
   useEffect(() => {

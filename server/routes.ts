@@ -3243,6 +3243,193 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Rate breakdown analytics - rates by service line and room type with historical changes
+  app.get("/api/analytics/rate-breakdown", async (req, res) => {
+    try {
+      // Get all available months from the database
+      const monthsResult = await db
+        .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
+        .from(rentRollData)
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`);
+      
+      const availableMonths = monthsResult.map(m => m.month).filter(Boolean).sort().reverse();
+      console.log('Rate breakdown: Available months:', availableMonths);
+      
+      if (availableMonths.length === 0) {
+        return res.json({ 
+          byServiceLine: [], 
+          byServiceLineRoomType: [],
+          currentMonth: null 
+        });
+      }
+      
+      const currentMonth = availableMonths[0];
+      
+      // Calculate date references
+      const currentDate = new Date(currentMonth + '-01');
+      const getMonthStr = (date: Date) => {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      };
+      
+      // Previous periods
+      const previousMonth = new Date(currentDate);
+      previousMonth.setMonth(previousMonth.getMonth() - 1);
+      const previousMonthStr = getMonthStr(previousMonth);
+      
+      const t3Month = new Date(currentDate);
+      t3Month.setMonth(t3Month.getMonth() - 3);
+      const t3MonthStr = getMonthStr(t3Month);
+      
+      const t6Month = new Date(currentDate);
+      t6Month.setMonth(t6Month.getMonth() - 6);
+      const t6MonthStr = getMonthStr(t6Month);
+      
+      const t12Month = new Date(currentDate);
+      t12Month.setMonth(t12Month.getMonth() - 12);
+      const t12MonthStr = getMonthStr(t12Month);
+      
+      // YTD - first month of current year
+      const ytdMonth = `${currentDate.getFullYear()}-01`;
+      
+      // Get data for all needed months (only fetch months that exist)
+      const monthsToFetch = [currentMonth, previousMonthStr, t3MonthStr, t6MonthStr, t12MonthStr, ytdMonth]
+        .filter((m, i, arr) => arr.indexOf(m) === i && availableMonths.includes(m));
+      
+      console.log('Rate breakdown: Fetching months:', monthsToFetch);
+      
+      const allData: any[] = [];
+      for (const month of monthsToFetch) {
+        const monthData = await storage.getRentRollDataByMonth(month);
+        allData.push(...monthData.map((u: any) => ({ ...u, fetchedMonth: month })));
+      }
+      
+      // Helper to calculate average rate for a filter
+      const calcAvgRate = (units: any[]) => {
+        // Use inHouseRate for occupied, streetRate for all
+        const occupiedUnits = units.filter(u => u.occupiedYN === true || u.occupiedYN === 'Y');
+        if (occupiedUnits.length === 0) return null;
+        
+        let totalRate = 0;
+        let count = 0;
+        
+        for (const unit of occupiedUnits) {
+          // Normalize to monthly rate for comparison
+          const serviceLine = unit.serviceLine || '';
+          const isDaily = serviceLine === 'HC' || serviceLine === 'HC/MC';
+          const rate = unit.inHouseRate || unit.streetRate || 0;
+          const monthlyRate = isDaily ? rate * 30.44 : rate;
+          
+          if (monthlyRate > 0) {
+            totalRate += monthlyRate;
+            count++;
+          }
+        }
+        
+        return count > 0 ? Math.round(totalRate / count) : null;
+      };
+      
+      // Calculate % change helper
+      const calcChange = (current: number | null, previous: number | null): number | null => {
+        if (current === null || previous === null || previous === 0) return null;
+        return Math.round(((current - previous) / previous) * 1000) / 10; // 1 decimal place
+      };
+      
+      // Get current month data
+      const currentData = allData.filter(u => u.uploadMonth === currentMonth);
+      
+      // Get unique service lines and room types
+      const serviceLines = [...new Set(currentData.map(u => u.serviceLine))].filter(Boolean).sort();
+      const roomTypes = [...new Set(currentData.map(u => u.roomType))].filter(Boolean).sort();
+      
+      // Calculate rates by service line
+      const byServiceLine = serviceLines.map(sl => {
+        const currentUnits = currentData.filter(u => u.serviceLine === sl);
+        const prevUnits = allData.filter(u => u.uploadMonth === previousMonthStr && u.serviceLine === sl);
+        const t3Units = allData.filter(u => u.uploadMonth === t3MonthStr && u.serviceLine === sl);
+        const t6Units = allData.filter(u => u.uploadMonth === t6MonthStr && u.serviceLine === sl);
+        const t12Units = allData.filter(u => u.uploadMonth === t12MonthStr && u.serviceLine === sl);
+        const ytdUnits = allData.filter(u => u.uploadMonth === ytdMonth && u.serviceLine === sl);
+        
+        const currentRate = calcAvgRate(currentUnits);
+        const prevRate = calcAvgRate(prevUnits);
+        const t3Rate = calcAvgRate(t3Units);
+        const t6Rate = calcAvgRate(t6Units);
+        const t12Rate = calcAvgRate(t12Units);
+        const ytdRate = calcAvgRate(ytdUnits);
+        
+        // Determine if this service line uses daily rates
+        const isDaily = sl === 'HC' || sl === 'HC/MC';
+        
+        return {
+          serviceLine: sl,
+          currentRate,
+          isDaily,
+          rateDisplay: currentRate ? (isDaily ? `$${Math.round(currentRate / 30.44)}/day` : `$${currentRate.toLocaleString()}/mo`) : 'N/A',
+          unitCount: currentUnits.length,
+          occupiedCount: currentUnits.filter(u => u.occupiedYN === true || u.occupiedYN === 'Y').length,
+          momChange: calcChange(currentRate, prevRate),
+          t3Change: calcChange(currentRate, t3Rate),
+          t6Change: calcChange(currentRate, t6Rate),
+          t12Change: calcChange(currentRate, t12Rate),
+          ytdChange: calcChange(currentRate, ytdRate),
+        };
+      });
+      
+      // Calculate rates by service line + room type (limit to top combinations)
+      const byServiceLineRoomType: any[] = [];
+      
+      for (const sl of serviceLines) {
+        for (const rt of roomTypes) {
+          const currentUnits = currentData.filter(u => u.serviceLine === sl && u.roomType === rt);
+          if (currentUnits.length < 3) continue; // Skip combinations with very few units
+          
+          const prevUnits = allData.filter(u => u.uploadMonth === previousMonthStr && u.serviceLine === sl && u.roomType === rt);
+          const t3Units = allData.filter(u => u.uploadMonth === t3MonthStr && u.serviceLine === sl && u.roomType === rt);
+          const t6Units = allData.filter(u => u.uploadMonth === t6MonthStr && u.serviceLine === sl && u.roomType === rt);
+          const t12Units = allData.filter(u => u.uploadMonth === t12MonthStr && u.serviceLine === sl && u.roomType === rt);
+          const ytdUnits = allData.filter(u => u.uploadMonth === ytdMonth && u.serviceLine === sl && u.roomType === rt);
+          
+          const currentRate = calcAvgRate(currentUnits);
+          const prevRate = calcAvgRate(prevUnits);
+          const t3Rate = calcAvgRate(t3Units);
+          const t6Rate = calcAvgRate(t6Units);
+          const t12Rate = calcAvgRate(t12Units);
+          const ytdRate = calcAvgRate(ytdUnits);
+          
+          const isDaily = sl === 'HC' || sl === 'HC/MC';
+          
+          byServiceLineRoomType.push({
+            serviceLine: sl,
+            roomType: rt,
+            currentRate,
+            isDaily,
+            rateDisplay: currentRate ? (isDaily ? `$${Math.round(currentRate / 30.44)}/day` : `$${currentRate.toLocaleString()}/mo`) : 'N/A',
+            unitCount: currentUnits.length,
+            occupiedCount: currentUnits.filter(u => u.occupiedYN === true || u.occupiedYN === 'Y').length,
+            momChange: calcChange(currentRate, prevRate),
+            t3Change: calcChange(currentRate, t3Rate),
+            t6Change: calcChange(currentRate, t6Rate),
+            t12Change: calcChange(currentRate, t12Rate),
+            ytdChange: calcChange(currentRate, ytdRate),
+          });
+        }
+      }
+      
+      // Sort by unit count descending
+      byServiceLineRoomType.sort((a, b) => b.unitCount - a.unitCount);
+      
+      res.json({
+        byServiceLine,
+        byServiceLineRoomType: byServiceLineRoomType.slice(0, 30), // Limit to top 30 combinations
+        currentMonth,
+        availableMonths: monthsToFetch,
+      });
+    } catch (error) {
+      console.error("Error fetching rate breakdown data:", error);
+      res.status(500).json({ error: "Failed to fetch rate breakdown data" });
+    }
+  });
+
   // AI Insights
   app.post("/api/ai/suggest", async (req, res) => {
     try {

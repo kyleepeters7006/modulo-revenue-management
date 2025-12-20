@@ -198,6 +198,18 @@ export function Analytics() {
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in garbage collection for 10 minutes
   });
+  
+  // Fetch rate breakdown data (by service line and room type with historical changes)
+  const { data: rateBreakdownData } = useQuery({
+    queryKey: ['/api/analytics/rate-breakdown'],
+    queryFn: async () => {
+      const response = await fetch('/api/analytics/rate-breakdown');
+      if (!response.ok) throw new Error('Failed to fetch rate breakdown data');
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
 
   // Process data for scatter plots
   const processedData = useMemo(() => {
@@ -323,20 +335,17 @@ export function Analytics() {
 
     switch (selectedMetric) {
       case 'avgRate':
-        // Use the pre-calculated values from the backend summary
+        // Use the rate breakdown data with historical changes
         return {
-          title: 'Portfolio Average Rate Calculation',
-          formula: 'Total Daily Rent Revenue ÷ Total Occupied Units',
+          title: 'Portfolio Average Rates',
+          formula: 'Average in-house rates by service line and room type',
+          isRateBreakdown: true, // Flag for custom rendering
+          rateBreakdownData: rateBreakdownData,
           steps: [
             { label: 'Total occupied units across all campuses', value: (summary.totalOccupiedUnits || 0).toLocaleString() },
             { label: 'Total monthly rent revenue', value: `$${((summary.totalRentRevenue || 0)).toLocaleString()}` },
-            { label: 'Portfolio average daily rate', value: `$${Math.round(summary.avgPortfolioRate).toLocaleString()}`, highlight: true },
           ],
-          breakdown: campuses.slice(0, 10).map((c: any) => ({
-            campus: c.campusName,
-            value: `$${Math.round(c.avgRate).toLocaleString()}/day`,
-            detail: `${(c.occupiedUnits || 0).toLocaleString()} occupied units`
-          }))
+          breakdown: []
         };
 
       case 'occupancy':
@@ -1296,7 +1305,7 @@ export function Analytics() {
 
       {/* Calculation Details Dialog */}
       <Dialog open={calculationDialogOpen} onOpenChange={setCalculationDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-calculation">
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto" data-testid="dialog-calculation">
           {calculationDetails && (
             <>
               <DialogHeader>
@@ -1309,50 +1318,170 @@ export function Analytics() {
               </DialogHeader>
               
               <div className="space-y-6 pt-4">
-                {/* Calculation Steps */}
-                <div>
-                  <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">Calculation Steps:</h4>
-                  <div className="space-y-2">
-                    {calculationDetails.steps.map((step, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`flex justify-between items-center p-3 rounded ${
-                          step.highlight 
-                            ? 'bg-[var(--trilogy-teal)]/10 border border-[var(--trilogy-teal)]/30' 
-                            : 'bg-gray-50 dark:bg-gray-800'
-                        }`}
-                      >
-                        <span className="text-sm text-gray-600 dark:text-gray-400">{step.label}</span>
-                        <span className={`font-semibold ${step.highlight ? 'text-[var(--trilogy-teal)]' : ''}`}>
-                          {step.value}
-                        </span>
+                {/* Rate Breakdown Display - for avgRate metric */}
+                {calculationDetails.isRateBreakdown && calculationDetails.rateBreakdownData && (
+                  <>
+                    {/* Rates by Service Line */}
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">
+                        Rates by Service Line
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-200 dark:border-gray-700">
+                              <th className="text-left py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Service Line</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Current Rate</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">MOM</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">T3</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">T6</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">T12</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">YTD</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {calculationDetails.rateBreakdownData.byServiceLine?.map((row: any, idx: number) => (
+                              <tr key={idx} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td className="py-2 px-2 font-medium text-gray-900 dark:text-gray-100">
+                                  {row.serviceLine}
+                                  <span className="ml-1 text-xs text-gray-500">({row.occupiedCount} occ)</span>
+                                </td>
+                                <td className="text-right py-2 px-2 font-semibold text-gray-900 dark:text-gray-100">
+                                  {row.rateDisplay}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.momChange !== null ? (row.momChange > 0 ? 'text-green-600' : row.momChange < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.momChange !== null ? `${row.momChange > 0 ? '+' : ''}${row.momChange}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.t3Change !== null ? (row.t3Change > 0 ? 'text-green-600' : row.t3Change < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.t3Change !== null ? `${row.t3Change > 0 ? '+' : ''}${row.t3Change}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.t6Change !== null ? (row.t6Change > 0 ? 'text-green-600' : row.t6Change < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.t6Change !== null ? `${row.t6Change > 0 ? '+' : ''}${row.t6Change}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.t12Change !== null ? (row.t12Change > 0 ? 'text-green-600' : row.t12Change < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.t12Change !== null ? `${row.t12Change > 0 ? '+' : ''}${row.t12Change}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.ytdChange !== null ? (row.ytdChange > 0 ? 'text-green-600' : row.ytdChange < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.ytdChange !== null ? `${row.ytdChange > 0 ? '+' : ''}${row.ytdChange}%` : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                    
+                    {/* Rates by Service Line + Room Type */}
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">
+                        Rates by Service Line & Room Type
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-200 dark:border-gray-700">
+                              <th className="text-left py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Service Line</th>
+                              <th className="text-left py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Room Type</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Current Rate</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">MOM</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">T3</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">T6</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">T12</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">YTD</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {calculationDetails.rateBreakdownData.byServiceLineRoomType?.map((row: any, idx: number) => (
+                              <tr key={idx} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td className="py-2 px-2 font-medium text-gray-900 dark:text-gray-100">
+                                  {row.serviceLine}
+                                </td>
+                                <td className="py-2 px-2 text-gray-700 dark:text-gray-300">
+                                  {row.roomType}
+                                  <span className="ml-1 text-xs text-gray-500">({row.occupiedCount})</span>
+                                </td>
+                                <td className="text-right py-2 px-2 font-semibold text-gray-900 dark:text-gray-100">
+                                  {row.rateDisplay}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.momChange !== null ? (row.momChange > 0 ? 'text-green-600' : row.momChange < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.momChange !== null ? `${row.momChange > 0 ? '+' : ''}${row.momChange}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.t3Change !== null ? (row.t3Change > 0 ? 'text-green-600' : row.t3Change < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.t3Change !== null ? `${row.t3Change > 0 ? '+' : ''}${row.t3Change}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.t6Change !== null ? (row.t6Change > 0 ? 'text-green-600' : row.t6Change < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.t6Change !== null ? `${row.t6Change > 0 ? '+' : ''}${row.t6Change}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.t12Change !== null ? (row.t12Change > 0 ? 'text-green-600' : row.t12Change < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.t12Change !== null ? `${row.t12Change > 0 ? '+' : ''}${row.t12Change}%` : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${row.ytdChange !== null ? (row.ytdChange > 0 ? 'text-green-600' : row.ytdChange < 0 ? 'text-red-600' : 'text-gray-500') : 'text-gray-400'}`}>
+                                  {row.ytdChange !== null ? `${row.ytdChange > 0 ? '+' : ''}${row.ytdChange}%` : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {calculationDetails.rateBreakdownData.currentMonth && (
+                        <p className="text-xs text-gray-500 mt-2">
+                          Data as of {calculationDetails.rateBreakdownData.currentMonth}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
 
-                {/* Campus Breakdown */}
-                <div>
-                  <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">
-                    Campus Breakdown (Top 10):
-                  </h4>
-                  <div className="space-y-1">
-                    {calculationDetails.breakdown.map((campus: BreakdownItem, idx: number) => (
-                      <div 
-                        key={idx} 
-                        className="flex justify-between items-start p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded text-sm"
-                      >
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900 dark:text-gray-100">{campus.campus}</div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">{campus.detail}</div>
-                        </div>
-                        <span className="font-semibold text-gray-900 dark:text-gray-100 ml-4">
-                          {campus.value}
-                        </span>
+                {/* Standard Calculation Steps - for non-rate-breakdown metrics */}
+                {!calculationDetails.isRateBreakdown && (
+                  <>
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">Calculation Steps:</h4>
+                      <div className="space-y-2">
+                        {calculationDetails.steps.map((step: any, idx: number) => (
+                          <div 
+                            key={idx} 
+                            className={`flex justify-between items-center p-3 rounded ${
+                              step.highlight 
+                                ? 'bg-[var(--trilogy-teal)]/10 border border-[var(--trilogy-teal)]/30' 
+                                : 'bg-gray-50 dark:bg-gray-800'
+                            }`}
+                          >
+                            <span className="text-sm text-gray-600 dark:text-gray-400">{step.label}</span>
+                            <span className={`font-semibold ${step.highlight ? 'text-[var(--trilogy-teal)]' : ''}`}>
+                              {step.value}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+
+                    {/* Campus Breakdown */}
+                    {calculationDetails.breakdown?.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">
+                          Campus Breakdown (Top 10):
+                        </h4>
+                        <div className="space-y-1">
+                          {calculationDetails.breakdown.map((campus: BreakdownItem, idx: number) => (
+                            <div 
+                              key={idx} 
+                              className="flex justify-between items-start p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded text-sm"
+                            >
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900 dark:text-gray-100">{campus.campus}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">{campus.detail}</div>
+                              </div>
+                              <span className="font-semibold text-gray-900 dark:text-gray-100 ml-4">
+                                {campus.value}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </>
           )}
