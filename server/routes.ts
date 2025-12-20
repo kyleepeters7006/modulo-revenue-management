@@ -1243,6 +1243,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing weights CRUD
+  // Helper function to format weights response
+  const formatWeightsResponse = (weights: any) => ({
+    ok: true,
+    weights: {
+      id: weights.id,
+      location_id: weights.locationId,
+      service_line: weights.serviceLine,
+      enable_weights: weights.enableWeights,
+      occupancy_pressure: weights.occupancyPressure,
+      days_vacant_decay: weights.daysVacantDecay,
+      seasonality: weights.seasonality,
+      competitor_rates: weights.competitorRates,
+      stock_market: weights.stockMarket,
+      inquiry_tour_volume: weights.inquiryTourVolume || 0
+    }
+  });
+
+  // Get weights with path parameters: /api/weights/:locationId/:serviceLine
+  app.get("/api/weights/:locationId/:serviceLine", async (req, res) => {
+    try {
+      const { locationId, serviceLine } = req.params;
+      
+      // Try to get location+serviceLine specific weights
+      let weights = await storage.getWeightsByFilter(locationId, serviceLine);
+      
+      // Fallback to location-only weights if specific not found
+      if (!weights) {
+        weights = await storage.getWeightsByFilter(locationId, null);
+      }
+      
+      // Fallback to global weights if no specific weights found
+      if (!weights) {
+        weights = await storage.getPricingWeights();
+      }
+      
+      if (!weights) {
+        return res.status(404).json({ error: "No weights found" });
+      }
+      
+      res.json(formatWeightsResponse(weights));
+    } catch (error) {
+      console.error("Error fetching weights:", error);
+      res.status(500).json({ error: "Failed to fetch weights" });
+    }
+  });
+
+  // Get weights with path parameter for location only: /api/weights/:locationId
+  app.get("/api/weights/:locationId/", async (req, res) => {
+    try {
+      const { locationId } = req.params;
+      
+      // Try to get location-level weights
+      let weights = await storage.getWeightsByFilter(locationId, null);
+      
+      // Fallback to global weights if no specific weights found
+      if (!weights) {
+        weights = await storage.getPricingWeights();
+      }
+      
+      if (!weights) {
+        return res.status(404).json({ error: "No weights found" });
+      }
+      
+      res.json(formatWeightsResponse(weights));
+    } catch (error) {
+      console.error("Error fetching weights:", error);
+      res.status(500).json({ error: "Failed to fetch weights" });
+    }
+  });
+
   app.get("/api/weights", async (req, res) => {
     try {
       const locationId = req.query.locationId as string | undefined;
@@ -1263,21 +1333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "No weights found" });
       }
       
-      res.json({
-        ok: true,
-        weights: {
-          id: weights.id,
-          location_id: weights.locationId,
-          service_line: weights.serviceLine,
-          enable_weights: weights.enableWeights,
-          occupancy_pressure: weights.occupancyPressure,
-          days_vacant_decay: weights.daysVacantDecay,
-          seasonality: weights.seasonality,
-          competitor_rates: weights.competitorRates,
-          stock_market: weights.stockMarket,
-          inquiry_tour_volume: weights.inquiryTourVolume || 0
-        }
-      });
+      res.json(formatWeightsResponse(weights));
     } catch (error) {
       console.error("Error fetching weights:", error);
       res.status(500).json({ error: "Failed to fetch weights" });
