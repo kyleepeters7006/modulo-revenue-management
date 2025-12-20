@@ -152,7 +152,7 @@ export class RoomDetectionService {
       
       const response = await Promise.race([
         this.openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: [
             {
               role: "system",

@@ -3287,7 +3287,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          model: 'gpt-5',
           messages: [{ role: 'user', content: prompt }],
           max_tokens: 800,
           temperature: 0.7
@@ -5307,11 +5307,16 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     }
   });
 
-  // Generate AI pricing suggestions  
+  // Generate AI pricing suggestions using OpenAI GPT-5
   app.post("/api/pricing/generate-ai", async (req, res) => {
     try {
       const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
+      
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
+      }
       
       await ensureCacheInitialized(targetMonth);
       
@@ -5322,8 +5327,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       if (serviceLine) {
         units = units.filter(unit => unit.serviceLine === serviceLine);
       }
-      // Skip region/division filtering as these fields don't exist in our data
-      // Only apply location filtering if specified
       if (locations && locations.length > 0) {
         units = units.filter(unit => unit.location && locations.includes(unit.location));
       }
@@ -5331,30 +5334,16 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       // Filter out B beds for senior housing service lines when calculating occupancy
       const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
       const allUnitsForOccupancy = units.filter(unit => {
-        // For senior housing service lines, exclude B beds from occupancy calculation
         if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
           const roomNumber = unit.roomNumber || '';
           if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
-            return false; // Exclude B beds
+            return false;
           }
         }
-        return true; // Include all other units
+        return true;
       });
       
       console.log(`Generating AI suggestions for ${units.length} units (${allUnitsForOccupancy.length} for occupancy calc)`);
-      
-      // Collect all updates in memory first for bulk processing
-      const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
-      
-      // Get AI-specific weights - more aggressive than Modulo
-      const weights = await storage.getAiPricingWeights() || {
-        occupancyPressure: 30,
-        daysVacantDecay: 25,
-        competitorRates: 10,
-        seasonality: 5,
-        stockMarket: 5,
-        inquiryTourVolume: 10
-      };
       
       // Calculate service-line-specific occupancy for AI adjustments
       const allUnits = await storage.getRentRollData();
@@ -5371,28 +5360,154 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return acc;
       }, {});
       
-      for (const [serviceLine, stats] of Object.entries(serviceLineStats)) {
+      for (const [sl, stats] of Object.entries(serviceLineStats)) {
         const { occupied, total } = stats as { occupied: number; total: number };
-        serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0.87;
+        serviceLineOccupancy[sl] = total > 0 ? occupied / total : 0.87;
       }
       
-      console.log('AI calculation - Service line occupancy rates:', serviceLineOccupancy);
+      // Get current weights as baseline
+      const currentWeights = await storage.getAiPricingWeights() || {
+        occupancyPressure: 30,
+        daysVacantDecay: 25,
+        competitorRates: 10,
+        seasonality: 5,
+        stockMarket: 5,
+        inquiryTourVolume: 10
+      };
+      
+      // Build market context for OpenAI
+      const totalUnits = units.length;
+      const vacantUnits = units.filter(u => !u.occupiedYN).length;
+      const avgStreetRate = units.reduce((sum, u) => sum + (u.streetRate || 0), 0) / Math.max(totalUnits, 1);
+      const avgDaysVacant = units.filter(u => !u.occupiedYN).reduce((sum, u) => sum + (u.daysVacant || 0), 0) / Math.max(vacantUnits, 1);
+      const unitsOver30DaysVacant = units.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
+      
+      // Get competitor data
+      const competitors = await storage.getCompetitors();
+      const avgCompetitorRate = competitors.length > 0 
+        ? competitors.reduce((sum, c) => sum + (c.baseRate || 0), 0) / competitors.length 
+        : avgStreetRate;
+      
+      // Build service line breakdown
+      const serviceLineBreakdown: Record<string, { total: number; vacant: number; avgRate: number }> = {};
+      units.forEach(u => {
+        const sl = u.serviceLine || 'Unknown';
+        if (!serviceLineBreakdown[sl]) {
+          serviceLineBreakdown[sl] = { total: 0, vacant: 0, avgRate: 0 };
+        }
+        serviceLineBreakdown[sl].total++;
+        if (!u.occupiedYN) serviceLineBreakdown[sl].vacant++;
+        serviceLineBreakdown[sl].avgRate += u.streetRate || 0;
+      });
+      Object.keys(serviceLineBreakdown).forEach(sl => {
+        serviceLineBreakdown[sl].avgRate = serviceLineBreakdown[sl].avgRate / serviceLineBreakdown[sl].total;
+      });
+      
+      const slBreakdownStr = Object.entries(serviceLineBreakdown)
+        .map(([sl, data]) => `${sl}: ${data.total} units, ${data.vacant} vacant (${Math.round((1 - data.vacant/data.total) * 100)}% occ), avg $${Math.round(data.avgRate)}`)
+        .join('\n');
+      
+      // Call OpenAI GPT-5 for weight suggestions
+      console.log('[AI Pricing] Calling OpenAI GPT-5 for weight suggestions...');
+      
+      const weightPrompt = `You are an expert senior living revenue management AI. Analyze the following market data and suggest optimal pricing factor weights for maximizing revenue while maintaining competitive occupancy.
+
+CURRENT MARKET DATA:
+- Total Units: ${totalUnits}
+- Vacant Units: ${vacantUnits} (${Math.round((1 - vacantUnits/totalUnits) * 100)}% occupancy)
+- Average Street Rate: $${Math.round(avgStreetRate)}
+- Average Days Vacant: ${Math.round(avgDaysVacant)} days
+- Units Vacant 30+ Days: ${unitsOver30DaysVacant}
+- Average Competitor Rate: $${Math.round(avgCompetitorRate)}
+- Market Month: ${targetMonth}
+
+SERVICE LINE BREAKDOWN:
+${slBreakdownStr}
+
+CURRENT WEIGHTS (must sum to 100):
+- Occupancy Pressure: ${currentWeights.occupancyPressure}% (higher = more aggressive pricing when occupancy is low)
+- Days Vacant Decay: ${currentWeights.daysVacantDecay}% (higher = faster price reduction for long-vacant units)
+- Competitor Rates: ${currentWeights.competitorRates}% (higher = more sensitivity to competitor pricing)
+- Seasonality: ${currentWeights.seasonality}% (higher = more seasonal adjustments)
+- Stock Market: ${currentWeights.stockMarket}% (higher = more macro-economic sensitivity)
+- Inquiry/Tour Volume: ${currentWeights.inquiryTourVolume}% (higher = more demand-responsive)
+
+Based on this data, provide optimized weights that will maximize revenue. Consider:
+1. If occupancy is low, increase occupancy pressure and days vacant weights
+2. If we're priced above competitors, increase competitor weight
+3. If many units are vacant 30+ days, increase days vacant decay
+4. Seasonal patterns for senior living (typically higher demand in spring/fall)
+
+Respond with ONLY a JSON object in this exact format:
+{
+  "occupancyPressure": <number>,
+  "daysVacantDecay": <number>,
+  "competitorRates": <number>,
+  "seasonality": <number>,
+  "stockMarket": <number>,
+  "inquiryTourVolume": <number>,
+  "reasoning": "<brief explanation of your weight choices>"
+}
+
+Ensure all weights are positive integers and sum to exactly 100.`;
+
+      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-5',
+          messages: [{ role: 'user', content: weightPrompt }],
+          max_tokens: 500,
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        })
+      });
+
+      if (!openaiResponse.ok) {
+        const errorText = await openaiResponse.text();
+        console.error('[AI Pricing] OpenAI API error:', errorText);
+        throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+      }
+
+      const openaiResult = await openaiResponse.json();
+      let aiSuggestedWeights = currentWeights;
+      let aiReasoning = '';
+      
+      try {
+        const parsed = JSON.parse(openaiResult.choices[0].message.content);
+        aiSuggestedWeights = {
+          occupancyPressure: parsed.occupancyPressure || currentWeights.occupancyPressure,
+          daysVacantDecay: parsed.daysVacantDecay || currentWeights.daysVacantDecay,
+          competitorRates: parsed.competitorRates || currentWeights.competitorRates,
+          seasonality: parsed.seasonality || currentWeights.seasonality,
+          stockMarket: parsed.stockMarket || currentWeights.stockMarket,
+          inquiryTourVolume: parsed.inquiryTourVolume || currentWeights.inquiryTourVolume
+        };
+        aiReasoning = parsed.reasoning || '';
+        console.log('[AI Pricing] GPT-5 suggested weights:', aiSuggestedWeights);
+        console.log('[AI Pricing] Reasoning:', aiReasoning);
+      } catch (parseError) {
+        console.warn('[AI Pricing] Failed to parse GPT-5 response, using current weights:', parseError);
+      }
       
       // Get guardrails for AI pricing
       const guardrailsData = await storage.getCurrentGuardrails();
       
-      // Generate AI suggestions using sophisticated algorithm with more aggressive parameters
+      // Collect all updates in memory first for bulk processing
+      const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
+      
+      // Generate AI suggestions using GPT-5 optimized weights
       for (const unit of units) {
         const monthIndex = new Date().getMonth() + 1;
         const competitorPrices = unit.competitorRate ? 
           [unit.competitorRate] : 
           [unit.streetRate * 0.95, unit.streetRate * 1.05];
         
-        // AI sees more volatile demand patterns
         const demandHistory = [15, 20, 30, 18, 35, 22, 28, 16];
         const demandCurrent = 32;
-        
-        // Use service-line-specific occupancy instead of campus-level
         const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
         
         const pricingInputs: PricingInputs = {
@@ -5406,21 +5521,19 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           serviceLine: unit.serviceLine
         };
         
-        // Get appropriate weights for AI pricing from database (Issue 1 fix: use actual DB weights)
-        const pricingWeights = await storage.getWeightsByFilter(unit.locationId, unit.serviceLine) || 
-                                await storage.getWeightsByFilter(unit.locationId, null) || 
-                                await storage.getPricingWeights();
-        
-        if (!pricingWeights) {
-          console.warn(`No weights found for AI pricing of unit ${unit.id}, skipping`);
-          continue;
-        }
+        // Use AI-suggested weights for pricing
+        const pricingWeights = {
+          ...aiSuggestedWeights,
+          id: 0,
+          locationId: unit.locationId,
+          serviceLine: unit.serviceLine
+        };
         
         // Use the pricing orchestrator with attribute-based pricing
         const orchestratorResult = await calculateAttributedPrice(unit, pricingWeights, pricingInputs, guardrailsData || undefined);
         const aiSuggestion = orchestratorResult.finalPrice;
         
-        // Store calculation details with attribute breakdown (Issue 2: all rates preserved)
+        // Store calculation details with AI reasoning
         const aiCalculationDetails = {
           baseRate: orchestratorResult.baseRate,
           baseRateSource: orchestratorResult.baseRateSource,
@@ -5431,24 +5544,18 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             formula: adj.calculation,
             description: getSentenceExplanation(adj.factor.toLowerCase(), pricingInputs, adj)
           })) || [],
-          weights: {
-            occupancyPressure: pricingWeights.occupancyPressure,
-            daysVacantDecay: pricingWeights.daysVacantDecay,
-            seasonality: pricingWeights.seasonality,
-            competitorRates: pricingWeights.competitorRates,
-            stockMarket: pricingWeights.stockMarket,
-            inquiryTourVolume: pricingWeights.inquiryTourVolume
-          },
+          weights: aiSuggestedWeights,
+          aiReasoning: aiReasoning,
           totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
           finalRate: orchestratorResult.finalPrice,
           moduloRate: orchestratorResult.moduloRate,
           signals: orchestratorResult.moduloDetails.signals,
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
-          guardrailsApplied: orchestratorResult.guardrailsApplied
+          guardrailsApplied: orchestratorResult.guardrailsApplied,
+          poweredByGPT5: true
         };
         
-        // Add to bulk update array
         aiUpdates.push({
           id: unit.id,
           aiSuggestedRate: Math.round(aiSuggestion),
@@ -5456,7 +5563,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         });
       }
       
-      console.log(`Calculated ${aiUpdates.length} AI suggestions, starting bulk update...`);
+      console.log(`Calculated ${aiUpdates.length} AI suggestions with GPT-5 weights, starting bulk update...`);
       
       // Perform bulk update in batches
       await storage.bulkUpdateAIRates(aiUpdates);
@@ -5468,7 +5575,12 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       console.log(`AI generation complete for ${aiUpdates.length} units`);
       
-      res.json({ success: true });
+      res.json({ 
+        success: true, 
+        unitsProcessed: aiUpdates.length,
+        aiWeights: aiSuggestedWeights,
+        aiReasoning: aiReasoning
+      });
     } catch (error) {
       console.error('AI generation error:', error);
       res.status(500).json({ error: 'Failed to generate AI suggestions' });
@@ -7040,7 +7152,7 @@ Respond in JSON format:
 }`;
 
           const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: "gpt-5",
             messages: [{ role: "user", content: prompt }],
             response_format: { type: "json_object" },
             temperature: 0.3,
