@@ -154,6 +154,41 @@ export default function PricingControls() {
     }
   };
 
+  // Build query string for fetching targets
+  const targetsQueryParams = new URLSearchParams();
+  if (selectedServiceLine !== "All") targetsQueryParams.set("serviceLine", selectedServiceLine);
+  if (selectedRegions.length > 0) targetsQueryParams.set("regions", selectedRegions.join(","));
+  if (selectedDivisions.length > 0) targetsQueryParams.set("divisions", selectedDivisions.join(","));
+  if (selectedLocations.length > 0) targetsQueryParams.set("locations", selectedLocations.join(","));
+  
+  // Fetch saved targets based on current filters
+  const { data: savedTargetsData } = useQuery<{
+    targets: Record<string, string>;
+    locationsMatched: number;
+    hasData: boolean;
+  }>({
+    queryKey: ["/api/pricing/targets", targetsQueryParams.toString()],
+    queryFn: async () => {
+      const response = await fetch(`/api/pricing/targets?${targetsQueryParams.toString()}`);
+      return response.json();
+    }
+  });
+
+  // Update target growth when saved targets are loaded
+  useEffect(() => {
+    if (savedTargetsData?.hasData && savedTargetsData.targets) {
+      setTargetGrowth(prev => {
+        const updated = { ...prev };
+        for (const [sl, value] of Object.entries(savedTargetsData.targets)) {
+          if (sl in updated) {
+            updated[sl as keyof TargetGrowth] = value;
+          }
+        }
+        return updated;
+      });
+    }
+  }, [savedTargetsData]);
+
   useEffect(() => {
     const filters = {
       serviceLine: selectedServiceLine,

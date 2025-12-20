@@ -5852,6 +5852,65 @@ Ensure weights sum to exactly 100.`;
     }
   });
 
+  // Get revenue growth targets based on filters (with averaging for conflicts)
+  app.get("/api/pricing/targets", async (req, res) => {
+    try {
+      const { serviceLine, regions, divisions, locations } = req.query;
+      
+      // Get all locations data
+      const allLocations = await storage.getLocations();
+      
+      // Filter locations based on query params
+      let targetLocations = allLocations;
+      if (locations && typeof locations === 'string' && locations.length > 0) {
+        const locationList = locations.split(',');
+        targetLocations = allLocations.filter(loc => locationList.includes(loc.name));
+      }
+      if (regions && typeof regions === 'string' && regions.length > 0) {
+        const regionList = regions.split(',');
+        targetLocations = targetLocations.filter(loc => loc.region && regionList.includes(loc.region));
+      }
+      if (divisions && typeof divisions === 'string' && divisions.length > 0) {
+        const divisionList = divisions.split(',');
+        targetLocations = targetLocations.filter(loc => loc.division && divisionList.includes(loc.division));
+      }
+      
+      // Get all saved targets
+      const allTargets = await storage.getRevenueGrowthTargets();
+      
+      // Filter targets by matching locations
+      const locationIds = new Set(targetLocations.map(loc => loc.id));
+      const matchingTargets = allTargets.filter(t => t.locationId && locationIds.has(t.locationId));
+      
+      // Aggregate by service line (average if multiple locations have different values)
+      const serviceLineAggregates: Record<string, { sum: number; count: number }> = {};
+      
+      for (const target of matchingTargets) {
+        if (!serviceLineAggregates[target.serviceLine]) {
+          serviceLineAggregates[target.serviceLine] = { sum: 0, count: 0 };
+        }
+        serviceLineAggregates[target.serviceLine].sum += target.targetGrowthPercent;
+        serviceLineAggregates[target.serviceLine].count += 1;
+      }
+      
+      // Calculate averages
+      const targets: Record<string, string> = {};
+      for (const [sl, agg] of Object.entries(serviceLineAggregates)) {
+        const avg = agg.count > 0 ? agg.sum / agg.count : 0;
+        targets[sl] = avg.toFixed(1);
+      }
+      
+      res.json({ 
+        targets,
+        locationsMatched: targetLocations.length,
+        hasData: Object.keys(targets).length > 0
+      });
+    } catch (error) {
+      console.error('[Get Targets] Error:', error);
+      res.status(500).json({ error: 'Failed to get revenue growth targets' });
+    }
+  });
+
   // Accept pricing suggestions
   app.post("/api/pricing/accept-suggestions", async (req, res) => {
     try {
