@@ -6431,38 +6431,37 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/pricing/targets/apply", async (req, res) => {
     try {
       const { recommendations, filters } = req.body;
+      const mode = recommendations.mode || 'portfolio';
       
-      console.log('[Apply Recommendations] Starting with filters:', filters);
+      console.log('[Apply Recommendations] Starting with mode:', mode, 'filters:', filters);
       
       // Get all locations data
       const allLocations = await storage.getLocations();
       
-      // Filter locations based on filters
-      let targetLocations = allLocations;
-      if (filters?.locations && filters.locations.length > 0) {
-        targetLocations = allLocations.filter(loc => filters.locations.includes(loc.name));
-      }
-      if (filters?.regions && filters.regions.length > 0) {
-        targetLocations = targetLocations.filter(loc => loc.region && filters.regions.includes(loc.region));
-      }
-      if (filters?.divisions && filters.divisions.length > 0) {
-        targetLocations = targetLocations.filter(loc => loc.division && filters.divisions.includes(loc.division));
-      }
-      
-      // Determine which service lines to apply to
-      const serviceLinesToApply = filters?.serviceLine && filters.serviceLine !== 'All' 
-        ? [filters.serviceLine] 
-        : ['AL', 'HC', 'IL', 'AL/MC', 'HC/MC', 'SL'];
-      
       let weightsUpdated = 0;
       let guardrailsUpdated = 0;
       let adjustmentRangesUpdated = 0;
+      let locationsAffected = 0;
       
-      // Apply weights for each location/service line combination
-      if (recommendations.weights) {
-        const weights = recommendations.weights;
-        for (const location of targetLocations) {
-          for (const serviceLine of serviceLinesToApply) {
+      // INDIVIDUAL MODE: Apply specific settings for each location/service line
+      if (mode === 'individual' && recommendations.individuals && recommendations.individuals.length > 0) {
+        console.log(`[Apply Recommendations] Processing ${recommendations.individuals.length} individual scopes`);
+        
+        const processedLocations = new Set<string>();
+        
+        for (const individual of recommendations.individuals) {
+          const location = allLocations.find(loc => loc.id === individual.locationId);
+          if (!location) {
+            console.warn(`[Apply Recommendations] Location not found: ${individual.locationId}`);
+            continue;
+          }
+          
+          const serviceLine = individual.serviceLine;
+          processedLocations.add(location.id);
+          
+          // Apply weights for this specific scope
+          if (individual.weights) {
+            const weights = individual.weights;
             await storage.createOrUpdateWeightsByFilter({
               occupancyPressure: weights.occupancyPressure,
               daysVacantDecay: weights.daysVacantDecay,
@@ -6473,28 +6472,20 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
             }, location.id, serviceLine);
             weightsUpdated++;
           }
-        }
-      }
-      
-      // Apply guardrails for each location/service line combination
-      if (recommendations.guardrails) {
-        const g = recommendations.guardrails;
-        for (const location of targetLocations) {
-          for (const serviceLine of serviceLinesToApply) {
+          
+          // Apply guardrails for this specific scope
+          if (individual.guardrails) {
+            const g = individual.guardrails;
             await storage.createOrUpdateGuardrailsByFilter({
               maxRateIncrease: g.maxIncreasePercent / 100,
               minRateDecrease: g.maxDecreasePercent / 100
             }, location.id, serviceLine);
             guardrailsUpdated++;
           }
-        }
-      }
-      
-      // Apply adjustment ranges for each location/service line combination
-      if (recommendations.adjustmentRanges) {
-        const ranges = recommendations.adjustmentRanges;
-        for (const location of targetLocations) {
-          for (const serviceLine of serviceLinesToApply) {
+          
+          // Apply adjustment ranges for this specific scope
+          if (individual.adjustmentRanges) {
+            const ranges = individual.adjustmentRanges;
             await storage.createOrUpdateAdjustmentRangesByFilter({
               occupancyMin: ranges.occupancyMin,
               occupancyMax: ranges.occupancyMax,
@@ -6510,17 +6501,93 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
             adjustmentRangesUpdated++;
           }
         }
+        
+        locationsAffected = processedLocations.size;
+        
+      } else {
+        // PORTFOLIO MODE: Apply same settings to all filtered locations/service lines
+        let targetLocations = allLocations;
+        if (filters?.locations && filters.locations.length > 0) {
+          targetLocations = allLocations.filter(loc => filters.locations.includes(loc.name));
+        }
+        if (filters?.regions && filters.regions.length > 0) {
+          targetLocations = targetLocations.filter(loc => loc.region && filters.regions.includes(loc.region));
+        }
+        if (filters?.divisions && filters.divisions.length > 0) {
+          targetLocations = targetLocations.filter(loc => loc.division && filters.divisions.includes(loc.division));
+        }
+        
+        // Determine which service lines to apply to
+        const serviceLinesToApply = filters?.serviceLine && filters.serviceLine !== 'All' 
+          ? [filters.serviceLine] 
+          : ['AL', 'HC', 'IL', 'AL/MC', 'HC/MC', 'SL'];
+        
+        // Apply weights for each location/service line combination
+        if (recommendations.weights) {
+          const weights = recommendations.weights;
+          for (const location of targetLocations) {
+            for (const serviceLine of serviceLinesToApply) {
+              await storage.createOrUpdateWeightsByFilter({
+                occupancyPressure: weights.occupancyPressure,
+                daysVacantDecay: weights.daysVacantDecay,
+                competitorRates: weights.competitorRates,
+                seasonality: weights.seasonality,
+                stockMarket: weights.stockMarket,
+                inquiryTourVolume: weights.inquiryTourVolume
+              }, location.id, serviceLine);
+              weightsUpdated++;
+            }
+          }
+        }
+        
+        // Apply guardrails for each location/service line combination
+        if (recommendations.guardrails) {
+          const g = recommendations.guardrails;
+          for (const location of targetLocations) {
+            for (const serviceLine of serviceLinesToApply) {
+              await storage.createOrUpdateGuardrailsByFilter({
+                maxRateIncrease: g.maxIncreasePercent / 100,
+                minRateDecrease: g.maxDecreasePercent / 100
+              }, location.id, serviceLine);
+              guardrailsUpdated++;
+            }
+          }
+        }
+        
+        // Apply adjustment ranges for each location/service line combination
+        if (recommendations.adjustmentRanges) {
+          const ranges = recommendations.adjustmentRanges;
+          for (const location of targetLocations) {
+            for (const serviceLine of serviceLinesToApply) {
+              await storage.createOrUpdateAdjustmentRangesByFilter({
+                occupancyMin: ranges.occupancyMin,
+                occupancyMax: ranges.occupancyMax,
+                vacancyMin: ranges.vacancyMin,
+                vacancyMax: ranges.vacancyMax,
+                attributesMin: ranges.attributesMin,
+                attributesMax: ranges.attributesMax,
+                seasonalityMin: ranges.seasonalityMin,
+                seasonalityMax: ranges.seasonalityMax,
+                competitorMin: ranges.competitorMin,
+                competitorMax: ranges.competitorMax
+              }, location.id, serviceLine);
+              adjustmentRangesUpdated++;
+            }
+          }
+        }
+        
+        locationsAffected = targetLocations.length;
       }
       
-      console.log(`[Apply Recommendations] Applied: ${weightsUpdated} weights, ${guardrailsUpdated} guardrails, ${adjustmentRangesUpdated} adjustment ranges`);
+      console.log(`[Apply Recommendations] Mode: ${mode}, Applied: ${weightsUpdated} weights, ${guardrailsUpdated} guardrails, ${adjustmentRangesUpdated} adjustment ranges`);
       
       res.json({ 
         success: true, 
+        mode,
         weightsUpdated,
         guardrailsUpdated,
         adjustmentRangesUpdated,
-        locationsAffected: targetLocations.length,
-        serviceLines: serviceLinesToApply
+        locationsAffected
       });
     } catch (error) {
       console.error('[Apply Recommendations] Error:', error);
