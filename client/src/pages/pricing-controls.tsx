@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check } from "lucide-react";
+import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, Info } from "lucide-react";
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -44,6 +45,12 @@ interface TargetGrowth {
   SL: string;
 }
 
+interface WeightExplanation {
+  value: number;
+  reason: string;
+  metric?: string;
+}
+
 interface GeneratedSettings {
   weights: {
     occupancyPressure: number;
@@ -52,6 +59,14 @@ interface GeneratedSettings {
     seasonality: number;
     stockMarket: number;
     inquiryTourVolume: number;
+  };
+  weightExplanations?: {
+    occupancyPressure?: WeightExplanation;
+    daysVacantDecay?: WeightExplanation;
+    competitorRates?: WeightExplanation;
+    seasonality?: WeightExplanation;
+    stockMarket?: WeightExplanation;
+    inquiryTourVolume?: WeightExplanation;
   };
   guardrails: {
     maxIncreasePercent: number;
@@ -73,6 +88,18 @@ interface GeneratedSettings {
   };
   attributeAdjustments: Record<string, number>;
   reasoning: string;
+  metrics?: {
+    occupancyRate: number;
+    avgDaysVacant: number;
+    competitorRate: number;
+    avgPortfolioRate: number;
+    salesVelocity: number;
+    netChange: number;
+    totalUnits: number;
+    vacantUnits: number;
+    unitsOver30DaysVacant: number;
+    unitsOver60DaysVacant: number;
+  };
 }
 
 export default function PricingControls() {
@@ -681,14 +708,100 @@ export default function PricingControls() {
                           data-testid="toggle-weights"
                         />
                       </div>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between"><span>Occupancy Pressure:</span><span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span></div>
-                        <div className="flex justify-between"><span>Days Vacant Decay:</span><span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span></div>
-                        <div className="flex justify-between"><span>Competitor Rates:</span><span className="font-medium">{generatedSettings.weights.competitorRates}%</span></div>
-                        <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{generatedSettings.weights.seasonality}%</span></div>
-                        <div className="flex justify-between"><span>Stock Market:</span><span className="font-medium">{generatedSettings.weights.stockMarket}%</span></div>
-                        <div className="flex justify-between"><span>Inquiry Volume:</span><span className="font-medium">{generatedSettings.weights.inquiryTourVolume}%</span></div>
-                      </div>
+                      <TooltipProvider>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1">
+                              Occupancy Pressure:
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs p-2">
+                                  <p className="text-xs font-medium mb-1">Occupancy: {generatedSettings.metrics?.occupancyRate ?? '—'}%</p>
+                                  <p className="text-xs text-gray-600">Higher weight when occupancy is low to push for competitive pricing. Current: {generatedSettings.metrics?.totalUnits ?? '—'} units, {generatedSettings.metrics?.vacantUnits ?? '—'} vacant.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                            <span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1">
+                              Days Vacant Decay:
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs p-2">
+                                  <p className="text-xs font-medium mb-1">Avg Days Vacant: {generatedSettings.metrics?.avgDaysVacant ?? '—'}</p>
+                                  <p className="text-xs text-gray-600">Higher weight when units stay vacant longer. Units 30+ days: {generatedSettings.metrics?.unitsOver30DaysVacant ?? '—'}, 60+ days: {generatedSettings.metrics?.unitsOver60DaysVacant ?? '—'}.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                            <span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1">
+                              Competitor Rates:
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs p-2">
+                                  <p className="text-xs font-medium mb-1">Avg Competitor Rate: ${generatedSettings.metrics?.competitorRate ?? '—'}</p>
+                                  <p className="text-xs text-gray-600">Weight based on available competitor data. Lower weight when data is sparse or when current rates are already well-positioned.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                            <span className="font-medium">{generatedSettings.weights.competitorRates}%</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1">
+                              Seasonality:
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs p-2">
+                                  <p className="text-xs font-medium mb-1">Seasonal Factor</p>
+                                  <p className="text-xs text-gray-600">Adjusts for seasonal demand patterns. Spring/fall typically higher demand in senior living.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                            <span className="font-medium">{generatedSettings.weights.seasonality}%</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1">
+                              Stock Market:
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs p-2">
+                                  <p className="text-xs font-medium mb-1">Market Conditions</p>
+                                  <p className="text-xs text-gray-600">Economic indicator weight. Lower weight as this is a secondary factor in senior living pricing.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                            <span className="font-medium">{generatedSettings.weights.stockMarket}%</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="flex items-center gap-1">
+                              Inquiry Volume:
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs p-2">
+                                  <p className="text-xs font-medium mb-1">Sales Velocity: {generatedSettings.metrics?.salesVelocity ?? '—'} move-ins (30 days)</p>
+                                  <p className="text-xs text-gray-600">Net change: {(generatedSettings.metrics?.netChange ?? 0) > 0 ? '+' : ''}{generatedSettings.metrics?.netChange ?? '—'}. Higher velocity allows more aggressive pricing.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </span>
+                            <span className="font-medium">{generatedSettings.weights.inquiryTourVolume}%</span>
+                          </div>
+                        </div>
+                      </TooltipProvider>
                     </div>
                     
                     {/* Guardrails */}
@@ -743,7 +856,7 @@ export default function PricingControls() {
                           </div>
                         ))}
                       </div>
-                      <p className="text-[10px] text-gray-400 mt-2 italic">Reference only - adjust manually in Attribute Pricing</p>
+                      <p className="text-[10px] text-gray-400 mt-2 italic">Reference only - adjust manually in Room Attributes</p>
                     </div>
                   </div>
                   

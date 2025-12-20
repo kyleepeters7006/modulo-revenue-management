@@ -5615,8 +5615,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       // Get all rent roll data (not filtered by month initially to get more data)
       let allUnits = await storage.getRentRollData();
       
-      // Get current month units
-      let units = allUnits.filter(u => u.reportMonth === currentMonth);
+      // Get current month units (use uploadMonth field)
+      let units = allUnits.filter(u => u.uploadMonth === currentMonth);
       
       // If no data for current month, use all available data
       if (units.length === 0) {
@@ -5704,11 +5704,35 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         }
       });
       
-      // Get competitor data
-      const competitors = await storage.getCompetitors();
-      const avgCompetitorRate = competitors.length > 0 
-        ? competitors.reduce((sum, c) => sum + (c.baseRate || 0), 0) / competitors.length 
+      // Get competitor data filtered by location and service line
+      const competitorFilters: any = {};
+      if (filters?.locations && filters.locations.length > 0) {
+        competitorFilters.locations = filters.locations;
+      }
+      if (filters?.serviceLine && filters.serviceLine !== 'All') {
+        competitorFilters.serviceLines = [filters.serviceLine];
+      }
+      const competitors = Object.keys(competitorFilters).length > 0 
+        ? await storage.getCompetitorsWithFilters(competitorFilters)
+        : await storage.getCompetitors();
+      
+      // Calculate average competitor rate - use finalRate if available, otherwise baseRate
+      const validCompetitorRates = competitors
+        .map(c => c.finalRate || c.baseRate || 0)
+        .filter(r => r > 0);
+      const avgCompetitorRate = validCompetitorRates.length > 0 
+        ? validCompetitorRates.reduce((sum, r) => sum + r, 0) / validCompetitorRates.length 
         : 0;
+      
+      // Also get rates from rent roll competitor data if no survey data
+      let competitorRateFromRentRoll = 0;
+      if (avgCompetitorRate === 0 && filteredUnits.length > 0) {
+        const unitsWithCompetitor = filteredUnits.filter(u => (u.competitorFinalRate || u.competitorRate || 0) > 0);
+        if (unitsWithCompetitor.length > 0) {
+          competitorRateFromRentRoll = unitsWithCompetitor.reduce((sum, u) => sum + (u.competitorFinalRate || u.competitorRate || 0), 0) / unitsWithCompetitor.length;
+        }
+      }
+      const effectiveCompetitorRate = avgCompetitorRate > 0 ? avgCompetitorRate : competitorRateFromRentRoll;
       
       // Get current weights, guardrails, and adjustment ranges
       const currentWeights = await storage.getPricingWeights();
@@ -5718,7 +5742,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       // Calculate actual sales velocity by comparing months
       let salesVelocity = { moveIns30: 0, moveOuts30: 0, netChange: 0 };
       if (previousMonth) {
-        const previousUnits = allUnits.filter(u => u.reportMonth === previousMonth);
+        const previousUnits = allUnits.filter(u => u.uploadMonth === previousMonth);
         const currentOccupied = new Set(filteredUnits.filter(u => u.occupiedYN).map(u => u.roomNumber + '|' + u.location));
         const previousOccupied = new Set(previousUnits.filter(u => u.occupiedYN).map(u => u.roomNumber + '|' + u.location));
         
@@ -5754,8 +5778,8 @@ CURRENT METRICS FOR "${scopeLabel}" (${currentMonth}):
 - Units Vacant 30+ Days: ${unitsOver30DaysVacant}
 - Units Vacant 60+ Days: ${unitsOver60DaysVacant}
 - Average Rate: $${avgPortfolioRate.toFixed(0)}/month
-- Average Competitor Rate: $${avgCompetitorRate.toFixed(0)}/month
-- Rate Position vs Competitors: ${avgPortfolioRate > avgCompetitorRate ? `+${((avgPortfolioRate/avgCompetitorRate - 1) * 100).toFixed(1)}% premium` : `${((avgPortfolioRate/avgCompetitorRate - 1) * 100).toFixed(1)}% discount`}
+- Average Competitor Rate: $${effectiveCompetitorRate.toFixed(0)}/month${effectiveCompetitorRate === 0 ? ' (no competitor data available)' : ''}
+- Rate Position vs Competitors: ${effectiveCompetitorRate > 0 ? (avgPortfolioRate > effectiveCompetitorRate ? `+${((avgPortfolioRate/effectiveCompetitorRate - 1) * 100).toFixed(1)}% premium` : `${((avgPortfolioRate/effectiveCompetitorRate - 1) * 100).toFixed(1)}% discount`) : 'N/A - no competitor data'}
 
 SALES VELOCITY (Month-over-Month):
 - Move-ins (30 days): ${salesVelocity.moveIns30}
@@ -5894,6 +5918,20 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       console.log('[Target Generation] Successfully generated settings');
       
+      // Add metrics to response for frontend explanations
+      generatedSettings.metrics = {
+        occupancyRate: parseFloat(occupancyRate.toFixed(1)),
+        avgDaysVacant: parseFloat(avgDaysVacant.toFixed(0)),
+        competitorRate: parseFloat(effectiveCompetitorRate.toFixed(0)),
+        avgPortfolioRate: parseFloat(avgPortfolioRate.toFixed(0)),
+        salesVelocity: salesVelocity.moveIns30,
+        netChange: salesVelocity.netChange,
+        totalUnits,
+        vacantUnits,
+        unitsOver30DaysVacant,
+        unitsOver60DaysVacant
+      };
+      
       res.json(generatedSettings);
     } catch (error) {
       console.error('[Target Generation] Error:', error);
@@ -5937,16 +5975,14 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         const weights = recommendations.weights;
         for (const location of targetLocations) {
           for (const serviceLine of serviceLinesToApply) {
-            await storage.upsertPricingWeights({
-              locationId: location.id,
-              serviceLine,
+            await storage.createOrUpdateWeightsByFilter({
               occupancyPressure: weights.occupancyPressure,
               daysVacantDecay: weights.daysVacantDecay,
               competitorRates: weights.competitorRates,
               seasonality: weights.seasonality,
               stockMarket: weights.stockMarket,
               inquiryTourVolume: weights.inquiryTourVolume
-            });
+            }, location.id, serviceLine);
             weightsUpdated++;
           }
         }
@@ -5954,17 +5990,13 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       // Apply guardrails for each location/service line combination
       if (recommendations.guardrails) {
-        const guardrails = recommendations.guardrails;
+        const g = recommendations.guardrails;
         for (const location of targetLocations) {
           for (const serviceLine of serviceLinesToApply) {
-            await storage.upsertGuardrails({
-              locationId: location.id,
-              serviceLine,
-              maxIncreasePercent: guardrails.maxIncreasePercent,
-              maxDecreasePercent: guardrails.maxDecreasePercent,
-              minStreetRate: guardrails.minStreetRate,
-              maxStreetRate: guardrails.maxStreetRate
-            });
+            await storage.createOrUpdateGuardrailsByFilter({
+              maxRateIncrease: g.maxIncreasePercent / 100,
+              minRateDecrease: g.maxDecreasePercent / 100
+            }, location.id, serviceLine);
             guardrailsUpdated++;
           }
         }
@@ -5975,9 +6007,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         const ranges = recommendations.adjustmentRanges;
         for (const location of targetLocations) {
           for (const serviceLine of serviceLinesToApply) {
-            await storage.upsertAdjustmentRanges({
-              locationId: location.id,
-              serviceLine,
+            await storage.createOrUpdateAdjustmentRangesByFilter({
               occupancyMin: ranges.occupancyMin,
               occupancyMax: ranges.occupancyMax,
               vacancyMin: ranges.vacancyMin,
@@ -5988,7 +6018,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
               seasonalityMax: ranges.seasonalityMax,
               competitorMin: ranges.competitorMin,
               competitorMax: ranges.competitorMax
-            });
+            }, location.id, serviceLine);
             adjustmentRangesUpdated++;
           }
         }

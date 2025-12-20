@@ -1572,6 +1572,28 @@ export class DatabaseStorage implements IStorage {
     const [ranges] = await db.insert(adjustmentRanges).values(data).returning();
     return ranges;
   }
+
+  async createOrUpdateAdjustmentRangesByFilter(data: any, locationId?: string | null, serviceLine?: string | null): Promise<AdjustmentRanges> {
+    const rangeData = {
+      ...data,
+      locationId: locationId || null,
+      serviceLine: serviceLine || null,
+    };
+    
+    // Delete existing entry for this location/serviceLine combination
+    if (locationId && serviceLine) {
+      await db.delete(adjustmentRanges).where(and(eq(adjustmentRanges.locationId, locationId), eq(adjustmentRanges.serviceLine, serviceLine)));
+    } else if (locationId) {
+      await db.delete(adjustmentRanges).where(and(eq(adjustmentRanges.locationId, locationId), isNull(adjustmentRanges.serviceLine)));
+    } else if (serviceLine) {
+      await db.delete(adjustmentRanges).where(and(isNull(adjustmentRanges.locationId), eq(adjustmentRanges.serviceLine, serviceLine)));
+    } else {
+      await db.delete(adjustmentRanges).where(and(isNull(adjustmentRanges.locationId), isNull(adjustmentRanges.serviceLine)));
+    }
+    
+    const [ranges] = await db.insert(adjustmentRanges).values(rangeData).returning();
+    return ranges;
+  }
   
   // AI-specific Pricing Weights
   async getAiPricingWeights(): Promise<AiPricingWeights | undefined> {
@@ -1615,6 +1637,28 @@ export class DatabaseStorage implements IStorage {
   async createOrUpdateGuardrails(data: InsertGuardrails): Promise<Guardrails> {
     await db.delete(guardrails);
     const [guardrail] = await db.insert(guardrails).values(data).returning();
+    return guardrail;
+  }
+
+  async createOrUpdateGuardrailsByFilter(data: any, locationId?: string | null, serviceLine?: string | null): Promise<Guardrails> {
+    const guardrailData = {
+      ...data,
+      locationId: locationId || null,
+      serviceLine: serviceLine || null,
+    };
+    
+    // Delete existing entry for this location/serviceLine combination
+    if (locationId && serviceLine) {
+      await db.delete(guardrails).where(and(eq(guardrails.locationId, locationId), eq(guardrails.serviceLine, serviceLine)));
+    } else if (locationId) {
+      await db.delete(guardrails).where(and(eq(guardrails.locationId, locationId), isNull(guardrails.serviceLine)));
+    } else if (serviceLine) {
+      await db.delete(guardrails).where(and(isNull(guardrails.locationId), eq(guardrails.serviceLine, serviceLine)));
+    } else {
+      await db.delete(guardrails).where(and(isNull(guardrails.locationId), isNull(guardrails.serviceLine)));
+    }
+    
+    const [guardrail] = await db.insert(guardrails).values(guardrailData).returning();
     return guardrail;
   }
 
