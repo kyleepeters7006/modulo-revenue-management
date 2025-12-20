@@ -259,7 +259,8 @@ export default function PricingControls() {
       
       // Build filtered recommendations based on enabled categories
       const filteredRecommendations: Partial<GeneratedSettings> = {
-        reasoning: generatedSettings.reasoning
+        reasoning: generatedSettings.reasoning,
+        mode: generatedSettings.mode
       };
       if (enabledCategories.weights) {
         filteredRecommendations.weights = generatedSettings.weights;
@@ -269,6 +270,16 @@ export default function PricingControls() {
       }
       if (enabledCategories.adjustmentRanges && generatedSettings.adjustmentRanges) {
         filteredRecommendations.adjustmentRanges = generatedSettings.adjustmentRanges;
+      }
+      
+      // Include individual results for individual mode
+      if (generatedSettings.mode === 'individual' && generatedSettings.individuals) {
+        filteredRecommendations.individuals = generatedSettings.individuals.map(ind => ({
+          ...ind,
+          weights: enabledCategories.weights ? ind.weights : undefined,
+          guardrails: enabledCategories.guardrails ? ind.guardrails : undefined,
+          adjustmentRanges: enabledCategories.adjustmentRanges ? ind.adjustmentRanges : undefined
+        })) as IndividualResult[];
       }
       
       const response = await apiRequest("/api/pricing/targets/apply", "POST", {
@@ -284,20 +295,23 @@ export default function PricingControls() {
       return response.json();
     },
     onSuccess: (data) => {
+      // Invalidate all related queries to refresh UI
       queryClient.invalidateQueries({ queryKey: ["/api/pricing/weights"] });
       queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-ranges"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/weights"] });
       
       const appliedItems: string[] = [];
       if (data.weightsUpdated > 0) appliedItems.push(`${data.weightsUpdated} weights`);
       if (data.guardrailsUpdated > 0) appliedItems.push(`${data.guardrailsUpdated} guardrails`);
       if (data.adjustmentRangesUpdated > 0) appliedItems.push(`${data.adjustmentRangesUpdated} adjustment ranges`);
       
+      const modeLabel = data.mode === 'individual' ? ' (individual settings)' : '';
       toast({
         title: "Recommendations Applied",
         description: appliedItems.length > 0 
-          ? `Applied to ${data.locationsAffected} location(s): ${appliedItems.join(', ')} updated.`
+          ? `Applied to ${data.locationsAffected} location(s)${modeLabel}: ${appliedItems.join(', ')} updated.`
           : "No changes were applied.",
       });
       setGeneratedSettings(null);
@@ -752,6 +766,11 @@ export default function PricingControls() {
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-4 w-4 text-blue-600" />
                       <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
+                      {generatedSettings.mode === 'individual' && generatedSettings.scopeCount && (
+                        <Badge variant="secondary" className="text-xs">
+                          {generatedSettings.scopeCount} scopes analyzed • Showing averages
+                        </Badge>
+                      )}
                     </div>
                     <Button
                       onClick={() => applyRecommendationsMutation.mutate()}
@@ -772,6 +791,12 @@ export default function PricingControls() {
                       )}
                     </Button>
                   </div>
+                  
+                  {generatedSettings.mode === 'individual' && (
+                    <p className="text-xs text-blue-700 bg-blue-100 p-2 rounded mb-3">
+                      Individual settings will be saved for each location/service line combination when applied.
+                    </p>
+                  )}
                   
                   <p className="text-xs text-gray-600 mb-3">Toggle categories on/off to control which settings will be applied:</p>
                   
