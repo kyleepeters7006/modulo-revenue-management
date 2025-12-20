@@ -458,7 +458,7 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       )}
       
       {/* Enable/Disable Weights Toggle */}
-      <div className="flex items-center justify-between p-4 mb-4 bg-gray-50/50 dark:bg-gray-900/20 rounded-lg border border-gray-100 dark:border-gray-800">
+      <div className="flex items-center justify-between p-4 mb-4 bg-[var(--dashboard-surface)] rounded-lg border border-[var(--dashboard-border)]">
         <div className="flex-1">
           <h4 className="text-sm font-medium text-[var(--dashboard-text)] mb-1">
             Use Modulo Algorithm Weights
