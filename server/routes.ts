@@ -3287,7 +3287,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-5',
+          model: 'gpt-5.2',
           messages: [{ role: 'user', content: prompt }],
           max_completion_tokens: 800,
           temperature: 0.7
@@ -5458,7 +5458,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-5',
+          model: 'gpt-5.2',
           messages: [{ role: 'user', content: weightPrompt }],
           max_completion_tokens: 500,
           temperature: 0.3,
@@ -5741,7 +5741,7 @@ Ensure weights sum to exactly 100.`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-5',
+          model: 'gpt-5.2',
           messages: [{ role: 'user', content: prompt }],
           max_completion_tokens: 800,
           temperature: 0.3,

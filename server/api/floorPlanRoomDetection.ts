@@ -31,7 +31,7 @@ export async function detectRoomsInFloorPlan(req: Request, res: Response) {
     
     // Use GPT-5 Vision to analyze the floor plan
     const visionResponse = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-5.2",
       messages: [
         {
           role: "system",
