@@ -5312,9 +5312,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     }
   });
 
-  // Generate AI pricing suggestions using OpenAI GPT-5
+  // Generate AI pricing suggestions using OpenAI GPT-5 (OPTIMIZED)
+  // Optimizations: Single data load, parallel batch processing, pre-cached revenue data
   app.post("/api/pricing/generate-ai", async (req, res) => {
     try {
+      const startTime = Date.now();
       const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
       
@@ -5323,23 +5325,39 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
       }
       
+      console.log('=== Starting OPTIMIZED AI Generation ===');
+      console.log('Target month:', targetMonth);
+      console.log('Filters:', { serviceLine, regions, divisions, locations });
+      
       await ensureCacheInitialized(targetMonth);
       
-      // Get all units for the month
-      let units = await storage.getRentRollDataByMonth(targetMonth);
+      // OPTIMIZATION 1: Load ALL rent roll data ONCE at the start
+      // This eliminates the duplicate call that was loading 391K+ units twice
+      console.log('[AI Pricing] Loading rent roll data (single load)...');
+      const allUnits = await storage.getRentRollData();
+      console.log(`[AI Pricing] Loaded ${allUnits.length} total units`);
+      
+      // Get units for target month from the already-loaded data
+      let units = allUnits.filter(u => u.uploadMonth === targetMonth);
       
       // Apply filters to units
       if (serviceLine) {
         units = units.filter(unit => unit.serviceLine === serviceLine);
       }
       if (locations && locations.length > 0) {
-        units = units.filter(unit => unit.location && locations.includes(unit.location));
+        const locationSet = new Set(locations);
+        units = units.filter(unit => unit.location && locationSet.has(unit.location));
+      }
+      
+      if (units.length === 0) {
+        console.log('[AI Pricing] No units to process after filtering');
+        return res.json({ success: true, unitsProcessed: 0 });
       }
       
       // Filter out B beds for senior housing service lines when calculating occupancy
-      const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
+      const seniorHousingServiceLines = new Set(['AL', 'AL/MC', 'SL', 'VIL', 'IL']);
       const allUnitsForOccupancy = units.filter(unit => {
-        if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
+        if (seniorHousingServiceLines.has(unit.serviceLine || '')) {
           const roomNumber = unit.roomNumber || '';
           if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
             return false;
@@ -5348,37 +5366,42 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return true;
       });
       
-      console.log(`Generating AI suggestions for ${units.length} units (${allUnitsForOccupancy.length} for occupancy calc)`);
+      console.log(`[AI Pricing] Processing ${units.length} units (${allUnitsForOccupancy.length} for occupancy calc)`);
       
-      // Calculate service-line-specific occupancy for AI adjustments
-      const allUnits = await storage.getRentRollData();
-      const serviceLineOccupancy: Record<string, number> = {};
-      const serviceLineStats = allUnits.reduce((acc: any, unit: any) => {
+      // Calculate service-line-specific occupancy using already-loaded data (no second query!)
+      const serviceLineOccupancy = new Map<string, number>();
+      const serviceLineStats = new Map<string, { occupied: number; total: number }>();
+      
+      for (const unit of allUnits) {
         const sl = unit.serviceLine || 'Unknown';
-        if (!acc[sl]) {
-          acc[sl] = { occupied: 0, total: 0 };
+        if (!serviceLineStats.has(sl)) {
+          serviceLineStats.set(sl, { occupied: 0, total: 0 });
         }
-        acc[sl].total++;
+        const stats = serviceLineStats.get(sl)!;
+        stats.total++;
         if (unit.occupiedYN) {
-          acc[sl].occupied++;
+          stats.occupied++;
         }
-        return acc;
-      }, {});
-      
-      for (const [sl, stats] of Object.entries(serviceLineStats)) {
-        const { occupied, total } = stats as { occupied: number; total: number };
-        serviceLineOccupancy[sl] = total > 0 ? occupied / total : 0.87;
       }
       
-      // Get current weights as baseline
-      const currentWeights = await storage.getAiPricingWeights() || {
-        occupancyPressure: 30,
-        daysVacantDecay: 25,
-        competitorRates: 10,
-        seasonality: 5,
-        stockMarket: 5,
-        inquiryTourVolume: 10
-      };
+      for (const [sl, stats] of serviceLineStats) {
+        serviceLineOccupancy.set(sl, stats.total > 0 ? stats.occupied / stats.total : 0.87);
+      }
+      
+      // Load all supporting data in parallel
+      const [currentWeights, guardrailsData, revenueGrowthTargets, competitors] = await Promise.all([
+        storage.getAiPricingWeights().then(w => w || {
+          occupancyPressure: 30,
+          daysVacantDecay: 25,
+          competitorRates: 10,
+          seasonality: 5,
+          stockMarket: 5,
+          inquiryTourVolume: 10
+        }),
+        storage.getCurrentGuardrails(),
+        storage.getRevenueGrowthTargets(),
+        storage.getCompetitors()
+      ]);
       
       // Build market context for OpenAI
       const totalUnits = units.length;
@@ -5387,8 +5410,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       const avgDaysVacant = units.filter(u => !u.occupiedYN).reduce((sum, u) => sum + (u.daysVacant || 0), 0) / Math.max(vacantUnits, 1);
       const unitsOver30DaysVacant = units.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
       
-      // Get competitor data
-      const competitors = await storage.getCompetitors();
       const avgCompetitorRate = competitors.length > 0 
         ? competitors.reduce((sum, c) => sum + (c.baseRate || 0), 0) / competitors.length 
         : avgStreetRate;
@@ -5498,72 +5519,110 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         console.warn('[AI Pricing] Failed to parse GPT-5 response, using current weights:', parseError);
       }
       
-      // Get guardrails for AI pricing
-      const guardrailsData = await storage.getCurrentGuardrails();
+      // OPTIMIZATION 2: Pre-compute ALL revenue performance data in a Map for O(1) lookup
+      console.log('[AI Pricing] Pre-computing revenue performance cache...');
+      const revenuePerformanceCache = new Map<string, { yoyGrowth: number }>();
+      const locationIdMap = new Map<string, number | undefined>();
       
-      // Fetch revenue growth targets for all locations/service lines
-      const revenueGrowthTargets = await storage.getRevenueGrowthTargets();
+      // Build unique location/serviceLine combinations
+      const uniqueCombinations = new Set<string>();
+      for (const unit of units) {
+        const key = `${unit.location || ''}|${unit.serviceLine || ''}`;
+        uniqueCombinations.add(key);
+        if (!locationIdMap.has(unit.location || '')) {
+          locationIdMap.set(unit.location || '', unit.locationId);
+        }
+      }
       
-      // Get all historical rent roll data for YOY calculations
-      const allHistoricalUnits = await storage.getRentRollData();
-      const previousMonth = (() => {
-        const [year, month] = targetMonth.split('-').map(Number);
-        if (month === 1) return `${year - 1}-12`;
-        return `${year}-${(month - 1).toString().padStart(2, '0')}`;
-      })();
-      const sameMonthLastYear = (() => {
-        const [year, month] = targetMonth.split('-').map(Number);
-        return `${year - 1}-${month.toString().padStart(2, '0')}`;
-      })();
+      // Pre-compute revenue performance for all unique combinations
+      for (const combo of uniqueCombinations) {
+        const [locationName, sl] = combo.split('|');
+        const result = getRevenuePerformanceForScope(allUnits, locationName, sl, targetMonth);
+        revenuePerformanceCache.set(combo, { yoyGrowth: result.performance.yoyGrowth });
+      }
+      console.log(`[AI Pricing] Pre-computed revenue performance for ${revenuePerformanceCache.size} location/serviceLine combinations`);
       
-      // Pre-calculate revenue performance by location/service line for efficiency
-      const revenuePerformanceCache: Record<string, { yoyGrowth: number }> = {};
-      const getRevenueGap = (locationName: string, serviceLine: string): { gap: number | undefined; target: number | undefined } => {
-        const cacheKey = `${locationName}|${serviceLine}`;
+      // Helper function for O(1) revenue gap lookup
+      const getRevenueGap = (locationName: string, sl: string): { gap: number | undefined; target: number | undefined } => {
+        const cacheKey = `${locationName}|${sl}`;
+        const performance = revenuePerformanceCache.get(cacheKey);
         
-        // Get performance data from cache or calculate
-        if (!revenuePerformanceCache[cacheKey]) {
-          const result = getRevenuePerformanceForScope(allHistoricalUnits, locationName, serviceLine, targetMonth);
-          revenuePerformanceCache[cacheKey] = { yoyGrowth: result.performance.yoyGrowth };
+        if (!performance) {
+          return { gap: undefined, target: undefined };
         }
         
-        const performance = revenuePerformanceCache[cacheKey];
-        
-        // Look up target for this location/service line (need to find locationId first)
-        const locationUnits = units.filter(u => u.location === locationName);
-        const locationId = locationUnits.length > 0 ? locationUnits[0].locationId : undefined;
-        
+        const locationId = locationIdMap.get(locationName);
         const target = revenueGrowthTargets.find(
-          t => t.locationId === locationId && t.serviceLine === serviceLine
+          t => t.locationId === locationId && t.serviceLine === sl
         );
         
         if (!target) {
           return { gap: undefined, target: undefined };
         }
         
-        // gap = actual - target (positive = ahead, negative = behind)
         const gap = performance.yoyGrowth - target.targetGrowthPercent;
         return { gap, target: target.targetGrowthPercent };
       };
       
       console.log(`[AI Pricing] Loaded ${revenueGrowthTargets.length} revenue growth targets`);
       
-      // Collect all updates in memory first for bulk processing
-      const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
+      // OPTIMIZATION 3: Pre-cache competitor data like the Modulo endpoint
+      const competitorCache = new Map<string, { competitor: any; trilogyCareLevel2Rate: number | null }>();
+      const uniqueCampusServiceLines = new Set<string>();
       
-      // Generate AI suggestions using GPT-5 optimized weights
       for (const unit of units) {
-        const monthIndex = new Date().getMonth() + 1;
-        const competitorPrices = unit.competitorRate ? 
-          [unit.competitorRate] : 
-          [unit.streetRate * 0.95, unit.streetRate * 1.05];
-        
-        const demandHistory = [15, 20, 30, 18, 35, 22, 28, 16];
-        const demandCurrent = 32;
-        const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
-        
-        // Calculate revenue growth gap for this unit's location/service line
+        if (unit.campus && unit.serviceLine) {
+          uniqueCampusServiceLines.add(`${unit.campus}|${unit.serviceLine}`);
+        }
+      }
+      
+      // Fetch all competitor data in parallel
+      const competitorPromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
+        const [campus, sl] = key.split('|');
+        try {
+          const [topCompetitor, trilogyCareLevel2Rate] = await Promise.all([
+            storage.getTopCompetitorByWeight(campus, sl),
+            storage.getTrilogyCareLevel2Rate(campus, sl)
+          ]);
+          competitorCache.set(key, { competitor: topCompetitor, trilogyCareLevel2Rate });
+        } catch {
+          competitorCache.set(key, { competitor: undefined, trilogyCareLevel2Rate: null });
+        }
+      });
+      
+      await Promise.all(competitorPromises);
+      console.log(`[AI Pricing] Pre-cached competitor data for ${competitorCache.size} campus/serviceLine combinations`);
+      
+      // OPTIMIZATION 4: Process units in parallel batches (like the Modulo endpoint)
+      const BATCH_SIZE = 500;
+      const MAX_CONCURRENT_BATCHES = 8;
+      const monthIndex = new Date().getMonth() + 1;
+      
+      console.log(`[AI Pricing] Processing ${units.length} units in batches of ${BATCH_SIZE}...`);
+      
+      // Helper function to process a single unit
+      const processUnit = async (unit: any): Promise<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> => {
+        const serviceLineOcc = serviceLineOccupancy.get(unit.serviceLine) || 0.87;
         const revenueGapData = getRevenueGap(unit.location || '', unit.serviceLine || '');
+        
+        // Get competitor prices from cache or fallback
+        let competitorPrices: number[];
+        const competitorKey = `${unit.campus}|${unit.serviceLine}`;
+        const cachedCompetitor = competitorCache.get(competitorKey);
+        
+        if (cachedCompetitor?.competitor?.streetRate) {
+          const adjustmentResult = calculateAdjustedCompetitorRate({
+            competitorBaseRate: cachedCompetitor.competitor.streetRate,
+            competitorCareLevel2Rate: cachedCompetitor.competitor.careLevel2Rate || 0,
+            competitorMedicationManagementFee: cachedCompetitor.competitor.medicationManagementFee || 0,
+            trilogyCareLevel2Rate: cachedCompetitor.trilogyCareLevel2Rate || 0
+          });
+          competitorPrices = [adjustmentResult.adjustedRate];
+        } else if (unit.competitorRate && unit.competitorRate > 0) {
+          competitorPrices = [unit.competitorRate];
+        } else {
+          competitorPrices = [unit.streetRate * 0.95, unit.streetRate * 1.05];
+        }
         
         const pricingInputs: PricingInputs = {
           occupancy: serviceLineOcc,
@@ -5571,14 +5630,13 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           monthIndex,
           competitorPrices,
           marketReturn: 0.03,
-          demandCurrent,
-          demandHistory,
+          demandCurrent: 32,
+          demandHistory: [15, 20, 30, 18, 35, 22, 28, 16],
           serviceLine: unit.serviceLine,
           revenueGrowthGap: revenueGapData.gap,
           targetRevenueGrowth: revenueGapData.target
         };
         
-        // Use AI-suggested weights for pricing
         const pricingWeights = {
           ...aiSuggestedWeights,
           id: 0,
@@ -5586,11 +5644,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           serviceLine: unit.serviceLine
         };
         
-        // Use the pricing orchestrator with attribute-based pricing
         const orchestratorResult = await calculateAttributedPrice(unit, pricingWeights, pricingInputs, guardrailsData || undefined);
-        const aiSuggestion = orchestratorResult.finalPrice;
         
-        // Store calculation details with AI reasoning
         const aiCalculationDetails = {
           baseRate: orchestratorResult.baseRate,
           baseRateSource: orchestratorResult.baseRateSource,
@@ -5613,30 +5668,63 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           poweredByGPT5: true
         };
         
-        aiUpdates.push({
+        return {
           id: unit.id,
-          aiSuggestedRate: Math.round(aiSuggestion),
+          aiSuggestedRate: Math.round(orchestratorResult.finalPrice),
           aiCalculationDetails: JSON.stringify(aiCalculationDetails)
-        });
+        };
+      };
+      
+      // Process in parallel batches
+      const allUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
+      
+      for (let i = 0; i < units.length; i += BATCH_SIZE * MAX_CONCURRENT_BATCHES) {
+        const batchPromises = [];
+        
+        for (let j = 0; j < MAX_CONCURRENT_BATCHES && (i + j * BATCH_SIZE) < units.length; j++) {
+          const start = i + j * BATCH_SIZE;
+          const end = Math.min(start + BATCH_SIZE, units.length);
+          const batch = units.slice(start, end);
+          
+          if (batch.length > 0) {
+            const batchPromise = Promise.allSettled(batch.map(processUnit));
+            batchPromises.push(batchPromise);
+          }
+        }
+        
+        const batchResults = await Promise.all(batchPromises);
+        
+        for (const results of batchResults) {
+          for (const result of results) {
+            if (result.status === 'fulfilled') {
+              allUpdates.push(result.value);
+            }
+          }
+        }
+        
+        const progress = Math.min(i + BATCH_SIZE * MAX_CONCURRENT_BATCHES, units.length);
+        console.log(`[AI Pricing] Progress: ${progress}/${units.length} units (${Math.round((progress / units.length) * 100)}%)`);
       }
       
-      console.log(`Calculated ${aiUpdates.length} AI suggestions with GPT-5 weights, starting bulk update...`);
+      console.log(`[AI Pricing] Calculated ${allUpdates.length} AI suggestions, starting bulk update...`);
       
-      // Perform bulk update in batches
-      await storage.bulkUpdateAIRates(aiUpdates);
+      // Perform bulk update
+      await storage.bulkUpdateAIRates(allUpdates);
       
-      console.log(`AI bulk update complete, regenerating rate card...`);
+      console.log(`[AI Pricing] Bulk update complete, regenerating rate card...`);
       
       // Regenerate rate card with AI suggestions
       await storage.generateRateCard(targetMonth);
       
-      console.log(`AI generation complete for ${aiUpdates.length} units`);
+      const elapsed = Date.now() - startTime;
+      console.log(`[AI Pricing] Generation complete for ${allUpdates.length} units in ${elapsed}ms`);
       
       res.json({ 
         success: true, 
-        unitsProcessed: aiUpdates.length,
+        unitsProcessed: allUpdates.length,
         aiWeights: aiSuggestedWeights,
-        aiReasoning: aiReasoning
+        aiReasoning: aiReasoning,
+        processingTimeMs: elapsed
       });
     } catch (error) {
       console.error('AI generation error:', error);
