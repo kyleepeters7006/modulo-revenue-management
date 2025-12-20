@@ -53,6 +53,28 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Building maps storage
 let buildingMaps: any[] = [];
 
+// Analytics cache for expensive computations (5 minute TTL)
+interface AnalyticsCacheEntry {
+  data: any;
+  timestamp: number;
+}
+const analyticsCache = new Map<string, AnalyticsCacheEntry>();
+const ANALYTICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCachedAnalytics(key: string): any | null {
+  const entry = analyticsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > ANALYTICS_CACHE_TTL) {
+    analyticsCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedAnalytics(key: string, data: any): void {
+  analyticsCache.set(key, { data, timestamp: Date.now() });
+}
+
 // Function to process image and detect room numbers using OCR
 async function processImageForRooms(imageBuffer: Buffer): Promise<any[]> {
   try {
@@ -2836,6 +2858,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { region, division, serviceLine } = req.query;
       
+      // Check cache first
+      const cacheKey = `campus-metrics:${region || 'all'}:${division || 'all'}:${serviceLine || 'all'}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) {
+        console.log(`Analytics: Serving cached result for ${cacheKey}`);
+        return res.json(cached);
+      }
+      
       // Get all required data - use most recent month (2025-11)
       const currentMonth = '2025-11';  // Fixed to November 2025 which has data
       const [rentRollData, campusData, competitors, pricingWeights] = await Promise.all([
@@ -3130,10 +3160,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         campusesWithCompetitorData: campusesData.filter(c => c.pricePosition !== 0).length
       };
 
-      res.json({
+      const result = {
         campuses: campusesData,
         summary
-      });
+      };
+      
+      // Cache the result for 5 minutes
+      setCachedAnalytics(cacheKey, result);
+      
+      res.json(result);
     } catch (error) {
       console.error("Error fetching analytics data:", error);
       res.status(500).json({ error: "Failed to fetch analytics data" });
@@ -3144,6 +3179,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/analytics/vacancy-scatter", async (req, res) => {
     try {
       const { location, serviceLine } = req.query;
+      
+      // Check cache first
+      const cacheKey = `vacancy-scatter:${location || 'all'}:${serviceLine || 'all'}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) {
+        console.log(`Vacancy: Serving cached result for ${cacheKey}`);
+        return res.json(cached);
+      }
       
       // Get the most recent month's data from the database
       const mostRecentMonthResult = await db
@@ -3226,7 +3269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Sort by days vacant descending for better visualization
       vacancyData.sort((a, b) => b.daysVacant - a.daysVacant);
       
-      res.json({
+      const result = {
         units: vacancyData,
         summary: {
           totalVacantUnits: vacancyData.filter(u => u.isVacant && !u.isBBed).length,
@@ -3236,7 +3279,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : 0,
           maxDaysVacant: Math.max(...vacancyData.map(u => u.daysVacant), 0)
         }
-      });
+      };
+      
+      // Cache the result for 5 minutes
+      setCachedAnalytics(cacheKey, result);
+      
+      res.json(result);
     } catch (error) {
       console.error("Error fetching vacancy scatter data:", error);
       res.status(500).json({ error: "Failed to fetch vacancy scatter data" });

@@ -1,5 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
 import {
   ScatterChart,
@@ -154,9 +154,30 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
 };
 
 export function Analytics() {
+  // Immediate filter state (for UI)
   const [selectedRegion, setSelectedRegion] = useState<string>('all');
   const [selectedDivision, setSelectedDivision] = useState<string>('all');
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>('all');
+  
+  // Debounced filter state (for API calls) - reduces rapid API calls when user is clicking through filters
+  const [debouncedFilters, setDebouncedFilters] = useState({
+    region: 'all',
+    division: 'all',
+    serviceLine: 'all'
+  });
+  
+  // Debounce filter changes - wait 300ms before making API call
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters({
+        region: selectedRegion,
+        division: selectedDivision,
+        serviceLine: selectedServiceLine
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [selectedRegion, selectedDivision, selectedServiceLine]);
+  
   const [calculationDialogOpen, setCalculationDialogOpen] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState<'avgRate' | 'occupancy' | 'marketPosition' | 'revenue' | null>(null);
   const [pinnedTooltip, setPinnedTooltip] = useState<any | null>(null);
@@ -165,14 +186,14 @@ export function Analytics() {
   const [isTooltipLocked, setIsTooltipLocked] = useState(false);
   const [highlightedDivisions, setHighlightedDivisions] = useState<Set<string>>(new Set());
 
-  // Fetch campus analytics data with aggressive caching
-  const { data: analyticsData, isLoading } = useQuery({
-    queryKey: ['/api/analytics/campus-metrics', selectedRegion, selectedDivision, selectedServiceLine],
+  // Fetch campus analytics data with aggressive caching and keepPreviousData for smooth UX
+  const { data: analyticsData, isLoading, isFetching } = useQuery({
+    queryKey: ['/api/analytics/campus-metrics', debouncedFilters.region, debouncedFilters.division, debouncedFilters.serviceLine],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedRegion !== 'all') params.append('region', selectedRegion);
-      if (selectedDivision !== 'all') params.append('division', selectedDivision);
-      if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
+      if (debouncedFilters.region !== 'all') params.append('region', debouncedFilters.region);
+      if (debouncedFilters.division !== 'all') params.append('division', debouncedFilters.division);
+      if (debouncedFilters.serviceLine !== 'all') params.append('serviceLine', debouncedFilters.serviceLine);
       const queryString = params.toString() ? `?${params.toString()}` : '';
       
       const response = await fetch(`/api/analytics/campus-metrics${queryString}`);
@@ -181,14 +202,16 @@ export function Analytics() {
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in garbage collection for 10 minutes
+    placeholderData: keepPreviousData, // Keep showing old data while new data loads
+    refetchOnWindowFocus: false, // Don't refetch when tab regains focus
   });
   
   // Fetch vacancy scatter data with caching
-  const { data: vacancyData, isLoading: isLoadingVacancy } = useQuery({
-    queryKey: ['/api/analytics/vacancy-scatter', selectedRegion, selectedDivision, selectedServiceLine],
+  const { data: vacancyData, isLoading: isLoadingVacancy, isFetching: isFetchingVacancy } = useQuery({
+    queryKey: ['/api/analytics/vacancy-scatter', debouncedFilters.region, debouncedFilters.division, debouncedFilters.serviceLine],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedServiceLine !== 'all') params.append('serviceLine', selectedServiceLine);
+      if (debouncedFilters.serviceLine !== 'all') params.append('serviceLine', debouncedFilters.serviceLine);
       const queryString = params.toString() ? `?${params.toString()}` : '';
       
       const response = await fetch(`/api/analytics/vacancy-scatter${queryString}`);
@@ -197,6 +220,8 @@ export function Analytics() {
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in garbage collection for 10 minutes
+    placeholderData: keepPreviousData, // Keep showing old data while new data loads
+    refetchOnWindowFocus: false, // Don't refetch when tab regains focus
   });
   
   // Fetch rate breakdown data (by service line and room type with historical changes)
@@ -209,6 +234,7 @@ export function Analytics() {
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   // Process data for scatter plots
