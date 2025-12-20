@@ -31,14 +31,25 @@ export interface GapAnalysis {
 }
 
 /**
+ * Check if a unit is occupied
+ * Handles both boolean (true) and string ('Y') occupancy values
+ */
+function isOccupied(unit: any): boolean {
+  if (unit.occupiedYN === true) return true;
+  if (unit.occupiedYN === 'Y' || unit.occupiedYN === 'y') return true;
+  return false;
+}
+
+/**
  * Calculate monthly revenue for a set of rent roll units
  * Properly handles daily vs monthly rates based on service line
+ * Only counts occupied units (occupiedYN === true or 'Y')
  */
 export function calculateMonthlyRevenue(units: any[]): number {
   let totalMonthlyRevenue = 0;
   
   for (const unit of units) {
-    if (!unit.occupiedYN) continue;
+    if (!isOccupied(unit)) continue;
     
     const { baseRateMonthly, careRateMonthly } = normalizeUnitRates(unit);
     totalMonthlyRevenue += baseRateMonthly + careRateMonthly;
@@ -49,6 +60,7 @@ export function calculateMonthlyRevenue(units: any[]): number {
 
 /**
  * Calculate revenue by location and service line for a specific month
+ * Only counts occupied units (occupiedYN === true or 'Y')
  */
 export function calculateRevenueByScope(
   units: any[]
@@ -56,7 +68,7 @@ export function calculateRevenueByScope(
   const revenueByScope = new Map<string, number>();
   
   for (const unit of units) {
-    if (!unit.occupiedYN) continue;
+    if (!isOccupied(unit)) continue;
     
     const location = unit.location || 'Unknown';
     const serviceLine = unit.serviceLine || 'Unknown';
