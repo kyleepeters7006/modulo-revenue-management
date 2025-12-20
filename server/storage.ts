@@ -257,6 +257,7 @@ export interface IStorage {
   
   // Revenue Growth Targets
   upsertRevenueGrowthTarget(data: InsertRevenueGrowthTarget): Promise<RevenueGrowthTarget>;
+  bulkUpsertRevenueGrowthTargets(data: InsertRevenueGrowthTarget[]): Promise<number>;
   getRevenueGrowthTargets(locationId?: string): Promise<RevenueGrowthTarget[]>;
 }
 
@@ -2008,6 +2009,36 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return result;
+  }
+
+  async bulkUpsertRevenueGrowthTargets(data: InsertRevenueGrowthTarget[]): Promise<number> {
+    if (data.length === 0) return 0;
+    
+    const now = new Date();
+    const valuesWithTimestamp = data.map(d => ({
+      ...d,
+      updatedAt: now
+    }));
+    
+    // Process in batches of 500 for better performance
+    const batchSize = 500;
+    let totalInserted = 0;
+    
+    for (let i = 0; i < valuesWithTimestamp.length; i += batchSize) {
+      const batch = valuesWithTimestamp.slice(i, i + batchSize);
+      await db.insert(revenueGrowthTargets)
+        .values(batch)
+        .onConflictDoUpdate({
+          target: [revenueGrowthTargets.locationId, revenueGrowthTargets.serviceLine],
+          set: {
+            targetGrowthPercent: sql`excluded.target_growth_percent`,
+            updatedAt: now
+          }
+        });
+      totalInserted += batch.length;
+    }
+    
+    return totalInserted;
   }
 
   async getRevenueGrowthTargets(locationId?: string): Promise<RevenueGrowthTarget[]> {

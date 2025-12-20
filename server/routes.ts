@@ -5820,21 +5820,23 @@ Ensure weights sum to exactly 100.`;
         ? [filters.serviceLine] 
         : Object.keys(targets);
       
-      // Save targets for each location and service line combination
-      let savedCount = 0;
+      // Build all target records for bulk insert
+      const targetRecords: { locationId: string; serviceLine: string; targetGrowthPercent: number }[] = [];
       for (const location of targetLocations) {
         for (const serviceLine of serviceLinesToSave) {
           const targetPercent = parseFloat(targets[serviceLine] || '0');
           if (!isNaN(targetPercent)) {
-            await storage.upsertRevenueGrowthTarget({
+            targetRecords.push({
               locationId: location.id,
               serviceLine,
               targetGrowthPercent: targetPercent
             });
-            savedCount++;
           }
         }
       }
+      
+      // Bulk upsert all targets at once
+      const savedCount = await storage.bulkUpsertRevenueGrowthTargets(targetRecords);
       
       console.log(`[Save Targets] Saved ${savedCount} targets across ${targetLocations.length} locations`);
       
