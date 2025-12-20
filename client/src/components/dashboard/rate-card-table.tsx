@@ -826,7 +826,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <button 
-                                className="cursor-help flex items-center space-x-1 text-purple-600 hover:text-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-300 rounded px-1"
+                                className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();

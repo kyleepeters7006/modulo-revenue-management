@@ -121,7 +121,7 @@ export default function OverviewTiles() {
       value: `$${formatNumber(Math.round(overviewData.potentialAnnualRevenue / 1000000))}M`, 
       subtitle: "At full occupancy",
       icon: TrendingUp,
-      color: "purple",
+      color: "blue",
       testId: "metric-potential-revenue"
     },
   ];
@@ -131,7 +131,7 @@ export default function OverviewTiles() {
       emerald: "bg-[var(--trilogy-success)]/10 text-[var(--trilogy-success)]",
       blue: "bg-[var(--trilogy-blue)]/10 text-[var(--trilogy-blue)]", 
       amber: "bg-[var(--trilogy-warning)]/10 text-[var(--trilogy-warning)]",
-      purple: "bg-purple-500/10 text-purple-500",
+      cyan: "bg-cyan-500/10 text-cyan-500",
     };
     return colors[color as keyof typeof colors] || colors.emerald;
   };

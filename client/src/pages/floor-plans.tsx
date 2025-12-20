@@ -381,7 +381,7 @@ export default function FloorPlansPage() {
     switch(serviceLine) {
       case 'IL': return 'bg-blue-500';
       case 'AL': return 'bg-green-500';
-      case 'AL/MC': return 'bg-purple-500';
+      case 'AL/MC': return 'bg-blue-500';
       case 'HC': return 'bg-orange-500';
       case 'HC/MC': return 'bg-red-500';
       case 'SL': return 'bg-teal-500';

@@ -78,7 +78,7 @@ export default function PricingHistory() {
       case "accept_modulo":
         return <Badge className="bg-teal-500 hover:bg-teal-600 text-white">Modulo</Badge>;
       case "accept_ai":
-        return <Badge className="bg-purple-500 hover:bg-purple-600 text-white">AI</Badge>;
+        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">AI</Badge>;
       case "manual":
         return <Badge variant="secondary">Manual</Badge>;
       default:

@@ -492,7 +492,7 @@ export default function InteractiveFloorPlanViewer({
       switch(unit.serviceLine) {
         case 'IL': return isVacant ? '#60a5fa' : '#94a3b8'; // Blue variants
         case 'AL': return isVacant ? '#4ade80' : '#94a3b8'; // Green variants
-        case 'AL/MC': return isVacant ? '#c084fc' : '#94a3b8'; // Purple variants
+        case 'AL/MC': return isVacant ? '#60a5fa' : '#94a3b8'; // Blue variants
         case 'HC': return isVacant ? '#fb923c' : '#94a3b8'; // Orange variants
         case 'HC/MC': return isVacant ? '#f87171' : '#94a3b8'; // Red variants
         case 'SL': return isVacant ? '#2dd4bf' : '#94a3b8'; // Teal variants

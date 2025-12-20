@@ -62,7 +62,7 @@ const getAttributeColor = (unitId: string): string => {
 const getAttributeBadgeColor = (type: string, value: any): string => {
   switch (type) {
     case 'size':
-      return value === 'Studio' ? 'bg-orange-500' : value === 'One Bedroom' ? 'bg-blue-500' : 'bg-purple-500';
+      return value === 'Studio' ? 'bg-orange-500' : value === 'One Bedroom' ? 'bg-blue-500' : 'bg-cyan-500';
     case 'location':
       return value === 'West Wing' ? 'bg-green-500' : value === 'East Wing' ? 'bg-indigo-500' : 'bg-red-500';
     case 'view':

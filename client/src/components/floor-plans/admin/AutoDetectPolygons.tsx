@@ -200,7 +200,7 @@ export default function AutoDetectPolygons({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Wand2 className="h-5 w-5 text-purple-600" />
+          <Wand2 className="h-5 w-5 text-blue-600" />
           Auto-Detect Rooms
         </CardTitle>
       </CardHeader>
@@ -215,7 +215,7 @@ export default function AutoDetectPolygons({
         <Button
           onClick={autoMapAndSaveAll}
           disabled={autoMapping || !campusMap?.baseImageUrl || rentRollData.length === 0}
-          className="w-full bg-gradient-to-r from-purple-600 to-[var(--trilogy-navy)] hover:from-purple-700 hover:to-[var(--trilogy-dark-blue)] text-white font-bold shadow-xl h-12"
+          className="w-full bg-gradient-to-r from-blue-600 to-[var(--trilogy-navy)] hover:from-blue-700 hover:to-[var(--trilogy-dark-blue)] text-white font-bold shadow-xl h-12"
           data-testid="button-auto-detect"
         >
           <Sparkles className="h-5 w-5 mr-2" />

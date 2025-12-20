@@ -481,9 +481,9 @@ export default function PricingControls() {
 
               {/* Generated Settings Display */}
               {generatedSettings && (
-                <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
+                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
                   <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="h-4 w-4 text-purple-600" />
+                    <Sparkles className="h-4 w-4 text-blue-600" />
                     <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
                   </div>
                   

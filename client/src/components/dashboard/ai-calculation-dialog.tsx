@@ -96,7 +96,7 @@ export default function AICalculationDialog({
       <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900 sm:w-full">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-purple-600" />
+            <Sparkles className="h-5 w-5 text-blue-600" />
             AI Pricing Calculation
             <Badge variant="secondary">{roomType}</Badge>
             {serviceLine && <Badge variant="outline">{serviceLine}</Badge>}
@@ -138,7 +138,7 @@ export default function AICalculationDialog({
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">AI Calculated</p>
-                    <p className="text-lg font-bold text-purple-600" data-testid="ai-calculated-rate">
+                    <p className="text-lg font-bold text-blue-600" data-testid="ai-calculated-rate">
                       {formatCurrency(calcDetails.finalRate || aiSuggestedRate)}
                     </p>
                   </div>
@@ -157,7 +157,7 @@ export default function AICalculationDialog({
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-purple-500" />
+                    <Sparkles className="h-4 w-4 text-blue-500" />
                     AI Algorithm Weights Configuration
                   </CardTitle>
                 </CardHeader>
@@ -244,12 +244,12 @@ export default function AICalculationDialog({
                           </div>
                           
                           {/* Formula Display */}
-                          <div className="bg-purple-50/50 dark:bg-purple-950/20 rounded-md px-3 py-2 mb-2">
+                          <div className="bg-blue-50/50 dark:bg-blue-950/20 rounded-md px-3 py-2 mb-2">
                             <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
                           </div>
                           
                           {/* Sentence Explanation */}
-                          <div className="border-l-2 border-purple-500/20 pl-3 mb-2">
+                          <div className="border-l-2 border-blue-500/20 pl-3 mb-2">
                             <p className="text-xs text-muted-foreground">{adj.description}</p>
                           </div>
                           
@@ -282,8 +282,8 @@ export default function AICalculationDialog({
                               </div>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <div className="mt-2 p-3 bg-purple-50 dark:bg-purple-950/20 rounded border border-purple-200 dark:border-purple-800 space-y-2">
-                                <p className="text-xs font-semibold text-purple-900 dark:text-purple-100">Signal Calculation Breakdown</p>
+                              <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800 space-y-2">
+                                <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Signal Calculation Breakdown</p>
                                 
                                 {/* Signal Value */}
                                 <div className="flex items-center justify-between">
@@ -306,7 +306,7 @@ export default function AICalculationDialog({
                                 {/* Raw Data Used */}
                                 {adj.rawData && (
                                   <div className="space-y-1">
-                                    <p className="text-xs font-semibold text-purple-900 dark:text-purple-100">Raw Data:</p>
+                                    <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Raw Data:</p>
                                     <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
                                       {Object.entries(adj.rawData).map(([key, value]: [string, any]) => (
                                         <div key={key} className="flex items-center justify-between text-xs">
@@ -407,7 +407,7 @@ export default function AICalculationDialog({
                   <div className="text-gray-700 dark:text-gray-300">
                     Base Rate × (1 + Total Adjustments) = Final Rate
                   </div>
-                  <div className="text-purple-700 dark:text-purple-300 font-medium">
+                  <div className="text-blue-700 dark:text-blue-300 font-medium">
                     {formatCurrency(baseRate)} × (1 + {formatPercent(calcDetails.totalAdjustment)}) = {formatCurrency(aiSuggestedRate)}
                   </div>
                   <div className="text-xs text-gray-500 mt-2">
@@ -418,15 +418,15 @@ export default function AICalculationDialog({
             </Card>
 
             {/* AI Algorithm Note */}
-            <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+            <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
               <CardContent className="pt-4">
                 <div className="flex items-start gap-3">
-                  <Sparkles className="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" />
+                  <Sparkles className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="text-sm font-medium text-purple-900 dark:text-purple-100 mb-1">
+                    <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
                       AI Algorithm Note
                     </h4>
-                    <p className="text-xs text-purple-800 dark:text-purple-200">
+                    <p className="text-xs text-blue-800 dark:text-blue-200">
                       The AI uses the same weight configuration as Modulo but applies slightly different adjustment curves 
                       and factors to provide alternative pricing perspectives. The AI tends to be more aggressive with 
                       competitor positioning and vacancy adjustments, offering a second opinion on optimal pricing.

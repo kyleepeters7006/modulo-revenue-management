@@ -381,12 +381,12 @@ export default function ModuloCalculationDialog({
 
               {/* Manual Adjustment Rules */}
               {calcDetails.adjustments && calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).length > 0 && (
-                <Card className="border-purple-500/30 bg-purple-50/50 dark:bg-purple-950/20">
+                <Card className="border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-purple-600" />
+                      <Settings className="h-4 w-4 text-blue-600" />
                       Manual Adjustment Rules
-                      <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-300">
+                      <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300">
                         Overrides Modulo
                       </Badge>
                     </CardTitle>
@@ -397,7 +397,7 @@ export default function ModuloCalculationDialog({
                         The following manual rules were applied to override the Modulo algorithm:
                       </p>
                       {calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).map((adj: any, index: number) => (
-                        <div key={index} className="space-y-2 p-3 bg-white dark:bg-gray-900 rounded border border-purple-200 dark:border-purple-800">
+                        <div key={index} className="space-y-2 p-3 bg-white dark:bg-gray-900 rounded border border-blue-200 dark:border-blue-800">
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium">{adj.factor.replace('Rule: ', '')}</p>
                             <p className={`text-lg font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
@@ -406,12 +406,12 @@ export default function ModuloCalculationDialog({
                           </div>
                           
                           {/* Formula Display */}
-                          <div className="bg-purple-50 dark:bg-purple-950/30 rounded-md px-3 py-2">
+                          <div className="bg-blue-50 dark:bg-blue-950/30 rounded-md px-3 py-2">
                             <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
                           </div>
                           
                           {/* Sentence Explanation */}
-                          <div className="border-l-2 border-purple-500/30 pl-3">
+                          <div className="border-l-2 border-blue-500/30 pl-3">
                             <p className="text-xs text-muted-foreground">{adj.description}</p>
                           </div>
                         </div>

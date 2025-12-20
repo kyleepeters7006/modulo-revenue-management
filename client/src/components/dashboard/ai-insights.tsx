@@ -297,7 +297,7 @@ export default function AiInsights() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
-              <Lightbulb className="w-5 h-5 text-purple-500" />
+              <Lightbulb className="w-5 h-5 text-blue-500" />
               <span>AI Recommendations</span>
             </CardTitle>
             <CardDescription>AI-powered insights and suggestions</CardDescription>
@@ -335,7 +335,7 @@ export default function AiInsights() {
             
             <Button
               onClick={handleGenerateInsights}
-              className="w-full bg-purple-500 hover:bg-purple-600 text-white"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white"
               disabled={aiSuggestMutation.isPending}
               data-testid="button-generate-insights"
             >
