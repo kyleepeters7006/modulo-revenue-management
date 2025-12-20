@@ -12,6 +12,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -98,6 +100,13 @@ export default function PricingControls() {
     SL: "4"
   });
   const [generatedSettings, setGeneratedSettings] = useState<GeneratedSettings | null>(null);
+  
+  // Category toggles for applying recommendations
+  const [enabledCategories, setEnabledCategories] = useState({
+    weights: true,
+    guardrails: true,
+    adjustmentRanges: true
+  });
 
   const generateSettingsMutation = useMutation({
     mutationFn: async () => {
@@ -162,8 +171,24 @@ export default function PricingControls() {
   const applyRecommendationsMutation = useMutation({
     mutationFn: async () => {
       if (!generatedSettings) throw new Error("No recommendations to apply");
+      
+      // Build filtered recommendations based on enabled categories
+      const filteredRecommendations: Partial<GeneratedSettings> = {
+        reasoning: generatedSettings.reasoning
+      };
+      if (enabledCategories.weights) {
+        filteredRecommendations.weights = generatedSettings.weights;
+      }
+      if (enabledCategories.guardrails) {
+        filteredRecommendations.guardrails = generatedSettings.guardrails;
+      }
+      if (enabledCategories.adjustmentRanges && generatedSettings.adjustmentRanges) {
+        filteredRecommendations.adjustmentRanges = generatedSettings.adjustmentRanges;
+      }
+      
       const response = await apiRequest("/api/pricing/targets/apply", "POST", {
-        recommendations: generatedSettings,
+        recommendations: filteredRecommendations,
+        enabledCategories,
         filters: {
           serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
           regions: selectedRegions.length > 0 ? selectedRegions : null,
@@ -178,9 +203,17 @@ export default function PricingControls() {
       queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-ranges"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
+      
+      const appliedItems: string[] = [];
+      if (data.weightsUpdated > 0) appliedItems.push(`${data.weightsUpdated} weights`);
+      if (data.guardrailsUpdated > 0) appliedItems.push(`${data.guardrailsUpdated} guardrails`);
+      if (data.adjustmentRangesUpdated > 0) appliedItems.push(`${data.adjustmentRangesUpdated} adjustment ranges`);
+      
       toast({
         title: "Recommendations Applied",
-        description: `Applied to ${data.locationsAffected} location(s): ${data.weightsUpdated} weights, ${data.guardrailsUpdated} guardrails, ${data.adjustmentRangesUpdated} adjustment ranges updated.`,
+        description: appliedItems.length > 0 
+          ? `Applied to ${data.locationsAffected} location(s): ${appliedItems.join(', ')} updated.`
+          : "No changes were applied.",
       });
       setGeneratedSettings(null);
     },
@@ -635,9 +668,19 @@ export default function PricingControls() {
                     </Button>
                   </div>
                   
+                  <p className="text-xs text-gray-600 mb-3">Toggle categories on/off to control which settings will be applied:</p>
+                  
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                    <div className="bg-white/80 rounded-md p-3">
-                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Pricing Weights</h5>
+                    {/* Pricing Weights */}
+                    <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.weights ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-xs font-medium text-gray-500 uppercase">Pricing Weights</h5>
+                        <Switch
+                          checked={enabledCategories.weights}
+                          onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, weights: checked }))}
+                          data-testid="toggle-weights"
+                        />
+                      </div>
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between"><span>Occupancy Pressure:</span><span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span></div>
                         <div className="flex justify-between"><span>Days Vacant Decay:</span><span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span></div>
@@ -648,8 +691,16 @@ export default function PricingControls() {
                       </div>
                     </div>
                     
-                    <div className="bg-white/80 rounded-md p-3">
-                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Guardrails</h5>
+                    {/* Guardrails */}
+                    <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.guardrails ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-xs font-medium text-gray-500 uppercase">Guardrails</h5>
+                        <Switch
+                          checked={enabledCategories.guardrails}
+                          onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, guardrails: checked }))}
+                          data-testid="toggle-guardrails"
+                        />
+                      </div>
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between"><span>Max Increase:</span><span className="font-medium">{generatedSettings.guardrails.maxIncreasePercent}%</span></div>
                         <div className="flex justify-between"><span>Max Decrease:</span><span className="font-medium">{generatedSettings.guardrails.maxDecreasePercent}%</span></div>
@@ -658,9 +709,17 @@ export default function PricingControls() {
                       </div>
                     </div>
                     
+                    {/* Adjustment Ranges */}
                     {generatedSettings.adjustmentRanges && (
-                      <div className="bg-white/80 rounded-md p-3">
-                        <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Adjustment Ranges</h5>
+                      <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.adjustmentRanges ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-xs font-medium text-gray-500 uppercase">Adjustment Ranges</h5>
+                          <Switch
+                            checked={enabledCategories.adjustmentRanges}
+                            onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, adjustmentRanges: checked }))}
+                            data-testid="toggle-adjustment-ranges"
+                          />
+                        </div>
                         <div className="space-y-1 text-sm">
                           <div className="flex justify-between"><span>Occupancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.occupancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.occupancyMax * 100).toFixed(0)}%</span></div>
                           <div className="flex justify-between"><span>Vacancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.vacancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.vacancyMax * 100).toFixed(0)}%</span></div>
@@ -671,9 +730,10 @@ export default function PricingControls() {
                       </div>
                     )}
                     
-                    <div className="bg-white/80 rounded-md p-3">
-                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Attribute Adjustments</h5>
-                      <div className="space-y-1 text-sm">
+                    {/* Attribute Adjustments - Display only (not persisted yet) */}
+                    <div className="rounded-md p-3 border border-gray-200 bg-gray-50/50">
+                      <h5 className="text-xs font-medium text-gray-400 uppercase mb-2">Attribute Suggestions</h5>
+                      <div className="space-y-1 text-sm text-gray-500">
                         {Object.entries(generatedSettings.attributeAdjustments).slice(0, 5).map(([attr, val]) => (
                           <div key={attr} className="flex justify-between">
                             <span className="capitalize">{attr.replace(/([A-Z])/g, ' $1').trim()}:</span>
@@ -683,6 +743,7 @@ export default function PricingControls() {
                           </div>
                         ))}
                       </div>
+                      <p className="text-[10px] text-gray-400 mt-2 italic">Reference only - adjust manually in Attribute Pricing</p>
                     </div>
                   </div>
                   

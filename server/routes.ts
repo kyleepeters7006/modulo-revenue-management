@@ -5647,6 +5647,27 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       
       console.log('[Target Generation] Filtered units:', filteredUnits.length, 'from total:', units.length);
       
+      // Build scope label based on filters
+      let scopeLabel = 'Portfolio';
+      const scopeParts: string[] = [];
+      if (filters?.locations && filters.locations.length === 1) {
+        scopeParts.push(filters.locations[0]);
+      } else if (filters?.locations && filters.locations.length > 1) {
+        scopeParts.push(`${filters.locations.length} locations`);
+      } else if (filters?.regions && filters.regions.length > 0) {
+        scopeParts.push(filters.regions.length === 1 ? `${filters.regions[0]} region` : `${filters.regions.length} regions`);
+      } else if (filters?.divisions && filters.divisions.length > 0) {
+        scopeParts.push(filters.divisions.length === 1 ? `${filters.divisions[0]} division` : `${filters.divisions.length} divisions`);
+      }
+      if (filters?.serviceLine && filters.serviceLine !== 'All') {
+        scopeParts.push(filters.serviceLine);
+      }
+      if (scopeParts.length > 0) {
+        scopeLabel = scopeParts.join(' - ');
+      }
+      
+      console.log('[Target Generation] Scope label:', scopeLabel);
+      
       // Calculate portfolio metrics from filtered units
       const totalUnits = filteredUnits.length;
       const occupiedUnits = filteredUnits.filter(u => u.occupiedYN).length;
@@ -5720,19 +5741,19 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         ? filteredUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / filteredUnits.length 
         : 0;
       
-      const prompt = `You are an expert senior living revenue management AI. Analyze the portfolio data and target revenue growth, then suggest optimal pricing settings for ALL pricing controls.
+      const prompt = `You are an expert senior living revenue management AI. Analyze the data for "${scopeLabel}" and target revenue growth, then suggest optimal pricing settings for ALL pricing controls.
 
 TARGET ANNUAL REVENUE GROWTH BY SERVICE LINE:
 ${Object.entries(targets).map(([sl, pct]) => `- ${sl}: ${pct}%`).join('\n')}
 
-CURRENT PORTFOLIO METRICS (${currentMonth}):
+CURRENT METRICS FOR "${scopeLabel}" (${currentMonth}):
 - Total Units: ${totalUnits}
 - Occupied Units: ${occupiedUnits} (${occupancyRate.toFixed(1)}% occupancy)
 - Vacant Units: ${vacantUnits}
 - Average Days Vacant: ${avgDaysVacant.toFixed(0)} days
 - Units Vacant 30+ Days: ${unitsOver30DaysVacant}
 - Units Vacant 60+ Days: ${unitsOver60DaysVacant}
-- Average Portfolio Rate: $${avgPortfolioRate.toFixed(0)}/month
+- Average Rate: $${avgPortfolioRate.toFixed(0)}/month
 - Average Competitor Rate: $${avgCompetitorRate.toFixed(0)}/month
 - Rate Position vs Competitors: ${avgPortfolioRate > avgCompetitorRate ? `+${((avgPortfolioRate/avgCompetitorRate - 1) * 100).toFixed(1)}% premium` : `${((avgPortfolioRate/avgCompetitorRate - 1) * 100).toFixed(1)}% discount`}
 
@@ -5814,7 +5835,7 @@ Respond with ONLY a JSON object in this exact format:
     "groundFloor": <number -5 to 10>,
     "largeSize": <number -5 to 15>
   },
-  "reasoning": "<2-3 sentence explanation referencing the actual portfolio metrics (occupancy %, units, sales velocity, rate position) and how they influenced your recommendations>"
+  "reasoning": "<2-3 sentence explanation starting with '${scopeLabel} occupancy is...' and referencing the actual metrics (occupancy %, units, sales velocity, rate position) for this specific scope and how they influenced your recommendations>"
 }
 
 IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the portfolio data in your reasoning.`;
