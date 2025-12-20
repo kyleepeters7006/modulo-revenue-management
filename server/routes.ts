@@ -5501,6 +5501,53 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       // Get guardrails for AI pricing
       const guardrailsData = await storage.getCurrentGuardrails();
       
+      // Fetch revenue growth targets for all locations/service lines
+      const revenueGrowthTargets = await storage.getRevenueGrowthTargets();
+      
+      // Get all historical rent roll data for YOY calculations
+      const allHistoricalUnits = await storage.getRentRollData();
+      const previousMonth = (() => {
+        const [year, month] = targetMonth.split('-').map(Number);
+        if (month === 1) return `${year - 1}-12`;
+        return `${year}-${(month - 1).toString().padStart(2, '0')}`;
+      })();
+      const sameMonthLastYear = (() => {
+        const [year, month] = targetMonth.split('-').map(Number);
+        return `${year - 1}-${month.toString().padStart(2, '0')}`;
+      })();
+      
+      // Pre-calculate revenue performance by location/service line for efficiency
+      const revenuePerformanceCache: Record<string, { yoyGrowth: number }> = {};
+      const getRevenueGap = (locationName: string, serviceLine: string): { gap: number | undefined; target: number | undefined } => {
+        const cacheKey = `${locationName}|${serviceLine}`;
+        
+        // Get performance data from cache or calculate
+        if (!revenuePerformanceCache[cacheKey]) {
+          const result = getRevenuePerformanceForScope(allHistoricalUnits, locationName, serviceLine, targetMonth);
+          revenuePerformanceCache[cacheKey] = { yoyGrowth: result.performance.yoyGrowth };
+        }
+        
+        const performance = revenuePerformanceCache[cacheKey];
+        
+        // Look up target for this location/service line (need to find locationId first)
+        const locationUnits = units.filter(u => u.location === locationName);
+        const locationId = locationUnits.length > 0 ? locationUnits[0].locationId : undefined;
+        
+        const target = revenueGrowthTargets.find(
+          t => t.locationId === locationId && t.serviceLine === serviceLine
+        );
+        
+        if (!target) {
+          return { gap: undefined, target: undefined };
+        }
+        
+        // gap = actual - target (positive = ahead, negative = behind)
+        const gap = performance.yoyGrowth - target.targetGrowthPercent;
+        return { gap, target: target.targetGrowthPercent };
+      };
+      
+      console.log(`[AI Pricing] Loaded ${revenueGrowthTargets.length} revenue growth targets`);
+      
       // Collect all updates in memory first for bulk processing
       const aiUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
       
@@ -5515,6 +5562,9 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         const demandCurrent = 32;
         const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
         
+        // Calculate revenue growth gap for this unit's location/service line
+        const revenueGapData = getRevenueGap(unit.location || '', unit.serviceLine || '');
+        
         const pricingInputs: PricingInputs = {
           occupancy: serviceLineOcc,
           daysVacant: unit.daysVacant || 0,
@@ -5523,7 +5573,9 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           marketReturn: 0.03,
           demandCurrent,
           demandHistory,
-          serviceLine: unit.serviceLine
+          serviceLine: unit.serviceLine,
+          revenueGrowthGap: revenueGapData.gap,
+          targetRevenueGrowth: revenueGapData.target
         };
         
         // Use AI-suggested weights for pricing

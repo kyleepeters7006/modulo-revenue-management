@@ -89,6 +89,9 @@ interface ModuloPricingConfig {
   // Inquiry & Tour Volume
   demandSpan: number;       // ±15% max from demand
   demandMaxZ: number;       // clamp |z| to avoid outliers dominating
+  
+  // Revenue Growth Target (strategic override - not part of normalized weights)
+  revenueGrowthSpan: number; // ±5% max effect from revenue gap
 }
 
 const defaultConfig: ModuloPricingConfig = {
@@ -130,7 +133,9 @@ const defaultConfig: ModuloPricingConfig = {
   mktMaxAbsReturn: 0.10,
   
   demandSpan: 0.15,
-  demandMaxZ: 2.0
+  demandMaxZ: 2.0,
+  
+  revenueGrowthSpan: 0.05  // ±5% max effect from revenue gap
 };
 
 function clamp(x: number, lo: number, hi: number): number {
@@ -296,6 +301,37 @@ function signalDemand(current: number, history: number[], cfg: ModuloPricingConf
   return clamp(effect / cfg.demandSpan, -1.0, 1.0);
 }
 
+/**
+ * Revenue Growth Target Signal
+ * 
+ * This is a STRATEGIC OVERRIDE - not part of the normalized weighted signals.
+ * It applies pressure based on how the service line is tracking against its revenue growth target.
+ * 
+ * Gap = actualYOY - targetGrowth (positive = ahead, negative = behind)
+ * 
+ * Logic:
+ * - If ahead of target (gap >= 0): slight positive signal (can maintain/slight premium)
+ * - If behind target (gap < 0): positive signal (upward pricing pressure to grow revenue)
+ * 
+ * The signal is normalized to [-1, +1] range and capped at revenueGrowthSpan (±5%)
+ */
+function signalRevenueGrowthTarget(gap: number | undefined, cfg: ModuloPricingConfig): number {
+  if (gap === undefined || gap === null) {
+    return 0.0;
+  }
+  
+  if (gap >= 0) {
+    // Ahead of target - return 0 to slight positive (maintain pricing, allow slight premium)
+    // Max out at 0.2 when significantly ahead
+    return Math.min(0.2, gap / 10);
+  } else {
+    // Behind target - return positive signal (upward pricing pressure)
+    // The more behind, the stronger the pressure to increase prices
+    // Max out at signal = 1.0 when 10+ points behind target
+    return Math.min(1.0, Math.abs(gap) / 10);
+  }
+}
+
 export interface PricingInputs {
   occupancy: number;           // 0-1 (e.g., 0.85 for 85%)
   daysVacant: number;          // integer days
@@ -306,6 +342,8 @@ export interface PricingInputs {
   demandCurrent: number;       // current inquiries/tours
   demandHistory: number[];     // historical inquiries/tours
   serviceLine?: string;        // Service line (AL, HC, SL, VIL, AL/MC, HC/MC) for market positioning
+  revenueGrowthGap?: number;   // Gap between target and actual YOY growth (positive = ahead, negative = behind)
+  targetRevenueGrowth?: number; // The target growth percentage for this service line
 }
 
 export interface PricingWeights {
@@ -366,7 +404,7 @@ export function calculateModuloPrice(
     demand: signalDemand(inputs.demandCurrent, inputs.demandHistory, cfg)
   };
   
-  // Calculate blended signal
+  // Calculate blended signal from weighted factors
   const blendedSignal = Object.keys(w).reduce((sum, k) => sum + w[k] * sigs[k], 0);
   
   // Convert to percentage adjustment
@@ -378,7 +416,17 @@ export function calculateModuloPrice(
   }
   
   totalAdj = clamp(totalAdj, cfg.minTotalAdj, cfg.maxTotalAdj);
-  const finalPrice = basePrice * (1.0 + totalAdj);
+  
+  // Revenue Growth Target - Strategic Override (NOT part of normalized weights)
+  // This applies additional pricing pressure based on revenue target gap
+  const revenueGrowthSignal = signalRevenueGrowthTarget(inputs.revenueGrowthGap, cfg);
+  const revenueGrowthAdjustment = revenueGrowthSignal * cfg.revenueGrowthSpan;
+  
+  // Add revenue growth adjustment on top of the blended adjustment
+  const totalAdjWithRevenue = totalAdj + revenueGrowthAdjustment;
+  const finalTotalAdj = clamp(totalAdjWithRevenue, cfg.minTotalAdj, cfg.maxTotalAdj);
+  
+  const finalPrice = basePrice * (1.0 + finalTotalAdj);
   
   // Create detailed adjustments array for UI
   const adjustments = Object.keys(w).map(key => {
@@ -426,11 +474,48 @@ export function calculateModuloPrice(
     };
   });
   
+  // Add revenue growth target adjustment if applicable (strategic override, not weighted)
+  if (inputs.revenueGrowthGap !== undefined && inputs.revenueGrowthGap !== null) {
+    const gap = inputs.revenueGrowthGap;
+    const targetGrowth = inputs.targetRevenueGrowth || 0;
+    const actualYOY = targetGrowth + gap;
+    
+    adjustments.push({
+      factor: 'RevenueTarget',
+      adjustment: revenueGrowthAdjustment,
+      weight: 0, // Not part of weighted system
+      weightedAdjustment: revenueGrowthAdjustment,
+      impact: basePrice * revenueGrowthAdjustment,
+      description: gap >= 0 
+        ? `Revenue target: ${actualYOY.toFixed(1)}% YOY vs ${targetGrowth.toFixed(1)}% target (${gap.toFixed(1)}% ahead)`
+        : `Revenue target: ${actualYOY.toFixed(1)}% YOY vs ${targetGrowth.toFixed(1)}% target (${Math.abs(gap).toFixed(1)}% behind)`,
+      calculation: gap >= 0
+        ? `Ahead of target by ${gap.toFixed(1)}% → +${(revenueGrowthAdjustment * 100).toFixed(2)}% adjustment`
+        : `Behind target by ${Math.abs(gap).toFixed(1)}% → +${(revenueGrowthAdjustment * 100).toFixed(2)}% adjustment`,
+      signal: revenueGrowthSignal,
+      rawData: {
+        'Target Growth': `${targetGrowth.toFixed(1)}%`,
+        'Actual YOY': `${actualYOY.toFixed(1)}%`,
+        'Gap': `${gap.toFixed(1)}%`,
+        'Status': gap >= 0 ? 'On Track / Exceeding' : 'Behind Target',
+        'Max Effect': '±5%',
+        'Note': 'Strategic override - not part of weighted signals'
+      },
+      signalExplanation: `Revenue growth target adjustment applies strategic pricing pressure. When behind target (gap=${gap.toFixed(1)}%), upward pricing pressure is applied to help achieve revenue goals. Signal of ${revenueGrowthSignal.toFixed(3)} translates to ${(revenueGrowthAdjustment * 100).toFixed(2)}% adjustment (max ±5%).`
+    });
+  }
+  
+  // Include revenue growth signal in signals object for visibility
+  const allSignals = {
+    ...sigs,
+    revenueTarget: revenueGrowthSignal
+  };
+  
   return {
-    signals: sigs,
+    signals: allSignals,
     weights: w,
     blendedSignal,
-    totalAdjustment: totalAdj,
+    totalAdjustment: finalTotalAdj,
     finalPrice: Math.round(finalPrice * 100) / 100,
     adjustments
   };
