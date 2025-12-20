@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ChevronDown, X, Sparkles, Target, Loader2 } from "lucide-react";
+import { ChevronDown, X, Sparkles, Target, Loader2, Save } from "lucide-react";
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
@@ -114,6 +114,34 @@ export default function PricingControls() {
       toast({
         title: "Generation Failed",
         description: error.message || "Failed to generate AI settings. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const saveTargetsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/pricing/targets/save", {
+        targets: targetGrowth,
+        filters: {
+          serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
+          regions: selectedRegions.length > 0 ? selectedRegions : null,
+          divisions: selectedDivisions.length > 0 ? selectedDivisions : null,
+          locations: selectedLocations.length > 0 ? selectedLocations : null
+        }
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Targets Saved",
+        description: `Successfully saved targets for ${data.locationsAffected} location(s) and ${data.serviceLines.length} service line(s).`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Save Failed",
+        description: error.message || "Failed to save revenue growth targets. Please try again.",
         variant: "destructive"
       });
     }
@@ -455,27 +483,46 @@ export default function PricingControls() {
                 })}
               </div>
 
-              {/* Generate Button */}
+              {/* Save and Generate Buttons */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4 border-t border-gray-100">
-                <Button
-                  onClick={() => generateSettingsMutation.mutate()}
-                  disabled={generateSettingsMutation.isPending}
-                  data-testid="button-generate-settings"
-                >
-                  {generateSettingsMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Analyzing Portfolio...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-4 w-4 mr-2" />
-                      Generate Weights, Attribute Values & Guardrails
-                    </>
-                  )}
-                </Button>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    onClick={() => saveTargetsMutation.mutate()}
+                    disabled={saveTargetsMutation.isPending}
+                    data-testid="button-save-targets"
+                  >
+                    {saveTargetsMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save Targets
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => generateSettingsMutation.mutate()}
+                    disabled={generateSettingsMutation.isPending}
+                    data-testid="button-generate-settings"
+                  >
+                    {generateSettingsMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Analyzing Portfolio...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Generate Weights, Attribute Values & Guardrails
+                      </>
+                    )}
+                  </Button>
+                </div>
                 <p className="text-xs text-gray-500">
-                  AI analyzes occupancy, vacancy patterns, sales velocity, and competitor rates to suggest optimal settings
+                  Save targets to apply to selected locations, or Generate to let AI optimize settings
                 </p>
               </div>
 

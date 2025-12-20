@@ -25,7 +25,7 @@ Preferred communication style: Simple, everyday language.
 ## Database
 - **Primary**: PostgreSQL (Neon serverless driver)
 - **Schema Management**: Drizzle Kit
-- **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`, `inquiry_metrics`, `ai_rate_outcomes`, `ai_weight_versions`.
+- **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`, `inquiry_metrics`, `ai_rate_outcomes`, `ai_weight_versions`, `revenue_growth_targets`.
 
 ## Core Features
 - **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions, with a premium positioning strategy.
@@ -53,7 +53,7 @@ Preferred communication style: Simple, everyday language.
 - **ML Learning System**: Self-improving pricing weights through supervised learning, including outcome tracking, adoption detection, sales tracking, regularized regression training, version control, and an automated daily learning loop.
 - **Flexible Import Mapping Service**: Comprehensive column mapping system for CSV/Excel uploads with built-in profiles, fuzzy matching, field aliases, value transformations, and custom profile saving.
 - **AI Integration**: Utilizes GPT-5 (version 5.2) for AI Pricing Engine, Floor Plan Detection, MatrixCare Export Validation, Room Detection Service, AI Insights, Pricing Rule Validation, and Target Revenue Growth Generation.
-- **Target Annual Revenue Growth**: AI-powered settings generator on Pricing Controls page that analyzes portfolio metrics (occupancy, vacancy patterns, sales velocity, competitor rates, service line breakdown) and generates optimal pricing weights, guardrails, and attribute adjustments to achieve user-defined revenue growth targets per service line.
+- **Target Annual Revenue Growth**: AI-powered settings generator on Pricing Controls page that analyzes portfolio metrics (occupancy, vacancy patterns, sales velocity, competitor rates, service line breakdown) and generates optimal pricing weights, guardrails, and attribute adjustments to achieve user-defined revenue growth targets per service line. Includes Save Targets button to persist target percentages by location and service line combination (stored in `revenue_growth_targets` table).
 - **Optimized Room Attributes**: Redesigned Room Attributes page with unified filter bar and "Preview Impact" functionality.
 
 # External Dependencies

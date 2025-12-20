@@ -27,6 +27,7 @@ import {
   competitiveSurveyData,
   inquiryMetrics,
   calculationHistory,
+  revenueGrowthTargets,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -76,7 +77,9 @@ import {
   type InquiryMetrics,
   type InsertInquiryMetrics,
   type CalculationHistory,
-  type InsertCalculationHistory
+  type InsertCalculationHistory,
+  type RevenueGrowthTarget,
+  type InsertRevenueGrowthTarget
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, isNull, inArray, or } from "drizzle-orm";
@@ -251,6 +254,10 @@ export interface IStorage {
   getEnquireDataSummary(): Promise<{ totalRecords: number; mappedRecords: number; unmappedRecords: number }>;
   getCompetitiveSurveySummary(): Promise<{ months: string[]; totalRecords: number }>;
   getLocationMappingSummary(): Promise<{ totalMappings: number; autoMapped: number; manualMapped: number }>;
+  
+  // Revenue Growth Targets
+  upsertRevenueGrowthTarget(data: InsertRevenueGrowthTarget): Promise<RevenueGrowthTarget>;
+  getRevenueGrowthTargets(locationId?: string): Promise<RevenueGrowthTarget[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1984,6 +1991,30 @@ export class DatabaseStorage implements IStorage {
       autoMapped: totalCount - manualCount,
       manualMapped: manualCount
     };
+  }
+
+  async upsertRevenueGrowthTarget(data: InsertRevenueGrowthTarget): Promise<RevenueGrowthTarget> {
+    const [result] = await db.insert(revenueGrowthTargets)
+      .values({
+        ...data,
+        updatedAt: new Date()
+      })
+      .onConflictDoUpdate({
+        target: [revenueGrowthTargets.locationId, revenueGrowthTargets.serviceLine],
+        set: {
+          targetGrowthPercent: data.targetGrowthPercent,
+          updatedAt: new Date()
+        }
+      })
+      .returning();
+    return result;
+  }
+
+  async getRevenueGrowthTargets(locationId?: string): Promise<RevenueGrowthTarget[]> {
+    if (locationId) {
+      return db.select().from(revenueGrowthTargets).where(eq(revenueGrowthTargets.locationId, locationId));
+    }
+    return db.select().from(revenueGrowthTargets);
   }
 }
 

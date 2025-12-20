@@ -918,6 +918,24 @@ export const insertAiWeightVersionsSchema = createInsertSchema(aiWeightVersions)
   createdAt: true,
 });
 
+// Revenue Growth Targets - Store target annual growth % by location/service line
+export const revenueGrowthTargets = pgTable("revenue_growth_targets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id),
+  serviceLine: text("service_line").notNull(),
+  targetGrowthPercent: real("target_growth_percent").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  locationServiceLineIdx: uniqueIndex("revenue_growth_loc_sl_idx").on(table.locationId, table.serviceLine),
+}));
+
+export const insertRevenueGrowthTargetsSchema = createInsertSchema(revenueGrowthTargets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // ML Training History - Track training runs
 export const mlTrainingHistory = pgTable("ml_training_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1001,3 +1019,5 @@ export type AiWeightVersion = typeof aiWeightVersions.$inferSelect;
 export type InsertAiWeightVersion = z.infer<typeof insertAiWeightVersionsSchema>;
 export type MlTrainingHistory = typeof mlTrainingHistory.$inferSelect;
 export type InsertMlTrainingHistory = z.infer<typeof insertMlTrainingHistorySchema>;
+export type RevenueGrowthTarget = typeof revenueGrowthTargets.$inferSelect;
+export type InsertRevenueGrowthTarget = z.infer<typeof insertRevenueGrowthTargetsSchema>;

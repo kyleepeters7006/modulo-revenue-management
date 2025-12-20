@@ -5793,6 +5793,63 @@ Ensure weights sum to exactly 100.`;
     }
   });
 
+  // Save revenue growth targets by location and service line
+  app.post("/api/pricing/targets/save", async (req, res) => {
+    try {
+      const { targets, filters } = req.body;
+      
+      console.log('[Save Targets] Starting with targets:', targets, 'filters:', filters);
+      
+      // Get all locations data
+      const allLocations = await storage.getLocations();
+      
+      // Filter locations based on filters
+      let targetLocations = allLocations;
+      if (filters?.locations && filters.locations.length > 0) {
+        targetLocations = allLocations.filter(loc => filters.locations.includes(loc.name));
+      }
+      if (filters?.regions && filters.regions.length > 0) {
+        targetLocations = targetLocations.filter(loc => loc.region && filters.regions.includes(loc.region));
+      }
+      if (filters?.divisions && filters.divisions.length > 0) {
+        targetLocations = targetLocations.filter(loc => loc.division && filters.divisions.includes(loc.division));
+      }
+      
+      // Determine which service lines to save
+      const serviceLinesToSave = filters?.serviceLine && filters.serviceLine !== 'All' 
+        ? [filters.serviceLine] 
+        : Object.keys(targets);
+      
+      // Save targets for each location and service line combination
+      let savedCount = 0;
+      for (const location of targetLocations) {
+        for (const serviceLine of serviceLinesToSave) {
+          const targetPercent = parseFloat(targets[serviceLine] || '0');
+          if (!isNaN(targetPercent)) {
+            await storage.upsertRevenueGrowthTarget({
+              locationId: location.id,
+              serviceLine,
+              targetGrowthPercent: targetPercent
+            });
+            savedCount++;
+          }
+        }
+      }
+      
+      console.log(`[Save Targets] Saved ${savedCount} targets across ${targetLocations.length} locations`);
+      
+      res.json({ 
+        success: true, 
+        savedCount,
+        locationsAffected: targetLocations.length,
+        serviceLines: serviceLinesToSave
+      });
+    } catch (error) {
+      console.error('[Save Targets] Error:', error);
+      res.status(500).json({ error: 'Failed to save revenue growth targets' });
+    }
+  });
+
   // Accept pricing suggestions
   app.post("/api/pricing/accept-suggestions", async (req, res) => {
     try {
