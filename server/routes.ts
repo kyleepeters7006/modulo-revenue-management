@@ -3289,7 +3289,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         body: JSON.stringify({
           model: 'gpt-5',
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 800,
+          max_completion_tokens: 800,
           temperature: 0.7
         })
       });
@@ -5460,7 +5460,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         body: JSON.stringify({
           model: 'gpt-5',
           messages: [{ role: 'user', content: weightPrompt }],
-          max_tokens: 500,
+          max_completion_tokens: 500,
           temperature: 0.3,
           response_format: { type: "json_object" }
         })
@@ -5743,7 +5743,7 @@ Ensure weights sum to exactly 100.`;
         body: JSON.stringify({
           model: 'gpt-5',
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 800,
+          max_completion_tokens: 800,
           temperature: 0.3,
           response_format: { type: "json_object" }
         })
@@ -7362,7 +7362,7 @@ Respond in JSON format:
             messages: [{ role: "user", content: prompt }],
             response_format: { type: "json_object" },
             temperature: 0.3,
-            max_tokens: 500
+            max_completion_tokens: 500
           });
 
           const result = JSON.parse(response.choices[0].message.content || '{}');
