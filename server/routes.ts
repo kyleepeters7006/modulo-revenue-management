@@ -6456,6 +6456,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
             continue;
           }
           
+          // Skip if no categories to apply
+          const hasContent = individual.weights || individual.guardrails || individual.adjustmentRanges;
+          if (!hasContent) continue;
+          
           const serviceLine = individual.serviceLine;
           processedLocations.add(location.id);
           

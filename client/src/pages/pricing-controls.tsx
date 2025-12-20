@@ -272,14 +272,22 @@ export default function PricingControls() {
         filteredRecommendations.adjustmentRanges = generatedSettings.adjustmentRanges;
       }
       
-      // Include individual results for individual mode
+      // Include individual results for individual mode (only if at least one category is enabled)
       if (generatedSettings.mode === 'individual' && generatedSettings.individuals) {
-        filteredRecommendations.individuals = generatedSettings.individuals.map(ind => ({
-          ...ind,
-          weights: enabledCategories.weights ? ind.weights : undefined,
-          guardrails: enabledCategories.guardrails ? ind.guardrails : undefined,
-          adjustmentRanges: enabledCategories.adjustmentRanges ? ind.adjustmentRanges : undefined
-        })) as IndividualResult[];
+        const hasEnabledCategory = enabledCategories.weights || enabledCategories.guardrails || enabledCategories.adjustmentRanges;
+        if (hasEnabledCategory) {
+          filteredRecommendations.individuals = generatedSettings.individuals.map(ind => {
+            const filtered: Partial<IndividualResult> = {
+              locationId: ind.locationId,
+              locationName: ind.locationName,
+              serviceLine: ind.serviceLine
+            };
+            if (enabledCategories.weights && ind.weights) filtered.weights = ind.weights;
+            if (enabledCategories.guardrails && ind.guardrails) filtered.guardrails = ind.guardrails;
+            if (enabledCategories.adjustmentRanges && ind.adjustmentRanges) filtered.adjustmentRanges = ind.adjustmentRanges;
+            return filtered as IndividualResult;
+          });
+        }
       }
       
       const response = await apiRequest("/api/pricing/targets/apply", "POST", {
