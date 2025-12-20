@@ -7,6 +7,7 @@ import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrche
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
+import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
 
 interface DemandData {
   currentDemand: number;
@@ -87,7 +88,6 @@ async function processUnitBatch(
           const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
           
           if (cachedCompetitorData?.competitor && cachedCompetitorData.competitor.streetRate) {
-            const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
             const adjustmentResult = calculateAdjustedCompetitorRate({
               competitorBaseRate: cachedCompetitorData.competitor.streetRate,
               competitorCareLevel2Rate: cachedCompetitorData.competitor.careLevel2Rate || 0,
