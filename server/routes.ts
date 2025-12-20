@@ -42,6 +42,11 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
+import { 
+  getRevenuePerformanceForScope, 
+  calculateGapAnalysis, 
+  getSameMonthLastYear 
+} from "./services/revenuePerformance";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -5602,8 +5607,31 @@ Ensure all weights are positive integers and sum to exactly 100.`;
     currentWeights: any,
     currentGuardrails: any,
     currentAdjustmentRanges: any,
-    competitors: any[]
+    competitors: any[],
+    allUnits: any[],
+    savedRevenueTargets: any[]
   ): Promise<any> {
+    // Calculate revenue performance for this scope
+    const { performance: revenuePerformance, hasHistoricalData } = getRevenuePerformanceForScope(
+      allUnits,
+      locationName,
+      serviceLine,
+      currentMonth
+    );
+    
+    // Get saved revenue growth target for this location/service line
+    const savedTarget = savedRevenueTargets.find(
+      t => t.locationId === locationId && t.serviceLine === serviceLine
+    );
+    const targetGrowthPercent = savedTarget?.targetGrowthPercent || targets[serviceLine] || targets['All'] || 5;
+    
+    // Calculate gap analysis
+    const gapAnalysis = calculateGapAnalysis(targetGrowthPercent, revenuePerformance.yoyGrowth);
+    
+    console.log(`[Revenue Performance] ${scopeLabel}: Current=$${revenuePerformance.currentMonthRevenue.toFixed(0)}, ` +
+      `MOM=${revenuePerformance.momGrowth.toFixed(1)}%, YOY=${revenuePerformance.yoyGrowth.toFixed(1)}%, ` +
+      `Target=${targetGrowthPercent}%, Gap=${gapAnalysis.yoyGap.toFixed(1)}%`);
+    
     // Calculate metrics for this specific scope
     const totalUnits = scopeUnits.length;
     const occupiedUnits = scopeUnits.filter(u => u.occupiedYN).length;
@@ -5661,11 +5689,36 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       salesVelocity.moveIns30 = recentMoveins;
     }
     
-    // Build the GPT prompt for this scope
+    // Build the GPT prompt for this scope with revenue performance data
+    const revenuePerformanceSection = hasHistoricalData ? `
+REVENUE PERFORMANCE ANALYSIS:
+- Current Month Revenue: $${revenuePerformance.currentMonthRevenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}/month
+- Previous Month Revenue: $${revenuePerformance.previousMonthRevenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}/month
+- Same Month Last Year Revenue: $${revenuePerformance.sameMonthLastYearRevenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}/month
+- Month-over-Month (MOM) Growth: ${revenuePerformance.momGrowth >= 0 ? '+' : ''}${revenuePerformance.momGrowth.toFixed(1)}%
+- Year-over-Year (YOY) Growth: ${revenuePerformance.yoyGrowth >= 0 ? '+' : ''}${revenuePerformance.yoyGrowth.toFixed(1)}%
+
+GAP ANALYSIS (Target vs Actual):
+- Target Annual Growth: ${targetGrowthPercent}%
+- Actual YOY Growth: ${revenuePerformance.yoyGrowth >= 0 ? '+' : ''}${revenuePerformance.yoyGrowth.toFixed(1)}%
+- Gap: ${gapAnalysis.yoyGap >= 0 ? '+' : ''}${gapAnalysis.yoyGap.toFixed(1)}% (${gapAnalysis.onTrack ? 'ON TRACK or EXCEEDING' : 'BEHIND TARGET'})
+- Performance Status: ${gapAnalysis.gapSeverity.replace('_', ' ').toUpperCase()}
+
+PRICING STRATEGY GUIDANCE based on gap analysis:
+${gapAnalysis.gapSeverity === 'significantly_behind' ? `- AGGRESSIVE: Actual growth is significantly behind target. Recommend higher occupancy pressure weights, tighter max decrease guardrails, more aggressive vacancy discounts to fill units faster while protecting revenue.` :
+  gapAnalysis.gapSeverity === 'slightly_behind' ? `- MODERATE URGENCY: Actual growth is slightly behind target. Recommend balanced adjustments with slight bias toward competitive pricing and vacancy urgency.` :
+  gapAnalysis.gapSeverity === 'on_target' ? `- BALANCED: Actual growth is close to target. Recommend maintaining current strategy with balanced weights.` :
+  `- PREMIUM POSITIONING: Actual growth exceeds target. Recommend focusing on premium attributes, allow more flexibility in rate increases, and optimize for rate over occupancy.`}
+` : `
+REVENUE PERFORMANCE ANALYSIS:
+- No historical data available for YOY/MOM comparison. Use default growth assumptions.
+- Target Annual Growth: ${targetGrowthPercent}%
+`;
+    
     const prompt = `You are an expert senior living revenue management AI. Analyze the data for "${scopeLabel}" and target revenue growth, then suggest optimal pricing settings.
 
-TARGET ANNUAL REVENUE GROWTH: ${targets[serviceLine] || targets['All'] || 5}%
-
+TARGET ANNUAL REVENUE GROWTH: ${targetGrowthPercent}%
+${revenuePerformanceSection}
 CURRENT METRICS FOR "${scopeLabel}" (${currentMonth}):
 - Total Units: ${totalUnits}
 - Occupied Units: ${occupiedUnits} (${occupancyRate.toFixed(1)}% occupancy)
@@ -5740,10 +5793,13 @@ Based on the targets and data, suggest optimal settings. Respond with ONLY a JSO
     "groundFloor": <number -5 to 10>,
     "largeSize": <number -5 to 15>
   },
-  "reasoning": "<1-2 sentence explanation for ${scopeLabel} referencing occupancy %, sales velocity, and rate position>"
+  "reasoning": "<1-2 sentence explanation for ${scopeLabel} referencing revenue growth gap, occupancy %, and pricing strategy adjustment>"
 }
 
-IMPORTANT: Weights must sum to exactly 100.`;
+IMPORTANT: 
+- Weights must sum to exactly 100.
+- If revenue growth is BEHIND target, prioritize occupancy pressure and vacancy discounts to accelerate leasing.
+- If revenue growth EXCEEDS target, prioritize premium positioning and attribute adjustments.`;
 
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -5806,6 +5862,21 @@ IMPORTANT: Weights must sum to exactly 100.`;
         vacantUnits,
         unitsOver30DaysVacant,
         unitsOver60DaysVacant
+      },
+      revenuePerformance: {
+        currentMonthRevenue: revenuePerformance.currentMonthRevenue,
+        previousMonthRevenue: revenuePerformance.previousMonthRevenue,
+        sameMonthLastYearRevenue: revenuePerformance.sameMonthLastYearRevenue,
+        momGrowth: revenuePerformance.momGrowth,
+        yoyGrowth: revenuePerformance.yoyGrowth,
+        hasHistoricalData
+      },
+      gapAnalysis: {
+        targetGrowth: gapAnalysis.targetGrowth,
+        actualYOYGrowth: gapAnalysis.actualYOYGrowth,
+        yoyGap: gapAnalysis.yoyGap,
+        onTrack: gapAnalysis.onTrack,
+        gapSeverity: gapAnalysis.gapSeverity
       }
     };
   }
@@ -5909,6 +5980,10 @@ IMPORTANT: Weights must sum to exactly 100.`;
       const currentGuardrails = await storage.getCurrentGuardrails();
       const currentAdjustmentRanges = await storage.getAdjustmentRanges();
 
+      // Fetch saved revenue growth targets for comparison with actual performance
+      const savedRevenueTargets = await storage.getRevenueGrowthTargets();
+      console.log('[Target Generation] Fetched', savedRevenueTargets.length, 'saved revenue growth targets');
+
       // Branch based on analyzeIndividually flag
       if (analyzeIndividually) {
         console.log('[Target Generation] Individual analysis mode enabled');
@@ -5965,7 +6040,9 @@ IMPORTANT: Weights must sum to exactly 100.`;
               currentWeights,
               currentGuardrails,
               currentAdjustmentRanges,
-              allCompetitors
+              allCompetitors,
+              allUnits,
+              savedRevenueTargets
             );
             console.log(`[Individual Analysis] Completed analysis for ${scopeLabel}`);
             return result;
