@@ -13,6 +13,11 @@ interface DemandData {
   demandHistory: number[];
 }
 
+interface CompetitorData {
+  competitor: any | undefined;
+  trilogyCareLevel2Rate: number | null;
+}
+
 interface PrecomputedSignals {
   stockMarketChange: number;
   serviceLineOccupancy: Map<string, number>;
@@ -22,6 +27,7 @@ interface PrecomputedSignals {
   demandCache: Map<string, DemandData>;
   defaultDemandHistory: number[];
   defaultDemandCurrent: number;
+  competitorCache: Map<string, CompetitorData>;
 }
 
 interface ProcessingProgress {
@@ -75,36 +81,26 @@ async function processUnitBatch(
           
           const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
           
-          // Get competitor prices
+          // Get competitor prices from pre-cached data (eliminates N+1 queries)
           let competitorPrices: number[];
-          try {
-            const topCompetitor = await storage.getTopCompetitorByWeight(unit.campus, unit.serviceLine);
-            const trilogyCareLevel2Rate = await storage.getTrilogyCareLevel2Rate(unit.campus, unit.serviceLine);
-            
-            if (topCompetitor && topCompetitor.streetRate) {
-              const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
-              const adjustmentResult = calculateAdjustedCompetitorRate({
-                competitorBaseRate: topCompetitor.streetRate,
-                competitorCareLevel2Rate: topCompetitor.careLevel2Rate || 0,
-                competitorMedicationManagementFee: topCompetitor.medicationManagementFee || 0,
-                trilogyCareLevel2Rate: trilogyCareLevel2Rate || 0
-              });
-              competitorPrices = [adjustmentResult.adjustedRate];
-            } else if (serviceLineMedian && serviceLineMedian > 0) {
-              competitorPrices = [serviceLineMedian];
-            } else if (unit.competitorRate && unit.competitorRate > 0) {
-              competitorPrices = [unit.competitorRate];
-            } else {
-              competitorPrices = [baseRate * 0.95, baseRate * 1.05];
-            }
-          } catch (error) {
-            if (serviceLineMedian && serviceLineMedian > 0) {
-              competitorPrices = [serviceLineMedian];
-            } else if (unit.competitorRate && unit.competitorRate > 0) {
-              competitorPrices = [unit.competitorRate];
-            } else {
-              competitorPrices = [baseRate * 0.95, baseRate * 1.05];
-            }
+          const competitorKey = `${unit.campus}|${unit.serviceLine}`;
+          const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
+          
+          if (cachedCompetitorData?.competitor && cachedCompetitorData.competitor.streetRate) {
+            const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
+            const adjustmentResult = calculateAdjustedCompetitorRate({
+              competitorBaseRate: cachedCompetitorData.competitor.streetRate,
+              competitorCareLevel2Rate: cachedCompetitorData.competitor.careLevel2Rate || 0,
+              competitorMedicationManagementFee: cachedCompetitorData.competitor.medicationManagementFee || 0,
+              trilogyCareLevel2Rate: cachedCompetitorData.trilogyCareLevel2Rate || 0
+            });
+            competitorPrices = [adjustmentResult.adjustedRate];
+          } else if (serviceLineMedian && serviceLineMedian > 0) {
+            competitorPrices = [serviceLineMedian];
+          } else if (unit.competitorRate && unit.competitorRate > 0) {
+            competitorPrices = [unit.competitorRate];
+          } else {
+            competitorPrices = [baseRate * 0.95, baseRate * 1.05];
           }
           
           // Get cached demand data for this location+serviceLine
@@ -426,6 +422,41 @@ export async function generateModuloOptimized(req: any, res: any) {
     await Promise.all(demandPromises);
     console.log(`Demand data cache: ${demandCache.size} location+service combinations with real data`);
     
+    // Precompute competitor data for all unique campus+serviceLine combinations (fixes N+1 query issue)
+    const competitorCache = new Map<string, CompetitorData>();
+    const uniqueCampusServiceLines = new Set<string>();
+    
+    units.forEach(unit => {
+      if (unit.campus && unit.serviceLine) {
+        const key = `${unit.campus}|${unit.serviceLine}`;
+        uniqueCampusServiceLines.add(key);
+      }
+    });
+    
+    // Fetch competitor data for all unique combinations in parallel
+    const competitorPromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
+      const [campus, serviceLine] = key.split('|');
+      try {
+        const [topCompetitor, trilogyCareLevel2Rate] = await Promise.all([
+          storage.getTopCompetitorByWeight(campus, serviceLine),
+          storage.getTrilogyCareLevel2Rate(campus, serviceLine)
+        ]);
+        competitorCache.set(key, {
+          competitor: topCompetitor,
+          trilogyCareLevel2Rate: trilogyCareLevel2Rate
+        });
+      } catch (error) {
+        // Cache empty data on error
+        competitorCache.set(key, {
+          competitor: undefined,
+          trilogyCareLevel2Rate: null
+        });
+      }
+    });
+    
+    await Promise.all(competitorPromises);
+    console.log(`Competitor data cache: ${competitorCache.size} campus+service combinations pre-fetched`);
+    
     // Build precomputed signals object
     const precomputedSignals: PrecomputedSignals = {
       stockMarketChange,
@@ -435,7 +466,8 @@ export async function generateModuloOptimized(req: any, res: any) {
       monthIndex: new Date(targetMonth).getMonth() + 1,
       demandCache,
       defaultDemandHistory: [10, 12, 15, 13, 14, 11],
-      defaultDemandCurrent: 12
+      defaultDemandCurrent: 12,
+      competitorCache
     };
     
     // Step 4: Process units in batches with parallelization
