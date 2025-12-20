@@ -5600,7 +5600,13 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters);
       
       // Get available months and use the most recent one with data
-      const availableMonths = await storage.getAvailableMonths();
+      const monthsResult = await db
+        .selectDistinct({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(sql`${rentRollData.uploadMonth} IS NOT NULL`)
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`);
+      
+      const availableMonths = monthsResult.map(r => r.uploadMonth).filter(Boolean) as string[];
       const currentMonth = availableMonths.length > 0 ? availableMonths[0] : new Date().toISOString().substring(0, 7);
       const previousMonth = availableMonths.length > 1 ? availableMonths[1] : null;
       
