@@ -51,7 +51,56 @@ interface WeightExplanation {
   metric?: string;
 }
 
+interface SettingsMetrics {
+  occupancyRate: number;
+  avgDaysVacant: number;
+  competitorRate: number;
+  avgPortfolioRate: number;
+  salesVelocity: number;
+  netChange: number;
+  totalUnits: number;
+  vacantUnits: number;
+  unitsOver30DaysVacant: number;
+  unitsOver60DaysVacant: number;
+}
+
+interface IndividualResult {
+  locationId: string;
+  locationName: string;
+  serviceLine: string;
+  weights: {
+    occupancyPressure: number;
+    daysVacantDecay: number;
+    competitorRates: number;
+    seasonality: number;
+    stockMarket: number;
+    inquiryTourVolume: number;
+  };
+  guardrails: {
+    maxIncreasePercent: number;
+    maxDecreasePercent: number;
+    minStreetRate: number;
+    maxStreetRate: number;
+  };
+  adjustmentRanges?: {
+    occupancyMin: number;
+    occupancyMax: number;
+    vacancyMin: number;
+    vacancyMax: number;
+    attributesMin: number;
+    attributesMax: number;
+    seasonalityMin: number;
+    seasonalityMax: number;
+    competitorMin: number;
+    competitorMax: number;
+  };
+  attributeAdjustments: Record<string, number>;
+  reasoning: string;
+  metrics: SettingsMetrics;
+}
+
 interface GeneratedSettings {
+  mode: 'portfolio' | 'individual';
   weights: {
     occupancyPressure: number;
     daysVacantDecay: number;
@@ -88,18 +137,9 @@ interface GeneratedSettings {
   };
   attributeAdjustments: Record<string, number>;
   reasoning: string;
-  metrics?: {
-    occupancyRate: number;
-    avgDaysVacant: number;
-    competitorRate: number;
-    avgPortfolioRate: number;
-    salesVelocity: number;
-    netChange: number;
-    totalUnits: number;
-    vacantUnits: number;
-    unitsOver30DaysVacant: number;
-    unitsOver60DaysVacant: number;
-  };
+  metrics?: SettingsMetrics;
+  individuals?: IndividualResult[];
+  scopeCount?: number;
 }
 
 export default function PricingControls() {
@@ -128,6 +168,15 @@ export default function PricingControls() {
   });
   const [generatedSettings, setGeneratedSettings] = useState<GeneratedSettings | null>(null);
   
+  // Analyze individually toggle
+  const [analyzeIndividually, setAnalyzeIndividually] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('analyzeIndividually') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  
   // Category toggles for applying recommendations
   const [enabledCategories, setEnabledCategories] = useState({
     weights: true,
@@ -135,10 +184,19 @@ export default function PricingControls() {
     adjustmentRanges: true
   });
 
+  // Save analyzeIndividually to localStorage when changed
+  const handleAnalyzeIndividuallyChange = (checked: boolean) => {
+    setAnalyzeIndividually(checked);
+    try {
+      localStorage.setItem('analyzeIndividually', checked ? 'true' : 'false');
+    } catch {}
+  };
+
   const generateSettingsMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("/api/pricing/targets/generate", "POST", {
         targets: targetGrowth,
+        analyzeIndividually,
         filters: {
           serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
           regions: selectedRegions.length > 0 ? selectedRegions : null,
@@ -625,46 +683,66 @@ export default function PricingControls() {
               </div>
 
               {/* Save and Generate Buttons */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4 border-t border-gray-100">
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={() => saveTargetsMutation.mutate()}
-                    disabled={saveTargetsMutation.isPending}
-                    data-testid="button-save-targets"
-                  >
-                    {saveTargetsMutation.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="h-4 w-4 mr-2" />
-                        Save Targets
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    onClick={() => generateSettingsMutation.mutate()}
-                    disabled={generateSettingsMutation.isPending}
-                    data-testid="button-generate-settings"
-                  >
-                    {generateSettingsMutation.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Analyzing Portfolio...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="h-4 w-4 mr-2" />
-                        Generate Weights, Attribute Values & Guardrails
-                      </>
-                    )}
-                  </Button>
+              <div className="flex flex-col gap-4 pt-4 border-t border-gray-100">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      onClick={() => saveTargetsMutation.mutate()}
+                      disabled={saveTargetsMutation.isPending}
+                      data-testid="button-save-targets"
+                    >
+                      {saveTargetsMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save Targets
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={() => generateSettingsMutation.mutate()}
+                      disabled={generateSettingsMutation.isPending}
+                      data-testid="button-generate-settings"
+                    >
+                      {generateSettingsMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          {analyzeIndividually ? 'Analyzing Each Scope...' : 'Analyzing Portfolio...'}
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Generate Weights, Attribute Values & Guardrails
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Save targets to apply to selected locations, or Generate to let AI optimize settings
+                  </p>
                 </div>
-                <p className="text-xs text-gray-500">
-                  Save targets to apply to selected locations, or Generate to let AI optimize settings
-                </p>
+                
+                {/* Analyze Individually Checkbox */}
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <Checkbox
+                    id="analyze-individually"
+                    checked={analyzeIndividually}
+                    onCheckedChange={(checked) => handleAnalyzeIndividuallyChange(checked === true)}
+                    data-testid="checkbox-analyze-individually"
+                  />
+                  <div>
+                    <Label htmlFor="analyze-individually" className="text-sm font-medium cursor-pointer">
+                      Analyze Locations/Service Lines Individually
+                    </Label>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      When enabled, AI will generate specific recommendations for each location and service line combination. Displayed values show averages; individual settings are applied when saved.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               {/* Generated Settings Display */}
