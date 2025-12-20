@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ChevronDown, X, Sparkles, Target, Loader2, Save } from "lucide-react";
+import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check } from "lucide-react";
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
@@ -56,6 +56,18 @@ interface GeneratedSettings {
     maxDecreasePercent: number;
     minStreetRate: number;
     maxStreetRate: number;
+  };
+  adjustmentRanges?: {
+    occupancyMin: number;
+    occupancyMax: number;
+    vacancyMin: number;
+    vacancyMax: number;
+    attributesMin: number;
+    attributesMax: number;
+    seasonalityMin: number;
+    seasonalityMax: number;
+    competitorMin: number;
+    competitorMax: number;
   };
   attributeAdjustments: Record<string, number>;
   reasoning: string;
@@ -142,6 +154,40 @@ export default function PricingControls() {
       toast({
         title: "Save Failed",
         description: error.message || "Failed to save revenue growth targets. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const applyRecommendationsMutation = useMutation({
+    mutationFn: async () => {
+      if (!generatedSettings) throw new Error("No recommendations to apply");
+      const response = await apiRequest("/api/pricing/targets/apply", "POST", {
+        recommendations: generatedSettings,
+        filters: {
+          serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
+          regions: selectedRegions.length > 0 ? selectedRegions : null,
+          divisions: selectedDivisions.length > 0 ? selectedDivisions : null,
+          locations: selectedLocations.length > 0 ? selectedLocations : null
+        }
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pricing/weights"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-ranges"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
+      toast({
+        title: "Recommendations Applied",
+        description: `Applied to ${data.locationsAffected} location(s): ${data.weightsUpdated} weights, ${data.guardrailsUpdated} guardrails, ${data.adjustmentRangesUpdated} adjustment ranges updated.`,
+      });
+      setGeneratedSettings(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Apply Failed",
+        description: error.message || "Failed to apply recommendations. Please try again.",
         variant: "destructive"
       });
     }
@@ -564,12 +610,32 @@ export default function PricingControls() {
               {/* Generated Settings Display */}
               {generatedSettings && (
                 <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="h-4 w-4 text-blue-600" />
-                    <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-blue-600" />
+                      <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
+                    </div>
+                    <Button
+                      onClick={() => applyRecommendationsMutation.mutate()}
+                      disabled={applyRecommendationsMutation.isPending}
+                      className="bg-green-600 hover:bg-green-700"
+                      data-testid="button-apply-recommendations"
+                    >
+                      {applyRecommendationsMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4 mr-2" />
+                          Apply Recommendations
+                        </>
+                      )}
+                    </Button>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                     <div className="bg-white/80 rounded-md p-3">
                       <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Pricing Weights</h5>
                       <div className="space-y-1 text-sm">
@@ -592,14 +658,27 @@ export default function PricingControls() {
                       </div>
                     </div>
                     
+                    {generatedSettings.adjustmentRanges && (
+                      <div className="bg-white/80 rounded-md p-3">
+                        <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Adjustment Ranges</h5>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between"><span>Occupancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.occupancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.occupancyMax * 100).toFixed(0)}%</span></div>
+                          <div className="flex justify-between"><span>Vacancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.vacancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.vacancyMax * 100).toFixed(0)}%</span></div>
+                          <div className="flex justify-between"><span>Attributes:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.attributesMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.attributesMax * 100).toFixed(0)}%</span></div>
+                          <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.seasonalityMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.seasonalityMax * 100).toFixed(0)}%</span></div>
+                          <div className="flex justify-between"><span>Competitor:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.competitorMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.competitorMax * 100).toFixed(0)}%</span></div>
+                        </div>
+                      </div>
+                    )}
+                    
                     <div className="bg-white/80 rounded-md p-3">
                       <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Attribute Adjustments</h5>
                       <div className="space-y-1 text-sm">
                         {Object.entries(generatedSettings.attributeAdjustments).slice(0, 5).map(([attr, val]) => (
                           <div key={attr} className="flex justify-between">
                             <span className="capitalize">{attr.replace(/([A-Z])/g, ' $1').trim()}:</span>
-                            <span className={`font-medium ${val >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {val >= 0 ? '+' : ''}{val}%
+                            <span className={`font-medium ${Number(val) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {Number(val) >= 0 ? '+' : ''}{val}%
                             </span>
                           </div>
                         ))}

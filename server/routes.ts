@@ -5599,46 +5599,81 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       
       console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters);
       
-      // Get portfolio data based on filters
-      const currentMonth = new Date().toISOString().substring(0, 7);
-      let units = await storage.getRentRollDataByMonth(currentMonth);
+      // Get available months and use the most recent one with data
+      const availableMonths = await storage.getAvailableMonths();
+      const currentMonth = availableMonths.length > 0 ? availableMonths[0] : new Date().toISOString().substring(0, 7);
+      const previousMonth = availableMonths.length > 1 ? availableMonths[1] : null;
       
-      // Apply filters
-      if (filters?.serviceLine) {
-        units = units.filter(u => u.serviceLine === filters.serviceLine);
+      console.log('[Target Generation] Using month:', currentMonth, 'Previous:', previousMonth);
+      
+      // Get all rent roll data (not filtered by month initially to get more data)
+      let allUnits = await storage.getRentRollData();
+      
+      // Get current month units
+      let units = allUnits.filter(u => u.reportMonth === currentMonth);
+      
+      // If no data for current month, use all available data
+      if (units.length === 0) {
+        units = allUnits;
+        console.log('[Target Generation] No data for current month, using all available:', units.length, 'units');
       }
+      
+      // Apply location/region/division filters
       if (filters?.locations && filters.locations.length > 0) {
         units = units.filter(u => u.location && filters.locations.includes(u.location));
       }
+      if (filters?.regions && filters.regions.length > 0) {
+        const allLocations = await storage.getLocations();
+        const regionLocations = allLocations.filter(loc => loc.region && filters.regions.includes(loc.region)).map(loc => loc.name);
+        units = units.filter(u => u.location && regionLocations.includes(u.location));
+      }
+      if (filters?.divisions && filters.divisions.length > 0) {
+        const allLocations = await storage.getLocations();
+        const divisionLocations = allLocations.filter(loc => loc.division && filters.divisions.includes(loc.division)).map(loc => loc.name);
+        units = units.filter(u => u.location && divisionLocations.includes(u.location));
+      }
       
-      // Calculate portfolio metrics
-      const totalUnits = units.length;
-      const occupiedUnits = units.filter(u => u.occupiedYN).length;
+      // Apply service line filter only for service line stats, not total count
+      let filteredUnits = units;
+      if (filters?.serviceLine && filters.serviceLine !== 'All') {
+        filteredUnits = units.filter(u => u.serviceLine === filters.serviceLine);
+      }
+      
+      console.log('[Target Generation] Filtered units:', filteredUnits.length, 'from total:', units.length);
+      
+      // Calculate portfolio metrics from filtered units
+      const totalUnits = filteredUnits.length;
+      const occupiedUnits = filteredUnits.filter(u => u.occupiedYN).length;
       const vacantUnits = totalUnits - occupiedUnits;
       const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
       
       // Calculate vacancy metrics
-      const vacantUnitsList = units.filter(u => !u.occupiedYN);
+      const vacantUnitsList = filteredUnits.filter(u => !u.occupiedYN);
       const avgDaysVacant = vacantUnitsList.length > 0 
         ? vacantUnitsList.reduce((sum, u) => sum + (u.daysVacant || 0), 0) / vacantUnitsList.length 
         : 0;
       const unitsOver30DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 30).length;
       const unitsOver60DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 60).length;
       
-      // Calculate service line breakdown
-      const serviceLineStats: Record<string, { total: number; occupied: number; avgRate: number }> = {};
+      // Calculate service line breakdown from ALL units (not filtered by service line)
+      const serviceLineStats: Record<string, { total: number; occupied: number; avgRate: number; avgDaysVacant: number }> = {};
       units.forEach(u => {
         const sl = u.serviceLine || 'Unknown';
         if (!serviceLineStats[sl]) {
-          serviceLineStats[sl] = { total: 0, occupied: 0, avgRate: 0 };
+          serviceLineStats[sl] = { total: 0, occupied: 0, avgRate: 0, avgDaysVacant: 0 };
         }
         serviceLineStats[sl].total++;
         if (u.occupiedYN) serviceLineStats[sl].occupied++;
         serviceLineStats[sl].avgRate += u.streetRate || 0;
+        if (!u.occupiedYN) serviceLineStats[sl].avgDaysVacant += u.daysVacant || 0;
       });
       Object.keys(serviceLineStats).forEach(sl => {
         if (serviceLineStats[sl].total > 0) {
           serviceLineStats[sl].avgRate = serviceLineStats[sl].avgRate / serviceLineStats[sl].total;
+          const vacantCount = serviceLineStats[sl].total - serviceLineStats[sl].occupied;
+          if (vacantCount > 0) {
+            serviceLineStats[sl].avgDaysVacant = serviceLineStats[sl].avgDaysVacant / vacantCount;
+          }
         }
       });
       
@@ -5648,41 +5683,67 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         ? competitors.reduce((sum, c) => sum + (c.baseRate || 0), 0) / competitors.length 
         : 0;
       
-      // Get current weights and guardrails
+      // Get current weights, guardrails, and adjustment ranges
       const currentWeights = await storage.getPricingWeights();
       const currentGuardrails = await storage.getCurrentGuardrails();
+      const currentAdjustmentRanges = await storage.getAdjustmentRanges();
       
-      // Calculate sales velocity (moveins in last 30/60/90 days approximated from data)
-      const recentMoveins = units.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 30).length;
-      const moveinsLast60 = units.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 60).length;
+      // Calculate actual sales velocity by comparing months
+      let salesVelocity = { moveIns30: 0, moveOuts30: 0, netChange: 0 };
+      if (previousMonth) {
+        const previousUnits = allUnits.filter(u => u.reportMonth === previousMonth);
+        const currentOccupied = new Set(filteredUnits.filter(u => u.occupiedYN).map(u => u.roomNumber + '|' + u.location));
+        const previousOccupied = new Set(previousUnits.filter(u => u.occupiedYN).map(u => u.roomNumber + '|' + u.location));
+        
+        // Count move-ins (occupied now but not before)
+        salesVelocity.moveIns30 = [...currentOccupied].filter(x => !previousOccupied.has(x)).length;
+        // Count move-outs (was occupied but not now)
+        salesVelocity.moveOuts30 = [...previousOccupied].filter(x => !currentOccupied.has(x)).length;
+        salesVelocity.netChange = salesVelocity.moveIns30 - salesVelocity.moveOuts30;
+      }
       
-      // Build the GPT-5.2 prompt
-      const prompt = `You are an expert senior living revenue management AI. Analyze the portfolio data and target revenue growth, then suggest optimal pricing settings.
+      // Fallback velocity calculation from daysVacant if no previous month
+      const recentMoveins = filteredUnits.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 30).length;
+      const moveinsLast60 = filteredUnits.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 60).length;
+      if (salesVelocity.moveIns30 === 0) {
+        salesVelocity.moveIns30 = recentMoveins;
+      }
+      
+      // Build the GPT-5.2 prompt with comprehensive portfolio data
+      const avgPortfolioRate = filteredUnits.length > 0 
+        ? filteredUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / filteredUnits.length 
+        : 0;
+      
+      const prompt = `You are an expert senior living revenue management AI. Analyze the portfolio data and target revenue growth, then suggest optimal pricing settings for ALL pricing controls.
 
 TARGET ANNUAL REVENUE GROWTH BY SERVICE LINE:
 ${Object.entries(targets).map(([sl, pct]) => `- ${sl}: ${pct}%`).join('\n')}
 
-CURRENT PORTFOLIO METRICS:
+CURRENT PORTFOLIO METRICS (${currentMonth}):
 - Total Units: ${totalUnits}
 - Occupied Units: ${occupiedUnits} (${occupancyRate.toFixed(1)}% occupancy)
 - Vacant Units: ${vacantUnits}
 - Average Days Vacant: ${avgDaysVacant.toFixed(0)} days
 - Units Vacant 30+ Days: ${unitsOver30DaysVacant}
 - Units Vacant 60+ Days: ${unitsOver60DaysVacant}
-- Average Competitor Rate: $${avgCompetitorRate.toFixed(0)}
+- Average Portfolio Rate: $${avgPortfolioRate.toFixed(0)}/month
+- Average Competitor Rate: $${avgCompetitorRate.toFixed(0)}/month
+- Rate Position vs Competitors: ${avgPortfolioRate > avgCompetitorRate ? `+${((avgPortfolioRate/avgCompetitorRate - 1) * 100).toFixed(1)}% premium` : `${((avgPortfolioRate/avgCompetitorRate - 1) * 100).toFixed(1)}% discount`}
 
-SALES VELOCITY:
-- Recent Move-ins (30 days): ${recentMoveins}
-- Move-ins (60 days): ${moveinsLast60}
-- Velocity Assessment: ${recentMoveins > 10 ? 'High - can push rates' : recentMoveins > 5 ? 'Moderate - balanced approach' : 'Low - focus on volume'}
+SALES VELOCITY (Month-over-Month):
+- Move-ins (30 days): ${salesVelocity.moveIns30}
+- Move-outs (30 days): ${salesVelocity.moveOuts30}
+- Net Change: ${salesVelocity.netChange > 0 ? '+' : ''}${salesVelocity.netChange}
+- Recent Move-ins (from vacancy data): ${recentMoveins}
+- Velocity Assessment: ${salesVelocity.moveIns30 > 15 ? 'HIGH - strong demand, can push rates aggressively' : salesVelocity.moveIns30 > 8 ? 'MODERATE - balanced approach recommended' : salesVelocity.moveIns30 > 3 ? 'LOW - focus on competitive pricing' : 'MINIMAL - prioritize occupancy over rate'}
 
 SERVICE LINE BREAKDOWN:
 ${Object.entries(serviceLineStats).map(([sl, stats]) => 
-  `- ${sl}: ${stats.total} units, ${stats.occupied} occupied (${((stats.occupied/stats.total)*100).toFixed(1)}%), avg $${stats.avgRate.toFixed(0)}`
+  `- ${sl}: ${stats.total} units, ${stats.occupied} occupied (${((stats.occupied/stats.total)*100).toFixed(1)}%), avg rate $${stats.avgRate.toFixed(0)}, avg days vacant ${stats.avgDaysVacant.toFixed(0)}`
 ).join('\n')}
 
 CURRENT SETTINGS:
-Weights (sum to 100):
+Weights (must sum to 100):
 - Occupancy Pressure: ${currentWeights?.occupancyPressure || 25}%
 - Days Vacant Decay: ${currentWeights?.daysVacantDecay || 20}%
 - Competitor Rates: ${currentWeights?.competitorRates || 15}%
@@ -5696,13 +5757,21 @@ Current Guardrails:
 - Min Street Rate: $${currentGuardrails?.minStreetRate || 2500}
 - Max Street Rate: $${currentGuardrails?.maxStreetRate || 8000}
 
+Current Adjustment Ranges (as decimals, e.g., 0.10 = 10%):
+- Occupancy: ${currentAdjustmentRanges?.occupancyMin || -0.10} to ${currentAdjustmentRanges?.occupancyMax || 0.05}
+- Vacancy: ${currentAdjustmentRanges?.vacancyMin || -0.15} to ${currentAdjustmentRanges?.vacancyMax || 0}
+- Attributes: ${currentAdjustmentRanges?.attributesMin || -0.05} to ${currentAdjustmentRanges?.attributesMax || 0.10}
+- Seasonality: ${currentAdjustmentRanges?.seasonalityMin || -0.05} to ${currentAdjustmentRanges?.seasonalityMax || 0.08}
+- Competitor: ${currentAdjustmentRanges?.competitorMin || -0.08} to ${currentAdjustmentRanges?.competitorMax || 0.08}
+
 Based on the targets and portfolio data, suggest optimal settings to achieve the revenue growth targets. Consider:
-1. High occupancy = opportunity to push rates more aggressively
-2. Low occupancy = need conservative pricing to drive volume
+1. High occupancy (>90%) = opportunity to push rates more aggressively
+2. Low occupancy (<85%) = need conservative pricing to drive volume
 3. High sales velocity = can increase rates without losing move-ins
 4. Low sales velocity = focus on competitive pricing
-5. Long vacancy times = need decay to fill units faster
+5. Long vacancy times = need aggressive decay to fill units faster
 6. Seasonal patterns (spring/fall typically higher demand in senior living)
+7. Rate position vs competitors - if already premium, may need moderation
 
 Respond with ONLY a JSON object in this exact format:
 {
@@ -5717,8 +5786,20 @@ Respond with ONLY a JSON object in this exact format:
   "guardrails": {
     "maxIncreasePercent": <number 1-20>,
     "maxDecreasePercent": <number 1-15>,
-    "minStreetRate": <number 1500-4000>,
+    "minStreetRate": <number 1500-6000>,
     "maxStreetRate": <number 6000-15000>
+  },
+  "adjustmentRanges": {
+    "occupancyMin": <decimal -0.20 to 0>,
+    "occupancyMax": <decimal 0 to 0.20>,
+    "vacancyMin": <decimal -0.30 to 0>,
+    "vacancyMax": <decimal -0.10 to 0.05>,
+    "attributesMin": <decimal -0.10 to 0>,
+    "attributesMax": <decimal 0 to 0.25>,
+    "seasonalityMin": <decimal -0.10 to 0>,
+    "seasonalityMax": <decimal 0 to 0.15>,
+    "competitorMin": <decimal -0.15 to 0>,
+    "competitorMax": <decimal 0 to 0.15>
   },
   "attributeAdjustments": {
     "premiumView": <number -10 to 15>,
@@ -5727,10 +5808,10 @@ Respond with ONLY a JSON object in this exact format:
     "groundFloor": <number -5 to 10>,
     "largeSize": <number -5 to 15>
   },
-  "reasoning": "<2-3 sentence explanation of your recommendations based on the data>"
+  "reasoning": "<2-3 sentence explanation referencing the actual portfolio metrics (occupancy %, units, sales velocity, rate position) and how they influenced your recommendations>"
 }
 
-Ensure weights sum to exactly 100.`;
+IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the portfolio data in your reasoning.`;
 
       console.log('[Target Generation] Calling OpenAI GPT-5.2...');
       
@@ -5790,6 +5871,115 @@ Ensure weights sum to exactly 100.`;
     } catch (error) {
       console.error('[Target Generation] Error:', error);
       res.status(500).json({ error: 'Failed to generate settings from targets' });
+    }
+  });
+
+  // Apply AI-generated recommendations to database
+  app.post("/api/pricing/targets/apply", async (req, res) => {
+    try {
+      const { recommendations, filters } = req.body;
+      
+      console.log('[Apply Recommendations] Starting with filters:', filters);
+      
+      // Get all locations data
+      const allLocations = await storage.getLocations();
+      
+      // Filter locations based on filters
+      let targetLocations = allLocations;
+      if (filters?.locations && filters.locations.length > 0) {
+        targetLocations = allLocations.filter(loc => filters.locations.includes(loc.name));
+      }
+      if (filters?.regions && filters.regions.length > 0) {
+        targetLocations = targetLocations.filter(loc => loc.region && filters.regions.includes(loc.region));
+      }
+      if (filters?.divisions && filters.divisions.length > 0) {
+        targetLocations = targetLocations.filter(loc => loc.division && filters.divisions.includes(loc.division));
+      }
+      
+      // Determine which service lines to apply to
+      const serviceLinesToApply = filters?.serviceLine && filters.serviceLine !== 'All' 
+        ? [filters.serviceLine] 
+        : ['AL', 'HC', 'IL', 'AL/MC', 'HC/MC', 'SL'];
+      
+      let weightsUpdated = 0;
+      let guardrailsUpdated = 0;
+      let adjustmentRangesUpdated = 0;
+      
+      // Apply weights for each location/service line combination
+      if (recommendations.weights) {
+        const weights = recommendations.weights;
+        for (const location of targetLocations) {
+          for (const serviceLine of serviceLinesToApply) {
+            await storage.upsertPricingWeights({
+              locationId: location.id,
+              serviceLine,
+              occupancyPressure: weights.occupancyPressure,
+              daysVacantDecay: weights.daysVacantDecay,
+              competitorRates: weights.competitorRates,
+              seasonality: weights.seasonality,
+              stockMarket: weights.stockMarket,
+              inquiryTourVolume: weights.inquiryTourVolume
+            });
+            weightsUpdated++;
+          }
+        }
+      }
+      
+      // Apply guardrails for each location/service line combination
+      if (recommendations.guardrails) {
+        const guardrails = recommendations.guardrails;
+        for (const location of targetLocations) {
+          for (const serviceLine of serviceLinesToApply) {
+            await storage.upsertGuardrails({
+              locationId: location.id,
+              serviceLine,
+              maxIncreasePercent: guardrails.maxIncreasePercent,
+              maxDecreasePercent: guardrails.maxDecreasePercent,
+              minStreetRate: guardrails.minStreetRate,
+              maxStreetRate: guardrails.maxStreetRate
+            });
+            guardrailsUpdated++;
+          }
+        }
+      }
+      
+      // Apply adjustment ranges for each location/service line combination
+      if (recommendations.adjustmentRanges) {
+        const ranges = recommendations.adjustmentRanges;
+        for (const location of targetLocations) {
+          for (const serviceLine of serviceLinesToApply) {
+            await storage.upsertAdjustmentRanges({
+              locationId: location.id,
+              serviceLine,
+              occupancyMin: ranges.occupancyMin,
+              occupancyMax: ranges.occupancyMax,
+              vacancyMin: ranges.vacancyMin,
+              vacancyMax: ranges.vacancyMax,
+              attributesMin: ranges.attributesMin,
+              attributesMax: ranges.attributesMax,
+              seasonalityMin: ranges.seasonalityMin,
+              seasonalityMax: ranges.seasonalityMax,
+              competitorMin: ranges.competitorMin,
+              competitorMax: ranges.competitorMax
+            });
+            adjustmentRangesUpdated++;
+          }
+        }
+      }
+      
+      console.log(`[Apply Recommendations] Applied: ${weightsUpdated} weights, ${guardrailsUpdated} guardrails, ${adjustmentRangesUpdated} adjustment ranges`);
+      
+      res.json({ 
+        success: true, 
+        weightsUpdated,
+        guardrailsUpdated,
+        adjustmentRangesUpdated,
+        locationsAffected: targetLocations.length,
+        serviceLines: serviceLinesToApply
+      });
+    } catch (error) {
+      console.error('[Apply Recommendations] Error:', error);
+      res.status(500).json({ error: 'Failed to apply AI recommendations' });
     }
   });
 
