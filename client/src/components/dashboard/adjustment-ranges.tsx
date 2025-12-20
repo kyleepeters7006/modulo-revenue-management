@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Save, RotateCcw, TrendingUp, TrendingDown } from "lucide-react";
+import { Save, RotateCcw, TrendingUp, TrendingDown, SlidersHorizontal } from "lucide-react";
 import { DialPicker } from "@/components/ui/dial-picker";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -181,37 +180,38 @@ export default function AdjustmentRanges({ locationId, serviceLine }: Adjustment
 
   if (isLoading) {
     return (
-      <Card className="border-[var(--trilogy-teal)]/20 bg-white dark:bg-gray-900 shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex justify-center items-center h-64">
-            <div className="text-gray-500">Loading adjustment ranges...</div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="dashboard-card mb-8">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-[var(--dashboard-muted)]">Loading adjustment ranges...</div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Card className="border-[var(--trilogy-teal)]/20 bg-white dark:bg-gray-900 shadow-lg">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
-              Adjustment Ranges Configuration
-            </CardTitle>
-            <CardDescription className="text-gray-600 dark:text-gray-400 mt-1">
-              Set the minimum and maximum adjustment percentages for each pricing factor
-            </CardDescription>
-          </div>
-          {hasChanges && (
-            <Badge variant="secondary" className="bg-amber-100 text-amber-800">
-              Unsaved Changes
-            </Badge>
-          )}
+    <div className="dashboard-card mb-8">
+      <div className="flex items-center space-x-3 mb-6">
+        <div className="w-10 h-10 bg-[var(--trilogy-navy)]/10 rounded-lg flex items-center justify-center">
+          <SlidersHorizontal className="w-5 h-5 text-[var(--trilogy-navy)]" />
         </div>
-      </CardHeader>
+        <div className="flex-1">
+          <div>
+            <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">
+              Adjustment Ranges Configuration
+            </h3>
+            <p className="text-sm text-[var(--dashboard-muted)]">
+              Set the minimum and maximum adjustment percentages for each pricing factor
+            </p>
+          </div>
+        </div>
+        {hasChanges && (
+          <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+            Unsaved Changes
+          </Badge>
+        )}
+      </div>
       
-      <CardContent className="p-6 space-y-6">
+      <div className="space-y-6">
         <div className="space-y-4">
           {factors.map((factor) => {
             const minKey = `${factor.key}Min` as keyof AdjustmentRange;
@@ -222,18 +222,18 @@ export default function AdjustmentRanges({ locationId, serviceLine }: Adjustment
             return (
               <div 
                 key={factor.key} 
-                className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                className="p-4 bg-[var(--dashboard-surface)] rounded-lg border border-[var(--dashboard-border)] hover:border-[var(--trilogy-teal)]/30 transition-colors"
               >
                 <div className="mb-3">
-                  <Label className="text-base font-semibold text-gray-700 dark:text-gray-300">
+                  <Label className="text-base font-semibold text-[var(--dashboard-text)]">
                     {factor.label}
                   </Label>
-                  <div className="text-xs text-gray-500 mt-1">{factor.description}</div>
+                  <div className="text-xs text-[var(--dashboard-muted)] mt-1">{factor.description}</div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-sm text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1">
+                    <Label className="text-sm text-[var(--dashboard-muted)] mb-1 flex items-center gap-1">
                       Minimum Adjustment {getIcon(minValue)}
                     </Label>
                     <div className="flex items-center gap-2">
@@ -246,13 +246,13 @@ export default function AdjustmentRanges({ locationId, serviceLine }: Adjustment
                         suffix="%"
                         data-testid={`input-${factor.key}-min`}
                       />
-                      <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
-                      {minValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : minValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-gray-500">—</span>}
+                      <span className="text-sm text-[var(--dashboard-muted)]">%</span>
+                      {minValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : minValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-[var(--dashboard-muted)]">—</span>}
                     </div>
                   </div>
 
                   <div>
-                    <Label className="text-sm text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1">
+                    <Label className="text-sm text-[var(--dashboard-muted)] mb-1 flex items-center gap-1">
                       Maximum Adjustment {getIcon(maxValue)}
                     </Label>
                     <div className="flex items-center gap-2">
@@ -265,13 +265,13 @@ export default function AdjustmentRanges({ locationId, serviceLine }: Adjustment
                         suffix="%"
                         data-testid={`input-${factor.key}-max`}
                       />
-                      <span className="text-sm text-gray-600 dark:text-gray-400">%</span>
-                      {maxValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : maxValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-gray-500">—</span>}
+                      <span className="text-sm text-[var(--dashboard-muted)]">%</span>
+                      {maxValue < 0 ? <TrendingDown className="w-5 h-5 text-red-600" strokeWidth={3.5} /> : maxValue > 0 ? <TrendingUp className="w-5 h-5 text-green-600" strokeWidth={3.5} /> : <span className="text-[var(--dashboard-muted)]">—</span>}
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-2 text-xs text-gray-500">
+                <div className="mt-2 text-xs text-[var(--dashboard-muted)]">
                   Range: {formatPercent(minValue)}% to {formatPercent(maxValue)}% 
                   {minValue < 0 && maxValue > 0 && ' (can increase or decrease)'}
                   {minValue < 0 && maxValue <= 0 && ' (decrease only)'}
@@ -283,37 +283,43 @@ export default function AdjustmentRanges({ locationId, serviceLine }: Adjustment
         </div>
 
         {/* Action Buttons */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <Button
-            variant="outline"
-            onClick={handleReset}
-            disabled={isSavingMutation}
-            data-testid="button-reset-ranges"
-          >
-            <RotateCcw className="w-4 h-4 mr-2" />
-            Reset to Defaults
-          </Button>
-          <Button
-            onClick={() => saveRanges(ranges)}
-            disabled={!hasChanges || isSavingMutation}
-            className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90"
-            data-testid="button-save-ranges"
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {isSavingMutation ? 'Saving...' : 'Save Changes'}
-          </Button>
+        <div className="flex items-center justify-between mt-6 pt-4 border-t border-[var(--dashboard-border)]">
+          <div className="text-sm text-[var(--dashboard-muted)]">
+            {hasChanges ? "Changes pending save" : "All changes saved"}
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={handleReset}
+              disabled={isSavingMutation}
+              className="border-[var(--dashboard-border)] text-[var(--dashboard-text)] hover:bg-[var(--dashboard-surface)]"
+              data-testid="button-reset-ranges"
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reset to Defaults
+            </Button>
+            <Button
+              onClick={() => saveRanges(ranges)}
+              disabled={!hasChanges || isSavingMutation}
+              className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90 text-white"
+              data-testid="button-save-ranges"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {isSavingMutation ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </div>
 
         {/* Info Box */}
-        <div className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg p-4">
-          <div className="text-sm text-gray-900 dark:text-gray-100 font-medium">
-            <strong className="text-gray-900 dark:text-white">How it works:</strong> These ranges define the potential adjustment for each factor. 
+        <div className="mt-6 p-4 bg-[var(--dashboard-bg)] rounded-lg border border-[var(--dashboard-border)]">
+          <div className="text-sm text-[var(--dashboard-text)]">
+            <strong className="text-[var(--dashboard-text)]">How it works:</strong> These ranges define the potential adjustment for each factor. 
             The actual adjustment applied depends on the weight percentage set in the Pricing Weights tab. 
             For example, if Occupancy has a range of -10% to +5% and a weight of 50%, the actual adjustment 
             will be between -5% and +2.5%.
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
