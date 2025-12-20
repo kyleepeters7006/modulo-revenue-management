@@ -460,7 +460,6 @@ export default function PricingControls() {
                 <Button
                   onClick={() => generateSettingsMutation.mutate()}
                   disabled={generateSettingsMutation.isPending}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
                   data-testid="button-generate-settings"
                 >
                   {generateSettingsMutation.isPending ? (
