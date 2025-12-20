@@ -89,7 +89,7 @@ export default function PricingControls() {
 
   const generateSettingsMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/pricing/targets/generate", {
+      const response = await apiRequest("/api/pricing/targets/generate", "POST", {
         targets: targetGrowth,
         filters: {
           serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
@@ -121,7 +121,7 @@ export default function PricingControls() {
 
   const saveTargetsMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/pricing/targets/save", {
+      const response = await apiRequest("/api/pricing/targets/save", "POST", {
         targets: targetGrowth,
         filters: {
           serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
