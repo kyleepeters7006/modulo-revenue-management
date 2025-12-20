@@ -5587,6 +5587,212 @@ Ensure all weights are positive integers and sum to exactly 100.`;
     }
   });
 
+  // Generate optimal settings from revenue growth targets using GPT-5.2
+  app.post("/api/pricing/targets/generate", async (req, res) => {
+    try {
+      const { targets, filters } = req.body;
+      
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
+      }
+      
+      console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters);
+      
+      // Get portfolio data based on filters
+      const currentMonth = new Date().toISOString().substring(0, 7);
+      let units = await storage.getRentRollDataByMonth(currentMonth);
+      
+      // Apply filters
+      if (filters?.serviceLine) {
+        units = units.filter(u => u.serviceLine === filters.serviceLine);
+      }
+      if (filters?.locations && filters.locations.length > 0) {
+        units = units.filter(u => u.location && filters.locations.includes(u.location));
+      }
+      
+      // Calculate portfolio metrics
+      const totalUnits = units.length;
+      const occupiedUnits = units.filter(u => u.occupiedYN).length;
+      const vacantUnits = totalUnits - occupiedUnits;
+      const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
+      
+      // Calculate vacancy metrics
+      const vacantUnitsList = units.filter(u => !u.occupiedYN);
+      const avgDaysVacant = vacantUnitsList.length > 0 
+        ? vacantUnitsList.reduce((sum, u) => sum + (u.daysVacant || 0), 0) / vacantUnitsList.length 
+        : 0;
+      const unitsOver30DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 30).length;
+      const unitsOver60DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 60).length;
+      
+      // Calculate service line breakdown
+      const serviceLineStats: Record<string, { total: number; occupied: number; avgRate: number }> = {};
+      units.forEach(u => {
+        const sl = u.serviceLine || 'Unknown';
+        if (!serviceLineStats[sl]) {
+          serviceLineStats[sl] = { total: 0, occupied: 0, avgRate: 0 };
+        }
+        serviceLineStats[sl].total++;
+        if (u.occupiedYN) serviceLineStats[sl].occupied++;
+        serviceLineStats[sl].avgRate += u.streetRate || 0;
+      });
+      Object.keys(serviceLineStats).forEach(sl => {
+        if (serviceLineStats[sl].total > 0) {
+          serviceLineStats[sl].avgRate = serviceLineStats[sl].avgRate / serviceLineStats[sl].total;
+        }
+      });
+      
+      // Get competitor data
+      const competitors = await storage.getCompetitors();
+      const avgCompetitorRate = competitors.length > 0 
+        ? competitors.reduce((sum, c) => sum + (c.baseRate || 0), 0) / competitors.length 
+        : 0;
+      
+      // Get current weights and guardrails
+      const currentWeights = await storage.getPricingWeights();
+      const currentGuardrails = await storage.getCurrentGuardrails();
+      
+      // Calculate sales velocity (moveins in last 30/60/90 days approximated from data)
+      const recentMoveins = units.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 30).length;
+      const moveinsLast60 = units.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 60).length;
+      
+      // Build the GPT-5.2 prompt
+      const prompt = `You are an expert senior living revenue management AI. Analyze the portfolio data and target revenue growth, then suggest optimal pricing settings.
+
+TARGET ANNUAL REVENUE GROWTH BY SERVICE LINE:
+${Object.entries(targets).map(([sl, pct]) => `- ${sl}: ${pct}%`).join('\n')}
+
+CURRENT PORTFOLIO METRICS:
+- Total Units: ${totalUnits}
+- Occupied Units: ${occupiedUnits} (${occupancyRate.toFixed(1)}% occupancy)
+- Vacant Units: ${vacantUnits}
+- Average Days Vacant: ${avgDaysVacant.toFixed(0)} days
+- Units Vacant 30+ Days: ${unitsOver30DaysVacant}
+- Units Vacant 60+ Days: ${unitsOver60DaysVacant}
+- Average Competitor Rate: $${avgCompetitorRate.toFixed(0)}
+
+SALES VELOCITY:
+- Recent Move-ins (30 days): ${recentMoveins}
+- Move-ins (60 days): ${moveinsLast60}
+- Velocity Assessment: ${recentMoveins > 10 ? 'High - can push rates' : recentMoveins > 5 ? 'Moderate - balanced approach' : 'Low - focus on volume'}
+
+SERVICE LINE BREAKDOWN:
+${Object.entries(serviceLineStats).map(([sl, stats]) => 
+  `- ${sl}: ${stats.total} units, ${stats.occupied} occupied (${((stats.occupied/stats.total)*100).toFixed(1)}%), avg $${stats.avgRate.toFixed(0)}`
+).join('\n')}
+
+CURRENT SETTINGS:
+Weights (sum to 100):
+- Occupancy Pressure: ${currentWeights?.occupancyPressure || 25}%
+- Days Vacant Decay: ${currentWeights?.daysVacantDecay || 20}%
+- Competitor Rates: ${currentWeights?.competitorRates || 15}%
+- Seasonality: ${currentWeights?.seasonality || 10}%
+- Stock Market: ${currentWeights?.stockMarket || 10}%
+- Inquiry Volume: ${currentWeights?.inquiryTourVolume || 20}%
+
+Current Guardrails:
+- Max Increase: ${currentGuardrails?.maxIncreasePercent || 10}%
+- Max Decrease: ${currentGuardrails?.maxDecreasePercent || 5}%
+- Min Street Rate: $${currentGuardrails?.minStreetRate || 2500}
+- Max Street Rate: $${currentGuardrails?.maxStreetRate || 8000}
+
+Based on the targets and portfolio data, suggest optimal settings to achieve the revenue growth targets. Consider:
+1. High occupancy = opportunity to push rates more aggressively
+2. Low occupancy = need conservative pricing to drive volume
+3. High sales velocity = can increase rates without losing move-ins
+4. Low sales velocity = focus on competitive pricing
+5. Long vacancy times = need decay to fill units faster
+6. Seasonal patterns (spring/fall typically higher demand in senior living)
+
+Respond with ONLY a JSON object in this exact format:
+{
+  "weights": {
+    "occupancyPressure": <number 0-50>,
+    "daysVacantDecay": <number 0-50>,
+    "competitorRates": <number 0-30>,
+    "seasonality": <number 0-20>,
+    "stockMarket": <number 0-15>,
+    "inquiryTourVolume": <number 0-30>
+  },
+  "guardrails": {
+    "maxIncreasePercent": <number 1-20>,
+    "maxDecreasePercent": <number 1-15>,
+    "minStreetRate": <number 1500-4000>,
+    "maxStreetRate": <number 6000-15000>
+  },
+  "attributeAdjustments": {
+    "premiumView": <number -10 to 15>,
+    "renovated": <number -5 to 20>,
+    "cornerUnit": <number -5 to 10>,
+    "groundFloor": <number -5 to 10>,
+    "largeSize": <number -5 to 15>
+  },
+  "reasoning": "<2-3 sentence explanation of your recommendations based on the data>"
+}
+
+Ensure weights sum to exactly 100.`;
+
+      console.log('[Target Generation] Calling OpenAI GPT-5.2...');
+      
+      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-5',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 800,
+          temperature: 0.3,
+          response_format: { type: "json_object" }
+        })
+      });
+
+      if (!openaiResponse.ok) {
+        const errorText = await openaiResponse.text();
+        console.error('[Target Generation] OpenAI API error:', errorText);
+        throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+      }
+
+      const openaiResult = await openaiResponse.json();
+      let generatedSettings;
+      
+      try {
+        generatedSettings = JSON.parse(openaiResult.choices[0].message.content);
+        console.log('[Target Generation] GPT-5.2 response:', generatedSettings);
+        
+        // Validate and clamp weights to ensure they sum to 100
+        const weights = generatedSettings.weights;
+        const weightSum = Object.values(weights).reduce((a: number, b: any) => a + Number(b), 0);
+        if (Math.abs(weightSum - 100) > 1) {
+          const factor = 100 / weightSum;
+          Object.keys(weights).forEach(k => {
+            weights[k] = Math.round(weights[k] * factor);
+          });
+        }
+        
+        // Clamp guardrails to safe ranges
+        const guardrails = generatedSettings.guardrails;
+        guardrails.maxIncreasePercent = Math.max(1, Math.min(20, guardrails.maxIncreasePercent));
+        guardrails.maxDecreasePercent = Math.max(1, Math.min(15, guardrails.maxDecreasePercent));
+        guardrails.minStreetRate = Math.max(1500, Math.min(4000, guardrails.minStreetRate));
+        guardrails.maxStreetRate = Math.max(6000, Math.min(15000, guardrails.maxStreetRate));
+        
+      } catch (parseError) {
+        console.error('[Target Generation] Failed to parse GPT response:', parseError);
+        throw new Error('Failed to parse AI response');
+      }
+      
+      console.log('[Target Generation] Successfully generated settings');
+      
+      res.json(generatedSettings);
+    } catch (error) {
+      console.error('[Target Generation] Error:', error);
+      res.status(500).json({ error: 'Failed to generate settings from targets' });
+    }
+  });
+
   // Accept pricing suggestions
   app.post("/api/pricing/accept-suggestions", async (req, res) => {
     try {

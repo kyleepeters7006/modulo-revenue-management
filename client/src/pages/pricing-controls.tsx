@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, X } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { ChevronDown, X, Sparkles, Target, Loader2 } from "lucide-react";
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const saveFiltersToStorage = (filters: any) => {
   try {
@@ -29,7 +33,36 @@ const loadFiltersFromStorage = () => {
   }
 };
 
+interface TargetGrowth {
+  AL: string;
+  HC: string;
+  IL: string;
+  "AL/MC": string;
+  "HC/MC": string;
+  SL: string;
+}
+
+interface GeneratedSettings {
+  weights: {
+    occupancyPressure: number;
+    daysVacantDecay: number;
+    competitorRates: number;
+    seasonality: number;
+    stockMarket: number;
+    inquiryTourVolume: number;
+  };
+  guardrails: {
+    maxIncreasePercent: number;
+    maxDecreasePercent: number;
+    minStreetRate: number;
+    maxStreetRate: number;
+  };
+  attributeAdjustments: Record<string, number>;
+  reasoning: string;
+}
+
 export default function PricingControls() {
+  const { toast } = useToast();
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
   const urlServiceLine = urlParams.get('serviceLine');
@@ -43,6 +76,55 @@ export default function PricingControls() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
+
+  const [targetGrowth, setTargetGrowth] = useState<TargetGrowth>({
+    AL: "5",
+    HC: "3",
+    IL: "4",
+    "AL/MC": "5",
+    "HC/MC": "3",
+    SL: "4"
+  });
+  const [generatedSettings, setGeneratedSettings] = useState<GeneratedSettings | null>(null);
+
+  const generateSettingsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/pricing/targets/generate", {
+        targets: targetGrowth,
+        filters: {
+          serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
+          regions: selectedRegions.length > 0 ? selectedRegions : null,
+          divisions: selectedDivisions.length > 0 ? selectedDivisions : null,
+          locations: selectedLocations.length > 0 ? selectedLocations : null
+        }
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setGeneratedSettings(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/pricing/weights"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
+      toast({
+        title: "Settings Generated",
+        description: "AI has analyzed your portfolio and generated optimized settings.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Failed to generate AI settings. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleTargetChange = (serviceLine: keyof TargetGrowth, value: string) => {
+    const numValue = value.replace(/[^0-9.]/g, '');
+    if (numValue === '' || (parseFloat(numValue) >= 0 && parseFloat(numValue) <= 25)) {
+      setTargetGrowth(prev => ({ ...prev, [serviceLine]: numValue }));
+    }
+  };
 
   useEffect(() => {
     const filters = {
@@ -336,6 +418,123 @@ export default function PricingControls() {
             </div>
           </div>
         </div>
+
+        {/* Target Annual Revenue Growth Section */}
+        <Card className="mb-6" data-testid="card-target-growth">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-blue-600" />
+              <CardTitle className="text-lg">Target Annual Revenue Growth</CardTitle>
+            </div>
+            <CardDescription>
+              Set your target annual revenue growth percentage for each service line. AI will optimize weights, attributes, and guardrails to help achieve these targets.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Target % inputs for each service line */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                {(["AL", "HC", "IL", "AL/MC", "HC/MC", "SL"] as const).map((sl) => {
+                  const isDisabled = selectedServiceLine !== "All" && selectedServiceLine !== sl;
+                  return (
+                    <div key={sl} className={`space-y-1.5 ${isDisabled ? 'opacity-50' : ''}`}>
+                      <label className="text-sm font-medium text-gray-700">{sl}</label>
+                      <div className="relative">
+                        <Input
+                          type="text"
+                          value={targetGrowth[sl]}
+                          onChange={(e) => handleTargetChange(sl, e.target.value)}
+                          disabled={isDisabled}
+                          className="pr-8 text-right"
+                          data-testid={`input-target-${sl.toLowerCase().replace('/', '-')}`}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Generate Button */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4 border-t border-gray-100">
+                <Button
+                  onClick={() => generateSettingsMutation.mutate()}
+                  disabled={generateSettingsMutation.isPending}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+                  data-testid="button-generate-settings"
+                >
+                  {generateSettingsMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Analyzing Portfolio...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Generate Weights, Attribute Values & Guardrails
+                    </>
+                  )}
+                </Button>
+                <p className="text-xs text-gray-500">
+                  AI analyzes occupancy, vacancy patterns, sales velocity, and competitor rates to suggest optimal settings
+                </p>
+              </div>
+
+              {/* Generated Settings Display */}
+              {generatedSettings && (
+                <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="h-4 w-4 text-purple-600" />
+                    <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div className="bg-white/80 rounded-md p-3">
+                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Pricing Weights</h5>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between"><span>Occupancy Pressure:</span><span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span></div>
+                        <div className="flex justify-between"><span>Days Vacant Decay:</span><span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span></div>
+                        <div className="flex justify-between"><span>Competitor Rates:</span><span className="font-medium">{generatedSettings.weights.competitorRates}%</span></div>
+                        <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{generatedSettings.weights.seasonality}%</span></div>
+                        <div className="flex justify-between"><span>Stock Market:</span><span className="font-medium">{generatedSettings.weights.stockMarket}%</span></div>
+                        <div className="flex justify-between"><span>Inquiry Volume:</span><span className="font-medium">{generatedSettings.weights.inquiryTourVolume}%</span></div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white/80 rounded-md p-3">
+                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Guardrails</h5>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between"><span>Max Increase:</span><span className="font-medium">{generatedSettings.guardrails.maxIncreasePercent}%</span></div>
+                        <div className="flex justify-between"><span>Max Decrease:</span><span className="font-medium">{generatedSettings.guardrails.maxDecreasePercent}%</span></div>
+                        <div className="flex justify-between"><span>Min Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.minStreetRate}</span></div>
+                        <div className="flex justify-between"><span>Max Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.maxStreetRate}</span></div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white/80 rounded-md p-3">
+                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">Attribute Adjustments</h5>
+                      <div className="space-y-1 text-sm">
+                        {Object.entries(generatedSettings.attributeAdjustments).slice(0, 5).map(([attr, val]) => (
+                          <div key={attr} className="flex justify-between">
+                            <span className="capitalize">{attr.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                            <span className={`font-medium ${val >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {val >= 0 ? '+' : ''}{val}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white/80 rounded-md p-3">
+                    <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">AI Reasoning</h5>
+                    <p className="text-sm text-gray-700">{generatedSettings.reasoning}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="space-y-6 sm:space-y-8">
           <PricingWeights 
