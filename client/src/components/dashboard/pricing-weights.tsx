@@ -425,26 +425,21 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       </div>
       
       {locationId && !serviceLine && (
-        <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-          <div className="flex items-center space-x-3">
-            <Switch
-              id="apply-all-service-lines"
-              checked={applyToAllServiceLines}
-              onCheckedChange={setApplyToAllServiceLines}
-              data-testid="switch-apply-all-service-lines"
-            />
-            <div>
-              <label 
-                htmlFor="apply-all-service-lines" 
-                className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer"
-              >
-                Apply to All Service Lines
-              </label>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Save these weights to all service lines (AL, HC, IL, AL/MC, HC/MC, SL) at this location
-              </p>
-            </div>
+        <div className="flex items-center justify-between p-4 mb-4 bg-[var(--dashboard-surface)] rounded-lg border border-[var(--dashboard-border)]">
+          <div className="flex-1">
+            <h4 className="text-sm font-medium text-[var(--dashboard-text)] mb-1">
+              Apply to All Service Lines
+            </h4>
+            <p className="text-xs text-[var(--dashboard-muted)]">
+              Save these weights to all service lines (AL, HC, IL, AL/MC, HC/MC, SL) at this location
+            </p>
           </div>
+          <Switch
+            id="apply-all-service-lines"
+            checked={applyToAllServiceLines}
+            onCheckedChange={setApplyToAllServiceLines}
+            data-testid="switch-apply-all-service-lines"
+          />
         </div>
       )}
       
