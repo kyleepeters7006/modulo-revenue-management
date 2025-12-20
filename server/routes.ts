@@ -5587,17 +5587,270 @@ Ensure all weights are positive integers and sum to exactly 100.`;
     }
   });
 
+  // Helper function to analyze a single scope (location + service line) with GPT
+  async function analyzeIndividualScope(
+    scopeUnits: any[],
+    allUnitsForPrevMonth: any[],
+    scopeLabel: string,
+    locationId: number | undefined,
+    locationName: string,
+    serviceLine: string,
+    targets: Record<string, number>,
+    currentMonth: string,
+    previousMonth: string | null,
+    openaiKey: string,
+    currentWeights: any,
+    currentGuardrails: any,
+    currentAdjustmentRanges: any,
+    competitors: any[]
+  ): Promise<any> {
+    // Calculate metrics for this specific scope
+    const totalUnits = scopeUnits.length;
+    const occupiedUnits = scopeUnits.filter(u => u.occupiedYN).length;
+    const vacantUnits = totalUnits - occupiedUnits;
+    const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
+    
+    const vacantUnitsList = scopeUnits.filter(u => !u.occupiedYN);
+    const avgDaysVacant = vacantUnitsList.length > 0 
+      ? vacantUnitsList.reduce((sum, u) => sum + (u.daysVacant || 0), 0) / vacantUnitsList.length 
+      : 0;
+    const unitsOver30DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 30).length;
+    const unitsOver60DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 60).length;
+    
+    // Calculate average rates
+    const avgPortfolioRate = scopeUnits.length > 0 
+      ? scopeUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / scopeUnits.length 
+      : 0;
+    
+    // Filter competitors by location and service line
+    const scopeCompetitors = competitors.filter(c => 
+      c.location === locationName && 
+      (c.serviceLine === serviceLine || !c.serviceLine)
+    );
+    const validCompetitorRates = scopeCompetitors
+      .map(c => c.finalRate || c.baseRate || 0)
+      .filter(r => r > 0);
+    let effectiveCompetitorRate = validCompetitorRates.length > 0 
+      ? validCompetitorRates.reduce((sum, r) => sum + r, 0) / validCompetitorRates.length 
+      : 0;
+    
+    // Fallback to rent roll competitor data
+    if (effectiveCompetitorRate === 0 && scopeUnits.length > 0) {
+      const unitsWithCompetitor = scopeUnits.filter(u => (u.competitorFinalRate || u.competitorRate || 0) > 0);
+      if (unitsWithCompetitor.length > 0) {
+        effectiveCompetitorRate = unitsWithCompetitor.reduce((sum, u) => sum + (u.competitorFinalRate || u.competitorRate || 0), 0) / unitsWithCompetitor.length;
+      }
+    }
+    
+    // Calculate sales velocity for this scope
+    let salesVelocity = { moveIns30: 0, moveOuts30: 0, netChange: 0 };
+    if (previousMonth) {
+      const previousScopeUnits = allUnitsForPrevMonth.filter(u => 
+        u.location === locationName && u.serviceLine === serviceLine
+      );
+      const currentOccupied = new Set(scopeUnits.filter(u => u.occupiedYN).map(u => u.roomNumber + '|' + u.location));
+      const previousOccupied = new Set(previousScopeUnits.filter(u => u.occupiedYN).map(u => u.roomNumber + '|' + u.location));
+      
+      salesVelocity.moveIns30 = [...currentOccupied].filter(x => !previousOccupied.has(x)).length;
+      salesVelocity.moveOuts30 = [...previousOccupied].filter(x => !currentOccupied.has(x)).length;
+      salesVelocity.netChange = salesVelocity.moveIns30 - salesVelocity.moveOuts30;
+    }
+    
+    const recentMoveins = scopeUnits.filter(u => u.occupiedYN && (u.daysVacant || 0) <= 30).length;
+    if (salesVelocity.moveIns30 === 0) {
+      salesVelocity.moveIns30 = recentMoveins;
+    }
+    
+    // Build the GPT prompt for this scope
+    const prompt = `You are an expert senior living revenue management AI. Analyze the data for "${scopeLabel}" and target revenue growth, then suggest optimal pricing settings.
+
+TARGET ANNUAL REVENUE GROWTH: ${targets[serviceLine] || targets['All'] || 5}%
+
+CURRENT METRICS FOR "${scopeLabel}" (${currentMonth}):
+- Total Units: ${totalUnits}
+- Occupied Units: ${occupiedUnits} (${occupancyRate.toFixed(1)}% occupancy)
+- Vacant Units: ${vacantUnits}
+- Average Days Vacant: ${avgDaysVacant.toFixed(0)} days
+- Units Vacant 30+ Days: ${unitsOver30DaysVacant}
+- Units Vacant 60+ Days: ${unitsOver60DaysVacant}
+- Average Rate: $${avgPortfolioRate.toFixed(0)}/month
+- Average Competitor Rate: $${effectiveCompetitorRate.toFixed(0)}/month${effectiveCompetitorRate === 0 ? ' (no competitor data available)' : ''}
+- Rate Position vs Competitors: ${effectiveCompetitorRate > 0 ? (avgPortfolioRate > effectiveCompetitorRate ? `+${((avgPortfolioRate/effectiveCompetitorRate - 1) * 100).toFixed(1)}% premium` : `${((avgPortfolioRate/effectiveCompetitorRate - 1) * 100).toFixed(1)}% discount`) : 'N/A - no competitor data'}
+
+SALES VELOCITY (Month-over-Month):
+- Move-ins (30 days): ${salesVelocity.moveIns30}
+- Move-outs (30 days): ${salesVelocity.moveOuts30}
+- Net Change: ${salesVelocity.netChange > 0 ? '+' : ''}${salesVelocity.netChange}
+- Velocity Assessment: ${salesVelocity.moveIns30 > 5 ? 'HIGH - strong demand' : salesVelocity.moveIns30 > 2 ? 'MODERATE - balanced approach' : 'LOW - focus on competitive pricing'}
+
+CURRENT SETTINGS:
+Weights (must sum to 100):
+- Occupancy Pressure: ${currentWeights?.occupancyPressure || 25}%
+- Days Vacant Decay: ${currentWeights?.daysVacantDecay || 20}%
+- Competitor Rates: ${currentWeights?.competitorRates || 15}%
+- Seasonality: ${currentWeights?.seasonality || 10}%
+- Stock Market: ${currentWeights?.stockMarket || 10}%
+- Inquiry Volume: ${currentWeights?.inquiryTourVolume || 20}%
+
+Current Guardrails:
+- Max Increase: ${currentGuardrails?.maxIncreasePercent || 10}%
+- Max Decrease: ${currentGuardrails?.maxDecreasePercent || 5}%
+- Min Street Rate: $${currentGuardrails?.minStreetRate || 2500}
+- Max Street Rate: $${currentGuardrails?.maxStreetRate || 8000}
+
+Current Adjustment Ranges (as decimals):
+- Occupancy: ${currentAdjustmentRanges?.occupancyMin || -0.10} to ${currentAdjustmentRanges?.occupancyMax || 0.05}
+- Vacancy: ${currentAdjustmentRanges?.vacancyMin || -0.15} to ${currentAdjustmentRanges?.vacancyMax || 0}
+- Attributes: ${currentAdjustmentRanges?.attributesMin || -0.05} to ${currentAdjustmentRanges?.attributesMax || 0.10}
+- Seasonality: ${currentAdjustmentRanges?.seasonalityMin || -0.05} to ${currentAdjustmentRanges?.seasonalityMax || 0.08}
+- Competitor: ${currentAdjustmentRanges?.competitorMin || -0.08} to ${currentAdjustmentRanges?.competitorMax || 0.08}
+
+Based on the targets and data, suggest optimal settings. Respond with ONLY a JSON object:
+{
+  "weights": {
+    "occupancyPressure": <number 0-50>,
+    "daysVacantDecay": <number 0-50>,
+    "competitorRates": <number 0-30>,
+    "seasonality": <number 0-20>,
+    "stockMarket": <number 0-15>,
+    "inquiryTourVolume": <number 0-30>
+  },
+  "guardrails": {
+    "maxIncreasePercent": <number 1-20>,
+    "maxDecreasePercent": <number 1-15>,
+    "minStreetRate": <number 1500-6000>,
+    "maxStreetRate": <number 6000-15000>
+  },
+  "adjustmentRanges": {
+    "occupancyMin": <decimal -0.20 to 0>,
+    "occupancyMax": <decimal 0 to 0.20>,
+    "vacancyMin": <decimal -0.30 to 0>,
+    "vacancyMax": <decimal -0.10 to 0.05>,
+    "attributesMin": <decimal -0.10 to 0>,
+    "attributesMax": <decimal 0 to 0.25>,
+    "seasonalityMin": <decimal -0.10 to 0>,
+    "seasonalityMax": <decimal 0 to 0.15>,
+    "competitorMin": <decimal -0.15 to 0>,
+    "competitorMax": <decimal 0 to 0.15>
+  },
+  "attributeAdjustments": {
+    "premiumView": <number -10 to 15>,
+    "renovated": <number -5 to 20>,
+    "cornerUnit": <number -5 to 10>,
+    "groundFloor": <number -5 to 10>,
+    "largeSize": <number -5 to 15>
+  },
+  "reasoning": "<1-2 sentence explanation for ${scopeLabel} referencing occupancy %, sales velocity, and rate position>"
+}
+
+IMPORTANT: Weights must sum to exactly 100.`;
+
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-5.2',
+        messages: [{ role: 'user', content: prompt }],
+        max_completion_tokens: 800,
+        temperature: 0.3,
+        response_format: { type: "json_object" }
+      })
+    });
+
+    if (!openaiResponse.ok) {
+      const errorText = await openaiResponse.text();
+      console.error(`[Individual Analysis] OpenAI API error for ${scopeLabel}:`, errorText);
+      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+    }
+
+    const openaiResult = await openaiResponse.json();
+    const generatedSettings = JSON.parse(openaiResult.choices[0].message.content);
+    
+    // Validate and clamp weights
+    const weights = generatedSettings.weights;
+    const weightSum = Object.values(weights).reduce((a: number, b: any) => a + Number(b), 0);
+    if (Math.abs(weightSum - 100) > 1) {
+      const factor = 100 / weightSum;
+      Object.keys(weights).forEach(k => {
+        weights[k] = Math.round(weights[k] * factor);
+      });
+    }
+    
+    // Clamp guardrails
+    const guardrailsResult = generatedSettings.guardrails;
+    guardrailsResult.maxIncreasePercent = Math.max(1, Math.min(20, guardrailsResult.maxIncreasePercent));
+    guardrailsResult.maxDecreasePercent = Math.max(1, Math.min(15, guardrailsResult.maxDecreasePercent));
+    guardrailsResult.minStreetRate = Math.max(1500, Math.min(4000, guardrailsResult.minStreetRate));
+    guardrailsResult.maxStreetRate = Math.max(6000, Math.min(15000, guardrailsResult.maxStreetRate));
+    
+    return {
+      locationId,
+      locationName,
+      serviceLine,
+      weights: generatedSettings.weights,
+      guardrails: generatedSettings.guardrails,
+      adjustmentRanges: generatedSettings.adjustmentRanges,
+      attributeAdjustments: generatedSettings.attributeAdjustments,
+      reasoning: generatedSettings.reasoning,
+      metrics: {
+        occupancyRate: parseFloat(occupancyRate.toFixed(1)),
+        avgDaysVacant: parseFloat(avgDaysVacant.toFixed(0)),
+        competitorRate: parseFloat(effectiveCompetitorRate.toFixed(0)),
+        avgPortfolioRate: parseFloat(avgPortfolioRate.toFixed(0)),
+        salesVelocity: salesVelocity.moveIns30,
+        netChange: salesVelocity.netChange,
+        totalUnits,
+        vacantUnits,
+        unitsOver30DaysVacant,
+        unitsOver60DaysVacant
+      }
+    };
+  }
+
+  // Concurrency-limited Promise pool for parallel execution
+  async function executeWithConcurrency<T>(
+    tasks: (() => Promise<T>)[],
+    concurrencyLimit: number
+  ): Promise<T[]> {
+    const results: T[] = [];
+    const executing: Promise<void>[] = [];
+    
+    for (const task of tasks) {
+      const p = Promise.resolve().then(() => task()).then(result => {
+        results.push(result);
+      });
+      executing.push(p);
+      
+      if (executing.length >= concurrencyLimit) {
+        await Promise.race(executing);
+        // Remove completed promises
+        for (let i = executing.length - 1; i >= 0; i--) {
+          const status = await Promise.race([executing[i].then(() => 'fulfilled'), Promise.resolve('pending')]);
+          if (status === 'fulfilled') {
+            executing.splice(i, 1);
+          }
+        }
+      }
+    }
+    
+    await Promise.all(executing);
+    return results;
+  }
+
   // Generate optimal settings from revenue growth targets using GPT-5.2
   app.post("/api/pricing/targets/generate", async (req, res) => {
     try {
-      const { targets, filters } = req.body;
+      const { targets, filters, analyzeIndividually } = req.body;
       
       const openaiKey = process.env.OPENAI_API_KEY;
       if (!openaiKey) {
         return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
       }
       
-      console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters);
+      console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters, 'analyzeIndividually:', analyzeIndividually);
       
       // Get available months and use the most recent one with data
       const monthsResult = await db
@@ -5624,17 +5877,18 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         console.log('[Target Generation] No data for current month, using all available:', units.length, 'units');
       }
       
+      // Get all locations for ID lookup
+      const allLocations = await storage.getLocations();
+      
       // Apply location/region/division filters
       if (filters?.locations && filters.locations.length > 0) {
         units = units.filter(u => u.location && filters.locations.includes(u.location));
       }
       if (filters?.regions && filters.regions.length > 0) {
-        const allLocations = await storage.getLocations();
         const regionLocations = allLocations.filter(loc => loc.region && filters.regions.includes(loc.region)).map(loc => loc.name);
         units = units.filter(u => u.location && regionLocations.includes(u.location));
       }
       if (filters?.divisions && filters.divisions.length > 0) {
-        const allLocations = await storage.getLocations();
         const divisionLocations = allLocations.filter(loc => loc.division && filters.divisions.includes(loc.division)).map(loc => loc.name);
         units = units.filter(u => u.location && divisionLocations.includes(u.location));
       }
@@ -5646,6 +5900,244 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       }
       
       console.log('[Target Generation] Filtered units:', filteredUnits.length, 'from total:', units.length);
+
+      // Get all competitors for filtering later
+      const allCompetitors = await storage.getCompetitors();
+      
+      // Get current weights, guardrails, and adjustment ranges
+      const currentWeights = await storage.getPricingWeights();
+      const currentGuardrails = await storage.getCurrentGuardrails();
+      const currentAdjustmentRanges = await storage.getAdjustmentRanges();
+
+      // Branch based on analyzeIndividually flag
+      if (analyzeIndividually) {
+        console.log('[Target Generation] Individual analysis mode enabled');
+        
+        // Get unique location + service line combinations from filtered data
+        const scopeMap = new Map<string, { locationId: number | undefined; locationName: string; serviceLine: string; units: any[] }>();
+        
+        for (const unit of filteredUnits) {
+          const locationName = unit.location || 'Unknown';
+          const serviceLine = unit.serviceLine || 'Unknown';
+          const key = `${locationName}|${serviceLine}`;
+          
+          if (!scopeMap.has(key)) {
+            const location = allLocations.find(l => l.name === locationName);
+            scopeMap.set(key, {
+              locationId: location?.id,
+              locationName,
+              serviceLine,
+              units: []
+            });
+          }
+          scopeMap.get(key)!.units.push(unit);
+        }
+        
+        const scopes = Array.from(scopeMap.values());
+        console.log(`[Target Generation] Found ${scopes.length} unique location/service line combinations`);
+        
+        if (scopes.length === 0) {
+          return res.status(400).json({ error: 'No location/service line combinations found in filtered data' });
+        }
+        
+        // Get previous month units for velocity calculation
+        const previousMonthUnits = previousMonth 
+          ? allUnits.filter(u => u.uploadMonth === previousMonth)
+          : [];
+        
+        // Create tasks for parallel execution
+        const tasks = scopes.map(scope => async () => {
+          const scopeLabel = `${scope.locationName} - ${scope.serviceLine}`;
+          console.log(`[Individual Analysis] Starting analysis for ${scopeLabel}`);
+          
+          try {
+            const result = await analyzeIndividualScope(
+              scope.units,
+              previousMonthUnits,
+              scopeLabel,
+              scope.locationId,
+              scope.locationName,
+              scope.serviceLine,
+              targets,
+              currentMonth,
+              previousMonth,
+              openaiKey,
+              currentWeights,
+              currentGuardrails,
+              currentAdjustmentRanges,
+              allCompetitors
+            );
+            console.log(`[Individual Analysis] Completed analysis for ${scopeLabel}`);
+            return result;
+          } catch (error) {
+            console.error(`[Individual Analysis] Error analyzing ${scopeLabel}:`, error);
+            throw error;
+          }
+        });
+        
+        // Execute with concurrency limit of 3
+        console.log('[Target Generation] Starting parallel GPT calls with concurrency limit of 3...');
+        const individualResults = await executeWithConcurrency(tasks, 3);
+        console.log(`[Target Generation] Completed ${individualResults.length} individual analyses`);
+        
+        // Calculate averages across all individual results
+        const avgWeights = {
+          occupancyPressure: 0,
+          daysVacantDecay: 0,
+          competitorRates: 0,
+          seasonality: 0,
+          stockMarket: 0,
+          inquiryTourVolume: 0
+        };
+        const avgGuardrails = {
+          maxIncreasePercent: 0,
+          maxDecreasePercent: 0,
+          minStreetRate: 0,
+          maxStreetRate: 0
+        };
+        const avgAdjustmentRanges = {
+          occupancyMin: 0,
+          occupancyMax: 0,
+          vacancyMin: 0,
+          vacancyMax: 0,
+          attributesMin: 0,
+          attributesMax: 0,
+          seasonalityMin: 0,
+          seasonalityMax: 0,
+          competitorMin: 0,
+          competitorMax: 0
+        };
+        const avgAttributeAdjustments = {
+          premiumView: 0,
+          renovated: 0,
+          cornerUnit: 0,
+          groundFloor: 0,
+          largeSize: 0
+        };
+        
+        // Sum up all values
+        for (const result of individualResults) {
+          // Weights
+          avgWeights.occupancyPressure += result.weights.occupancyPressure || 0;
+          avgWeights.daysVacantDecay += result.weights.daysVacantDecay || 0;
+          avgWeights.competitorRates += result.weights.competitorRates || 0;
+          avgWeights.seasonality += result.weights.seasonality || 0;
+          avgWeights.stockMarket += result.weights.stockMarket || 0;
+          avgWeights.inquiryTourVolume += result.weights.inquiryTourVolume || 0;
+          
+          // Guardrails
+          avgGuardrails.maxIncreasePercent += result.guardrails.maxIncreasePercent || 0;
+          avgGuardrails.maxDecreasePercent += result.guardrails.maxDecreasePercent || 0;
+          avgGuardrails.minStreetRate += result.guardrails.minStreetRate || 0;
+          avgGuardrails.maxStreetRate += result.guardrails.maxStreetRate || 0;
+          
+          // Adjustment Ranges
+          if (result.adjustmentRanges) {
+            avgAdjustmentRanges.occupancyMin += result.adjustmentRanges.occupancyMin || 0;
+            avgAdjustmentRanges.occupancyMax += result.adjustmentRanges.occupancyMax || 0;
+            avgAdjustmentRanges.vacancyMin += result.adjustmentRanges.vacancyMin || 0;
+            avgAdjustmentRanges.vacancyMax += result.adjustmentRanges.vacancyMax || 0;
+            avgAdjustmentRanges.attributesMin += result.adjustmentRanges.attributesMin || 0;
+            avgAdjustmentRanges.attributesMax += result.adjustmentRanges.attributesMax || 0;
+            avgAdjustmentRanges.seasonalityMin += result.adjustmentRanges.seasonalityMin || 0;
+            avgAdjustmentRanges.seasonalityMax += result.adjustmentRanges.seasonalityMax || 0;
+            avgAdjustmentRanges.competitorMin += result.adjustmentRanges.competitorMin || 0;
+            avgAdjustmentRanges.competitorMax += result.adjustmentRanges.competitorMax || 0;
+          }
+          
+          // Attribute Adjustments
+          if (result.attributeAdjustments) {
+            avgAttributeAdjustments.premiumView += result.attributeAdjustments.premiumView || 0;
+            avgAttributeAdjustments.renovated += result.attributeAdjustments.renovated || 0;
+            avgAttributeAdjustments.cornerUnit += result.attributeAdjustments.cornerUnit || 0;
+            avgAttributeAdjustments.groundFloor += result.attributeAdjustments.groundFloor || 0;
+            avgAttributeAdjustments.largeSize += result.attributeAdjustments.largeSize || 0;
+          }
+        }
+        
+        // Divide by count to get averages
+        const count = individualResults.length;
+        Object.keys(avgWeights).forEach(k => {
+          (avgWeights as any)[k] = Math.round((avgWeights as any)[k] / count);
+        });
+        Object.keys(avgGuardrails).forEach(k => {
+          (avgGuardrails as any)[k] = Math.round((avgGuardrails as any)[k] / count);
+        });
+        Object.keys(avgAdjustmentRanges).forEach(k => {
+          (avgAdjustmentRanges as any)[k] = parseFloat(((avgAdjustmentRanges as any)[k] / count).toFixed(3));
+        });
+        Object.keys(avgAttributeAdjustments).forEach(k => {
+          (avgAttributeAdjustments as any)[k] = Math.round((avgAttributeAdjustments as any)[k] / count);
+        });
+        
+        // Ensure weights sum to 100
+        const weightSum = Object.values(avgWeights).reduce((a, b) => a + b, 0);
+        if (Math.abs(weightSum - 100) > 1) {
+          const factor = 100 / weightSum;
+          Object.keys(avgWeights).forEach(k => {
+            (avgWeights as any)[k] = Math.round((avgWeights as any)[k] * factor);
+          });
+        }
+        
+        // Calculate aggregate metrics across all scopes
+        const aggregateMetrics = {
+          occupancyRate: 0,
+          avgDaysVacant: 0,
+          competitorRate: 0,
+          avgPortfolioRate: 0,
+          salesVelocity: 0,
+          netChange: 0,
+          totalUnits: 0,
+          vacantUnits: 0,
+          unitsOver30DaysVacant: 0,
+          unitsOver60DaysVacant: 0
+        };
+        
+        for (const result of individualResults) {
+          aggregateMetrics.totalUnits += result.metrics.totalUnits;
+          aggregateMetrics.vacantUnits += result.metrics.vacantUnits;
+          aggregateMetrics.unitsOver30DaysVacant += result.metrics.unitsOver30DaysVacant;
+          aggregateMetrics.unitsOver60DaysVacant += result.metrics.unitsOver60DaysVacant;
+          aggregateMetrics.salesVelocity += result.metrics.salesVelocity;
+          aggregateMetrics.netChange += result.metrics.netChange;
+        }
+        
+        // Calculate weighted averages for rates
+        if (aggregateMetrics.totalUnits > 0) {
+          let totalRate = 0;
+          let totalCompRate = 0;
+          let compCount = 0;
+          for (const result of individualResults) {
+            totalRate += result.metrics.avgPortfolioRate * result.metrics.totalUnits;
+            if (result.metrics.competitorRate > 0) {
+              totalCompRate += result.metrics.competitorRate * result.metrics.totalUnits;
+              compCount += result.metrics.totalUnits;
+            }
+          }
+          aggregateMetrics.avgPortfolioRate = Math.round(totalRate / aggregateMetrics.totalUnits);
+          aggregateMetrics.competitorRate = compCount > 0 ? Math.round(totalCompRate / compCount) : 0;
+          aggregateMetrics.occupancyRate = parseFloat(((aggregateMetrics.totalUnits - aggregateMetrics.vacantUnits) / aggregateMetrics.totalUnits * 100).toFixed(1));
+          aggregateMetrics.avgDaysVacant = Math.round(individualResults.reduce((sum, r) => sum + r.metrics.avgDaysVacant, 0) / count);
+        }
+        
+        const response = {
+          mode: 'individual' as const,
+          weights: avgWeights,
+          guardrails: avgGuardrails,
+          adjustmentRanges: avgAdjustmentRanges,
+          attributeAdjustments: avgAttributeAdjustments,
+          reasoning: `Analyzed ${individualResults.length} location/service line combinations. Recommendations are averaged across all scopes to provide balanced settings.`,
+          metrics: aggregateMetrics,
+          individuals: individualResults,
+          scopeCount: individualResults.length
+        };
+        
+        console.log('[Target Generation] Individual analysis complete, returning averaged results');
+        return res.json(response);
+      }
+      
+      // PORTFOLIO MODE (existing logic)
+      console.log('[Target Generation] Portfolio analysis mode');
       
       // Build scope label based on filters
       let scopeLabel = 'Portfolio';
@@ -5714,7 +6206,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       }
       const competitors = Object.keys(competitorFilters).length > 0 
         ? await storage.getCompetitorsWithFilters(competitorFilters)
-        : await storage.getCompetitors();
+        : allCompetitors;
       
       // Calculate average competitor rate - use finalRate if available, otherwise baseRate
       const validCompetitorRates = competitors
@@ -5733,11 +6225,6 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         }
       }
       const effectiveCompetitorRate = avgCompetitorRate > 0 ? avgCompetitorRate : competitorRateFromRentRoll;
-      
-      // Get current weights, guardrails, and adjustment ranges
-      const currentWeights = await storage.getPricingWeights();
-      const currentGuardrails = await storage.getCurrentGuardrails();
-      const currentAdjustmentRanges = await storage.getAdjustmentRanges();
       
       // Calculate actual sales velocity by comparing months
       let salesVelocity = { moveIns30: 0, moveOuts30: 0, netChange: 0 };
@@ -5905,11 +6392,11 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         }
         
         // Clamp guardrails to safe ranges
-        const guardrails = generatedSettings.guardrails;
-        guardrails.maxIncreasePercent = Math.max(1, Math.min(20, guardrails.maxIncreasePercent));
-        guardrails.maxDecreasePercent = Math.max(1, Math.min(15, guardrails.maxDecreasePercent));
-        guardrails.minStreetRate = Math.max(1500, Math.min(4000, guardrails.minStreetRate));
-        guardrails.maxStreetRate = Math.max(6000, Math.min(15000, guardrails.maxStreetRate));
+        const guardrailsResponse = generatedSettings.guardrails;
+        guardrailsResponse.maxIncreasePercent = Math.max(1, Math.min(20, guardrailsResponse.maxIncreasePercent));
+        guardrailsResponse.maxDecreasePercent = Math.max(1, Math.min(15, guardrailsResponse.maxDecreasePercent));
+        guardrailsResponse.minStreetRate = Math.max(1500, Math.min(4000, guardrailsResponse.minStreetRate));
+        guardrailsResponse.maxStreetRate = Math.max(6000, Math.min(15000, guardrailsResponse.maxStreetRate));
         
       } catch (parseError) {
         console.error('[Target Generation] Failed to parse GPT response:', parseError);
@@ -5918,7 +6405,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       console.log('[Target Generation] Successfully generated settings');
       
-      // Add metrics to response for frontend explanations
+      // Add mode and metrics to response for frontend
+      generatedSettings.mode = 'portfolio';
       generatedSettings.metrics = {
         occupancyRate: parseFloat(occupancyRate.toFixed(1)),
         avgDaysVacant: parseFloat(avgDaysVacant.toFixed(0)),
