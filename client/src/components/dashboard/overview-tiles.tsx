@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
-import { DollarSign, Home, Users, TrendingUp, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { DollarSign, Home, Users, TrendingUp, Info, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
+import { TileDetailDialog } from "./tile-detail-dialog";
 
 interface ServiceLineData {
   serviceLine: string;
@@ -57,6 +58,8 @@ export default function OverviewTiles() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState<{ type: string; calculation: string } | null>(null);
   const [expandedRoomTypes, setExpandedRoomTypes] = useState<Set<string>>(new Set());
+  const [tileDetailOpen, setTileDetailOpen] = useState(false);
+  const [selectedTile, setSelectedTile] = useState<{ type: 'units' | 'occupancy' | 'current-revenue' | 'potential-revenue'; title: string } | null>(null);
 
   const { data: overviewData, isLoading } = useQuery<OverviewData>({
     queryKey: ["/api/overview"],
@@ -98,7 +101,8 @@ export default function OverviewTiles() {
       subtitle: `${formatNumber(overviewData.locationsWithData)} campuses with data (${overviewData.mostRecentMonth || 'N/A'})`,
       icon: Home,
       color: "blue",
-      testId: "metric-total-units"
+      testId: "metric-total-units",
+      tileType: 'units' as const
     },
     {
       title: "Overall Occupancy",
@@ -106,7 +110,8 @@ export default function OverviewTiles() {
       subtitle: `${formatNumber(overviewData.occupiedUnits)}/${formatNumber(overviewData.unitsWithData)} units`,
       icon: Users,
       color: "emerald", 
-      testId: "metric-overall-occupancy"
+      testId: "metric-overall-occupancy",
+      tileType: 'occupancy' as const
     },
     {
       title: "Current Annual Revenue", 
@@ -114,7 +119,8 @@ export default function OverviewTiles() {
       subtitle: "Based on current occupancy",
       icon: DollarSign,
       color: "amber",
-      testId: "metric-current-revenue"
+      testId: "metric-current-revenue",
+      tileType: 'current-revenue' as const
     },
     {
       title: "Potential Annual Revenue",
@@ -122,9 +128,15 @@ export default function OverviewTiles() {
       subtitle: "At full occupancy",
       icon: TrendingUp,
       color: "blue",
-      testId: "metric-potential-revenue"
+      testId: "metric-potential-revenue",
+      tileType: 'potential-revenue' as const
     },
   ];
+
+  const handleTileClick = (tileType: typeof tiles[0]['tileType'], title: string) => {
+    setSelectedTile({ type: tileType, title });
+    setTileDetailOpen(true);
+  };
 
   const getColorClasses = (color: string) => {
     const colors = {
@@ -177,13 +189,21 @@ export default function OverviewTiles() {
         {tiles.map((tile) => {
           const Icon = tile.icon;
           return (
-            <Card key={tile.title} className="dashboard-card">
+            <Card 
+              key={tile.title} 
+              className="dashboard-card cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 group"
+              onClick={() => handleTileClick(tile.tileType, tile.title)}
+              data-testid={`tile-clickable-${tile.tileType}`}
+            >
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="space-y-2">
-                    <p className="text-sm font-light text-[var(--dashboard-muted)] tracking-wide uppercase">
-                      {tile.title}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-light text-[var(--dashboard-muted)] tracking-wide uppercase">
+                        {tile.title}
+                      </p>
+                      <ExternalLink className="w-3 h-3 text-[var(--dashboard-muted)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
                     <p 
                       className="text-3xl font-light text-[var(--dashboard-text)]"
                       data-testid={tile.testId}
@@ -384,6 +404,16 @@ export default function OverviewTiles() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Tile Detail Dialog - shows monthly trends, growth statistics, and breakdowns */}
+      {selectedTile && (
+        <TileDetailDialog
+          open={tileDetailOpen}
+          onOpenChange={setTileDetailOpen}
+          tileType={selectedTile.type}
+          tileTitle={selectedTile.title}
+        />
+      )}
     </div>
   );
 }

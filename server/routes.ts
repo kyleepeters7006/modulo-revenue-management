@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules } from "@shared/schema";
-import { sql, and, eq, gte, lt, or, desc } from "drizzle-orm";
+import { sql, and, eq, gte, lt, or, desc, inArray } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
@@ -4826,6 +4826,326 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     }
   });
 
+  // Tile Details endpoint - provides monthly trend data and growth statistics for overview tiles
+  // Optimized to use SQL aggregation instead of loading all records into memory
+  app.get("/api/tile-details/:tileType", async (req, res) => {
+    try {
+      const { tileType } = req.params;
+      const validTileTypes = ['units', 'occupancy', 'current-revenue', 'potential-revenue'];
+      
+      if (!validTileTypes.includes(tileType)) {
+        return res.status(400).json({ error: `Invalid tile type. Must be one of: ${validTileTypes.join(', ')}` });
+      }
+      
+      // Helper function to calculate growth percentage
+      const calculateGrowth = (current: number, previous: number): number => {
+        if (previous === 0) return 0;
+        return Math.round(((current - previous) / previous) * 100 * 100) / 100;
+      };
+      
+      // Get all available months from the database (last 12 months)
+      const availableMonths = await db
+        .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
+        .from(rentRollData)
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+        .limit(12);
+      
+      const months = availableMonths.map(m => m.month).sort();
+      const mostRecentMonth = months[months.length - 1] || '';
+      
+      // Determine YTD start month (January of current year or first available month)
+      const currentYear = mostRecentMonth ? mostRecentMonth.substring(0, 4) : new Date().getFullYear().toString();
+      const ytdStartMonth = `${currentYear}-01`;
+      
+      // Senior housing service lines for B-bed exclusion
+      const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'IL', 'AL/MC'];
+      
+      // Build SQL aggregation based on tile type using database-level computation
+      // This avoids loading all records into memory
+      let monthlyAggQuery;
+      
+      // B-bed exclusion condition for units/occupancy tile types
+      const excludeBBeds = sql`NOT (${rentRollData.serviceLine} IN ('AL', 'SL', 'VIL', 'IL', 'AL/MC') 
+                       AND ${rentRollData.roomNumber} LIKE '%/B')`;
+      
+      switch (tileType) {
+        case 'units':
+          monthlyAggQuery = db
+            .select({
+              month: rentRollData.uploadMonth,
+              serviceLine: rentRollData.serviceLine,
+              location: rentRollData.location,
+              roomType: rentRollData.roomType,
+              sameStore: rentRollData.sameStore,
+              value: sql<number>`COUNT(*)::int`,
+            })
+            .from(rentRollData)
+            .where(and(
+              inArray(rentRollData.uploadMonth, months),
+              excludeBBeds
+            ))
+            .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
+          break;
+          
+        case 'occupancy':
+          monthlyAggQuery = db
+            .select({
+              month: rentRollData.uploadMonth,
+              serviceLine: rentRollData.serviceLine,
+              location: rentRollData.location,
+              roomType: rentRollData.roomType,
+              sameStore: rentRollData.sameStore,
+              occupied: sql<number>`SUM(CASE WHEN ${rentRollData.occupiedYN} THEN 1 ELSE 0 END)::int`,
+              total: sql<number>`COUNT(*)::int`,
+            })
+            .from(rentRollData)
+            .where(and(
+              inArray(rentRollData.uploadMonth, months),
+              excludeBBeds
+            ))
+            .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
+          break;
+          
+        case 'current-revenue':
+          monthlyAggQuery = db
+            .select({
+              month: rentRollData.uploadMonth,
+              serviceLine: rentRollData.serviceLine,
+              location: rentRollData.location,
+              roomType: rentRollData.roomType,
+              sameStore: rentRollData.sameStore,
+              value: sql<number>`SUM(
+                CASE WHEN ${rentRollData.occupiedYN} THEN
+                  CASE 
+                    WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                      COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
+                    ELSE 
+                      COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 12
+                  END
+                ELSE 0 END
+              )`,
+            })
+            .from(rentRollData)
+            .where(inArray(rentRollData.uploadMonth, months))
+            .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
+          break;
+          
+        case 'potential-revenue':
+          monthlyAggQuery = db
+            .select({
+              month: rentRollData.uploadMonth,
+              serviceLine: rentRollData.serviceLine,
+              location: rentRollData.location,
+              roomType: rentRollData.roomType,
+              sameStore: rentRollData.sameStore,
+              value: sql<number>`SUM(
+                CASE 
+                  WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                    COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
+                  ELSE 
+                    COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 12
+                END
+              )`,
+            })
+            .from(rentRollData)
+            .where(inArray(rentRollData.uploadMonth, months))
+            .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
+          break;
+      }
+      
+      const aggregatedData = await monthlyAggQuery;
+      
+      // Process aggregated data to build response structures
+      type MonthlyTrendItem = { month: string; value: number; byServiceLine: Record<string, number>; };
+      const monthlyTrend: MonthlyTrendItem[] = [];
+      const serviceLineStats: Record<string, { values: Record<string, number>, currentValue: number }> = {};
+      const locationStats: Record<string, number> = {};
+      const roomTypeStats: Record<string, number> = {};
+      const sameStoreMonthlyValues: Record<string, number> = {};
+      
+      // Initialize data structures for all months
+      const monthlyData: Record<string, { total: number; occupied?: number; byServiceLine: Record<string, { value: number; occupied?: number; total?: number }> }> = {};
+      const sameStoreData: Record<string, { total: number; occupied?: number }> = {};
+      
+      for (const month of months) {
+        monthlyData[month] = { total: 0, occupied: 0, byServiceLine: {} };
+        sameStoreData[month] = { total: 0, occupied: 0 };
+      }
+      
+      // Aggregate the data
+      for (const row of aggregatedData) {
+        const month = row.month;
+        const sl = row.serviceLine;
+        const isSameStore = row.sameStore;
+        
+        if (!monthlyData[month]) continue;
+        
+        if (tileType === 'occupancy') {
+          const occupied = (row as any).occupied || 0;
+          const total = (row as any).total || 0;
+          
+          monthlyData[month].total = (monthlyData[month].total || 0) + total;
+          monthlyData[month].occupied = (monthlyData[month].occupied || 0) + occupied;
+          
+          if (!monthlyData[month].byServiceLine[sl]) {
+            monthlyData[month].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
+          }
+          monthlyData[month].byServiceLine[sl].occupied = (monthlyData[month].byServiceLine[sl].occupied || 0) + occupied;
+          monthlyData[month].byServiceLine[sl].total = (monthlyData[month].byServiceLine[sl].total || 0) + total;
+          
+          if (isSameStore) {
+            sameStoreData[month].total = (sameStoreData[month].total || 0) + total;
+            sameStoreData[month].occupied = (sameStoreData[month].occupied || 0) + occupied;
+          }
+        } else {
+          const value = (row as any).value || 0;
+          
+          monthlyData[month].total = (monthlyData[month].total || 0) + value;
+          
+          if (!monthlyData[month].byServiceLine[sl]) {
+            monthlyData[month].byServiceLine[sl] = { value: 0 };
+          }
+          monthlyData[month].byServiceLine[sl].value = (monthlyData[month].byServiceLine[sl].value || 0) + value;
+          
+          if (isSameStore) {
+            sameStoreData[month].total = (sameStoreData[month].total || 0) + value;
+          }
+        }
+        
+        // For current month, accumulate location and room type stats
+        if (month === mostRecentMonth) {
+          const locValue = tileType === 'occupancy' ? ((row as any).occupied || 0) : ((row as any).value || 0);
+          locationStats[row.location] = (locationStats[row.location] || 0) + locValue;
+          roomTypeStats[row.roomType] = (roomTypeStats[row.roomType] || 0) + locValue;
+        }
+      }
+      
+      // Build monthly trend
+      for (const month of months) {
+        const data = monthlyData[month];
+        let monthValue: number;
+        const byServiceLine: Record<string, number> = {};
+        
+        if (tileType === 'occupancy') {
+          monthValue = data.total > 0 ? Math.round(((data.occupied || 0) / data.total) * 100 * 100) / 100 : 0;
+          
+          for (const [sl, slData] of Object.entries(data.byServiceLine)) {
+            const slTotal = slData.total || 0;
+            const slOccupied = slData.occupied || 0;
+            byServiceLine[sl] = slTotal > 0 ? Math.round((slOccupied / slTotal) * 100 * 100) / 100 : 0;
+          }
+        } else {
+          monthValue = data.total;
+          for (const [sl, slData] of Object.entries(data.byServiceLine)) {
+            byServiceLine[sl] = slData.value || 0;
+          }
+        }
+        
+        monthlyTrend.push({ month, value: monthValue, byServiceLine });
+        
+        // Same store value
+        if (tileType === 'occupancy') {
+          const ssData = sameStoreData[month];
+          sameStoreMonthlyValues[month] = ssData.total > 0 ? 
+            Math.round(((ssData.occupied || 0) / ssData.total) * 100 * 100) / 100 : 0;
+        } else {
+          sameStoreMonthlyValues[month] = sameStoreData[month].total;
+        }
+        
+        // Track service line trends
+        for (const [sl, value] of Object.entries(byServiceLine)) {
+          if (!serviceLineStats[sl]) {
+            serviceLineStats[sl] = { values: {}, currentValue: 0 };
+          }
+          serviceLineStats[sl].values[month] = value;
+          if (month === mostRecentMonth) {
+            serviceLineStats[sl].currentValue = value;
+          }
+        }
+      }
+      
+      // Calculate growth statistics
+      const currentValue = monthlyTrend[monthlyTrend.length - 1]?.value || 0;
+      const getValueAtIndex = (idx: number) => monthlyTrend[idx]?.value || 0;
+      const monthCount = monthlyTrend.length;
+      
+      const growthStats = {
+        t1: monthCount >= 2 ? calculateGrowth(currentValue, getValueAtIndex(monthCount - 2)) : 0,
+        t3: monthCount >= 4 ? calculateGrowth(currentValue, getValueAtIndex(monthCount - 4)) : 0,
+        t6: monthCount >= 7 ? calculateGrowth(currentValue, getValueAtIndex(monthCount - 7)) : 0,
+        t12: monthCount >= 12 ? calculateGrowth(currentValue, getValueAtIndex(0)) : 0,
+        ytd: (() => {
+          const ytdIndex = monthlyTrend.findIndex(m => m.month >= ytdStartMonth);
+          return ytdIndex >= 0 ? calculateGrowth(currentValue, getValueAtIndex(ytdIndex)) : 0;
+        })()
+      };
+      
+      // Calculate same store growth statistics
+      const sameStoreCurrentValue = sameStoreMonthlyValues[mostRecentMonth] || 0;
+      const sameStoreValues = months.map(m => sameStoreMonthlyValues[m] || 0);
+      const getSameStoreValueAtIndex = (idx: number) => sameStoreValues[idx] || 0;
+      
+      const sameStoreGrowthStats = {
+        t1: monthCount >= 2 ? calculateGrowth(sameStoreCurrentValue, getSameStoreValueAtIndex(monthCount - 2)) : 0,
+        t3: monthCount >= 4 ? calculateGrowth(sameStoreCurrentValue, getSameStoreValueAtIndex(monthCount - 4)) : 0,
+        t6: monthCount >= 7 ? calculateGrowth(sameStoreCurrentValue, getSameStoreValueAtIndex(monthCount - 7)) : 0,
+        t12: monthCount >= 12 ? calculateGrowth(sameStoreCurrentValue, getSameStoreValueAtIndex(0)) : 0,
+        ytd: (() => {
+          const ytdIndex = months.findIndex(m => m >= ytdStartMonth);
+          return ytdIndex >= 0 ? calculateGrowth(sameStoreCurrentValue, getSameStoreValueAtIndex(ytdIndex)) : 0;
+        })()
+      };
+      
+      // Build service line breakdown with trends and growth stats
+      const byServiceLine = Object.entries(serviceLineStats).map(([serviceLine, stats]) => {
+        const trend = months.map(m => stats.values[m] || 0);
+        const currentVal = stats.currentValue;
+        const valCount = trend.length;
+        
+        return {
+          serviceLine,
+          value: currentVal,
+          trend,
+          growthStats: {
+            t1: valCount >= 2 ? calculateGrowth(currentVal, trend[valCount - 2] || 0) : 0,
+            t3: valCount >= 4 ? calculateGrowth(currentVal, trend[valCount - 4] || 0) : 0,
+            t6: valCount >= 7 ? calculateGrowth(currentVal, trend[valCount - 7] || 0) : 0,
+            t12: valCount >= 12 ? calculateGrowth(currentVal, trend[0] || 0) : 0,
+            ytd: 0
+          }
+        };
+      }).sort((a, b) => b.value - a.value);
+      
+      // Build location breakdown (top 20 for pie chart)
+      const byLocation = Object.entries(locationStats)
+        .map(([location, value]) => ({ location, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 20);
+      
+      // Build room type breakdown
+      const byRoomType = Object.entries(roomTypeStats)
+        .map(([roomType, value]) => ({ roomType, value }))
+        .sort((a, b) => b.value - a.value);
+      
+      res.json({
+        tileType,
+        currentValue,
+        monthlyTrend,
+        growthStats,
+        byServiceLine,
+        byLocation,
+        byRoomType,
+        sameStore: {
+          currentValue: sameStoreCurrentValue,
+          growthStats: sameStoreGrowthStats
+        }
+      });
+      
+    } catch (error) {
+      console.error('Tile details error:', error);
+      res.status(500).json({ error: 'Failed to fetch tile details' });
+    }
+  });
 
   // Census Summary endpoint - provides database vs census view comparison
   app.get("/api/overview/census", async (req, res) => {

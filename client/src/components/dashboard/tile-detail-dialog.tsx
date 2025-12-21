@@ -1,0 +1,529 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TrendingUp, TrendingDown, Home, Users, DollarSign, ArrowRight, ChevronRight } from "lucide-react";
+import { 
+  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, 
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+} from "recharts";
+import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
+
+interface TileDetailDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tileType: 'units' | 'occupancy' | 'current-revenue' | 'potential-revenue';
+  tileTitle: string;
+}
+
+interface GrowthStats {
+  t1: number;
+  t3: number;
+  t6: number;
+  t12: number;
+  ytd: number;
+}
+
+interface ServiceLineData {
+  serviceLine: string;
+  value: number;
+  trend: number[];
+  growthStats: GrowthStats;
+}
+
+interface TileDetailsResponse {
+  tileType: string;
+  currentValue: number;
+  monthlyTrend: Array<{
+    month: string;
+    value: number;
+    byServiceLine: Record<string, number>;
+  }>;
+  growthStats: GrowthStats;
+  byServiceLine: ServiceLineData[];
+  byLocation: Array<{ location: string; value: number }>;
+  byRoomType: Array<{ roomType: string; value: number }>;
+  sameStore: {
+    currentValue: number;
+    growthStats: GrowthStats;
+  };
+}
+
+const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+
+const SERVICE_LINE_COLORS: Record<string, string> = {
+  'AL': '#0ea5e9',
+  'AL/MC': '#10b981',
+  'HC': '#f59e0b',
+  'HC/MC': '#8b5cf6',
+  'SL': '#ef4444',
+  'VIL': '#06b6d4',
+};
+
+export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: TileDetailDialogProps) {
+  const [drillLevel, setDrillLevel] = useState<'overview' | 'location' | 'serviceLine' | 'roomType'>('overview');
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
+  const [selectedServiceLine, setSelectedServiceLine] = useState<string | null>(null);
+
+  const { data, isLoading, error } = useQuery<TileDetailsResponse>({
+    queryKey: ['/api/tile-details', tileType],
+    enabled: open,
+  });
+
+  const formatValue = (value: number) => {
+    if (tileType === 'occupancy') {
+      return formatPercentage(value / 100, 1);
+    } else if (tileType === 'current-revenue' || tileType === 'potential-revenue') {
+      if (value >= 1000000000) {
+        return `$${(value / 1000000000).toFixed(2)}B`;
+      } else if (value >= 1000000) {
+        return `$${(value / 1000000).toFixed(1)}M`;
+      }
+      return formatCurrency(value);
+    }
+    return formatNumber(value);
+  };
+
+  const formatGrowth = (value: number) => {
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(1)}%`;
+  };
+
+  const GrowthBadge = ({ value }: { value: number }) => (
+    <Badge 
+      variant="outline" 
+      className={`${value >= 0 ? 'text-green-600 border-green-200 bg-green-50' : 'text-red-600 border-red-200 bg-red-50'} text-xs font-medium`}
+    >
+      {value >= 0 ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+      {formatGrowth(value)}
+    </Badge>
+  );
+
+  const GrowthStatsPanel = ({ stats, title }: { stats: GrowthStats; title: string }) => (
+    <Card className="bg-gray-50 dark:bg-gray-900">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-5 gap-2">
+          {[
+            { label: 'T1', value: stats.t1 },
+            { label: 'T3', value: stats.t3 },
+            { label: 'T6', value: stats.t6 },
+            { label: 'T12', value: stats.t12 },
+            { label: 'YTD', value: stats.ytd },
+          ].map(({ label, value }) => (
+            <div key={label} className="text-center p-2 bg-white dark:bg-gray-800 rounded-lg">
+              <p className="text-xs text-muted-foreground mb-1">{label}</p>
+              <p className={`text-sm font-bold ${value >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatGrowth(value)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const handleDrillDown = (type: 'location' | 'serviceLine' | 'roomType', value: string) => {
+    if (type === 'location') {
+      setSelectedLocation(value);
+      setDrillLevel('location');
+    } else if (type === 'serviceLine') {
+      setSelectedServiceLine(value);
+      setDrillLevel('serviceLine');
+    }
+  };
+
+  const resetDrill = () => {
+    setDrillLevel('overview');
+    setSelectedLocation(null);
+    setSelectedServiceLine(null);
+  };
+
+  if (!open) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            {tileType === 'units' && <Home className="w-5 h-5 text-blue-500" />}
+            {tileType === 'occupancy' && <Users className="w-5 h-5 text-emerald-500" />}
+            {(tileType === 'current-revenue' || tileType === 'potential-revenue') && <DollarSign className="w-5 h-5 text-amber-500" />}
+            {tileTitle} Details
+          </DialogTitle>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="space-y-4">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-48 w-full" />
+          </div>
+        ) : error ? (
+          <div className="text-center py-8 text-red-500">
+            Failed to load details. Please try again.
+          </div>
+        ) : data ? (
+          <div className="space-y-6">
+            {/* Breadcrumb for drill-down */}
+            {drillLevel !== 'overview' && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <button onClick={resetDrill} className="hover:text-blue-500" data-testid="breadcrumb-overview">
+                  Overview
+                </button>
+                <ChevronRight className="w-4 h-4" />
+                {selectedLocation && <span className="text-foreground">{selectedLocation}</span>}
+                {selectedServiceLine && <span className="text-foreground">{selectedServiceLine}</span>}
+              </div>
+            )}
+
+            {/* Header with current value and growth */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card className="lg:col-span-2">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Current Value</p>
+                      <p className="text-4xl font-bold" data-testid="tile-detail-current-value">
+                        {formatValue(data.currentValue)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground mb-2">12-Month Growth</p>
+                      <GrowthBadge value={data.growthStats.t12} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* Same Store Card */}
+              <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-purple-600 dark:text-purple-400">Same Store</p>
+                      <p className="text-2xl font-bold" data-testid="tile-detail-same-store-value">
+                        {formatValue(data.sameStore.currentValue)}
+                      </p>
+                    </div>
+                    <GrowthBadge value={data.sameStore.growthStats.t12} />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Growth Statistics Panel */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <GrowthStatsPanel stats={data.growthStats} title="Portfolio Growth" />
+              <GrowthStatsPanel stats={data.sameStore.growthStats} title="Same Store Growth" />
+            </div>
+
+            {/* Tabs for different views */}
+            <Tabs defaultValue="trend" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="trend" data-testid="tab-trend">Monthly Trend</TabsTrigger>
+                <TabsTrigger value="serviceLine" data-testid="tab-service-line">By Service Line</TabsTrigger>
+                <TabsTrigger value="location" data-testid="tab-location">By Location</TabsTrigger>
+                <TabsTrigger value="roomType" data-testid="tab-room-type">By Room Type</TabsTrigger>
+              </TabsList>
+
+              {/* Monthly Trend Tab */}
+              <TabsContent value="trend" className="mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">12-Month Trend</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={data.monthlyTrend}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis 
+                            dataKey="month" 
+                            tick={{ fontSize: 12 }}
+                            tickFormatter={(value) => {
+                              const [year, month] = value.split('-');
+                              return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1]} '${year.slice(2)}`;
+                            }}
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 12 }}
+                            tickFormatter={(value) => {
+                              if (tileType === 'occupancy') return `${value}%`;
+                              if (value >= 1000000000) return `$${(value/1000000000).toFixed(1)}B`;
+                              if (value >= 1000000) return `$${(value/1000000).toFixed(0)}M`;
+                              if (value >= 1000) return `${(value/1000).toFixed(0)}K`;
+                              return value;
+                            }}
+                          />
+                          <Tooltip 
+                            formatter={(value: number) => [formatValue(value), tileTitle]}
+                            labelFormatter={(label) => {
+                              const [year, month] = label.split('-');
+                              return `${['January','February','March','April','May','June','July','August','September','October','November','December'][parseInt(month)-1]} ${year}`;
+                            }}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="value" 
+                            stroke="#0ea5e9" 
+                            fill="#0ea5e9" 
+                            fillOpacity={0.2}
+                            strokeWidth={2}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Service Line Breakdown in Trend */}
+                <Card className="mt-4">
+                  <CardHeader>
+                    <CardTitle className="text-sm">By Service Line Over Time</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data.monthlyTrend}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis 
+                            dataKey="month" 
+                            tick={{ fontSize: 10 }}
+                            tickFormatter={(value) => {
+                              const [year, month] = value.split('-');
+                              return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1]}`;
+                            }}
+                          />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <Tooltip />
+                          <Legend />
+                          {data.byServiceLine.map((sl, idx) => (
+                            <Line 
+                              key={sl.serviceLine}
+                              type="monotone"
+                              dataKey={`byServiceLine.${sl.serviceLine}`}
+                              name={sl.serviceLine}
+                              stroke={SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[idx % COLORS.length]}
+                              strokeWidth={2}
+                              dot={false}
+                            />
+                          ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* By Service Line Tab */}
+              <TabsContent value="serviceLine" className="mt-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Pie Chart */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Distribution</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={data.byServiceLine}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={100}
+                              paddingAngle={2}
+                              dataKey="value"
+                              nameKey="serviceLine"
+                              onClick={(entry) => handleDrillDown('serviceLine', entry.serviceLine)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {data.byServiceLine.map((entry, index) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={SERVICE_LINE_COLORS[entry.serviceLine] || COLORS[index % COLORS.length]} 
+                                />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => formatValue(value)} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Service Line Table */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Growth by Service Line</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {data.byServiceLine.map((sl) => (
+                          <div 
+                            key={sl.serviceLine}
+                            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                            onClick={() => handleDrillDown('serviceLine', sl.serviceLine)}
+                            data-testid={`service-line-row-${sl.serviceLine}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div 
+                                className="w-3 h-3 rounded-full" 
+                                style={{ backgroundColor: SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[0] }}
+                              />
+                              <div>
+                                <p className="font-medium">{sl.serviceLine}</p>
+                                <p className="text-sm text-muted-foreground">{formatValue(sl.value)}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <GrowthBadge value={sl.growthStats.t12} />
+                              <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              {/* By Location Tab */}
+              <TabsContent value="location" className="mt-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Pie Chart */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Top 20 Locations</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-72">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={data.byLocation.slice(0, 20)}
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={100}
+                              dataKey="value"
+                              nameKey="location"
+                              onClick={(entry) => handleDrillDown('location', entry.location)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {data.byLocation.slice(0, 20).map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => formatValue(value)} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Location List */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">All Locations</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {data.byLocation.map((loc, idx) => (
+                          <div 
+                            key={loc.location}
+                            className="flex items-center justify-between p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer"
+                            onClick={() => handleDrillDown('location', loc.location)}
+                            data-testid={`location-row-${idx}`}
+                          >
+                            <span className="text-sm truncate max-w-[200px]">{loc.location}</span>
+                            <span className="text-sm font-medium">{formatValue(loc.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              {/* By Room Type Tab */}
+              <TabsContent value="roomType" className="mt-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Pie Chart */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Distribution by Room Type</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={data.byRoomType}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={50}
+                              outerRadius={90}
+                              paddingAngle={3}
+                              dataKey="value"
+                              nameKey="roomType"
+                            >
+                              {data.byRoomType.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value: number) => formatValue(value)} />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Room Type Details */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Room Type Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {data.byRoomType.map((rt, idx) => {
+                          const total = data.byRoomType.reduce((sum, r) => sum + r.value, 0);
+                          const percentage = total > 0 ? (rt.value / total * 100) : 0;
+                          return (
+                            <div key={rt.roomType} className="space-y-1">
+                              <div className="flex justify-between text-sm">
+                                <span>{rt.roomType}</span>
+                                <span className="font-medium">{formatValue(rt.value)} ({percentage.toFixed(1)}%)</span>
+                              </div>
+                              <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full rounded-full transition-all"
+                                  style={{ 
+                                    width: `${percentage}%`,
+                                    backgroundColor: COLORS[idx % COLORS.length]
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
