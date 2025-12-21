@@ -151,6 +151,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   marketingSource: text("marketing_source"), // How resident found the facility
   inquiryCount: integer("inquiry_count").default(0), // Number of inquiries for this unit in trailing 30 days
   tourCount: integer("tour_count").default(0), // Number of tours for this unit in trailing 30 days
+  sameStore: boolean("same_store").default(true), // Same Store comparison flag - true if location existed in prior year
   createdAt: timestamp("created_at").defaultNow(),
 });
 
