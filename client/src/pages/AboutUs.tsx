@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Linkedin, FileText, Building2, ArrowLeft } from "lucide-react";
+import { Linkedin, FileText, Building2, ArrowLeft, BookOpen } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function AboutUs() {
@@ -76,7 +76,7 @@ export default function AboutUs() {
             <p>
               Our mission: help senior housing communities optimize revenue while maintaining high occupancy and delivering exceptional value to residents. Just as the modulo function captures every part of a calculation, we ensure every part of your revenue cycle is optimized—so you don't leave money on the table.
             </p>
-            <div className="pt-4">
+            <div className="pt-4 flex flex-wrap gap-3">
               <Button
                 onClick={() => window.open('/attached_assets/Revenue Mgmt Capabilities - Modulo_1756829257557.pptx', '_blank')}
                 className="bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
@@ -84,6 +84,15 @@ export default function AboutUs() {
               >
                 <FileText className="mr-2 h-4 w-4" />
                 View Our Presentation
+              </Button>
+              <Button
+                onClick={() => setLocation('/pricing-algorithm')}
+                variant="outline"
+                className="border-[var(--trilogy-dark-blue)] text-[var(--trilogy-dark-blue)] hover:bg-[var(--trilogy-dark-blue)]/10"
+                data-testid="button-algorithm-docs"
+              >
+                <BookOpen className="mr-2 h-4 w-4" />
+                Pricing Algorithm Documentation
               </Button>
             </div>
           </CardContent>
