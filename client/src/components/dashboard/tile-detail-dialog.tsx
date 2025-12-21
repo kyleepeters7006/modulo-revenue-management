@@ -52,15 +52,21 @@ interface TileDetailsResponse {
   };
 }
 
-const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+// Trilogy brand-aligned colors
+const TRILOGY_TEAL = 'hsl(180, 65%, 45%)';
+const TRILOGY_TEAL_LIGHT = 'hsl(180, 60%, 60%)';
+const TRILOGY_TURQUOISE = 'hsl(175, 70%, 50%)';
+const TRILOGY_DARK_BLUE = 'hsl(210, 45%, 25%)';
+
+const COLORS = [TRILOGY_TEAL, TRILOGY_TURQUOISE, '#f97316', TRILOGY_DARK_BLUE, '#10b981', '#8b5cf6', '#ec4899', '#84cc16'];
 
 const SERVICE_LINE_COLORS: Record<string, string> = {
-  'AL': '#0ea5e9',
-  'AL/MC': '#10b981',
-  'HC': '#f59e0b',
-  'HC/MC': '#8b5cf6',
-  'SL': '#ef4444',
-  'VIL': '#06b6d4',
+  'AL': TRILOGY_TEAL,
+  'AL/MC': TRILOGY_TURQUOISE,
+  'HC': '#f97316',  // Orange for HC to distinguish from teal
+  'HC/MC': TRILOGY_DARK_BLUE,
+  'SL': '#10b981',  // Emerald for SL
+  'VIL': '#8b5cf6', // Purple for VIL
 };
 
 export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: TileDetailDialogProps) {
@@ -95,7 +101,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
   const GrowthBadge = ({ value }: { value: number }) => (
     <Badge 
       variant="outline" 
-      className={`${value >= 0 ? 'text-green-600 border-green-200 bg-green-50' : 'text-red-600 border-red-200 bg-red-50'} text-xs font-medium`}
+      className={`${value >= 0 ? 'text-[var(--trilogy-success)] border-[var(--trilogy-success)]/20 bg-[var(--trilogy-success)]/10' : 'text-[var(--trilogy-error)] border-[var(--trilogy-error)]/20 bg-[var(--trilogy-error)]/10'} text-xs font-medium`}
     >
       {value >= 0 ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
       {formatGrowth(value)}
@@ -103,9 +109,9 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
   );
 
   const GrowthStatsPanel = ({ stats, title }: { stats: GrowthStats; title: string }) => (
-    <Card className="bg-gray-50 dark:bg-gray-900">
+    <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium text-[var(--dashboard-text)]">{title}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-5 gap-2">
@@ -116,9 +122,9 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             { label: 'T12', value: stats.t12 },
             { label: 'YTD', value: stats.ytd },
           ].map(({ label, value }) => (
-            <div key={label} className="text-center p-2 bg-white dark:bg-gray-800 rounded-lg">
-              <p className="text-xs text-muted-foreground mb-1">{label}</p>
-              <p className={`text-sm font-bold ${value >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <div key={label} className="text-center p-2 bg-[var(--dashboard-background)] border border-[var(--dashboard-border)] rounded-lg">
+              <p className="text-xs text-[var(--dashboard-muted)] mb-1">{label}</p>
+              <p className={`text-sm font-bold ${value >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                 {formatGrowth(value)}
               </p>
             </div>
@@ -241,18 +247,28 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                   <CardContent>
                     <div className="h-80">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data.monthlyTrend}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <AreaChart data={data.monthlyTrend} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                          <CartesianGrid 
+                            strokeDasharray="3 3" 
+                            stroke="var(--dashboard-border)" 
+                            strokeOpacity={0.3} 
+                          />
                           <XAxis 
                             dataKey="month" 
-                            tick={{ fontSize: 12 }}
+                            stroke="var(--dashboard-muted)"
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
                             tickFormatter={(value) => {
                               const [year, month] = value.split('-');
                               return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1]} '${year.slice(2)}`;
                             }}
                           />
                           <YAxis 
-                            tick={{ fontSize: 12 }}
+                            stroke="var(--dashboard-muted)"
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
                             tickFormatter={(value) => {
                               if (tileType === 'occupancy') return `${value}%`;
                               if (value >= 1000000000) return `$${(value/1000000000).toFixed(1)}B`;
@@ -267,14 +283,26 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                               const [year, month] = label.split('-');
                               return `${['January','February','March','April','May','June','July','August','September','October','November','December'][parseInt(month)-1]} ${year}`;
                             }}
+                            contentStyle={{
+                              backgroundColor: 'var(--dashboard-surface)',
+                              border: '1px solid var(--dashboard-border)',
+                              borderRadius: '8px',
+                              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                            }}
                           />
                           <Area 
                             type="monotone" 
                             dataKey="value" 
-                            stroke="#0ea5e9" 
-                            fill="#0ea5e9" 
+                            stroke={TRILOGY_TEAL}
+                            fill={TRILOGY_TEAL}
                             fillOpacity={0.2}
                             strokeWidth={2}
+                            activeDot={{ 
+                              r: 6, 
+                              fill: TRILOGY_TEAL, 
+                              stroke: '#ffffff', 
+                              strokeWidth: 2 
+                            }}
                           />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -290,19 +318,40 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                   <CardContent>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data.monthlyTrend}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <LineChart data={data.monthlyTrend} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                          <CartesianGrid 
+                            strokeDasharray="3 3" 
+                            stroke="var(--dashboard-border)" 
+                            strokeOpacity={0.3}
+                          />
                           <XAxis 
                             dataKey="month" 
-                            tick={{ fontSize: 10 }}
+                            stroke="var(--dashboard-muted)"
+                            fontSize={10}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
                             tickFormatter={(value) => {
                               const [year, month] = value.split('-');
                               return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1]}`;
                             }}
                           />
-                          <YAxis tick={{ fontSize: 10 }} />
-                          <Tooltip />
-                          <Legend />
+                          <YAxis 
+                            stroke="var(--dashboard-muted)"
+                            fontSize={10}
+                            tickLine={false}
+                            axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
+                          />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: 'var(--dashboard-surface)',
+                              border: '1px solid var(--dashboard-border)',
+                              borderRadius: '8px',
+                              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                            }}
+                          />
+                          <Legend 
+                            wrapperStyle={{ paddingTop: '10px' }}
+                          />
                           {data.byServiceLine.map((sl, idx) => (
                             <Line 
                               key={sl.serviceLine}
@@ -312,6 +361,12 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                               stroke={SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[idx % COLORS.length]}
                               strokeWidth={2}
                               dot={false}
+                              activeDot={{ 
+                                r: 5, 
+                                fill: SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[idx % COLORS.length], 
+                                stroke: '#ffffff', 
+                                strokeWidth: 2 
+                              }}
                             />
                           ))}
                         </LineChart>
@@ -352,8 +407,16 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                                 />
                               ))}
                             </Pie>
-                            <Tooltip formatter={(value: number) => formatValue(value)} />
-                            <Legend />
+                            <Tooltip 
+                              formatter={(value: number) => formatValue(value)} 
+                              contentStyle={{
+                                backgroundColor: 'var(--dashboard-surface)',
+                                border: '1px solid var(--dashboard-border)',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                              }}
+                            />
+                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
@@ -370,7 +433,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                         {data.byServiceLine.map((sl) => (
                           <div 
                             key={sl.serviceLine}
-                            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                            className="flex items-center justify-between p-3 bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-lg hover:border-[var(--trilogy-teal)]/30 cursor-pointer transition-colors"
                             onClick={() => handleDrillDown('serviceLine', sl.serviceLine)}
                             data-testid={`service-line-row-${sl.serviceLine}`}
                           >
@@ -380,13 +443,13 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                                 style={{ backgroundColor: SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[0] }}
                               />
                               <div>
-                                <p className="font-medium">{sl.serviceLine}</p>
-                                <p className="text-sm text-muted-foreground">{formatValue(sl.value)}</p>
+                                <p className="font-medium text-[var(--dashboard-text)]">{sl.serviceLine}</p>
+                                <p className="text-sm text-[var(--dashboard-muted)]">{formatValue(sl.value)}</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <GrowthBadge value={sl.growthStats.t12} />
-                              <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                              <ArrowRight className="w-4 h-4 text-[var(--dashboard-muted)]" />
                             </div>
                           </div>
                         ))}
@@ -422,7 +485,15 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                               ))}
                             </Pie>
-                            <Tooltip formatter={(value: number) => formatValue(value)} />
+                            <Tooltip 
+                              formatter={(value: number) => formatValue(value)} 
+                              contentStyle={{
+                                backgroundColor: 'var(--dashboard-surface)',
+                                border: '1px solid var(--dashboard-border)',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                              }}
+                            />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
@@ -439,12 +510,12 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                         {data.byLocation.map((loc, idx) => (
                           <div 
                             key={loc.location}
-                            className="flex items-center justify-between p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer"
+                            className="flex items-center justify-between p-2 hover:bg-[var(--trilogy-teal)]/5 border border-transparent hover:border-[var(--trilogy-teal)]/20 rounded cursor-pointer transition-colors"
                             onClick={() => handleDrillDown('location', loc.location)}
                             data-testid={`location-row-${idx}`}
                           >
-                            <span className="text-sm truncate max-w-[200px]">{loc.location}</span>
-                            <span className="text-sm font-medium">{formatValue(loc.value)}</span>
+                            <span className="text-sm text-[var(--dashboard-text)] truncate max-w-[200px]">{loc.location}</span>
+                            <span className="text-sm font-medium text-[var(--dashboard-text)]">{formatValue(loc.value)}</span>
                           </div>
                         ))}
                       </div>
@@ -479,8 +550,16 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                               ))}
                             </Pie>
-                            <Tooltip formatter={(value: number) => formatValue(value)} />
-                            <Legend />
+                            <Tooltip 
+                              formatter={(value: number) => formatValue(value)} 
+                              contentStyle={{
+                                backgroundColor: 'var(--dashboard-surface)',
+                                border: '1px solid var(--dashboard-border)',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                              }}
+                            />
+                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
