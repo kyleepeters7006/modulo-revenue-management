@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Calculator, TrendingUp, TrendingDown, Shield, Info, ChevronRight, Sparkles } from "lucide-react";
+import { Calculator, TrendingUp, TrendingDown, Shield, Info, ChevronRight, Sparkles, Target } from "lucide-react";
 
 interface AICalculationDialogProps {
   open: boolean;
@@ -208,6 +208,116 @@ export default function AICalculationDialog({
                   </div>
                   <div className="mt-3 text-xs text-muted-foreground text-center">
                     Total Weight: 100%
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Revenue Target Strategy - shows how targets influence AI pricing */}
+            {calcDetails.revenueTarget && (
+              <Card className="border-purple-200 dark:border-purple-800">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Target className="h-4 w-4 text-purple-500" />
+                    Revenue Target Strategy
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {calcDetails.revenueTarget.status === 'no_target' ? (
+                      <div className="text-sm text-muted-foreground text-center py-2">
+                        No revenue growth target set for this location/service line
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="bg-purple-50 dark:bg-purple-950/20 rounded-md p-3 text-center">
+                            <p className="text-xs text-muted-foreground">Target Growth</p>
+                            <p className="text-lg font-bold text-purple-600" data-testid="revenue-target-growth">
+                              {calcDetails.revenueTarget.targetGrowthPercent?.toFixed(1) || '—'}%
+                            </p>
+                          </div>
+                          <div className="bg-purple-50 dark:bg-purple-950/20 rounded-md p-3 text-center">
+                            <p className="text-xs text-muted-foreground">Actual YOY</p>
+                            <p className={`text-lg font-bold ${
+                              (calcDetails.revenueTarget.actualYOYGrowth || 0) >= 0 
+                                ? 'text-green-600' 
+                                : 'text-red-600'
+                            }`} data-testid="revenue-actual-yoy">
+                              {calcDetails.revenueTarget.actualYOYGrowth !== undefined 
+                                ? `${calcDetails.revenueTarget.actualYOYGrowth >= 0 ? '+' : ''}${calcDetails.revenueTarget.actualYOYGrowth.toFixed(1)}%`
+                                : '—'}
+                            </p>
+                          </div>
+                          <div className="bg-purple-50 dark:bg-purple-950/20 rounded-md p-3 text-center">
+                            <p className="text-xs text-muted-foreground">Gap</p>
+                            <p className={`text-lg font-bold flex items-center justify-center gap-1 ${
+                              (calcDetails.revenueTarget.gap || 0) >= 0 
+                                ? 'text-green-600' 
+                                : 'text-amber-600'
+                            }`} data-testid="revenue-target-gap">
+                              {calcDetails.revenueTarget.gap !== undefined 
+                                ? `${calcDetails.revenueTarget.gap >= 0 ? '+' : ''}${calcDetails.revenueTarget.gap.toFixed(1)}%`
+                                : '—'}
+                              {calcDetails.revenueTarget.gap !== undefined && (
+                                calcDetails.revenueTarget.gap >= 0 
+                                  ? <TrendingUp className="h-4 w-4" />
+                                  : <TrendingDown className="h-4 w-4" />
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Status Badge and Explanation */}
+                        <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900/50 rounded-md p-3">
+                          <div className="flex items-center gap-2">
+                            <Badge 
+                              variant={calcDetails.revenueTarget.gap >= 0 ? "default" : "secondary"}
+                              className={
+                                calcDetails.revenueTarget.status === 'exceeding' 
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+                                  : calcDetails.revenueTarget.status === 'on_target'
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100'
+                                  : calcDetails.revenueTarget.status === 'slightly_behind'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100'
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                              }
+                              data-testid="revenue-target-status"
+                            >
+                              {calcDetails.revenueTarget.status === 'exceeding' && 'Exceeding Target'}
+                              {calcDetails.revenueTarget.status === 'on_target' && 'On Target'}
+                              {calcDetails.revenueTarget.status === 'slightly_behind' && 'Slightly Behind'}
+                              {calcDetails.revenueTarget.status === 'significantly_behind' && 'Significantly Behind'}
+                            </Badge>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">
+                              {calcDetails.revenueTarget.gap >= 0 ? 'Premium Allowance' : 'Pricing Pressure'}
+                            </p>
+                            <p className={`text-sm font-bold ${
+                              calcDetails.revenueTarget.gap >= 0
+                                ? 'text-blue-600' 
+                                : 'text-amber-600'
+                            }`}>
+                              {calcDetails.revenueTarget.adjustmentApplied !== undefined 
+                                ? `+${(calcDetails.revenueTarget.adjustmentApplied * 100).toFixed(2)}%`
+                                : '0%'}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Strategy Explanation */}
+                        <div className="border-l-2 border-purple-500/30 pl-3">
+                          <p className="text-xs text-muted-foreground">
+                            {calcDetails.revenueTarget.gap >= 0 
+                              ? 'Ahead of target — allowing slight premium positioning. Revenue targets only apply upward adjustments to protect and grow revenue.'
+                              : calcDetails.revenueTarget.gap >= -5
+                              ? 'Slightly behind target — applying moderate upward pricing pressure to close the revenue gap.'
+                              : 'Significantly behind target — applying stronger pricing pressure to accelerate revenue growth toward target.'}
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>

@@ -5833,13 +5833,18 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       }
       console.log(`[AI Pricing] Pre-computed revenue performance for ${revenuePerformanceCache.size} location/serviceLine combinations`);
       
-      // Helper function for O(1) revenue gap lookup
-      const getRevenueGap = (locationName: string, sl: string): { gap: number | undefined; target: number | undefined } => {
+      // Helper function for O(1) revenue gap lookup - returns full revenue target info for calculation display
+      const getRevenueGap = (locationName: string, sl: string): { 
+        gap: number | undefined; 
+        target: number | undefined;
+        actualYOY: number | undefined;
+        adjustmentApplied: number | undefined;
+      } => {
         const cacheKey = `${locationName}|${sl}`;
         const performance = revenuePerformanceCache.get(cacheKey);
         
         if (!performance) {
-          return { gap: undefined, target: undefined };
+          return { gap: undefined, target: undefined, actualYOY: undefined, adjustmentApplied: undefined };
         }
         
         const locationId = locationIdMap.get(locationName);
@@ -5848,11 +5853,29 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         );
         
         if (!target) {
-          return { gap: undefined, target: undefined };
+          return { gap: undefined, target: undefined, actualYOY: performance.yoyGrowth, adjustmentApplied: undefined };
         }
         
         const gap = performance.yoyGrowth - target.targetGrowthPercent;
-        return { gap, target: target.targetGrowthPercent };
+        
+        // Calculate the adjustment that will be applied (matches signalRevenueGrowthTarget logic)
+        let adjustmentApplied = 0;
+        if (gap >= 0) {
+          // Ahead of target - slight positive signal (max 0.2)
+          const signal = Math.min(0.2, gap / 10);
+          adjustmentApplied = signal * 0.05; // cfg.revenueGrowthSpan = 0.05 (5%)
+        } else {
+          // Behind target - upward pricing pressure
+          const signal = Math.min(1.0, Math.abs(gap) / 10);
+          adjustmentApplied = signal * 0.05;
+        }
+        
+        return { 
+          gap, 
+          target: target.targetGrowthPercent, 
+          actualYOY: performance.yoyGrowth,
+          adjustmentApplied 
+        };
       };
       
       console.log(`[AI Pricing] Loaded ${revenueGrowthTargets.length} revenue growth targets`);
@@ -5956,7 +5979,17 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
           guardrailsApplied: orchestratorResult.guardrailsApplied,
-          poweredByGPT5: true
+          poweredByGPT5: true,
+          // Revenue Target Strategy - shows how targets influence pricing
+          revenueTarget: {
+            targetGrowthPercent: revenueGapData.target,
+            actualYOYGrowth: revenueGapData.actualYOY,
+            gap: revenueGapData.gap,
+            adjustmentApplied: revenueGapData.adjustmentApplied,
+            status: revenueGapData.gap !== undefined 
+              ? (revenueGapData.gap >= 0 ? 'exceeding' : (revenueGapData.gap >= -2 ? 'on_target' : (revenueGapData.gap >= -5 ? 'slightly_behind' : 'significantly_behind')))
+              : 'no_target'
+          }
         };
         
         return {
@@ -6135,11 +6168,40 @@ GAP ANALYSIS (Target vs Actual):
 - Gap: ${gapAnalysis.yoyGap >= 0 ? '+' : ''}${gapAnalysis.yoyGap.toFixed(1)}% (${gapAnalysis.onTrack ? 'ON TRACK or EXCEEDING' : 'BEHIND TARGET'})
 - Performance Status: ${gapAnalysis.gapSeverity.replace('_', ' ').toUpperCase()}
 
-PRICING STRATEGY GUIDANCE based on gap analysis:
-${gapAnalysis.gapSeverity === 'significantly_behind' ? `- AGGRESSIVE: Actual growth is significantly behind target. Recommend higher occupancy pressure weights, tighter max decrease guardrails, more aggressive vacancy discounts to fill units faster while protecting revenue.` :
-  gapAnalysis.gapSeverity === 'slightly_behind' ? `- MODERATE URGENCY: Actual growth is slightly behind target. Recommend balanced adjustments with slight bias toward competitive pricing and vacancy urgency.` :
-  gapAnalysis.gapSeverity === 'on_target' ? `- BALANCED: Actual growth is close to target. Recommend maintaining current strategy with balanced weights.` :
-  `- PREMIUM POSITIONING: Actual growth exceeds target. Recommend focusing on premium attributes, allow more flexibility in rate increases, and optimize for rate over occupancy.`}
+PRICING STRATEGY GUIDANCE based on gap analysis and occupancy:
+${(() => {
+  const isHighOccupancy = occupancyRate >= 90;
+  const isMediumOccupancy = occupancyRate >= 75 && occupancyRate < 90;
+  const isLowOccupancy = occupancyRate < 75;
+  
+  if (gapAnalysis.gapSeverity === 'significantly_behind') {
+    if (isLowOccupancy) {
+      return `- VOLUME FIRST STRATEGY: Behind target with LOW occupancy (${occupancyRate.toFixed(1)}%). Prioritize FILLING UNITS over rate increases. Match or slightly undercut competitor rates to accelerate move-ins. Revenue grows faster by filling units first, then raising rates once occupancy reaches 85%+. Higher vacancy decay weight, lower competitor resistance.`;
+    } else if (isMediumOccupancy) {
+      return `- BALANCED URGENCY: Behind target with MODERATE occupancy (${occupancyRate.toFixed(1)}%). Mix strategy: discount long-vacant units while maintaining rates on desirable units. Target filling the 30+ day vacancies aggressively while holding premium rates on newer vacancies.`;
+    } else {
+      return `- RATE INCREASE STRATEGY: Behind target but HIGH occupancy (${occupancyRate.toFixed(1)}%). You have pricing power - increase rates to grow revenue. Focus on premium positioning and attribute-based premiums. Reduce discounting since demand is strong.`;
+    }
+  } else if (gapAnalysis.gapSeverity === 'slightly_behind') {
+    if (isLowOccupancy) {
+      return `- COMPETITIVE MATCHING: Slightly behind target with occupancy at ${occupancyRate.toFixed(1)}%. Consider matching new competitor rates to protect market share. Fill units first, then gradually increase rates. Modest vacancy discounts.`;
+    } else if (isMediumOccupancy) {
+      return `- MODERATE URGENCY: Slightly behind target at ${occupancyRate.toFixed(1)}% occupancy. Balanced adjustments with slight bias toward competitive pricing and vacancy urgency.`;
+    } else {
+      return `- PREMIUM PUSH: Slightly behind but at ${occupancyRate.toFixed(1)}% occupancy. You can afford to raise rates modestly. Focus on attribute premiums and slight rate increases.`;
+    }
+  } else if (gapAnalysis.gapSeverity === 'on_target') {
+    return `- BALANCED: On target at ${occupancyRate.toFixed(1)}% occupancy. Maintain current strategy with balanced weights. Monitor competitor moves.`;
+  } else {
+    return `- PREMIUM POSITIONING: Exceeding target at ${occupancyRate.toFixed(1)}% occupancy. Focus on premium attributes, allow more flexibility in rate increases, and optimize for rate over occupancy.`;
+  }
+})()}
+
+OCCUPANCY-RATE TRADEOFF PRINCIPLES:
+- Low occupancy (<75%): Volume before rate. Filling units generates more total revenue than maximizing rate per unit.
+- Medium occupancy (75-90%): Balance discounting long vacancies with maintaining rates on desirable units.
+- High occupancy (>90%): You have pricing power. Focus on rate increases and premium positioning.
+- New competitors: Consider matching their rates to protect occupancy, then grow revenue once stabilized.
 ` : `
 REVENUE PERFORMANCE ANALYSIS:
 - No historical data available for YOY/MOM comparison. Use default growth assumptions.
@@ -6810,14 +6872,18 @@ Current Adjustment Ranges (as decimals, e.g., 0.10 = 10%):
 - Seasonality: ${currentAdjustmentRanges?.seasonalityMin || -0.05} to ${currentAdjustmentRanges?.seasonalityMax || 0.08}
 - Competitor: ${currentAdjustmentRanges?.competitorMin || -0.08} to ${currentAdjustmentRanges?.competitorMax || 0.08}
 
-Based on the targets and portfolio data, suggest optimal settings to achieve the revenue growth targets. Consider:
-1. High occupancy (>90%) = opportunity to push rates more aggressively
-2. Low occupancy (<85%) = need conservative pricing to drive volume
-3. High sales velocity = can increase rates without losing move-ins
-4. Low sales velocity = focus on competitive pricing
-5. Long vacancy times = need aggressive decay to fill units faster
-6. Seasonal patterns (spring/fall typically higher demand in senior living)
-7. Rate position vs competitors - if already premium, may need moderation
+OCCUPANCY-RATE TRADEOFF PRINCIPLES (Critical for strategy selection):
+- Low occupancy (<75%): VOLUME BEFORE RATE. Filling units generates more total revenue than maximizing rate per unit. Match or slightly undercut competitor rates to accelerate move-ins. Revenue grows faster by filling units first.
+- Medium occupancy (75-90%): BALANCED APPROACH. Discount long-vacant units (30+ days) aggressively while maintaining rates on desirable, newly vacant units. Mix of volume and rate optimization.
+- High occupancy (>90%): RATE INCREASE OPPORTUNITY. You have pricing power - focus on rate increases and premium positioning. Reduce discounting since demand supports current pricing.
+- New competitor entry: Consider matching their rates initially to protect occupancy and market share, then grow revenue once position is stabilized.
+
+Based on the targets and portfolio data, suggest optimal settings to achieve the revenue growth targets. Additional considerations:
+1. High sales velocity = can increase rates without losing move-ins
+2. Low sales velocity = focus on competitive pricing
+3. Long vacancy times = need aggressive decay to fill units faster
+4. Seasonal patterns (spring/fall typically higher demand in senior living)
+5. Rate position vs competitors - if already premium, may need moderation
 
 Respond with ONLY a JSON object in this exact format:
 {
