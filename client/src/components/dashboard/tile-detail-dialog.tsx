@@ -433,7 +433,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       <CardTitle className="text-sm">Growth by Service Line</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                      <div className="space-y-3">
                         {data.byServiceLine.map((sl) => (
                           <div 
                             key={sl.serviceLine}
