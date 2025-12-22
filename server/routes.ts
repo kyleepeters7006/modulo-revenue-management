@@ -5138,6 +5138,164 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         .map(([roomType, value]) => ({ roomType, value }))
         .sort((a, b) => b.value - a.value);
       
+      // For revenue tiles, also calculate rate growth metrics
+      let rateMetrics = null;
+      if (tileType === 'current-revenue' || tileType === 'potential-revenue') {
+        // Query for rate sums by service line and month (not pre-averaged)
+        const rateQuery = await db
+          .select({
+            month: rentRollData.uploadMonth,
+            serviceLine: rentRollData.serviceLine,
+            sameStore: rentRollData.sameStore,
+            totalRate: sql<number>`SUM(
+              CASE 
+                WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                  COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 30
+                ELSE 
+                  COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0)
+              END
+            )`,
+            unitCount: sql<number>`COUNT(*)::int`,
+          })
+          .from(rentRollData)
+          .where(and(
+            inArray(rentRollData.uploadMonth, months),
+            tileType === 'current-revenue' ? eq(rentRollData.occupiedYN, true) : sql`TRUE`
+          ))
+          .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.sameStore);
+        
+        // Process rate data - accumulate sum of rates and counts
+        const rateByMonth: Record<string, { totalRate: number; count: number; byServiceLine: Record<string, { totalRate: number; count: number }> }> = {};
+        const sameStoreRateByMonth: Record<string, { totalRate: number; count: number; byServiceLine: Record<string, { totalRate: number; count: number }> }> = {};
+        
+        for (const month of months) {
+          rateByMonth[month] = { totalRate: 0, count: 0, byServiceLine: {} };
+          sameStoreRateByMonth[month] = { totalRate: 0, count: 0, byServiceLine: {} };
+        }
+        
+        for (const row of rateQuery) {
+          const month = row.month;
+          const sl = row.serviceLine;
+          const totalRate = row.totalRate || 0;
+          const count = row.unitCount || 0;
+          
+          if (!rateByMonth[month]) continue;
+          
+          // Accumulate sum of rates and count (not multiplying avgRate by count)
+          rateByMonth[month].totalRate += totalRate;
+          rateByMonth[month].count += count;
+          
+          if (!rateByMonth[month].byServiceLine[sl]) {
+            rateByMonth[month].byServiceLine[sl] = { totalRate: 0, count: 0 };
+          }
+          rateByMonth[month].byServiceLine[sl].totalRate += totalRate;
+          rateByMonth[month].byServiceLine[sl].count += count;
+          
+          if (row.sameStore) {
+            sameStoreRateByMonth[month].totalRate += totalRate;
+            sameStoreRateByMonth[month].count += count;
+            
+            if (!sameStoreRateByMonth[month].byServiceLine[sl]) {
+              sameStoreRateByMonth[month].byServiceLine[sl] = { totalRate: 0, count: 0 };
+            }
+            sameStoreRateByMonth[month].byServiceLine[sl].totalRate += totalRate;
+            sameStoreRateByMonth[month].byServiceLine[sl].count += count;
+          }
+        }
+        
+        // Build rate trend (average = sum / count)
+        const rateMonthlyTrend = months.map(month => {
+          const data = rateByMonth[month];
+          const avgRate = data.count > 0 ? Math.round(data.totalRate / data.count) : 0;
+          const byServiceLine: Record<string, number> = {};
+          
+          for (const [sl, slData] of Object.entries(data.byServiceLine)) {
+            byServiceLine[sl] = slData.count > 0 ? Math.round(slData.totalRate / slData.count) : 0;
+          }
+          
+          return { month, value: avgRate, byServiceLine };
+        });
+        
+        // Calculate rate growth stats
+        const currentRate = rateMonthlyTrend[rateMonthlyTrend.length - 1]?.value || 0;
+        const getRateAtIndex = (idx: number) => rateMonthlyTrend[idx]?.value || 0;
+        
+        const rateGrowthStats = {
+          t1: monthCount >= 2 ? calculateGrowth(currentRate, getRateAtIndex(monthCount - 2)) : 0,
+          t3: monthCount >= 4 ? calculateGrowth(currentRate, getRateAtIndex(monthCount - 4)) : 0,
+          t6: monthCount >= 7 ? calculateGrowth(currentRate, getRateAtIndex(monthCount - 7)) : 0,
+          t12: monthCount >= 12 ? calculateGrowth(currentRate, getRateAtIndex(0)) : 0,
+          ytd: (() => {
+            const ytdIndex = rateMonthlyTrend.findIndex(m => m.month >= ytdStartMonth);
+            return ytdIndex >= 0 ? calculateGrowth(currentRate, getRateAtIndex(ytdIndex)) : 0;
+          })()
+        };
+        
+        // Same store rate stats
+        const sameStoreRateValues = months.map(m => {
+          const data = sameStoreRateByMonth[m];
+          return data.count > 0 ? Math.round(data.totalRate / data.count) : 0;
+        });
+        const sameStoreCurrentRate = sameStoreRateValues[sameStoreRateValues.length - 1] || 0;
+        const getSameStoreRateAtIndex = (idx: number) => sameStoreRateValues[idx] || 0;
+        
+        const sameStoreRateGrowthStats = {
+          t1: monthCount >= 2 ? calculateGrowth(sameStoreCurrentRate, getSameStoreRateAtIndex(monthCount - 2)) : 0,
+          t3: monthCount >= 4 ? calculateGrowth(sameStoreCurrentRate, getSameStoreRateAtIndex(monthCount - 4)) : 0,
+          t6: monthCount >= 7 ? calculateGrowth(sameStoreCurrentRate, getSameStoreRateAtIndex(monthCount - 7)) : 0,
+          t12: monthCount >= 12 ? calculateGrowth(sameStoreCurrentRate, getSameStoreRateAtIndex(0)) : 0,
+          ytd: (() => {
+            const ytdIndex = months.findIndex(m => m >= ytdStartMonth);
+            return ytdIndex >= 0 ? calculateGrowth(sameStoreCurrentRate, getSameStoreRateAtIndex(ytdIndex)) : 0;
+          })()
+        };
+        
+        // Build service line rate breakdown with full ServiceLineData structure including trend
+        const serviceLines = [...new Set(rateQuery.map(r => r.serviceLine))];
+        const rateByServiceLine: Array<{ serviceLine: string; value: number; trend: number[]; growthStats: { t1: number; t3: number; t6: number; t12: number; ytd: number } }> = [];
+        
+        for (const sl of serviceLines) {
+          const slRates = months.map(m => {
+            const data = rateByMonth[m].byServiceLine[sl];
+            return data && data.count > 0 ? Math.round(data.totalRate / data.count) : 0;
+          });
+          const slCurrentRate = slRates[slRates.length - 1] || 0;
+          const getSlRateAtIndex = (idx: number) => slRates[idx] || 0;
+          
+          rateByServiceLine.push({
+            serviceLine: sl,
+            value: slCurrentRate,
+            trend: slRates,
+            growthStats: {
+              t1: slRates.length >= 2 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 2)) : 0,
+              t3: slRates.length >= 4 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 4)) : 0,
+              t6: slRates.length >= 7 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 7)) : 0,
+              t12: slRates.length >= 12 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(0)) : 0,
+              ytd: 0
+            }
+          });
+        }
+        
+        rateMetrics = {
+          currentValue: currentRate,
+          monthlyTrend: rateMonthlyTrend,
+          growthStats: rateGrowthStats,
+          byServiceLine: rateByServiceLine.sort((a, b) => b.value - a.value),
+          sameStore: {
+            currentValue: sameStoreCurrentRate,
+            growthStats: sameStoreRateGrowthStats
+          }
+        };
+      }
+      
+      // Build service line growth breakdown for portfolio and same store panels
+      const serviceLineGrowthBreakdown = byServiceLine.map(sl => ({
+        serviceLine: sl.serviceLine,
+        value: sl.value,
+        t1: sl.growthStats.t1,
+        t12: sl.growthStats.t12
+      }));
+      
       res.json({
         tileType,
         currentValue,
@@ -5149,7 +5307,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         sameStore: {
           currentValue: sameStoreCurrentValue,
           growthStats: sameStoreGrowthStats
-        }
+        },
+        serviceLineGrowthBreakdown,
+        rateMetrics
       });
       
     } catch (error) {

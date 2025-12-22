@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { TrendingUp, TrendingDown, Home, Users, DollarSign, ArrowRight, ChevronRight } from "lucide-react";
 import { 
   LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, 
@@ -34,6 +36,17 @@ interface ServiceLineData {
   growthStats: GrowthStats;
 }
 
+interface RateMetrics {
+  currentValue: number;
+  monthlyTrend: Array<{ month: string; value: number; byServiceLine: Record<string, number> }>;
+  growthStats: GrowthStats;
+  byServiceLine: ServiceLineData[];
+  sameStore: {
+    currentValue: number;
+    growthStats: GrowthStats;
+  };
+}
+
 interface TileDetailsResponse {
   tileType: string;
   currentValue: number;
@@ -50,6 +63,8 @@ interface TileDetailsResponse {
     currentValue: number;
     growthStats: GrowthStats;
   };
+  serviceLineGrowthBreakdown?: Array<{ serviceLine: string; value: number; t1: number; t12: number }>;
+  rateMetrics?: RateMetrics;
 }
 
 // Trilogy brand-aligned colors
@@ -73,25 +88,33 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
   const [drillLevel, setDrillLevel] = useState<'overview' | 'location' | 'serviceLine' | 'roomType'>('overview');
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [selectedServiceLine, setSelectedServiceLine] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'revenue' | 'rate'>('revenue');
 
   const { data, isLoading, error } = useQuery<TileDetailsResponse>({
     queryKey: ['/api/tile-details', tileType],
     enabled: open,
   });
+  
+  const isRevenueTile = tileType === 'current-revenue' || tileType === 'potential-revenue';
+  const hasRateMetrics = isRevenueTile && data?.rateMetrics;
 
-  const formatValue = (value: number) => {
+  const formatValue = (value: number, forceRate = false) => {
     if (tileType === 'occupancy') {
       return formatPercentage(value / 100, 1);
-    } else if (tileType === 'current-revenue' || tileType === 'potential-revenue') {
+    } else if ((tileType === 'current-revenue' || tileType === 'potential-revenue') && !forceRate && viewMode === 'revenue') {
       if (value >= 1000000000) {
         return `$${(value / 1000000000).toFixed(2)}B`;
       } else if (value >= 1000000) {
         return `$${(value / 1000000).toFixed(1)}M`;
       }
       return formatCurrency(value);
+    } else if (forceRate || (isRevenueTile && viewMode === 'rate')) {
+      return `$${value.toLocaleString()}/mo`;
     }
     return formatNumber(value);
   };
+  
+  const formatRateValue = (value: number) => `$${value.toLocaleString()}/mo`;
 
   const formatGrowth = (value: number) => {
     const sign = value >= 0 ? '+' : '';
@@ -108,12 +131,12 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     </Badge>
   );
 
-  const GrowthStatsPanel = ({ stats, title }: { stats: GrowthStats; title: string }) => (
+  const GrowthStatsPanel = ({ stats, title, serviceLineBreakdown }: { stats: GrowthStats; title: string; serviceLineBreakdown?: Array<{ serviceLine: string; value: number; t1: number; t12: number }> }) => (
     <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-[var(--dashboard-text)]">{title}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <div className="grid grid-cols-5 gap-2">
           {[
             { label: 'T1', value: stats.t1 },
@@ -130,6 +153,34 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             </div>
           ))}
         </div>
+        
+        {serviceLineBreakdown && serviceLineBreakdown.length > 0 && (
+          <div className="pt-2 border-t border-[var(--dashboard-border)]">
+            <p className="text-xs text-[var(--dashboard-muted)] mb-2">By Service Line (T1 / T12)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {serviceLineBreakdown.slice(0, 6).map((sl) => (
+                <div key={sl.serviceLine} className="flex items-center justify-between px-2 py-1 bg-[var(--dashboard-background)] rounded text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <div 
+                      className="w-2 h-2 rounded-full" 
+                      style={{ backgroundColor: SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[0] }}
+                    />
+                    <span className="text-[var(--dashboard-text)]">{sl.serviceLine}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className={sl.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}>
+                      {formatGrowth(sl.t1)}
+                    </span>
+                    <span className="text-[var(--dashboard-muted)]">/</span>
+                    <span className={sl.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}>
+                      {formatGrowth(sl.t12)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -156,12 +207,31 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            {tileType === 'units' && <Home className="w-5 h-5 text-blue-500" />}
-            {tileType === 'occupancy' && <Users className="w-5 h-5 text-emerald-500" />}
-            {(tileType === 'current-revenue' || tileType === 'potential-revenue') && <DollarSign className="w-5 h-5 text-amber-500" />}
-            {tileTitle} Details
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              {tileType === 'units' && <Home className="w-5 h-5 text-blue-500" />}
+              {tileType === 'occupancy' && <Users className="w-5 h-5 text-emerald-500" />}
+              {(tileType === 'current-revenue' || tileType === 'potential-revenue') && <DollarSign className="w-5 h-5 text-amber-500" />}
+              {viewMode === 'rate' && isRevenueTile ? 'Average Rate' : tileTitle} Details
+            </DialogTitle>
+            
+            {hasRateMetrics && (
+              <div className="flex items-center gap-3 bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-lg px-3 py-1.5">
+                <Label htmlFor="view-toggle" className={`text-xs cursor-pointer ${viewMode === 'revenue' ? 'text-[var(--dashboard-text)] font-medium' : 'text-[var(--dashboard-muted)]'}`}>
+                  Revenue
+                </Label>
+                <Switch 
+                  id="view-toggle"
+                  checked={viewMode === 'rate'}
+                  onCheckedChange={(checked) => setViewMode(checked ? 'rate' : 'revenue')}
+                  data-testid="rate-revenue-toggle"
+                />
+                <Label htmlFor="view-toggle" className={`text-xs cursor-pointer ${viewMode === 'rate' ? 'text-[var(--dashboard-text)] font-medium' : 'text-[var(--dashboard-muted)]'}`}>
+                  Rate
+                </Label>
+              </div>
+            )}
+          </div>
         </DialogHeader>
 
         {isLoading ? (
@@ -189,45 +259,71 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             )}
 
             {/* Header with current value and growth */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <Card className="lg:col-span-2">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Current Value</p>
-                      <p className="text-4xl font-bold" data-testid="tile-detail-current-value">
-                        {formatValue(data.currentValue)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground mb-2">12-Month Growth</p>
-                      <GrowthBadge value={data.growthStats.t12} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {(() => {
+              const displayData = viewMode === 'rate' && data.rateMetrics ? data.rateMetrics : data;
+              const displaySameStore = viewMode === 'rate' && data.rateMetrics ? data.rateMetrics.sameStore : data.sameStore;
+              const displayByServiceLine = viewMode === 'rate' && data.rateMetrics ? data.rateMetrics.byServiceLine : data.byServiceLine;
               
-              {/* Same Store Card */}
-              <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-purple-600 dark:text-purple-400">Same Store</p>
-                      <p className="text-2xl font-bold" data-testid="tile-detail-same-store-value">
-                        {formatValue(data.sameStore.currentValue)}
-                      </p>
-                    </div>
-                    <GrowthBadge value={data.sameStore.growthStats.t12} />
+              const serviceLineBreakdownData = displayByServiceLine?.map(sl => ({
+                serviceLine: sl.serviceLine,
+                value: sl.value,
+                t1: sl.growthStats.t1,
+                t12: sl.growthStats.t12
+              })) || [];
+              
+              return (
+                <>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <Card className="lg:col-span-2">
+                      <CardContent className="pt-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-muted-foreground">
+                              {viewMode === 'rate' && isRevenueTile ? 'Average Rate' : 'Current Value'}
+                            </p>
+                            <p className="text-4xl font-bold" data-testid="tile-detail-current-value">
+                              {viewMode === 'rate' && isRevenueTile ? formatRateValue(displayData.currentValue) : formatValue(displayData.currentValue)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-muted-foreground mb-2">12-Month Growth</p>
+                            <GrowthBadge value={displayData.growthStats.t12} />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    
+                    {/* Same Store Card */}
+                    <Card className="bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+                      <CardContent className="pt-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-purple-600 dark:text-purple-400">Same Store</p>
+                            <p className="text-2xl font-bold" data-testid="tile-detail-same-store-value">
+                              {viewMode === 'rate' && isRevenueTile ? formatRateValue(displaySameStore.currentValue) : formatValue(displaySameStore.currentValue)}
+                            </p>
+                          </div>
+                          <GrowthBadge value={displaySameStore.growthStats.t12} />
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
 
-            {/* Growth Statistics Panel */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <GrowthStatsPanel stats={data.growthStats} title="Portfolio Growth" />
-              <GrowthStatsPanel stats={data.sameStore.growthStats} title="Same Store Growth" />
-            </div>
+                  {/* Growth Statistics Panel */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <GrowthStatsPanel 
+                      stats={displayData.growthStats} 
+                      title={viewMode === 'rate' ? 'Portfolio Rate Growth' : 'Portfolio Growth'} 
+                      serviceLineBreakdown={serviceLineBreakdownData}
+                    />
+                    <GrowthStatsPanel 
+                      stats={displaySameStore.growthStats} 
+                      title={viewMode === 'rate' ? 'Same Store Rate Growth' : 'Same Store Growth'} 
+                    />
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Tabs for different views */}
             <Tabs defaultValue="trend" className="w-full">
