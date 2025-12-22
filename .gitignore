@@ -4,3 +4,23 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Exclude sensitive data files
+attached_assets/*.xlsx
+attached_assets/*.csv
+attached_assets/*.pdf
+attached_assets/*.pptx
+attached_assets/*.txt
+attached_assets/floor_plans/
+# Keep only stock images and essential UI assets
+!attached_assets/stock_images/
+!attached_assets/default-floor-plan.jpg
+!attached_assets/Modulo*Logo*.png
+
+# Database backups
+*.dump
+*.sql
+
+# Environment and secrets
+.env
+.env.*

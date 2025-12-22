@@ -1,3 +1,80 @@
+/**
+ * @fileoverview Modulo Revenue Management API Routes
+ * 
+ * This file defines all REST API endpoints for the Modulo Revenue Management platform.
+ * The platform enables senior living operators to optimize pricing across their portfolio
+ * using data-driven algorithms that consider occupancy, competitor rates, market conditions,
+ * and room-specific attributes.
+ * 
+ * ## Major Sections
+ * 
+ * ### 1. Authentication & Status (Lines ~230-550)
+ * - `/api/auth/user` - Mock authentication for demo mode
+ * - `/api/status` - Dashboard health check and summary metrics
+ * 
+ * ### 2. Admin & Data Management (Lines ~265-515)
+ * - `/api/admin/*` - Database seeding, competitor rate fixes, location sync
+ * - These endpoints are used for initial data setup and maintenance
+ * 
+ * ### 3. Template Downloads (Lines ~550-880)
+ * - `/api/template/*` - Excel templates for data imports (unified, rent-roll, competitor, inquiry)
+ * - Provides standardized formats for bulk data uploads
+ * 
+ * ### 4. Data Import Endpoints (Lines ~920-1255)
+ * - `/api/upload/unified` - Combined data upload (rent roll + competitor + performance)
+ * - `/api/upload_rent_roll` - Legacy rent roll CSV upload
+ * - `/api/upload-rent-roll-mapped` - Flexible column mapping for various source formats
+ * - `/api/import-mappings/*` - CRUD for reusable import mapping profiles
+ * 
+ * ### 5. Pricing Configuration (Lines ~1255-1620)
+ * - `/api/weights` - Pricing algorithm weight factors (occupancy, vacancy, seasonality, etc.)
+ * - `/api/adjustment-ranges` - Min/max bounds for each pricing adjustment factor
+ * - `/api/ai-pricing-weights` - AI-specific pricing configuration
+ * - `/api/guardrails` - Floor/ceiling constraints on price recommendations
+ * 
+ * ### 6. Market Data (Lines ~1690-1825)
+ * - `/api/market` - S&P 500 data for economic indicator weighting
+ * - `/api/series` - Historical revenue and market index time series for charts
+ * 
+ * ### 7. Competitor Management (Lines ~1825-1970)
+ * - `/api/competitors` - CRUD operations for competitor properties
+ * - Supports filtering by region, division, location, and service line
+ * - Used to benchmark Trilogy pricing against local market
+ * 
+ * ### 8. Portfolio & Location Management (Lines ~1970-2350)
+ * - `/api/locations` - Campus/property metadata with region/division hierarchy
+ * - `/api/portfolio/*` - Bulk operations for multi-campus management
+ * 
+ * ### 9. Analytics & Overview (Lines ~4450-5400)
+ * - `/api/overview` - Dashboard KPIs (occupancy by room type, revenue totals)
+ * - `/api/tile-details/:tileType` - Detailed breakdown for dashboard tiles
+ * - `/api/analytics/*` - Campus metrics, vacancy analysis, scatter plot data
+ * 
+ * ### 10. Floor Plans & Room Detection (Lines ~9800-10250)
+ * - `/api/campus-maps/*` - Site plan image management
+ * - `/api/floor-plans/*` - Building floor plan management with OCR room detection
+ * - `/api/unit-polygons/*` - Interactive room polygon mapping for visual pricing
+ * 
+ * ### 11. Export & Integration (Lines ~2600-2850, 10500-10800)
+ * - `/api/export/*` - MatrixCare integration exports, rate cards, rent roll history
+ * - `/api/github/*` - Repository backup and version control integration
+ * 
+ * ## Key Concepts
+ * 
+ * **Service Lines**: AL (Assisted Living), HC (Health Care/Skilled Nursing), 
+ *                    SL (Senior Living), VIL (Independent Living), AL/MC (Memory Care)
+ * 
+ * **Rate Types**: Street Rate (public pricing), In-House Rate (current resident), 
+ *                 Modulo Suggested Rate (algorithm recommendation)
+ * 
+ * **Competitor Rates**: Imported from competitive surveys, matched to Trilogy units
+ *                       by location, service line, and room type
+ * 
+ * @author Modulo Development Team
+ * @version 2.0.0
+ * @since December 2025
+ */
+
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -28,7 +105,6 @@ import {
   insertCompetitorSchema,
   insertGuardrailsSchema
 } from "@shared/schema";
-// Demo data imports removed - using production data only
 import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
 import { calculateModuloPrice } from "./moduloPricingAlgorithm";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
@@ -920,7 +996,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Unified upload endpoint
+  /* ============================================================================
+   * DATA IMPORT ENDPOINTS
+   * 
+   * These endpoints handle bulk data uploads from various sources including:
+   * - Rent roll exports from property management systems
+   * - Competitive survey data from market research
+   * - Performance metrics from financial systems
+   * 
+   * Supported formats: CSV, Excel (.xlsx)
+   * Data is validated and normalized before storage.
+   * 
+   * IMPORTANT: Most uploads clear existing data before inserting new records.
+   * This ensures a clean state but means partial uploads may result in data loss.
+   * ============================================================================ */
+
+  /**
+   * POST /api/upload/unified
+   * 
+   * Accepts a multi-sheet Excel workbook containing combined portfolio data.
+   * Processes 'Portfolio Data' sheet containing rent roll + performance metrics.
+   * 
+   * Expected columns match the unified template format including:
+   * Location, Region, Division, Room Number, Room Type, Service Line,
+   * Occupied Y/N, Street Rate, In-House Rate, Competitor Rate, etc.
+   * 
+   * This is the preferred import method as it provides a single source of truth.
+   */
   app.post("/api/upload/unified", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
@@ -1030,6 +1132,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * POST /api/upload_rent_roll (Legacy)
+   * 
+   * Legacy endpoint for CSV rent roll uploads with fixed column mapping.
+   * Expects columns: Unit_ID, Occupied_YN, Base_Rent, Care_Fee, Room_Type,
+   * Competitor_Benchmark_Rate, Days_Vacant, Attributes (JSON)
+   * 
+   * Note: Clears all existing rent roll data before importing.
+   * For flexible column mapping, use /api/upload-rent-roll-mapped instead.
+   */
   app.post("/api/upload_rent_roll", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
@@ -1264,7 +1376,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Pricing weights CRUD
+  /* ============================================================================
+   * PRICING CONFIGURATION ENDPOINTS
+   * 
+   * These endpoints manage the algorithmic pricing parameters that drive
+   * Modulo's rate recommendations. Configuration is hierarchical:
+   * 
+   * 1. Global (portfolio-wide defaults)
+   * 2. Location-specific (campus overrides)
+   * 3. Location + Service Line specific (most granular)
+   * 
+   * WEIGHT FACTORS:
+   * - occupancyPressure: Adjusts rates based on campus-wide occupancy
+   * - daysVacantDecay: Reduces rate recommendations for long-vacant units
+   * - seasonality: Accounts for seasonal demand patterns
+   * - competitorRates: Weights competitor pricing in recommendations
+   * - stockMarket: Economic indicator weighting (S&P 500 correlation)
+   * - inquiryTourVolume: Adjusts based on lead activity
+   * 
+   * GUARDRAILS:
+   * - Prevent recommendations from exceeding min/max bounds
+   * - Can be set per room type, service line, or campus
+   * ============================================================================ */
+
   // Helper function to format weights response
   const formatWeightsResponse = (weights: any) => ({
     ok: true,
@@ -1710,7 +1844,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Revenue series for chart
+  /**
+   * GET /api/series
+   * 
+   * Generates time series data for the main performance chart showing:
+   * - Trilogy portfolio revenue over time (from actual rent roll data)
+   * - S&P 500 index values (from Alpha Vantage API if configured)
+   * - Senior living industry benchmark growth (4% annual estimate)
+   * 
+   * @query timeRange - '1M', '3M', '12M', or '24M' (default: 12M)
+   * 
+   * Revenue is calculated from stored monthlyRevenue values in rent roll data,
+   * converted to annual figures for display (monthly × 12).
+   * 
+   * S&P 500 data requires ALPHA_VANTAGE_API_KEY environment variable.
+   * Falls back to modeled data if API unavailable.
+   */
   app.get("/api/series", async (req, res) => {
     try {
       const timeRange = req.query.timeRange as string || '12M';
@@ -1821,7 +1970,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Competitors CRUD
+  /* ============================================================================
+   * COMPETITOR MANAGEMENT ENDPOINTS
+   * 
+   * Manages competitor property data used for market positioning analysis.
+   * Competitors are matched to Trilogy campuses by location (Trilogy campus name)
+   * and compared by room type and service line for pricing benchmarks.
+   * 
+   * Data sources: Competitive surveys, market research, manual entry
+   * Key fields: name, location (Trilogy campus), roomType, streetRate, rating
+   * ============================================================================ */
+
+  /**
+   * GET /api/competitors
+   * 
+   * Retrieves competitor properties with optional filtering.
+   * Returns top 3 competitors per location unless single location is selected.
+   * 
+   * @query regions - Comma-separated list of region filters
+   * @query divisions - Comma-separated list of division filters  
+   * @query locations - Comma-separated list of Trilogy campus names
+   * @query serviceLines - Comma-separated service line filters
+   * 
+   * Response: { items: Competitor[], currentLocation: LocationInfo, totalLocations, totalCompetitors }
+   */
   app.get("/api/competitors", async (req, res) => {
     try {
       const { regions, divisions, locations, serviceLines } = req.query;
@@ -4447,7 +4619,40 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     }
   });
 
-  // Overview dashboard endpoint - Real Trilogy Portfolio Data
+  /* ============================================================================
+   * ANALYTICS & OVERVIEW ENDPOINTS
+   * 
+   * These endpoints power the main dashboard and provide aggregate portfolio metrics.
+   * They calculate real-time KPIs from the rent roll data including occupancy rates,
+   * revenue totals, and room type breakdowns.
+   * 
+   * IMPORTANT: B-bed handling varies by service line:
+   * - Senior Housing (AL, IL, SL, VIL, AL/MC): B-beds are EXCLUDED from unit counts
+   *   but their REVENUE is included in totals
+   * - Health Care (HC, HC/MC, SMC): B-beds ARE included in counts (both beds count)
+   * 
+   * All analytics use 5-minute caching to reduce database load from repeated queries.
+   * ============================================================================ */
+
+  /**
+   * GET /api/overview
+   * 
+   * Returns dashboard summary data including:
+   * - Occupancy breakdown by room type and service line
+   * - Current vs potential annual revenue
+   * - Portfolio-wide unit counts
+   * - Average rates for HC (daily) and Senior Housing (monthly)
+   * 
+   * @query serviceLine - Optional filter: 'AL', 'HC', 'SL', 'VIL', 'IL', 'AL/MC', or 'All'
+   * 
+   * Response includes:
+   * - occupancyByRoomType: Array of room types with occupied/total counts
+   * - occupancyByServiceLine: Same breakdown grouped by service line
+   * - currentAnnualRevenue: Actual revenue from occupied units (annualized)
+   * - potentialAnnualRevenue: Revenue if 100% occupied (annualized)
+   * - avgHcRate: Average daily rate for skilled nursing beds
+   * - avgSeniorHousingRate: Average monthly rate for AL/IL/SL units
+   */
   app.get("/api/overview", async (req, res) => {
     try {
       const serviceLineFilter = req.query.serviceLine as string;
@@ -4837,8 +5042,24 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     }
   });
 
-  // Tile Details endpoint - provides monthly trend data and growth statistics for overview tiles
-  // Optimized to use SQL aggregation instead of loading all records into memory
+  /**
+   * GET /api/tile-details/:tileType
+   * 
+   * Provides detailed monthly trend data for dashboard KPI tiles.
+   * Returns historical values, growth rates, and breakdowns by dimension.
+   * 
+   * @param tileType - One of: 'units', 'occupancy', 'current-revenue', 'potential-revenue'
+   * 
+   * Uses SQL aggregation directly in the database to avoid loading all 391,000+
+   * rent roll records into memory. Results are grouped by:
+   * - Month (for time series)
+   * - Service Line (for segment breakdown)
+   * - Location (for campus-level detail)
+   * - Same Store flag (for comparable growth analysis)
+   * 
+   * PERFORMANCE: Optimized query avoids full table scans by using indexed uploadMonth
+   * and computing aggregates at the database level.
+   */
   app.get("/api/tile-details/:tileType", async (req, res) => {
     try {
       const { tileType } = req.params;

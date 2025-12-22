@@ -78,3 +78,63 @@ Preferred communication style: Simple, everyday language.
 - **@hookform/resolvers**: Validation integration
 - **zod**: Schema validation
 - **drizzle-zod**: Drizzle ORM and Zod integration
+
+# Database Backup & Migration
+
+## Backup Options
+1. **Replit Rollback** - Use Replit's built-in checkpoint system to restore database to a previous state (select "Database" under Additional rollback options)
+2. **pg_dump Export** - Create a portable backup file:
+   ```bash
+   pg_dump -Fc -v -d "$DATABASE_URL" -f backup_$(date +%F).dump
+   ```
+3. **pg_restore** - Restore from backup:
+   ```bash
+   pg_restore -v -d "$DATABASE_URL" backup.dump
+   ```
+
+## Key Database Tables
+- `rent_roll_data` - Main unit/occupancy data (~391,000 records)
+- `rent_roll_history` - Historical snapshots for trend analysis
+- `locations` - Facility/campus information
+- `competitors` - Competitor rate data
+- `pricing_weights` - Hierarchical pricing configuration
+- `guardrails` - Min/max rate constraints
+- `ai_rate_outcomes` - AI pricing adoption tracking
+
+## Migration to External Servers
+1. Export database using pg_dump
+2. Copy the codebase from GitHub
+3. Set environment variables: DATABASE_URL, OPENAI_API_KEY
+4. Run `npm install` and `npm run db:push` to sync schema
+5. Import data using pg_restore
+
+## Important Notes
+- Publishing the app does NOT expose database contents - only the application interface
+- Database remains on Neon serverless PostgreSQL
+- For production deployment, configure HTTPS and authentication
+
+# GitHub Export Security
+
+## Excluded from Version Control
+The following files are excluded via `.gitignore` to protect sensitive data:
+- `attached_assets/*.xlsx` - Financial spreadsheets, competitive surveys, rent roll exports
+- `attached_assets/*.csv` - Data exports and imports
+- `attached_assets/*.pdf` - Floor plans and documents
+- `attached_assets/*.pptx` - Presentations
+- `*.dump` - Database backup files
+- `.env*` - Environment variables and secrets
+
+## What IS Included
+- Stock images (`attached_assets/stock_images/`)
+- Default floor plan image
+- Modulo logo
+- All application source code
+- Configuration files (drizzle, vite, tailwind)
+
+## Before GitHub Export
+1. Verify `.gitignore` excludes sensitive files
+2. Run `git status` to confirm no sensitive files are staged
+3. Set up environment variables on the target server:
+   - `DATABASE_URL` - PostgreSQL connection string
+   - `OPENAI_API_KEY` - For AI features
+   - `SESSION_SECRET` - For authentication
