@@ -131,56 +131,54 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     </Badge>
   );
 
-  const GrowthStatsPanel = ({ stats, title, serviceLineBreakdown }: { stats: GrowthStats; title: string; serviceLineBreakdown?: Array<{ serviceLine: string; value: number; t1: number; t12: number }> }) => (
+  const GrowthStatsPanel = ({ stats, title, serviceLineData }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[] }) => (
     <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-[var(--dashboard-text)]">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-5 gap-2">
-          {[
-            { label: 'T1', value: stats.t1 },
-            { label: 'T3', value: stats.t3 },
-            { label: 'T6', value: stats.t6 },
-            { label: 'T12', value: stats.t12 },
-            { label: 'YTD', value: stats.ytd },
-          ].map(({ label, value }) => (
-            <div key={label} className="text-center p-2 bg-[var(--dashboard-background)] border border-[var(--dashboard-border)] rounded-lg">
-              <p className="text-xs text-[var(--dashboard-muted)] mb-1">{label}</p>
-              <p className={`text-sm font-bold ${value >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                {formatGrowth(value)}
-              </p>
-            </div>
-          ))}
-        </div>
-        
-        {serviceLineBreakdown && serviceLineBreakdown.length > 0 && (
-          <div className="pt-2 border-t border-[var(--dashboard-border)]">
-            <p className="text-xs text-[var(--dashboard-muted)] mb-2">By Service Line (T1 / T12)</p>
-            <div className="grid grid-cols-2 gap-2">
-              {serviceLineBreakdown.slice(0, 6).map((sl) => (
-                <div key={sl.serviceLine} className="flex items-center justify-between px-2 py-1 bg-[var(--dashboard-background)] rounded text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <div 
-                      className="w-2 h-2 rounded-full" 
-                      style={{ backgroundColor: SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[0] }}
-                    />
-                    <span className="text-[var(--dashboard-text)]">{sl.serviceLine}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className={sl.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}>
-                      {formatGrowth(sl.t1)}
-                    </span>
-                    <span className="text-[var(--dashboard-muted)]">/</span>
-                    <span className={sl.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}>
-                      {formatGrowth(sl.t12)}
-                    </span>
-                  </div>
-                </div>
+      <CardContent className="space-y-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[var(--dashboard-border)]">
+                <th className="text-left py-2 px-2 text-[var(--dashboard-muted)] font-medium w-20"></th>
+                <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T1</th>
+                <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T3</th>
+                <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T6</th>
+                <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T12</th>
+                <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">YTD</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-[var(--dashboard-border)] bg-[var(--dashboard-background)]">
+                <td className="py-2 px-2 font-semibold text-[var(--dashboard-text)]">Portfolio</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t1)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t3)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t6)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t12)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.ytd)}</td>
+              </tr>
+              {serviceLineData?.map((sl) => (
+                <tr key={sl.serviceLine} className="border-b border-[var(--dashboard-border)] last:border-b-0">
+                  <td className="py-2 px-2">
+                    <div className="flex items-center gap-1.5">
+                      <div 
+                        className="w-2 h-2 rounded-full flex-shrink-0" 
+                        style={{ backgroundColor: SERVICE_LINE_COLORS[sl.serviceLine] || COLORS[0] }}
+                      />
+                      <span className="text-[var(--dashboard-text)]">{sl.serviceLine}</span>
+                    </div>
+                  </td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t1)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t3)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t6)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t12)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.ytd)}</td>
+                </tr>
               ))}
-            </div>
-          </div>
-        )}
+            </tbody>
+          </table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -264,13 +262,6 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
               const displaySameStore = viewMode === 'rate' && data.rateMetrics ? data.rateMetrics.sameStore : data.sameStore;
               const displayByServiceLine = viewMode === 'rate' && data.rateMetrics ? data.rateMetrics.byServiceLine : data.byServiceLine;
               
-              const serviceLineBreakdownData = displayByServiceLine?.map(sl => ({
-                serviceLine: sl.serviceLine,
-                value: sl.value,
-                t1: sl.growthStats.t1,
-                t12: sl.growthStats.t12
-              })) || [];
-              
               return (
                 <>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -314,7 +305,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                     <GrowthStatsPanel 
                       stats={displayData.growthStats} 
                       title={viewMode === 'rate' ? 'Portfolio Rate Growth' : 'Portfolio Growth'} 
-                      serviceLineBreakdown={serviceLineBreakdownData}
+                      serviceLineData={displayByServiceLine}
                     />
                     <GrowthStatsPanel 
                       stats={displaySameStore.growthStats} 
