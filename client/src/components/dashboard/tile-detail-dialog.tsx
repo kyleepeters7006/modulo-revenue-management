@@ -340,6 +340,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                             fontSize={10}
                             tickLine={false}
                             axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
+                            tickFormatter={(value) => value.toLocaleString()}
                           />
                           <Tooltip 
                             formatter={(value: number) => value.toLocaleString()}
