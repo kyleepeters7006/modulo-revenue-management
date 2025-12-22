@@ -4452,6 +4452,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     try {
       const serviceLineFilter = req.query.serviceLine as string;
       
+      // Check cache first (use service line filter as part of key)
+      const cacheKey = `overview_${serviceLineFilter || 'all'}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+      
       // Get the most recent month's data only
       const mostRecentMonthResult = await db
         .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
@@ -4802,7 +4809,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         ? shUnitsWithCompetitor.reduce((sum: number, u: any) => sum + (u.competitorRate || 0), 0) / shUnitsWithCompetitor.length
         : 0;
 
-      res.json({
+      const result = {
         occupancyByRoomType,
         occupancyByServiceLine,
         currentAnnualRevenue,
@@ -4818,7 +4825,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         avgSeniorHousingRate,
         avgHcCompetitorRate,
         avgSeniorHousingCompetitorRate
-      });
+      };
+      
+      // Cache the result for 5 minutes
+      setCachedAnalytics(cacheKey, result);
+      res.json(result);
 
     } catch (error) {
       console.error('Overview data error:', error);
