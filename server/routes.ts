@@ -5197,11 +5197,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       // Initialize data structures for all months
       const monthlyData: Record<string, { total: number; occupied?: number; byServiceLine: Record<string, { value: number; occupied?: number; total?: number }> }> = {};
-      const sameStoreData: Record<string, { total: number; occupied?: number }> = {};
+      const sameStoreData: Record<string, { total: number; occupied?: number; byServiceLine: Record<string, { value: number; occupied?: number; total?: number }> }> = {};
       
       for (const month of months) {
         monthlyData[month] = { total: 0, occupied: 0, byServiceLine: {} };
-        sameStoreData[month] = { total: 0, occupied: 0 };
+        sameStoreData[month] = { total: 0, occupied: 0, byServiceLine: {} };
       }
       
       // Aggregate the data
@@ -5228,6 +5228,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           if (isSameStore) {
             sameStoreData[month].total = (sameStoreData[month].total || 0) + total;
             sameStoreData[month].occupied = (sameStoreData[month].occupied || 0) + occupied;
+            if (!sameStoreData[month].byServiceLine[sl]) {
+              sameStoreData[month].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
+            }
+            sameStoreData[month].byServiceLine[sl].occupied = (sameStoreData[month].byServiceLine[sl].occupied || 0) + occupied;
+            sameStoreData[month].byServiceLine[sl].total = (sameStoreData[month].byServiceLine[sl].total || 0) + total;
           }
         } else {
           const value = (row as any).value || 0;
@@ -5241,6 +5246,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           
           if (isSameStore) {
             sameStoreData[month].total = (sameStoreData[month].total || 0) + value;
+            if (!sameStoreData[month].byServiceLine[sl]) {
+              sameStoreData[month].byServiceLine[sl] = { value: 0 };
+            }
+            sameStoreData[month].byServiceLine[sl].value = (sameStoreData[month].byServiceLine[sl].value || 0) + value;
           }
         }
         
@@ -5334,6 +5343,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         const currentVal = stats.currentValue;
         const valCount = trend.length;
         
+        // Calculate YTD for this service line
+        const slYtdIndex = months.findIndex(m => m >= ytdStartMonth);
+        const slYtdValue = slYtdIndex >= 0 ? trend[slYtdIndex] || 0 : 0;
+        
         return {
           serviceLine,
           value: currentVal,
@@ -5343,7 +5356,52 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             t3: valCount >= 4 ? calculateGrowth(currentVal, trend[valCount - 4] || 0) : 0,
             t6: valCount >= 7 ? calculateGrowth(currentVal, trend[valCount - 7] || 0) : 0,
             t12: valCount >= 12 ? calculateGrowth(currentVal, trend[0] || 0) : 0,
-            ytd: 0
+            ytd: slYtdIndex >= 0 ? calculateGrowth(currentVal, slYtdValue) : 0
+          }
+        };
+      }).sort((a, b) => b.value - a.value);
+      
+      // Build Same Store service line breakdown with trends and growth stats
+      const sameStoreServiceLineStats: Record<string, { values: Record<string, number>, currentValue: number }> = {};
+      for (const month of months) {
+        const ssData = sameStoreData[month];
+        for (const [sl, slData] of Object.entries(ssData.byServiceLine)) {
+          if (!sameStoreServiceLineStats[sl]) {
+            sameStoreServiceLineStats[sl] = { values: {}, currentValue: 0 };
+          }
+          let slValue: number;
+          if (tileType === 'occupancy') {
+            const slTotal = slData.total || 0;
+            const slOccupied = slData.occupied || 0;
+            slValue = slTotal > 0 ? Math.round((slOccupied / slTotal) * 100 * 100) / 100 : 0;
+          } else {
+            slValue = slData.value || 0;
+          }
+          sameStoreServiceLineStats[sl].values[month] = slValue;
+          if (month === mostRecentMonth) {
+            sameStoreServiceLineStats[sl].currentValue = slValue;
+          }
+        }
+      }
+      
+      const sameStoreByServiceLine = Object.entries(sameStoreServiceLineStats).map(([serviceLine, stats]) => {
+        const trend = months.map(m => stats.values[m] || 0);
+        const currentVal = stats.currentValue;
+        const valCount = trend.length;
+        
+        const slYtdIndex = months.findIndex(m => m >= ytdStartMonth);
+        const slYtdValue = slYtdIndex >= 0 ? trend[slYtdIndex] || 0 : 0;
+        
+        return {
+          serviceLine,
+          value: currentVal,
+          trend,
+          growthStats: {
+            t1: valCount >= 2 ? calculateGrowth(currentVal, trend[valCount - 2] || 0) : 0,
+            t3: valCount >= 4 ? calculateGrowth(currentVal, trend[valCount - 4] || 0) : 0,
+            t6: valCount >= 7 ? calculateGrowth(currentVal, trend[valCount - 7] || 0) : 0,
+            t12: valCount >= 12 ? calculateGrowth(currentVal, trend[0] || 0) : 0,
+            ytd: slYtdIndex >= 0 ? calculateGrowth(currentVal, slYtdValue) : 0
           }
         };
       }).sort((a, b) => b.value - a.value);
@@ -5483,6 +5541,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const slCurrentRate = slRates[slRates.length - 1] || 0;
           const getSlRateAtIndex = (idx: number) => slRates[idx] || 0;
           
+          // Calculate YTD for this service line rate
+          const slYtdIndex = months.findIndex(m => m >= ytdStartMonth);
+          const slYtdRate = slYtdIndex >= 0 ? getSlRateAtIndex(slYtdIndex) : 0;
+          
           rateByServiceLine.push({
             serviceLine: sl,
             value: slCurrentRate,
@@ -5492,7 +5554,35 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               t3: slRates.length >= 4 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 4)) : 0,
               t6: slRates.length >= 7 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 7)) : 0,
               t12: slRates.length >= 12 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(0)) : 0,
-              ytd: 0
+              ytd: slYtdIndex >= 0 ? calculateGrowth(slCurrentRate, slYtdRate) : 0
+            }
+          });
+        }
+        
+        // Build Same Store service line rate breakdown
+        const sameStoreRateByServiceLine: Array<{ serviceLine: string; value: number; trend: number[]; growthStats: { t1: number; t3: number; t6: number; t12: number; ytd: number } }> = [];
+        
+        for (const sl of serviceLines) {
+          const slRates = months.map(m => {
+            const data = sameStoreRateByMonth[m].byServiceLine[sl];
+            return data && data.count > 0 ? Math.round(data.totalRate / data.count) : 0;
+          });
+          const slCurrentRate = slRates[slRates.length - 1] || 0;
+          const getSlRateAtIndex = (idx: number) => slRates[idx] || 0;
+          
+          const slYtdIndex = months.findIndex(m => m >= ytdStartMonth);
+          const slYtdRate = slYtdIndex >= 0 ? getSlRateAtIndex(slYtdIndex) : 0;
+          
+          sameStoreRateByServiceLine.push({
+            serviceLine: sl,
+            value: slCurrentRate,
+            trend: slRates,
+            growthStats: {
+              t1: slRates.length >= 2 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 2)) : 0,
+              t3: slRates.length >= 4 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 4)) : 0,
+              t6: slRates.length >= 7 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(slRates.length - 7)) : 0,
+              t12: slRates.length >= 12 ? calculateGrowth(slCurrentRate, getSlRateAtIndex(0)) : 0,
+              ytd: slYtdIndex >= 0 ? calculateGrowth(slCurrentRate, slYtdRate) : 0
             }
           });
         }
@@ -5504,7 +5594,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           byServiceLine: rateByServiceLine.sort((a, b) => b.value - a.value),
           sameStore: {
             currentValue: sameStoreCurrentRate,
-            growthStats: sameStoreRateGrowthStats
+            growthStats: sameStoreRateGrowthStats,
+            byServiceLine: sameStoreRateByServiceLine.sort((a, b) => b.value - a.value)
           }
         };
       }
@@ -5527,7 +5618,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         byRoomType,
         sameStore: {
           currentValue: sameStoreCurrentValue,
-          growthStats: sameStoreGrowthStats
+          growthStats: sameStoreGrowthStats,
+          byServiceLine: sameStoreByServiceLine
         },
         serviceLineGrowthBreakdown,
         rateMetrics

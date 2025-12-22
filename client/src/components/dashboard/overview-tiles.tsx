@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DollarSign, Home, Users, TrendingUp, Info, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
@@ -60,10 +60,19 @@ export default function OverviewTiles() {
   const [expandedRoomTypes, setExpandedRoomTypes] = useState<Set<string>>(new Set());
   const [tileDetailOpen, setTileDetailOpen] = useState(false);
   const [selectedTile, setSelectedTile] = useState<{ type: 'units' | 'occupancy' | 'current-revenue' | 'potential-revenue'; title: string } | null>(null);
+  const queryClient = useQueryClient();
 
   const { data: overviewData, isLoading } = useQuery<OverviewData>({
     queryKey: ["/api/overview"],
   });
+
+  // Prefetch tile details on hover for faster dialog loading
+  const prefetchTileDetails = useCallback((tileType: string) => {
+    queryClient.prefetchQuery({
+      queryKey: ['/api/tile-details', tileType],
+      staleTime: 5 * 60 * 1000,
+    });
+  }, [queryClient]);
 
   const toggleRoomTypeExpanded = (roomType: string) => {
     setExpandedRoomTypes(prev => {
@@ -193,6 +202,7 @@ export default function OverviewTiles() {
               key={tile.title} 
               className="dashboard-card cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 group"
               onClick={() => handleTileClick(tile.tileType, tile.title)}
+              onMouseEnter={() => prefetchTileDetails(tile.tileType)}
               data-testid={`tile-clickable-${tile.tileType}`}
             >
               <CardContent className="p-6">

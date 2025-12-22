@@ -44,6 +44,7 @@ interface RateMetrics {
   sameStore: {
     currentValue: number;
     growthStats: GrowthStats;
+    byServiceLine?: ServiceLineData[];
   };
 }
 
@@ -62,6 +63,7 @@ interface TileDetailsResponse {
   sameStore: {
     currentValue: number;
     growthStats: GrowthStats;
+    byServiceLine?: ServiceLineData[];
   };
   serviceLineGrowthBreakdown?: Array<{ serviceLine: string; value: number; t1: number; t12: number }>;
   rateMetrics?: RateMetrics;
@@ -93,6 +95,8 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
   const { data, isLoading, error } = useQuery<TileDetailsResponse>({
     queryKey: ['/api/tile-details', tileType],
     enabled: open,
+    staleTime: 5 * 60 * 1000, // Cache data for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep unused data in cache for 10 minutes
   });
   
   const isRevenueTile = tileType === 'current-revenue' || tileType === 'potential-revenue';
@@ -310,6 +314,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                     <GrowthStatsPanel 
                       stats={displaySameStore.growthStats} 
                       title={viewMode === 'rate' ? 'Same Store Rate Growth' : 'Same Store Growth'} 
+                      serviceLineData={displaySameStore.byServiceLine}
                     />
                   </div>
                 </>
