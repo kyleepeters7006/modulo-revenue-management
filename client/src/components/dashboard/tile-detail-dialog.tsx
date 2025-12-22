@@ -408,7 +408,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                               ))}
                             </Pie>
                             <Tooltip 
-                              formatter={(value: number) => formatValue(value)} 
+                              formatter={(value: number) => {
+                                const total = data.byServiceLine.reduce((sum, item) => sum + item.value, 0);
+                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                return `${formatValue(value)} (${pct}%)`;
+                              }} 
                               contentStyle={{
                                 backgroundColor: 'var(--dashboard-surface)',
                                 border: '1px solid var(--dashboard-border)',
@@ -486,7 +490,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                               ))}
                             </Pie>
                             <Tooltip 
-                              formatter={(value: number) => formatValue(value)} 
+                              formatter={(value: number) => {
+                                const total = data.byLocation.reduce((sum, item) => sum + item.value, 0);
+                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                return `${formatValue(value)} (${pct}%)`;
+                              }} 
                               contentStyle={{
                                 backgroundColor: 'var(--dashboard-surface)',
                                 border: '1px solid var(--dashboard-border)',
@@ -551,7 +559,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                               ))}
                             </Pie>
                             <Tooltip 
-                              formatter={(value: number) => formatValue(value)} 
+                              formatter={(value: number) => {
+                                const total = data.byRoomType.reduce((sum, item) => sum + item.value, 0);
+                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                return `${formatValue(value)} (${pct}%)`;
+                              }} 
                               contentStyle={{
                                 backgroundColor: 'var(--dashboard-surface)',
                                 border: '1px solid var(--dashboard-border)',
