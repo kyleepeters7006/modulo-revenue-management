@@ -218,6 +218,42 @@ export default function PricingAlgorithmDocs() {
                   </div>
                 </div>
               </div>
+
+              <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4 mt-4 border border-[var(--trilogy-dark-blue)]/20">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI-Generated Weights & Guardrails</h4>
+                </div>
+                <p className="text-sm mb-3">
+                  While Modulo weights can be configured manually, the system also offers <strong>AI-powered weight and 
+                  guardrail generation</strong>. This feature uses the same machine learning technology as the AI Pricing 
+                  Engine to analyze your portfolio's performance and generate optimal settings.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div className="bg-white rounded-lg p-3">
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">How It Works</h5>
+                    <ul className="list-disc list-inside space-y-1 text-[var(--trilogy-grey)]">
+                      <li>Analyzes portfolio occupancy, vacancy patterns, and sales velocity</li>
+                      <li>Reviews competitor positioning and market conditions</li>
+                      <li>Examines historical pricing outcomes and adoption rates</li>
+                      <li>Generates optimized weights and guardrails per service line</li>
+                    </ul>
+                  </div>
+                  <div className="bg-white rounded-lg p-3">
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Benefits</h5>
+                    <ul className="list-disc list-inside space-y-1 text-[var(--trilogy-grey)]">
+                      <li>Data-driven initial configuration instead of guesswork</li>
+                      <li>Tailored to your specific portfolio characteristics</li>
+                      <li>Can be used to optimize Modulo rates directly</li>
+                      <li>Provides a baseline that improves with AI learning</li>
+                    </ul>
+                  </div>
+                </div>
+                <p className="text-sm mt-3 text-[var(--trilogy-grey)]/80 italic">
+                  Access this feature from the Pricing Controls page by using the "Generate with AI" option 
+                  when setting revenue growth targets.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
