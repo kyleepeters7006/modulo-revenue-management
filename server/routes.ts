@@ -6617,16 +6617,21 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       // OPTIMIZATION 2: Pre-compute ALL revenue performance data in a Map for O(1) lookup
       console.log('[AI Pricing] Pre-computing revenue performance cache...');
       const revenuePerformanceCache = new Map<string, { yoyGrowth: number }>();
-      const locationIdMap = new Map<string, number | undefined>();
+      
+      // Build location name -> locationId map from locations table (not from rent_roll_data)
+      // This ensures we always have the correct locationId even if some units have null locationId
+      const allLocations = await storage.getLocations();
+      const locationIdMap = new Map<string, string | undefined>();
+      for (const loc of allLocations) {
+        locationIdMap.set(loc.name, loc.id);
+      }
+      console.log(`[AI Pricing] Built locationIdMap from ${allLocations.length} locations`);
       
       // Build unique location/serviceLine combinations
       const uniqueCombinations = new Set<string>();
       for (const unit of units) {
         const key = `${unit.location || ''}|${unit.serviceLine || ''}`;
         uniqueCombinations.add(key);
-        if (!locationIdMap.has(unit.location || '')) {
-          locationIdMap.set(unit.location || '', unit.locationId);
-        }
       }
       
       // Pre-compute revenue performance for all unique combinations
@@ -6657,6 +6662,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         );
         
         if (!target) {
+          // Debug: Log why target was not found
+          console.log(`[AI Pricing] No revenue target found for location='${locationName}' (id=${locationId}) sl='${sl}'`);
           return { gap: undefined, target: undefined, actualYOY: performance.yoyGrowth, adjustmentApplied: undefined };
         }
         
