@@ -340,9 +340,10 @@ export default function PricingAlgorithmDocs() {
                     <div>
                       <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Behind Target</h5>
                       <p className="text-sm">
-                        When actual YOY growth falls short of the target, the system applies upward pricing pressure 
-                        (up to +5%) to help close the gap. The more behind target, the stronger the pressure.
-                        Display shows "Pricing Pressure" in amber.
+                        When actual YOY growth falls short of the target, the system <strong>signals attention needed</strong> rather 
+                        than blindly pushing rates higher (which could slow sales). The amber "Attention Needed" indicator 
+                        alerts operators to review the location's strategy. The algorithm's occupancy and vacancy decay 
+                        factors continue to appropriately price hard-to-fill units to drive sales velocity.
                       </p>
                     </div>
                   </div>
@@ -352,12 +353,17 @@ export default function PricingAlgorithmDocs() {
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Revenue Gap Formula</h4>
                 <div className="font-mono text-sm bg-white p-3 rounded border border-gray-200 mb-3">
-                  Revenue Gap = Target Growth % - Actual YOY Growth %
+                  Revenue Gap = Actual YOY Growth % - Target Growth %
                 </div>
                 <div className="text-sm space-y-2">
-                  <p><strong>If Gap ≥ 0 (ahead of target):</strong> Adjustment = min(0.02, Gap/10)</p>
-                  <p><strong>If Gap &lt; 0 (behind target):</strong> Adjustment = min(0.05, |Gap|/10)</p>
+                  <p><strong>If Gap ≥ 0 (ahead of target):</strong> Allow modest premium (up to +2%)</p>
+                  <p><strong>If Gap &lt; 0 (behind target):</strong> Signal for operator review - no automatic price increase</p>
                 </div>
+                <p className="text-sm mt-3 text-[var(--trilogy-grey)]/80 italic">
+                  Note: When behind target, the algorithm relies on occupancy pressure and vacancy decay factors 
+                  (which naturally reduce rates for hard-to-fill units) to drive sales velocity rather than 
+                  counterproductively raising prices.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
