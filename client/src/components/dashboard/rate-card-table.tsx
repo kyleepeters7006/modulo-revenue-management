@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +55,8 @@ export default function RateCardTable({
   const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
   const [sortColumn, setSortColumn] = useState<string | null>('status');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -75,7 +77,7 @@ export default function RateCardTable({
     queryKey: ['/api/rent-roll/available-months'],
   });
 
-  const { data: rateCardData, isLoading } = useQuery({
+  const { data: rateCardData, isLoading, isFetching } = useQuery({
     queryKey: ['/api/rate-card', selectedMonth, selectedRegions, selectedDivisions, selectedLocations],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -95,7 +97,11 @@ export default function RateCardTable({
       
       const response = await fetch(`/api/rate-card?${params.toString()}`);
       return response.json();
-    }
+    },
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
+    gcTime: 5 * 60 * 1000, // Keep in garbage collection for 5 minutes
+    placeholderData: keepPreviousData, // Keep showing old data while new data loads
+    refetchOnWindowFocus: false, // Don't refetch when tab regains focus
   });
 
   // Sync selectedMonth with the month returned by the API (most recent month with data)
@@ -105,18 +111,10 @@ export default function RateCardTable({
     }
   }, [rateCardData?.month, selectedMonth]);
 
-  // DEBUG: Log the data to see what's being received
+  // Reset to page 1 when filters change
   useEffect(() => {
-    if (rateCardData) {
-      console.log('Rate Card Data:', {
-        month: rateCardData?.month,
-        unitsCount: rateCardData?.units?.length || 0,
-        summaryCount: rateCardData?.summary?.length || 0,
-        sampleUnit: rateCardData?.units?.[0],
-        selectedServiceLine
-      });
-    }
-  }, [rateCardData, selectedServiceLine]);
+    setCurrentPage(1);
+  }, [selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations]);
 
   // Scroll to highlighted unit when it changes - moved up here with other hooks
   useEffect(() => {
@@ -349,6 +347,11 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
       setSortDirection('asc');
     }
   };
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredUnits.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
 
   // Sort the filtered units based on current sort state
   if (sortColumn) {
@@ -709,7 +712,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUnits.slice(0, 20).map((unit: any) => (
+                  {filteredUnits.slice(startIndex, endIndex).map((unit: any) => (
                     <TableRow 
                       key={unit.id}
                       id={`unit-row-${unit.id}`}
@@ -1071,10 +1074,60 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </TableBody>
               </Table>
               
-              {filteredUnits.length > 20 && (
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="mt-4 flex items-center justify-between border-t pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {startIndex + 1}-{Math.min(endIndex, filteredUnits.length)} of {filteredUnits.length} units
+                    {isFetching && <span className="ml-2 text-xs animate-pulse">(updating...)</span>}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                      data-testid="button-first-page"
+                    >
+                      First
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      data-testid="button-prev-page"
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm px-2">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      data-testid="button-next-page"
+                    >
+                      Next
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                      data-testid="button-last-page"
+                    >
+                      Last
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {filteredUnits.length > 0 && totalPages === 1 && (
                 <div className="mt-4 text-center">
-                  <p className="text-sm text-gray-500">
-                    Showing first 20 of {filteredUnits.length} units
+                  <p className="text-sm text-muted-foreground">
+                    Showing all {filteredUnits.length} units
                   </p>
                 </div>
               )}
