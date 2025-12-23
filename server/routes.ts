@@ -6282,6 +6282,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
 
       // Calculate summary dynamically from filtered units
       // This ensures the summary respects location/region/division filters
+      // Initialize all 6 service lines to ensure they all appear in the summary
+      const ALL_SERVICE_LINES = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
       const summaryByServiceLine: Record<string, {
         serviceLine: string;
         totalUnits: number;
@@ -6292,6 +6294,20 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         moduloCount: number;
         aiCount: number;
       }> = {};
+      
+      // Initialize all service lines with zeros
+      for (const sl of ALL_SERVICE_LINES) {
+        summaryByServiceLine[sl] = {
+          serviceLine: sl,
+          totalUnits: 0,
+          occupancyCount: 0,
+          totalStreetRate: 0,
+          totalModuloRate: 0,
+          totalAiRate: 0,
+          moduloCount: 0,
+          aiCount: 0
+        };
+      }
       
       for (const unit of unitLevelData) {
         const sl = unit.serviceLine || 'Unknown';
@@ -6327,14 +6343,18 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         }
       }
       
-      const rateCardSummary = Object.values(summaryByServiceLine).map(summary => ({
-        serviceLine: summary.serviceLine,
-        totalUnits: summary.totalUnits,
-        occupancyCount: summary.occupancyCount,
-        averageStreetRate: summary.totalUnits > 0 ? summary.totalStreetRate / summary.totalUnits : 0,
-        averageModuloRate: summary.moduloCount > 0 ? summary.totalModuloRate / summary.moduloCount : null,
-        averageAiRate: summary.aiCount > 0 ? summary.totalAiRate / summary.aiCount : null
-      }));
+      // Sort by the defined service line order
+      const rateCardSummary = ALL_SERVICE_LINES.map(sl => {
+        const summary = summaryByServiceLine[sl];
+        return {
+          serviceLine: summary.serviceLine,
+          totalUnits: summary.totalUnits,
+          occupancyCount: summary.occupancyCount,
+          averageStreetRate: summary.totalUnits > 0 ? summary.totalStreetRate / summary.totalUnits : 0,
+          averageModuloRate: summary.moduloCount > 0 ? summary.totalModuloRate / summary.moduloCount : null,
+          averageAiRate: summary.aiCount > 0 ? summary.totalAiRate / summary.aiCount : null
+        };
+      });
 
       res.json({
         summary: rateCardSummary,
