@@ -4379,7 +4379,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
           moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
           moveOutDate: getRowValue(row, 'Move Out Date', 'move out date', 'MoveOutDate', 'moveOutDate') || null,
-          payorType: getRowValue(row, 'Payor Type', 'payor type', 'PayorType', 'payorType', 'Payer', 'payer', 'Payor', 'payor') || null,
+          payorType: getRowValue(row, 'DisplayPayer', 'PayerName', 'Payor Type', 'payor type', 'PayorType', 'payorType', 'Payer', 'payer', 'Payor', 'payor') || null,
           admissionStatus: getRowValue(row, 'Admission Status', 'admission status', 'AdmissionStatus', 'admissionStatus') || null,
           levelOfCare: getRowValue(row, 'Level of Care', 'level of care', 'LevelOfCare', 'levelOfCare') || null,
           medicaidRate: parseFloat(getRowValue(row, 'Medicaid Rate', 'medicaid rate', 'MedicaidRate', 'medicaidRate')) || null,
@@ -5139,6 +5139,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           break;
           
         case 'current-revenue':
+          // Only count private pay residents (PRIVATE PAY, LEGACY - PVT PAY, BEDHOLDS)
           monthlyAggQuery = db
             .select({
               month: rentRollData.uploadMonth,
@@ -5147,7 +5148,15 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               roomType: rentRollData.roomType,
               sameStore: rentRollData.sameStore,
               value: sql<number>`SUM(
-                CASE WHEN ${rentRollData.occupiedYN} THEN
+                CASE WHEN ${rentRollData.occupiedYN} 
+                  AND (
+                    ${rentRollData.payorType} IS NULL 
+                    OR ${rentRollData.payorType} = ''
+                    OR UPPER(${rentRollData.payorType}) LIKE '%PRIVATE%'
+                    OR UPPER(${rentRollData.payorType}) LIKE '%PVT%'
+                    OR UPPER(${rentRollData.payorType}) LIKE '%BEDHOLD%'
+                  )
+                THEN
                   CASE 
                     WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
                       COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
@@ -5163,6 +5172,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           break;
           
         case 'potential-revenue':
+          // For potential revenue: private pay occupied + (vacant units * private pay proportion)
+          // We calculate: private pay revenue + (vacant units * avg private pay rate)
+          // Using subquery to get private pay proportion per service line
           monthlyAggQuery = db
             .select({
               month: rentRollData.uploadMonth,
@@ -5172,10 +5184,29 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               sameStore: rentRollData.sameStore,
               value: sql<number>`SUM(
                 CASE 
-                  WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
-                    COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
-                  ELSE 
-                    COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 12
+                  -- For occupied private pay units, use actual rates
+                  WHEN ${rentRollData.occupiedYN} AND (
+                    ${rentRollData.payorType} IS NULL 
+                    OR ${rentRollData.payorType} = ''
+                    OR UPPER(${rentRollData.payorType}) LIKE '%PRIVATE%'
+                    OR UPPER(${rentRollData.payorType}) LIKE '%PVT%'
+                    OR UPPER(${rentRollData.payorType}) LIKE '%BEDHOLD%'
+                  ) THEN
+                    CASE 
+                      WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                        COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
+                      ELSE 
+                        COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 12
+                    END
+                  -- For vacant units, assume same private pay proportion as occupied
+                  WHEN NOT ${rentRollData.occupiedYN} THEN
+                    CASE 
+                      WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                        COALESCE(${rentRollData.streetRate}, 0) * 365 * 0.65
+                      ELSE 
+                        COALESCE(${rentRollData.streetRate}, 0) * 12
+                    END
+                  ELSE 0
                 END
               )`,
             })

@@ -93,7 +93,7 @@ export async function importRentRollCSV(
                   residentName: row['Resident Name'] || row['resident_name'] || null,
                   moveInDate: row['Move In Date'] || row['move_in_date'] || null,
                   moveOutDate: row['Move Out Date'] || row['move_out_date'] || null,
-                  payorType: row['Payor Type'] || row['payor_type'] || row['Payer'] || row['payer'] || row['Payor'] || row['payor'] || null,
+                  payorType: row['DisplayPayer'] || row['PayerName'] || row['Payor Type'] || row['payor_type'] || row['Payer'] || row['payer'] || row['Payor'] || row['payor'] || null,
                   admissionStatus: row['Admission Status'] || row['admission_status'] || null,
                   levelOfCare: row['Level of Care'] || row['level_of_care'] || null,
                   medicaidRate: parseFloat(row['Medicaid Rate'] || row['medicaid_rate']) || null,
