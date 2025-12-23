@@ -4758,12 +4758,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
         
         // Calculate competitor rate - normalize HC daily rates to monthly before averaging
+        // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
         let avgCompetitorRate = 0;
         if (roomTypeUnits.length > 0) {
-          const unitsWithCompetitorData = roomTypeUnits.filter(u => u.competitorRate && u.competitorRate > 0);
+          const unitsWithCompetitorData = roomTypeUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
           if (unitsWithCompetitorData.length > 0) {
             const normalizedRates = unitsWithCompetitorData.map(u => {
-              let rate = u.competitorRate || 0;
+              let rate = u.competitorFinalRate || 0;
               // Convert HC daily rates to monthly (HC rates below $1000 are daily)
               if ((u.serviceLine === 'HC' || u.serviceLine === 'HC/MC') && rate > 0 && rate < 1000) {
                 rate = rate * 30.44; // Convert daily to monthly
@@ -4804,20 +4805,20 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const slAvgRate = slUnits.length > 0 ?
             slUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / slUnits.length : 0;
           // Calculate competitor rate - ONLY average units that have competitor data
+          // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
           let slAvgCompetitorRate = 0;
           if (slUnits.length > 0) {
             // Filter to only units with actual competitor rates
-            const unitsWithCompetitorData = slUnits.filter(u => u.competitorRate && u.competitorRate > 0);
+            const unitsWithCompetitorData = slUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
             
             if (unitsWithCompetitorData.length > 0) {
               const competitorRates = unitsWithCompetitorData.map(u => {
-                let rate = u.competitorRate || 0;
+                let rate = u.competitorFinalRate || 0;
                 
                 // Convert HC/SMC daily rates to monthly (multiply by 30.44)
                 // HC rates below $1000 are likely daily rates that need conversion
                 if ((serviceLine === 'HC' || serviceLine === 'HC/MC' || serviceLine === 'SMC') && rate > 0 && rate < 1000) {
                   rate = rate * 30.44; // Convert daily to monthly
-                  console.log(`Converting ${serviceLine} daily rate $${(u.competitorRate || 0).toFixed(2)} to monthly: $${rate.toFixed(2)}`);
                 }
                 
                 return rate;
@@ -4916,12 +4917,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           serviceLineUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / serviceLineUnits.length : 0;
         
         // Calculate competitor rate - normalize HC daily rates to monthly before averaging
+        // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
         let avgCompetitorRate = 0;
         if (serviceLineUnits.length > 0) {
-          const unitsWithCompetitorData = serviceLineUnits.filter(u => u.competitorRate && u.competitorRate > 0);
+          const unitsWithCompetitorData = serviceLineUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
           if (unitsWithCompetitorData.length > 0) {
             const normalizedRates = unitsWithCompetitorData.map(u => {
-              let rate = u.competitorRate || 0;
+              let rate = u.competitorFinalRate || 0;
               // Convert HC daily rates to monthly (HC rates below $1000 are daily)
               if ((serviceLine === 'HC' || serviceLine === 'HC/MC') && rate > 0 && rate < 1000) {
                 rate = rate * 30.44; // Convert daily to monthly
@@ -5020,10 +5022,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         ? hcUnits.reduce((sum: number, u: any) => sum + (u.streetRate || 0), 0) / hcUnits.length
         : 0;
       
-      const hcUnitsWithCompetitor = hcUnits.filter((u: any) => u.competitorRate && u.competitorRate > 0);
+      // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
+      const hcUnitsWithCompetitor = hcUnits.filter((u: any) => u.competitorFinalRate && u.competitorFinalRate > 0);
       const avgHcCompetitorRate = hcUnitsWithCompetitor.length > 0
         ? hcUnitsWithCompetitor.reduce((sum: number, u: any) => {
-            let rate = u.competitorRate || 0;
+            let rate = u.competitorFinalRate || 0;
             // Convert HC daily rates to monthly
             if (rate > 0 && rate < 1000) {
               rate = rate * 30.44;
@@ -5044,9 +5047,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         ? shUnits.reduce((sum: number, u: any) => sum + (u.streetRate || 0), 0) / shUnits.length
         : 0;
       
-      const shUnitsWithCompetitor = shUnits.filter((u: any) => u.competitorRate && u.competitorRate > 0);
+      // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
+      const shUnitsWithCompetitor = shUnits.filter((u: any) => u.competitorFinalRate && u.competitorFinalRate > 0);
       const avgSeniorHousingCompetitorRate = shUnitsWithCompetitor.length > 0
-        ? shUnitsWithCompetitor.reduce((sum: number, u: any) => sum + (u.competitorRate || 0), 0) / shUnitsWithCompetitor.length
+        ? shUnitsWithCompetitor.reduce((sum: number, u: any) => sum + (u.competitorFinalRate || 0), 0) / shUnitsWithCompetitor.length
         : 0;
 
       const result = {
