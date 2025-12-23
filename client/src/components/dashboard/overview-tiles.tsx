@@ -124,7 +124,9 @@ export default function OverviewTiles() {
     },
     {
       title: "Current Annual Revenue", 
-      value: `$${formatNumber(Math.round(overviewData.currentAnnualRevenue / 1000000))}M`,
+      value: overviewData.currentAnnualRevenue >= 1000000000 
+        ? `$${(overviewData.currentAnnualRevenue / 1000000000).toFixed(2)}B`
+        : `$${formatNumber(Math.round(overviewData.currentAnnualRevenue / 1000000))}M`,
       subtitle: "Based on current occupancy",
       icon: DollarSign,
       color: "amber",
@@ -133,7 +135,9 @@ export default function OverviewTiles() {
     },
     {
       title: "Potential Annual Revenue",
-      value: `$${formatNumber(Math.round(overviewData.potentialAnnualRevenue / 1000000))}M`, 
+      value: overviewData.potentialAnnualRevenue >= 1000000000 
+        ? `$${(overviewData.potentialAnnualRevenue / 1000000000).toFixed(2)}B`
+        : `$${formatNumber(Math.round(overviewData.potentialAnnualRevenue / 1000000))}M`, 
       subtitle: "At full occupancy",
       icon: TrendingUp,
       color: "blue",
