@@ -29,6 +29,12 @@ const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
   'VIL': 'IL'
 };
 
+// Fallback competitor types when primary type has no data
+// SL/VIL use IL, but if no IL data exists, fall back to AL
+const COMPETITOR_TYPE_FALLBACK: Record<string, string> = {
+  'IL': 'AL'  // Independent Living falls back to Assisted Living rates
+};
+
 // Room type mapping based on the "Base Competitor Rate Column" in the mapping document
 // Maps (Trilogy Service Line, Trilogy Room Type) -> Survey Room Type
 const ROOM_TYPE_MAPPING: Record<string, Record<string, string>> = {
@@ -215,6 +221,40 @@ async function getBestCompetitorRate(
         .where(and(...fallbackConditions));
       
       if (fallbackRecords.length === 0) {
+        // Try fallback competitor type if available (e.g., IL -> AL for SL/VIL)
+        const fallbackType = COMPETITOR_TYPE_FALLBACK[competitorType];
+        if (fallbackType) {
+          console.log(`No ${competitorType} data found for ${location}, trying fallback to ${fallbackType}`);
+          const fallbackTypeConditions: any[] = [
+            eq(competitiveSurveyData.keyStatsLocation, location),
+            eq(competitiveSurveyData.competitorType, fallbackType),
+            sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
+          ];
+          
+          if (surveyMonth) {
+            fallbackTypeConditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+          }
+          
+          const fallbackTypeRecords = await db.select()
+            .from(competitiveSurveyData)
+            .where(and(...fallbackTypeConditions));
+          
+          if (fallbackTypeRecords.length > 0) {
+            // Use first available record from fallback type
+            const record = fallbackTypeRecords[0];
+            console.log(`✓ Using ${fallbackType} fallback competitor: ${record.competitorName} for ${serviceLine}`);
+            
+            return {
+              competitorName: record.competitorName,
+              baseRate: record.monthlyRateAvg || 0,
+              weight: extractWeight(record.notes),
+              careLevel2Rate: record.careLevel2Rate,
+              medicationManagementFee: record.medicationManagementFee,
+              distanceMiles: record.distanceMiles,
+              surveyData: record
+            };
+          }
+        }
         return null;
       }
       
