@@ -105,25 +105,33 @@ export function isPrivatePay(unit: any): boolean {
  * @returns Annual revenue
  */
 export function calculateUnitAnnualRevenue(unit: any, occupied: boolean = true, privatePayOnly: boolean = true): number {
-  if (occupied && !unit.occupiedYN) {
-    return 0; // Vacant units contribute 0 to current revenue
-  }
-  
-  // Filter for private pay only if requested
-  if (occupied && privatePayOnly && !isPrivatePay(unit)) {
-    return 0; // Non-private pay residents excluded from revenue calculations
-  }
-  
   const { baseRateMonthly, careRateMonthly, streetRateMonthly } = normalizeUnitRates(unit);
+  const isHC = ['HC', 'HC/MC'].includes(unit.serviceLine || '');
   
   if (occupied) {
-    // For occupied units, use actual rates
+    // Current revenue: only count occupied private pay units
+    if (!unit.occupiedYN) {
+      return 0; // Vacant units contribute 0 to current revenue
+    }
+    if (privatePayOnly && !isPrivatePay(unit)) {
+      return 0; // Non-private pay residents excluded from revenue calculations
+    }
     return (baseRateMonthly + careRateMonthly) * 12;
   } else {
-    // For potential revenue, use street rate
+    // Potential revenue: private pay occupied + vacant at street rate
     // Apply private pay proportion estimate (65% for HC based on historical data)
-    const isHC = ['HC', 'HC/MC'].includes(unit.serviceLine || '');
     const privatePayFactor = isHC ? 0.65 : 1.0;
-    return (streetRateMonthly + careRateMonthly) * 12 * privatePayFactor;
+    
+    if (unit.occupiedYN) {
+      // For occupied units in potential revenue calculation:
+      // Only count private pay units (non-private pay contribute 0)
+      if (privatePayOnly && !isPrivatePay(unit)) {
+        return 0; // Non-private pay residents excluded
+      }
+      return (baseRateMonthly + careRateMonthly) * 12;
+    } else {
+      // For vacant units: use street rate * private pay factor
+      return (streetRateMonthly + careRateMonthly) * 12 * privatePayFactor;
+    }
   }
 }
