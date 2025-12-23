@@ -4208,6 +4208,28 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return '';
       };
 
+      // Parse Room Rate Adjustment values from various formats: "($10)", "2", "$20", numeric
+      const parseRoomRateAdjustment = (value: any): number => {
+        if (!value || value === '') return 0;
+        const str = String(value).trim();
+        
+        // Handle parentheses for negative values like "($10)" or "(10)"
+        const parenMatch = str.match(/\([\$]?(\d+(?:\.\d+)?)\)/);
+        if (parenMatch) {
+          return parseFloat(parenMatch[1]) || 0;
+        }
+        
+        // Handle dollar amounts like "$20" or "-$20"
+        const dollarMatch = str.match(/[\-]?\$(\d+(?:\.\d+)?)/);
+        if (dollarMatch) {
+          return parseFloat(dollarMatch[1]) || 0;
+        }
+        
+        // Handle plain numbers
+        const numericValue = parseFloat(str.replace(/[^0-9.\-]/g, ''));
+        return isNaN(numericValue) ? 0 : Math.abs(numericValue);
+      };
+
       // Function to parse attributes from room type field
       // Examples: "Studio;A Vw;A Loc;B Sz" or "Studio;;;A Vw;B Sz"
       const parseAttributes = (roomTypeString: string): {
@@ -4374,7 +4396,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           competitorFinalRate: parseFloat(competitorFinalRateValue) || 0,
           moduloSuggestedRate: null,
           aiSuggestedRate: null,
-          promotionAllowance: 0,
+          promotionAllowance: parseRoomRateAdjustment(getRowValue(row, 'Room_Rate_Adjustments', 'RoomRateAdjustments', 'RRA', 'Promotion Allowance', 'PromotionAllowance')),
           residentId: getRowValue(row, 'Resident ID', 'resident id', 'ResidentID', 'residentId') || null,
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
           moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
@@ -9013,6 +9035,154 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     } catch (error) {
       console.error("Error fetching analysis data:", error);
       res.status(500).json({ error: "Failed to fetch analysis data" });
+    }
+  });
+
+  // Room Rate Adjustment (RRA) Analytics - T3 Discounts
+  app.get("/api/analytics/rra", async (req, res) => {
+    try {
+      const { location, serviceLine } = req.query;
+      
+      // Get last 3 months of data
+      const now = new Date();
+      const months: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+      }
+      
+      // Build where conditions
+      const conditions = [
+        inArray(rentRollData.uploadMonth, months),
+        eq(rentRollData.occupiedYN, true)
+      ];
+      
+      if (location && location !== 'all') {
+        conditions.push(eq(rentRollData.location, location as string));
+      }
+      if (serviceLine && serviceLine !== 'all') {
+        conditions.push(eq(rentRollData.serviceLine, serviceLine as string));
+      }
+      
+      // Query for RRA data aggregated by month, location, and service line
+      const rraData = await db
+        .select({
+          month: rentRollData.uploadMonth,
+          location: rentRollData.location,
+          serviceLine: rentRollData.serviceLine,
+          totalUnits: sql<number>`COUNT(*)::int`,
+          unitsWithDiscount: sql<number>`SUM(CASE WHEN ${rentRollData.promotionAllowance} > 0 THEN 1 ELSE 0 END)::int`,
+          totalDiscountAmount: sql<number>`SUM(COALESCE(${rentRollData.promotionAllowance}, 0))`,
+          avgDiscount: sql<number>`AVG(CASE WHEN ${rentRollData.promotionAllowance} > 0 THEN ${rentRollData.promotionAllowance} END)`,
+          avgStreetRate: sql<number>`AVG(${rentRollData.streetRate})`,
+          avgInHouseRate: sql<number>`AVG(${rentRollData.inHouseRate})`,
+        })
+        .from(rentRollData)
+        .where(and(...conditions))
+        .groupBy(rentRollData.uploadMonth, rentRollData.location, rentRollData.serviceLine);
+      
+      // Aggregate by service line for summary
+      const byServiceLine: Record<string, {
+        totalUnits: number;
+        unitsWithDiscount: number;
+        totalDiscountAmount: number;
+        avgDiscount: number;
+        discountRate: number;
+      }> = {};
+      
+      // Aggregate by location for breakdown
+      const byLocation: Record<string, {
+        totalUnits: number;
+        unitsWithDiscount: number;
+        totalDiscountAmount: number;
+        avgDiscount: number;
+        discountRate: number;
+      }> = {};
+      
+      // Monthly trend
+      const monthlyTrend: Array<{
+        month: string;
+        discountRate: number;
+        avgDiscount: number;
+        totalDiscountAmount: number;
+      }> = [];
+      
+      const monthlyAgg: Record<string, { units: number; withDiscount: number; totalAmount: number }> = {};
+      
+      for (const row of rraData) {
+        const sl = row.serviceLine || 'Unknown';
+        const loc = row.location || 'Unknown';
+        const month = row.month;
+        
+        // By service line
+        if (!byServiceLine[sl]) {
+          byServiceLine[sl] = { totalUnits: 0, unitsWithDiscount: 0, totalDiscountAmount: 0, avgDiscount: 0, discountRate: 0 };
+        }
+        byServiceLine[sl].totalUnits += row.totalUnits || 0;
+        byServiceLine[sl].unitsWithDiscount += row.unitsWithDiscount || 0;
+        byServiceLine[sl].totalDiscountAmount += row.totalDiscountAmount || 0;
+        
+        // By location
+        if (!byLocation[loc]) {
+          byLocation[loc] = { totalUnits: 0, unitsWithDiscount: 0, totalDiscountAmount: 0, avgDiscount: 0, discountRate: 0 };
+        }
+        byLocation[loc].totalUnits += row.totalUnits || 0;
+        byLocation[loc].unitsWithDiscount += row.unitsWithDiscount || 0;
+        byLocation[loc].totalDiscountAmount += row.totalDiscountAmount || 0;
+        
+        // Monthly
+        if (!monthlyAgg[month]) {
+          monthlyAgg[month] = { units: 0, withDiscount: 0, totalAmount: 0 };
+        }
+        monthlyAgg[month].units += row.totalUnits || 0;
+        monthlyAgg[month].withDiscount += row.unitsWithDiscount || 0;
+        monthlyAgg[month].totalAmount += row.totalDiscountAmount || 0;
+      }
+      
+      // Calculate averages and rates
+      Object.values(byServiceLine).forEach(sl => {
+        sl.discountRate = sl.totalUnits > 0 ? (sl.unitsWithDiscount / sl.totalUnits) * 100 : 0;
+        sl.avgDiscount = sl.unitsWithDiscount > 0 ? sl.totalDiscountAmount / sl.unitsWithDiscount : 0;
+      });
+      
+      Object.values(byLocation).forEach(loc => {
+        loc.discountRate = loc.totalUnits > 0 ? (loc.unitsWithDiscount / loc.totalUnits) * 100 : 0;
+        loc.avgDiscount = loc.unitsWithDiscount > 0 ? loc.totalDiscountAmount / loc.unitsWithDiscount : 0;
+      });
+      
+      // Build monthly trend sorted by month
+      Object.entries(monthlyAgg)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .forEach(([month, data]) => {
+          monthlyTrend.push({
+            month,
+            discountRate: data.units > 0 ? (data.withDiscount / data.units) * 100 : 0,
+            avgDiscount: data.withDiscount > 0 ? data.totalAmount / data.withDiscount : 0,
+            totalDiscountAmount: data.totalAmount,
+          });
+        });
+      
+      // Calculate T3 summary
+      const t3TotalUnits = Object.values(byServiceLine).reduce((sum, sl) => sum + sl.totalUnits, 0);
+      const t3UnitsWithDiscount = Object.values(byServiceLine).reduce((sum, sl) => sum + sl.unitsWithDiscount, 0);
+      const t3TotalDiscountAmount = Object.values(byServiceLine).reduce((sum, sl) => sum + sl.totalDiscountAmount, 0);
+      
+      res.json({
+        summary: {
+          t3TotalUnits,
+          t3UnitsWithDiscount,
+          t3DiscountRate: t3TotalUnits > 0 ? (t3UnitsWithDiscount / t3TotalUnits) * 100 : 0,
+          t3TotalDiscountAmount,
+          t3AvgDiscount: t3UnitsWithDiscount > 0 ? t3TotalDiscountAmount / t3UnitsWithDiscount : 0,
+        },
+        byServiceLine,
+        byLocation,
+        monthlyTrend,
+        months,
+      });
+    } catch (error) {
+      console.error("Error fetching RRA analytics:", error);
+      res.status(500).json({ error: "Failed to fetch RRA analytics" });
     }
   });
 

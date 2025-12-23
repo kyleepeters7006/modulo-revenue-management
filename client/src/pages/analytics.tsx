@@ -237,6 +237,23 @@ export function Analytics() {
     refetchOnWindowFocus: false,
   });
 
+  // Fetch RRA (Room Rate Adjustment) analytics - T3 discounts
+  const { data: rraData, isLoading: isLoadingRra } = useQuery({
+    queryKey: ['/api/analytics/rra', debouncedFilters.serviceLine],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (debouncedFilters.serviceLine !== 'all') params.append('serviceLine', debouncedFilters.serviceLine);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const response = await fetch(`/api/analytics/rra${queryString}`);
+      if (!response.ok) throw new Error('Failed to fetch RRA data');
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+  });
+
   // Process data for scatter plots
   const processedData = useMemo(() => {
     if (!analyticsData?.campuses) return [];
@@ -649,7 +666,7 @@ export function Analytics() {
 
       {/* Scatter Plots */}
       <Tabs defaultValue="rate-growth" className="space-y-4">
-        <TabsList className="grid grid-cols-4 lg:grid-cols-7 w-full">
+        <TabsList className="grid grid-cols-4 lg:grid-cols-8 w-full">
           <TabsTrigger value="rate-growth">Rate Growth</TabsTrigger>
           <TabsTrigger value="price-position">Price vs Market</TabsTrigger>
           <TabsTrigger value="occupancy-rate">Occupancy vs Rate</TabsTrigger>
@@ -657,6 +674,7 @@ export function Analytics() {
           <TabsTrigger value="revenue-impact">Revenue Impact</TabsTrigger>
           <TabsTrigger value="market-share">Market Position</TabsTrigger>
           <TabsTrigger value="vacancy-analysis">Vacancy Analysis</TabsTrigger>
+          <TabsTrigger value="rra-discounts">RRA Discounts</TabsTrigger>
         </TabsList>
 
         {/* Occupancy vs T6 Rate Growth */}
@@ -1322,6 +1340,158 @@ export function Analytics() {
               ) : (
                 <div className="h-[500px] flex items-center justify-center">
                   <span className="text-muted-foreground">No vacant units or B-beds found</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* RRA Discounts Tab */}
+        <TabsContent value="rra-discounts" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Room Rate Adjustments (RRA) - T3 Discount Analysis</CardTitle>
+              <CardDescription>
+                Trailing 3-month discount trends by service line and location. Tracks promotional allowances applied to occupied units.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingRra ? (
+                <div className="h-[400px] flex items-center justify-center">
+                  <span className="text-muted-foreground">Loading RRA data...</span>
+                </div>
+              ) : rraData ? (
+                <div className="space-y-6">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                      <div className="text-sm text-muted-foreground">T3 Occupied Units</div>
+                      <div className="text-2xl font-bold">{rraData.summary?.t3TotalUnits?.toLocaleString() || 0}</div>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                      <div className="text-sm text-muted-foreground">Units with Discount</div>
+                      <div className="text-2xl font-bold">{rraData.summary?.t3UnitsWithDiscount?.toLocaleString() || 0}</div>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                      <div className="text-sm text-muted-foreground">Discount Rate</div>
+                      <div className="text-2xl font-bold">{(rraData.summary?.t3DiscountRate || 0).toFixed(1)}%</div>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                      <div className="text-sm text-muted-foreground">Avg Discount/Unit</div>
+                      <div className="text-2xl font-bold">${(rraData.summary?.t3AvgDiscount || 0).toFixed(0)}</div>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                      <div className="text-sm text-muted-foreground">Total T3 Discounts</div>
+                      <div className="text-2xl font-bold">${((rraData.summary?.t3TotalDiscountAmount || 0) / 1000).toFixed(1)}K</div>
+                    </div>
+                  </div>
+
+                  {/* By Service Line Table */}
+                  <div>
+                    <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">Discounts by Service Line (T3)</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-700">
+                            <th className="text-left py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Service Line</th>
+                            <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Total Units</th>
+                            <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">With Discount</th>
+                            <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Discount %</th>
+                            <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Avg Discount</th>
+                            <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Total Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rraData.byServiceLine && Object.entries(rraData.byServiceLine)
+                            .sort((a: any, b: any) => {
+                              const order = ['HC', 'AL', 'SL', 'VIL'];
+                              return order.indexOf(a[0]) - order.indexOf(b[0]);
+                            })
+                            .map(([sl, data]: [string, any]) => (
+                              <tr key={sl} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                <td className="py-2 px-2 font-medium text-gray-900 dark:text-gray-100">{sl}</td>
+                                <td className="text-right py-2 px-2">{data.totalUnits?.toLocaleString()}</td>
+                                <td className="text-right py-2 px-2">{data.unitsWithDiscount?.toLocaleString()}</td>
+                                <td className="text-right py-2 px-2">
+                                  <span className={data.discountRate > 10 ? 'text-amber-600' : data.discountRate > 20 ? 'text-red-600' : ''}>
+                                    {data.discountRate?.toFixed(1)}%
+                                  </span>
+                                </td>
+                                <td className="text-right py-2 px-2">${data.avgDiscount?.toFixed(0)}</td>
+                                <td className="text-right py-2 px-2">${(data.totalDiscountAmount / 1000).toFixed(1)}K</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Monthly Trend */}
+                  {rraData.monthlyTrend && rraData.monthlyTrend.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">Monthly Trend</h4>
+                      <div className="grid grid-cols-3 gap-4">
+                        {rraData.monthlyTrend.map((month: any) => (
+                          <div key={month.month} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
+                            <div className="text-xs text-muted-foreground">{month.month}</div>
+                            <div className="text-lg font-semibold">{month.discountRate?.toFixed(1)}% discounted</div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              Avg: ${month.avgDiscount?.toFixed(0)} | Total: ${(month.totalDiscountAmount / 1000).toFixed(1)}K
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top Locations by Discount Amount */}
+                  {rraData.byLocation && Object.keys(rraData.byLocation).length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-3 text-sm text-gray-700 dark:text-gray-300">Top 10 Locations by Discount Amount (T3)</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-200 dark:border-gray-700">
+                              <th className="text-left py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Location</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Total Units</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Discount %</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Avg Discount</th>
+                              <th className="text-right py-2 px-2 font-medium text-gray-600 dark:text-gray-400">Total Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(rraData.byLocation)
+                              .sort((a: any, b: any) => b[1].totalDiscountAmount - a[1].totalDiscountAmount)
+                              .slice(0, 10)
+                              .map(([loc, data]: [string, any]) => (
+                                <tr key={loc} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                  <td className="py-2 px-2 font-medium text-gray-900 dark:text-gray-100">{loc}</td>
+                                  <td className="text-right py-2 px-2">{data.totalUnits?.toLocaleString()}</td>
+                                  <td className="text-right py-2 px-2">
+                                    <span className={data.discountRate > 10 ? 'text-amber-600' : data.discountRate > 20 ? 'text-red-600' : ''}>
+                                      {data.discountRate?.toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className="text-right py-2 px-2">${data.avgDiscount?.toFixed(0)}</td>
+                                  <td className="text-right py-2 px-2">${(data.totalDiscountAmount / 1000).toFixed(1)}K</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {rraData.summary?.t3TotalUnits === 0 && (
+                    <div className="p-8 text-center text-muted-foreground">
+                      <p>No RRA discount data found for the selected period.</p>
+                      <p className="text-sm mt-2">Re-upload your rent roll data to populate Room Rate Adjustments.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-[400px] flex items-center justify-center">
+                  <span className="text-muted-foreground">No RRA data available</span>
                 </div>
               )}
             </CardContent>

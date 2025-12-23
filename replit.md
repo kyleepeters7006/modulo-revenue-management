@@ -55,6 +55,7 @@ Preferred communication style: Simple, everyday language.
 - **AI Integration**: Utilizes GPT-5 (version 5.2) for AI Pricing Engine, Floor Plan Detection, MatrixCare Export Validation, Room Detection Service, AI Insights, Pricing Rule Validation, and Target Revenue Growth Generation.
 - **Target Annual Revenue Growth**: AI-powered settings generator on Pricing Controls page that analyzes portfolio metrics (occupancy, vacancy patterns, sales velocity, competitor rates, service line breakdown) and generates optimal pricing weights, guardrails, and attribute adjustments to achieve user-defined revenue growth targets per service line. Includes Save Targets button to persist target percentages by location and service line combination (stored in `revenue_growth_targets` table).
 - **Optimized Room Attributes**: Redesigned Room Attributes page with unified filter bar and "Preview Impact" functionality.
+- **RRA Analytics**: Room Rate Adjustment (RRA) tracking on Pricing Analytics page. Analyzes T3 (trailing 3-month) discount trends by service line and location, showing discount rates, average discount amounts, and total discount volumes. Import reads `Room_Rate_Adjustments` column from KeyStats data.
 
 # External Dependencies
 
