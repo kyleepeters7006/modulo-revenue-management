@@ -16,6 +16,20 @@ import SimplifiedFloorPlanViewer from "@/components/floor-plans/SimplifiedFloorP
 import FloorPlanEditor from "@/components/floor-plans/FloorPlanEditor";
 import type { locations, campusMaps, rentRollData } from "@shared/schema";
 
+// Default Anderson floor plan image path used for all locations until more are uploaded
+const DEFAULT_FLOOR_PLAN_IMAGE = "/attached_assets/floor_plans/floor-plan-1764083356061.png";
+
+// Helper functions for localStorage persistence - using shared key for cross-page sync
+const loadFiltersFromStorage = () => {
+  try {
+    const stored = localStorage.getItem('appFilters');
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.warn('Failed to load filters from localStorage:', error);
+    return null;
+  }
+};
+
 // Type definitions for components
 type Location = typeof locations.$inferSelect;
 type CampusMap = typeof campusMaps.$inferSelect;
@@ -136,11 +150,14 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export default function FloorPlansPage() {
-  const [selectedCampus, setSelectedCampus] = useState<string>("");
+  // Load initial filters from localStorage (synced with other pages)
+  const storedFilters = loadFiltersFromStorage();
+  
+  const [selectedCampus, setSelectedCampus] = useState<string>(storedFilters?.locationId || "");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [bedroomsFilter, setBedroomsFilter] = useState<string>("any");
   const [floorPlanFilter, setFloorPlanFilter] = useState<string>("any");
-  const [careLevelFilter, setCareLevelFilter] = useState<string>("any");
+  const [careLevelFilter, setCareLevelFilter] = useState<string>(storedFilters?.serviceLine || "any");
   const [sqftFilter, setSqftFilter] = useState<string>("any"); // New square footage filter
   const [selectedFloor, setSelectedFloor] = useState<number>(1); // Floor selector
   const [highlightedUnitId, setHighlightedUnitId] = useState<string | null>(null);
@@ -160,11 +177,17 @@ export default function FloorPlansPage() {
     queryKey: ['/api/locations'],
   });
 
-  // Auto-select first campus when locations load
+  // Auto-select campus from localStorage or default to first one
   useEffect(() => {
     const locations = locationsData?.locations || [];
     if (locations.length > 0 && !selectedCampus) {
-      setSelectedCampus(locations[0].id);
+      // Check if stored location exists in the list
+      const storedId = storedFilters?.locationId;
+      if (storedId && locations.some(loc => loc.id === storedId)) {
+        setSelectedCampus(storedId);
+      } else {
+        setSelectedCampus(locations[0].id);
+      }
     }
   }, [locationsData, selectedCampus]);
   
@@ -182,6 +205,19 @@ export default function FloorPlansPage() {
   
   const locations = locationsData?.locations || [];
   const campusMap = result?.campusMap;
+  
+  // Use default Anderson floor plan if no floor plan exists for the location
+  const effectiveCampusMap = useMemo(() => {
+    if (campusMap?.baseImageUrl) {
+      return campusMap;
+    }
+    // Return a synthetic campus map with the default Anderson floor plan image
+    return {
+      ...campusMap,
+      baseImageUrl: DEFAULT_FLOOR_PLAN_IMAGE,
+      name: campusMap?.name || 'Floor Plan (Default Layout)',
+    };
+  }, [campusMap]);
 
   // Get unique floor plan types from the data - memoized for performance
   const uniqueFloorPlans = useMemo(() => {
@@ -728,10 +764,13 @@ export default function FloorPlansPage() {
             <div className="flex-1 lg:flex-[1.5] order-2 lg:order-1">
               <Card className="shadow-sm h-full min-h-[400px] lg:min-h-[calc(100vh-12rem)]">
                 {/* Edit Mode Toggle Button */}
-                {campusMap && !isLoadingMap && (
+                {!isLoadingMap && (
                   <div className="flex justify-between items-center p-3 border-b">
                     <h3 className="text-base font-medium text-gray-900">
                       Floor Plan {isEditMode ? 'Editor' : 'Viewer'}
+                      {!campusMap?.baseImageUrl && (
+                        <span className="text-xs text-muted-foreground ml-2">(Default Layout)</span>
+                      )}
                     </h3>
                     <Button
                       variant={isEditMode ? "default" : "outline"}
@@ -753,27 +792,20 @@ export default function FloorPlansPage() {
                         <p className="text-gray-500">Loading floor plan...</p>
                       </div>
                     </div>
-                  ) : campusMap ? (
+                  ) : (
                     isEditMode ? (
                       <FloorPlanEditor 
-                        campusMap={campusMap}
+                        campusMap={effectiveCampusMap}
                         units={filteredUnits}
                         onClose={() => setIsEditMode(false)}
                       />
                     ) : (
                       <SimplifiedFloorPlanViewer 
-                        campusMap={campusMap}
+                        campusMap={effectiveCampusMap}
                         units={filteredUnits}
                         onUnitClick={handleUnitClick}
                       />
                     )
-                  ) : (
-                    <div className="h-full flex items-center justify-center bg-gray-50">
-                      <div className="text-center">
-                        <MapPin className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                        <p className="text-gray-500">No floor plan available</p>
-                      </div>
-                    </div>
                   )}
                 </CardContent>
               </Card>
