@@ -958,14 +958,25 @@ export async function importMatrixCareRentRollCSV(
 
   // Helper function to map Service1 to service line (IL maps to SL per requirement)
   const mapServiceLine = (service1: string): string => {
-    const svc = (service1 || '').toUpperCase();
-    if (svc.includes('HC')) return 'HC';
+    const svc = (service1 || '').toUpperCase().trim();
+    // Order matters - check more specific matches first
+    // Based on mapping: AL→AL, AL/MC→AL/MC, HC→HC, HC/MC→HC/MC, HC/TCU→HC, SL→SL, VIL→VIL
+    if (svc === 'HC/MC') return 'HC/MC';
+    if (svc === 'HC/TCU') return 'HC'; // HC/TCU maps to HC
+    if (svc === 'AL/MC') return 'AL/MC';
+    if (svc === 'HC') return 'HC';
+    if (svc === 'AL') return 'AL';
+    if (svc === 'SL') return 'SL';
+    if (svc === 'VIL') return 'VIL';
+    // Fallback to includes-based matching for variations
+    if (svc.includes('HC/MC')) return 'HC/MC';
+    if (svc.includes('HC/TCU') || svc.includes('TCU')) return 'HC';
     if (svc.includes('AL/MC') || (svc.includes('AL') && svc.includes('MC'))) return 'AL/MC';
+    if (svc.includes('HC')) return 'HC';
     if (svc.includes('AL')) return 'AL';
     if (svc.includes('IL')) return 'SL'; // IL maps to SL per requirement
-    if (svc.includes('MC')) return 'AL/MC';
     if (svc.includes('SL')) return 'SL';
-    if (svc.includes('VIL') || svc.includes('VILLA') || svc.includes('VILLAGE')) return 'VIL'; // Village units
+    if (svc.includes('VIL') || svc.includes('VILLA') || svc.includes('VILLAGE')) return 'VIL';
     if (svc.includes('PATIO')) return 'Patio Homes';
     return svc || 'AL'; // Default to AL if unknown
   };
