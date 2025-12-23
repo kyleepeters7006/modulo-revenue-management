@@ -28,6 +28,7 @@ import {
   inquiryMetrics,
   calculationHistory,
   revenueGrowthTargets,
+  aiRateOutcomes,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -554,10 +555,19 @@ export class DatabaseStorage implements IStorage {
     
     const idsToDelete = recordsToDelete.map(r => r.id);
     
-    // First, delete any unit_polygons that reference these rent_roll_data records
     // Process in batches to avoid stack overflow with large datasets
     if (idsToDelete.length > 0) {
       const batchSize = 500; // Process 500 IDs at a time
+      
+      // First, delete any ai_rate_outcomes that reference these rent_roll_data records
+      for (let i = 0; i < idsToDelete.length; i += batchSize) {
+        const batchIds = idsToDelete.slice(i, i + batchSize);
+        await db.delete(aiRateOutcomes).where(
+          inArray(aiRateOutcomes.rentRollDataId, batchIds)
+        );
+      }
+      
+      // Second, delete any unit_polygons that reference these rent_roll_data records
       for (let i = 0; i < idsToDelete.length; i += batchSize) {
         const batchIds = idsToDelete.slice(i, i + batchSize);
         await db.delete(unitPolygons).where(
