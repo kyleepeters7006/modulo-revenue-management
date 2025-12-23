@@ -37,12 +37,12 @@ const loadFiltersFromStorage = () => {
 };
 
 interface TargetGrowth {
-  AL: string;
   HC: string;
-  IL: string;
-  "AL/MC": string;
   "HC/MC": string;
+  AL: string;
+  "AL/MC": string;
   SL: string;
+  VIL: string;
 }
 
 interface WeightExplanation {
@@ -159,12 +159,12 @@ export default function PricingControls() {
   );
 
   const [targetGrowth, setTargetGrowth] = useState<TargetGrowth>({
-    AL: "5",
     HC: "3",
-    IL: "4",
-    "AL/MC": "5",
     "HC/MC": "3",
-    SL: "4"
+    AL: "5",
+    "AL/MC": "5",
+    SL: "4",
+    VIL: "4"
   });
   const [generatedSettings, setGeneratedSettings] = useState<GeneratedSettings | null>(null);
   
@@ -397,7 +397,7 @@ export default function PricingControls() {
   const divisions = locationsData?.divisions || [];
   const locations = locationsData?.locations?.map((loc) => loc.name) || [];
 
-  const serviceLines = ["All", "AL", "HC", "IL", "AL/MC", "HC/MC", "SL"];
+  const serviceLines = ["All", "HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
   const toggleSelection = (item: string, selected: string[], setSelected: (items: string[]) => void) => {
     if (selected.includes(item)) {
@@ -683,7 +683,7 @@ export default function PricingControls() {
             <div className="space-y-6">
               {/* Target % inputs for each service line */}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {(["AL", "HC", "IL", "AL/MC", "HC/MC", "SL"] as const).map((sl) => {
+                {(["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const).map((sl) => {
                   const isDisabled = selectedServiceLine !== "All" && selectedServiceLine !== sl;
                   return (
                     <div key={sl} className={`space-y-1.5 ${isDisabled ? 'opacity-50' : ''}`}>
