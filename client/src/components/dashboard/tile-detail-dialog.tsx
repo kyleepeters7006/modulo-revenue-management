@@ -141,13 +141,15 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     </Badge>
   );
 
-  const GrowthStatsPanel = ({ stats, title, serviceLineData, showUnits, currentValue }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[]; showUnits?: boolean; currentValue?: number }) => {
+  const GrowthStatsPanel = ({ stats, title, serviceLineData, showUnits, currentValue, isOccupancy }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[]; showUnits?: boolean; currentValue?: number; isOccupancy?: boolean }) => {
     const formatCell = (percent: number, value?: number) => {
       if (showUnits && value) {
         return formatUnitChange(value, percent);
       }
       return formatGrowth(percent);
     };
+
+    const formatOccupancyValue = (value: number) => `${value.toFixed(1)}%`;
     
     return (
     <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
@@ -160,6 +162,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             <thead>
               <tr className="border-b border-[var(--dashboard-border)]">
                 <th className="text-left py-2 px-2 text-[var(--dashboard-muted)] font-medium w-20"></th>
+                {isOccupancy && <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">Current</th>}
                 <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T1</th>
                 <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T3</th>
                 <th className="text-center py-2 px-1 text-[var(--dashboard-muted)] font-medium">T6</th>
@@ -170,6 +173,9 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             <tbody>
               <tr className="border-b border-[var(--dashboard-border)] bg-[var(--dashboard-background)]">
                 <td className="py-2 px-2 font-semibold text-[var(--dashboard-text)]">Portfolio</td>
+                {isOccupancy && currentValue !== undefined && (
+                  <td className="text-center py-2 px-1 font-bold text-[var(--dashboard-text)]">{formatOccupancyValue(currentValue)}</td>
+                )}
                 <td className={`text-center py-2 px-1 font-bold ${stats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t1, currentValue)}</td>
                 <td className={`text-center py-2 px-1 font-bold ${stats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t3, currentValue)}</td>
                 <td className={`text-center py-2 px-1 font-bold ${stats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t6, currentValue)}</td>
@@ -187,6 +193,9 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       <span className="text-[var(--dashboard-text)]">{sl.serviceLine}</span>
                     </div>
                   </td>
+                  {isOccupancy && (
+                    <td className="text-center py-2 px-1 font-medium text-[var(--dashboard-text)]">{formatOccupancyValue(sl.value)}</td>
+                  )}
                   <td className={`text-center py-2 px-1 ${sl.growthStats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t1, showUnits ? sl.value : undefined)}</td>
                   <td className={`text-center py-2 px-1 ${sl.growthStats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t3, showUnits ? sl.value : undefined)}</td>
                   <td className={`text-center py-2 px-1 ${sl.growthStats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t6, showUnits ? sl.value : undefined)}</td>
@@ -327,6 +336,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       serviceLineData={displayByServiceLine}
                       showUnits={tileType === 'units'}
                       currentValue={displayData.currentValue}
+                      isOccupancy={tileType === 'occupancy'}
                     />
                     <GrowthStatsPanel 
                       stats={displaySameStore.growthStats} 
@@ -334,6 +344,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       serviceLineData={displaySameStore.byServiceLine}
                       showUnits={tileType === 'units'}
                       currentValue={displaySameStore.currentValue}
+                      isOccupancy={tileType === 'occupancy'}
                     />
                   </div>
                 </>
