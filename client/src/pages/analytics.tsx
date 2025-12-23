@@ -19,7 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Download, TrendingUp, TrendingDown, Minus, Target, Building2, DollarSign, Users, ArrowLeft } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Download, TrendingUp, TrendingDown, Minus, Target, Building2, DollarSign, Users, ArrowLeft, Loader2 } from 'lucide-react';
 
 interface ProcessedCampusData {
   campusId: string;
@@ -541,12 +542,24 @@ export function Analytics() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pricing Analytics</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Pricing Analytics</h1>
+            {isFetching && !isLoading && (
+              <Badge variant="outline" className="gap-1 text-xs animate-pulse">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Updating...
+              </Badge>
+            )}
+          </div>
           <p className="text-muted-foreground mt-2">
-            Portfolio-wide pricing strategy visualization across {processedData.length} campuses
+            {isLoading ? (
+              <Skeleton className="h-4 w-64" />
+            ) : (
+              `Portfolio-wide pricing strategy visualization across ${processedData.length} campuses`
+            )}
           </p>
         </div>
-        <Button onClick={handleExportChart} variant="outline" className="gap-2">
+        <Button onClick={handleExportChart} variant="outline" className="gap-2" disabled={isLoading}>
           <Download className="h-4 w-4" />
           Export Data
         </Button>
@@ -594,6 +607,22 @@ export function Analytics() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {isLoading ? (
+          <>
+            {[...Array(4)].map((_, i) => (
+              <Card key={i}>
+                <CardHeader className="pb-2">
+                  <Skeleton className="h-4 w-32" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-24 mb-2" />
+                  <Skeleton className="h-3 w-40" />
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow" 
           onClick={() => openCalculationDialog('avgRate')}
@@ -671,6 +700,8 @@ export function Analytics() {
             <p className="text-xs text-muted-foreground">Annual potential • Click for details</p>
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
 
       {/* Scatter Plots */}
