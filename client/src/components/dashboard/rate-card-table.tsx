@@ -592,7 +592,9 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.map((row: any, index: number) => (
+                {summary
+                  .filter((row: any) => row.totalUnits > 0)
+                  .map((row: any, index: number) => (
                   <TableRow key={`${row.serviceLine}-${index}`}>
                     <TableCell className="font-medium">{row.serviceLine}</TableCell>
                     <TableCell>
