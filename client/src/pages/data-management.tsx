@@ -3,12 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
+import { useUploads } from "@/contexts/upload-context";
 
 interface FileWithDate {
   file: File;
@@ -19,15 +20,13 @@ interface FileWithDate {
 
 export default function DataManagement() {
   const [uploadHistory, setUploadHistory] = useState<any[]>([]);
-  const [isUploadingRentRoll, setIsUploadingRentRoll] = useState(false);
-  const [isUploadingInquiry, setIsUploadingInquiry] = useState(false);
-  const [isUploadingCompetitor, setIsUploadingCompetitor] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
 
   const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor') => {
     try {
@@ -69,8 +68,7 @@ export default function DataManagement() {
   };
 
   const rentRollMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      setIsUploadingRentRoll(true);
+    mutationFn: async ({ formData, uploadId }: { formData: FormData; uploadId: string }) => {
       const response = await fetch('/api/upload/rent-roll', {
         method: 'POST',
         body: formData,
@@ -81,9 +79,10 @@ export default function DataManagement() {
         throw new Error(error.message || 'Upload failed');
       }
       
-      return response.json();
+      return { data: await response.json(), uploadId };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data, uploadId }) => {
+      updateUpload(uploadId, { status: 'success', message: `Processed ${data.recordsProcessed || 0} records` });
       toast({
         title: "Upload Successful",
         description: `Processed ${data.recordsProcessed || 0} rent roll records.`,
@@ -91,7 +90,8 @@ export default function DataManagement() {
       setUploadHistory(prev => [{ ...data, type: 'rent-roll', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
+      updateUpload(variables.uploadId, { status: 'error', error: error.message });
       toast({
         title: "Upload Failed",
         description: error.message,
@@ -99,7 +99,6 @@ export default function DataManagement() {
       });
     },
     onSettled: () => {
-      setIsUploadingRentRoll(false);
       if (rentRollFileInputRef.current) {
         rentRollFileInputRef.current.value = '';
       }
@@ -107,8 +106,7 @@ export default function DataManagement() {
   });
 
   const inquiryMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      setIsUploadingInquiry(true);
+    mutationFn: async ({ formData, uploadId }: { formData: FormData; uploadId: string }) => {
       const response = await fetch('/api/upload/inquiry', {
         method: 'POST',
         body: formData,
@@ -119,9 +117,10 @@ export default function DataManagement() {
         throw new Error(error.message || 'Upload failed');
       }
       
-      return response.json();
+      return { data: await response.json(), uploadId };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data, uploadId }) => {
+      updateUpload(uploadId, { status: 'success', message: `Processed ${data.recordsProcessed || 0} records` });
       toast({
         title: "Upload Successful",
         description: `Processed ${data.recordsProcessed || 0} inquiry records.`,
@@ -129,7 +128,8 @@ export default function DataManagement() {
       setUploadHistory(prev => [{ ...data, type: 'inquiry', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
+      updateUpload(variables.uploadId, { status: 'error', error: error.message });
       toast({
         title: "Upload Failed",
         description: error.message,
@@ -137,7 +137,6 @@ export default function DataManagement() {
       });
     },
     onSettled: () => {
-      setIsUploadingInquiry(false);
       if (inquiryFileInputRef.current) {
         inquiryFileInputRef.current.value = '';
       }
@@ -145,9 +144,7 @@ export default function DataManagement() {
   });
 
   const competitorMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      setIsUploadingCompetitor(true);
-      
+    mutationFn: async ({ formData, uploadId }: { formData: FormData; uploadId: string }) => {
       // Add current month as surveyMonth if not already present
       if (!formData.has('surveyMonth')) {
         const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
@@ -164,9 +161,10 @@ export default function DataManagement() {
         throw new Error(error.message || 'Upload failed');
       }
       
-      return response.json();
+      return { data: await response.json(), uploadId };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data, uploadId }) => {
+      updateUpload(uploadId, { status: 'success', message: `Processed ${data.successfulImports || 0} records` });
       toast({
         title: "Competitive Survey Upload Successful",
         description: `Processed ${data.successfulImports || 0} competitive survey records. System will recalculate competitor rates in the background.`,
@@ -179,7 +177,8 @@ export default function DataManagement() {
         console.warn('Failed to trigger competitor rate recalculation:', err);
       });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
+      updateUpload(variables.uploadId, { status: 'error', error: error.message });
       toast({
         title: "Upload Failed",
         description: error.message,
@@ -187,7 +186,6 @@ export default function DataManagement() {
       });
     },
     onSettled: () => {
-      setIsUploadingCompetitor(false);
       if (competitorFileInputRef.current) {
         competitorFileInputRef.current.value = '';
       }
@@ -290,7 +288,12 @@ export default function DataManagement() {
       return;
     }
     
-    setIsUploadingRentRoll(true);
+    // Create a batch upload tracking entry
+    const batchUploadId = addUpload({
+      type: 'rent-roll',
+      fileName: `${selectedFiles.length} files`,
+      status: 'uploading',
+    });
     
     // Track results in a local array
     const results: Array<{ success: boolean; error?: string }> = [];
@@ -337,12 +340,14 @@ export default function DataManagement() {
       }
     }
     
-    setIsUploadingRentRoll(false);
-    queryClient.invalidateQueries({ queryKey: ["/api"] });
-    
-    // Show summary toast with accurate counts
+    // Update the batch upload status
     const successCount = results.filter(r => r.success).length;
     const errorCount = results.filter(r => !r.success).length;
+    updateUpload(batchUploadId, { 
+      status: errorCount > 0 ? 'error' : 'success', 
+      message: `${successCount} succeeded, ${errorCount} failed` 
+    });
+    queryClient.invalidateQueries({ queryKey: ["/api"] });
     
     toast({
       title: "Batch Upload Complete",
@@ -366,13 +371,19 @@ export default function DataManagement() {
     const formData = new FormData();
     formData.append('file', file);
     
+    const uploadId = addUpload({
+      type,
+      fileName: file.name,
+      status: 'uploading',
+    });
+    
     const mutations = {
       'rent-roll': rentRollMutation,
       'inquiry': inquiryMutation,
       'competitor': competitorMutation
     };
     
-    mutations[type].mutate(formData);
+    mutations[type].mutate({ formData, uploadId });
   };
 
   return (
@@ -388,6 +399,50 @@ export default function DataManagement() {
             Upload rent roll, inquiry, and competitive data to power your revenue management dashboard
           </p>
         </div>
+
+        {/* Active Uploads Banner */}
+        {activeUploads.length > 0 && (
+          <Card className="mb-6 border-blue-200 bg-blue-50">
+            <CardContent className="py-4">
+              <h3 className="text-sm font-medium text-blue-900 mb-3 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Active Uploads
+              </h3>
+              <div className="space-y-2">
+                {activeUploads.map((upload) => (
+                  <div 
+                    key={upload.id} 
+                    className="flex items-center justify-between p-2 bg-white rounded border border-blue-100"
+                  >
+                    <div className="flex items-center gap-3">
+                      {upload.status === 'uploading' || upload.status === 'processing' ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                      ) : upload.status === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                      )}
+                      <div>
+                        <span className="text-sm font-medium capitalize">{upload.type.replace('-', ' ')}</span>
+                        <span className="text-sm text-gray-500 ml-2">{upload.fileName}</span>
+                      </div>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      upload.status === 'success' ? 'bg-green-100 text-green-700' :
+                      upload.status === 'error' ? 'bg-red-100 text-red-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      {upload.status === 'uploading' ? 'Uploading...' : 
+                       upload.status === 'processing' ? 'Processing...' :
+                       upload.status === 'success' ? 'Complete' : 
+                       upload.error || 'Failed'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="space-y-6">
           {/* Rent Roll Upload */}
@@ -419,7 +474,7 @@ export default function DataManagement() {
                   
                   <Button
                     onClick={() => rentRollFileInputRef.current?.click()}
-                    disabled={isUploadingRentRoll}
+                    disabled={isUploading('rent-roll')}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
                     data-testid="button-select-rent-roll-file"
                   >
@@ -457,7 +512,7 @@ export default function DataManagement() {
                                   type="date"
                                   value={fileWithDate.uploadDate}
                                   onChange={(e) => handleUpdateFileDate(index, e.target.value)}
-                                  disabled={isUploadingRentRoll}
+                                  disabled={isUploading('rent-roll')}
                                   className="text-xs h-7"
                                   data-testid={`input-file-date-${index}`}
                                 />
@@ -488,11 +543,11 @@ export default function DataManagement() {
                   <div className="flex gap-3">
                     <Button
                       onClick={handleConfirmUpload}
-                      disabled={isUploadingRentRoll}
+                      disabled={isUploading('rent-roll')}
                       className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                       data-testid="button-confirm-upload"
                     >
-                      {isUploadingRentRoll ? 'Uploading...' : `Upload ${selectedFiles.length} File(s)`}
+                      {isUploading('rent-roll') ? 'Uploading...' : `Upload ${selectedFiles.length} File(s)`}
                     </Button>
                     <Button
                       onClick={() => {
@@ -502,7 +557,7 @@ export default function DataManagement() {
                         }
                       }}
                       variant="outline"
-                      disabled={isUploadingRentRoll}
+                      disabled={isUploading('rent-roll')}
                       data-testid="button-cancel-upload"
                     >
                       Cancel
@@ -551,12 +606,12 @@ export default function DataManagement() {
                 
                 <Button
                   onClick={() => inquiryFileInputRef.current?.click()}
-                  disabled={isUploadingInquiry}
+                  disabled={isUploading('inquiry')}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
                   data-testid="button-upload-inquiry"
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  {isUploadingInquiry ? 'Processing...' : 'Upload Inquiry Data'}
+                  {isUploading('inquiry') ? 'Processing...' : 'Upload Inquiry Data'}
                 </Button>
               </div>
               
@@ -599,12 +654,12 @@ export default function DataManagement() {
                 
                 <Button
                   onClick={() => competitorFileInputRef.current?.click()}
-                  disabled={isUploadingCompetitor}
+                  disabled={isUploading('competitor')}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
                   data-testid="button-upload-competitor"
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  {isUploadingCompetitor ? 'Processing...' : 'Upload Competitor Data'}
+                  {isUploading('competitor') ? 'Processing...' : 'Upload Competitor Data'}
                 </Button>
               </div>
               
