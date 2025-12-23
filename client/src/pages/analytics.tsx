@@ -258,15 +258,24 @@ export function Analytics() {
   const processedData = useMemo(() => {
     if (!analyticsData?.campuses) return [];
     
-    return analyticsData.campuses.map((campus: any) => ({
-      ...campus,
-      pricePosition: campus.competitorAvgRate > 0 
+    return analyticsData.campuses.map((campus: any) => {
+      // Calculate raw price position
+      const rawPricePosition = campus.competitorAvgRate > 0 
         ? parseFloat((((campus.avgRate - campus.competitorAvgRate) / campus.competitorAvgRate) * 100).toFixed(2))
-        : 0,
-      size: Math.max(campus.unitsCount, 10), // Minimum size for visibility
-      // Mock T6 rate growth for now - in production this would come from backend
-      rateGrowthT6: campus.rateGrowthT6 || ((Math.random() * 10) - 2), // Random between -2% and 8%
-    }));
+        : 0;
+      
+      // Clamp to [-100, 200] range for display (200% = 3x market price, which is reasonable max)
+      const clampedPricePosition = Math.max(-100, Math.min(200, rawPricePosition));
+      
+      return {
+        ...campus,
+        pricePosition: clampedPricePosition,
+        rawPricePosition, // Keep original for tooltip display if needed
+        size: Math.max(campus.unitsCount, 10), // Minimum size for visibility
+        // Mock T6 rate growth for now - in production this would come from backend
+        rateGrowthT6: campus.rateGrowthT6 || ((Math.random() * 10) - 2), // Random between -2% and 8%
+      };
+    });
   }, [analyticsData]);
 
   // Get unique regions and divisions for filtering
@@ -886,7 +895,9 @@ export function Analytics() {
                     dataKey="pricePosition" 
                     name="Price Position"
                     label={{ value: '% Higher/Lower than Competitor', angle: -90, position: 'center', dx: -35 }}
-                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
+                    domain={[-100, 200]}
+                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(0)}%`}
+                    ticks={[-100, -50, 0, 50, 100, 150, 200]}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
@@ -1058,8 +1069,9 @@ export function Analytics() {
                     dataKey="pricePosition" 
                     name="Price Position"
                     label={{ value: 'Price Position vs Market (%)', position: 'insideBottom', offset: -15 }}
-                    domain={['dataMin - 5', 'dataMax + 5']}
-                    tickFormatter={(value) => `${value}%`}
+                    domain={[-100, 200]}
+                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value}%`}
+                    ticks={[-100, -50, 0, 50, 100, 150, 200]}
                   />
                   <YAxis 
                     type="number" 
@@ -1156,8 +1168,9 @@ export function Analytics() {
                     dataKey="pricePosition" 
                     name="Price Position"
                     label={{ value: 'Price Differential from Market (%)', angle: -90, position: 'center', dx: -35 }}
-                    domain={['dataMin - 5', 'dataMax + 5']}
-                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`}
+                    domain={[-100, 200]}
+                    tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(0)}%`}
+                    ticks={[-100, -50, 0, 50, 100, 150, 200]}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 
