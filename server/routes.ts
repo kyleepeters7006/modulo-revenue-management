@@ -4379,7 +4379,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
           moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
           moveOutDate: getRowValue(row, 'Move Out Date', 'move out date', 'MoveOutDate', 'moveOutDate') || null,
-          payorType: getRowValue(row, 'Payor Type', 'payor type', 'PayorType', 'payorType') || null,
+          payorType: getRowValue(row, 'Payor Type', 'payor type', 'PayorType', 'payorType', 'Payer', 'payer', 'Payor', 'payor') || null,
           admissionStatus: getRowValue(row, 'Admission Status', 'admission status', 'AdmissionStatus', 'admissionStatus') || null,
           levelOfCare: getRowValue(row, 'Level of Care', 'level of care', 'LevelOfCare', 'levelOfCare') || null,
           medicaidRate: parseFloat(getRowValue(row, 'Medicaid Rate', 'medicaid rate', 'MedicaidRate', 'medicaidRate')) || null,
