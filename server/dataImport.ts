@@ -554,19 +554,48 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             }
           }
 
+          // Helper to get first non-null/undefined value from multiple possible column names
+          const getColumn = (...names: string[]): any => {
+            for (const name of names) {
+              if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+                return row[name];
+              }
+            }
+            return null;
+          };
+
           // Service line definitions with their room type mappings
+          // IL (Independent Living) can be found under various column prefixes: IL, SL, Villa, Villas, IndependentLiving
           const serviceLines = [
             {
               type: 'IL',
-              flag: row['IL'],
+              flag: getColumn('IL', 'SL', 'Villa', 'Villas', 'IndependentLiving', 'Independent Living', 'Senior Living'),
               roomTypes: [
-                // Support both old and new column name formats
-                { name: 'Studio', rate: row['IL_StudioRate'] || row['IL_StudioPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
-                { name: 'One Bedroom', rate: row['IL_OneBedRate'] || row['IL_1BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
-                { name: 'Two Bedroom', rate: row['IL_TwoBedRate'] || row['IL_2BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                // Support multiple column name formats for IL/SL/Villa data
+                { 
+                  name: 'Studio', 
+                  rate: getColumn('IL_StudioRate', 'IL_StudioPrivateRoomRate', 'SL_StudioRate', 'Villa_StudioRate', 'Villas_StudioRate', 'IL_ILStudioRoomRate', 'SL_SLStudioRoomRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj', 'SL_Comp_Care_Adj', 'Villa_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj', 'SL_Comp_Other_Adj', 'Villa_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight', 'SL_Comp_Weight', 'Villa_Comp_Weight')
+                },
+                { 
+                  name: 'One Bedroom', 
+                  rate: getColumn('IL_OneBedRate', 'IL_1BRPrivateRoomRate', 'SL_OneBedRate', 'SL_1BRPrivateRoomRate', 'Villa_OneBedRate', 'Villas_OneBedRate', 'IL_IL1BRRoomRate', 'SL_SL1BRRoomRate', 'Villa_1BRPrivateRoomRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj', 'SL_Comp_Care_Adj', 'Villa_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj', 'SL_Comp_Other_Adj', 'Villa_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight', 'SL_Comp_Weight', 'Villa_Comp_Weight')
+                },
+                { 
+                  name: 'Two Bedroom', 
+                  rate: getColumn('IL_TwoBedRate', 'IL_2BRPrivateRoomRate', 'SL_TwoBedRate', 'SL_2BRPrivateRoomRate', 'Villa_TwoBedRate', 'Villas_TwoBedRate', 'IL_IL2BRRoomRate', 'SL_SL2BRRoomRate', 'Villa_2BRPrivateRoomRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj', 'SL_Comp_Care_Adj', 'Villa_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj', 'SL_Comp_Other_Adj', 'Villa_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight', 'SL_Comp_Weight', 'Villa_Comp_Weight')
+                },
               ],
-              occupancy: row['IL_Occupancy'],
-              totalUnits: row['IL_TotalUnits'],
+              occupancy: getColumn('IL_Occupancy', 'SL_Occupancy', 'Villa_Occupancy'),
+              totalUnits: getColumn('IL_TotalUnits', 'SL_TotalUnits', 'Villa_TotalUnits'),
             },
             {
               type: 'AL',

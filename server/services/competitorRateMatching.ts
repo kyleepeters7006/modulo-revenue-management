@@ -29,10 +29,10 @@ const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
   'VIL': 'IL'
 };
 
-// Fallback competitor types when primary type has no data
-// SL/VIL use IL, but if no IL data exists, fall back to AL
+// No fallback to other competitor types - use exact type matching only
+// User requirement: No fallback to AL rates for IL/SL/VIL service lines
 const COMPETITOR_TYPE_FALLBACK: Record<string, string> = {
-  'IL': 'AL'  // Independent Living falls back to Assisted Living rates
+  // Empty - no fallbacks allowed
 };
 
 // Room type mapping based on the "Base Competitor Rate Column" in the mapping document
