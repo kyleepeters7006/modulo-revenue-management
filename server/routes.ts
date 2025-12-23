@@ -5684,6 +5684,413 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     }
   });
 
+  /**
+   * GET /api/tile-details/:tileType/drill-down
+   * 
+   * Provides hierarchical drill-down data for growth percentages.
+   * Returns Region → Division → Campus breakdown for the selected period.
+   * 
+   * @param tileType - One of: 'units', 'occupancy', 'current-revenue', 'potential-revenue'
+   * @query period - One of: 't1', 't3', 't6', 't12', 'ytd'
+   * @query serviceLine - Optional service line filter
+   * @query sameStore - Optional 'true' to filter same-store only
+   */
+  app.get("/api/tile-details/:tileType/drill-down", async (req, res) => {
+    try {
+      const { tileType } = req.params;
+      const { period = 't12', serviceLine, sameStore } = req.query;
+      const validTileTypes = ['units', 'occupancy', 'current-revenue', 'potential-revenue'];
+      const validPeriods = ['t1', 't3', 't6', 't12', 'ytd'];
+      
+      if (!validTileTypes.includes(tileType)) {
+        return res.status(400).json({ error: `Invalid tile type. Must be one of: ${validTileTypes.join(', ')}` });
+      }
+      if (!validPeriods.includes(period as string)) {
+        return res.status(400).json({ error: `Invalid period. Must be one of: ${validPeriods.join(', ')}` });
+      }
+      
+      const isSameStoreOnly = sameStore === 'true';
+      
+      // Get available months
+      const availableMonths = await db
+        .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
+        .from(rentRollData)
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+        .limit(13);
+      
+      const months = availableMonths.map(m => m.month).sort();
+      const mostRecentMonth = months[months.length - 1] || '';
+      const currentYear = mostRecentMonth ? mostRecentMonth.substring(0, 4) : new Date().getFullYear().toString();
+      const ytdStartMonth = `${currentYear}-01`;
+      
+      // Determine comparison month based on period
+      let comparisonMonthIndex: number;
+      const monthCount = months.length;
+      switch (period) {
+        case 't1': comparisonMonthIndex = monthCount - 2; break;
+        case 't3': comparisonMonthIndex = monthCount - 4; break;
+        case 't6': comparisonMonthIndex = monthCount - 7; break;
+        case 't12': comparisonMonthIndex = 0; break;
+        case 'ytd':
+          comparisonMonthIndex = months.findIndex(m => m >= ytdStartMonth);
+          if (comparisonMonthIndex < 0) comparisonMonthIndex = 0;
+          break;
+        default: comparisonMonthIndex = 0;
+      }
+      
+      const comparisonMonth = months[comparisonMonthIndex] || months[0] || mostRecentMonth;
+      
+      // Get location data with region/division
+      const locationsMap = new Map<string, { region: string; division: string }>();
+      const locationsList = await db.select().from(locations);
+      for (const loc of locationsList) {
+        locationsMap.set(loc.name, { 
+          region: loc.region || 'Unknown Region', 
+          division: loc.division || 'Unknown Division' 
+        });
+      }
+      
+      // B-bed exclusion for non-revenue tile types
+      const excludeBBeds = sql`NOT (${rentRollData.serviceLine} IN ('AL', 'SL', 'VIL', 'IL', 'AL/MC') 
+                       AND ${rentRollData.roomNumber} LIKE '%/B')`;
+      
+      // Build conditions
+      const conditions = [
+        inArray(rentRollData.uploadMonth, [mostRecentMonth, comparisonMonth])
+      ];
+      
+      if (tileType === 'units' || tileType === 'occupancy') {
+        conditions.push(excludeBBeds);
+      }
+      if (serviceLine && serviceLine !== 'all') {
+        conditions.push(eq(rentRollData.serviceLine, serviceLine as string));
+      }
+      if (isSameStoreOnly) {
+        conditions.push(eq(rentRollData.sameStore, true));
+      }
+      
+      // Build the query based on tile type
+      let query;
+      if (tileType === 'occupancy') {
+        query = db
+          .select({
+            month: rentRollData.uploadMonth,
+            location: rentRollData.location,
+            occupied: sql<number>`SUM(CASE WHEN ${rentRollData.occupiedYN} THEN 1 ELSE 0 END)::int`,
+            total: sql<number>`COUNT(*)::int`,
+          })
+          .from(rentRollData)
+          .where(and(...conditions))
+          .groupBy(rentRollData.uploadMonth, rentRollData.location);
+      } else if (tileType === 'current-revenue') {
+        query = db
+          .select({
+            month: rentRollData.uploadMonth,
+            location: rentRollData.location,
+            value: sql<number>`SUM(
+              CASE WHEN ${rentRollData.occupiedYN} 
+                AND (
+                  ${rentRollData.payorType} IS NULL 
+                  OR ${rentRollData.payorType} = ''
+                  OR UPPER(${rentRollData.payorType}) LIKE '%PRIVATE%'
+                  OR UPPER(${rentRollData.payorType}) LIKE '%PVT%'
+                  OR UPPER(${rentRollData.payorType}) LIKE '%BEDHOLD%'
+                )
+              THEN
+                CASE 
+                  WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                    COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
+                  ELSE 
+                    COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 12
+                END
+              ELSE 0 END
+            )`,
+          })
+          .from(rentRollData)
+          .where(and(...conditions))
+          .groupBy(rentRollData.uploadMonth, rentRollData.location);
+      } else if (tileType === 'potential-revenue') {
+        query = db
+          .select({
+            month: rentRollData.uploadMonth,
+            location: rentRollData.location,
+            value: sql<number>`SUM(
+              CASE 
+                WHEN ${rentRollData.occupiedYN} AND (
+                  ${rentRollData.payorType} IS NULL 
+                  OR ${rentRollData.payorType} = ''
+                  OR UPPER(${rentRollData.payorType}) LIKE '%PRIVATE%'
+                  OR UPPER(${rentRollData.payorType}) LIKE '%PVT%'
+                  OR UPPER(${rentRollData.payorType}) LIKE '%BEDHOLD%'
+                ) THEN
+                  CASE 
+                    WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                      COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 365
+                    ELSE 
+                      COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 12
+                  END
+                WHEN NOT ${rentRollData.occupiedYN} THEN
+                  CASE 
+                    WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
+                      COALESCE(${rentRollData.streetRate}, 0) * 365 * 0.65
+                    ELSE 
+                      COALESCE(${rentRollData.streetRate}, 0) * 12
+                  END
+                ELSE 0
+              END
+            )`,
+          })
+          .from(rentRollData)
+          .where(and(...conditions))
+          .groupBy(rentRollData.uploadMonth, rentRollData.location);
+      } else {
+        // units
+        query = db
+          .select({
+            month: rentRollData.uploadMonth,
+            location: rentRollData.location,
+            value: sql<number>`COUNT(*)::int`,
+          })
+          .from(rentRollData)
+          .where(and(...conditions))
+          .groupBy(rentRollData.uploadMonth, rentRollData.location);
+      }
+      
+      const rawData = await query;
+      
+      // Calculate growth helper
+      const calculateGrowth = (current: number, previous: number): number => {
+        if (previous === 0) return current > 0 ? 100 : 0;
+        return Math.round(((current - previous) / previous) * 100 * 10) / 10;
+      };
+      
+      // Process data by location, then aggregate to division and region
+      const locationData = new Map<string, { current: number; previous: number; currentOccupied?: number; currentTotal?: number; previousOccupied?: number; previousTotal?: number }>();
+      
+      for (const row of rawData) {
+        if (!locationData.has(row.location)) {
+          locationData.set(row.location, { 
+            current: 0, previous: 0,
+            currentOccupied: 0, currentTotal: 0,
+            previousOccupied: 0, previousTotal: 0
+          });
+        }
+        const data = locationData.get(row.location)!;
+        
+        if (tileType === 'occupancy') {
+          const occupied = (row as any).occupied || 0;
+          const total = (row as any).total || 0;
+          if (row.month === mostRecentMonth) {
+            data.currentOccupied = (data.currentOccupied || 0) + occupied;
+            data.currentTotal = (data.currentTotal || 0) + total;
+          } else {
+            data.previousOccupied = (data.previousOccupied || 0) + occupied;
+            data.previousTotal = (data.previousTotal || 0) + total;
+          }
+        } else {
+          const value = (row as any).value || 0;
+          if (row.month === mostRecentMonth) {
+            data.current += value;
+          } else {
+            data.previous += value;
+          }
+        }
+      }
+      
+      // Build campus-level results
+      const campuses: Array<{ 
+        name: string; 
+        region: string; 
+        division: string; 
+        current: number; 
+        previous: number; 
+        growth: number 
+      }> = [];
+      
+      for (const [loc, data] of locationData) {
+        const locInfo = locationsMap.get(loc) || { region: 'Unknown Region', division: 'Unknown Division' };
+        let current: number, previous: number;
+        
+        if (tileType === 'occupancy') {
+          current = (data.currentTotal || 0) > 0 ? ((data.currentOccupied || 0) / (data.currentTotal || 1)) * 100 : 0;
+          previous = (data.previousTotal || 0) > 0 ? ((data.previousOccupied || 0) / (data.previousTotal || 1)) * 100 : 0;
+        } else {
+          current = data.current;
+          previous = data.previous;
+        }
+        
+        campuses.push({
+          name: loc,
+          region: locInfo.region,
+          division: locInfo.division,
+          current,
+          previous,
+          growth: calculateGrowth(current, previous)
+        });
+      }
+      
+      // Aggregate to divisions
+      const divisionAgg = new Map<string, { 
+        region: string; 
+        current: number; 
+        previous: number; 
+        currentOccupied?: number; 
+        currentTotal?: number; 
+        previousOccupied?: number; 
+        previousTotal?: number; 
+        campusCount: number 
+      }>();
+      
+      for (const [loc, data] of locationData) {
+        const locInfo = locationsMap.get(loc) || { region: 'Unknown Region', division: 'Unknown Division' };
+        const divKey = locInfo.division;
+        
+        if (!divisionAgg.has(divKey)) {
+          divisionAgg.set(divKey, { 
+            region: locInfo.region, 
+            current: 0, 
+            previous: 0,
+            currentOccupied: 0,
+            currentTotal: 0,
+            previousOccupied: 0,
+            previousTotal: 0,
+            campusCount: 0 
+          });
+        }
+        const div = divisionAgg.get(divKey)!;
+        div.campusCount++;
+        
+        if (tileType === 'occupancy') {
+          div.currentOccupied = (div.currentOccupied || 0) + (data.currentOccupied || 0);
+          div.currentTotal = (div.currentTotal || 0) + (data.currentTotal || 0);
+          div.previousOccupied = (div.previousOccupied || 0) + (data.previousOccupied || 0);
+          div.previousTotal = (div.previousTotal || 0) + (data.previousTotal || 0);
+        } else {
+          div.current += data.current;
+          div.previous += data.previous;
+        }
+      }
+      
+      const divisions: Array<{ 
+        name: string; 
+        region: string; 
+        current: number; 
+        previous: number; 
+        growth: number; 
+        campusCount: number 
+      }> = [];
+      
+      for (const [name, data] of divisionAgg) {
+        let current: number, previous: number;
+        if (tileType === 'occupancy') {
+          current = (data.currentTotal || 0) > 0 ? ((data.currentOccupied || 0) / (data.currentTotal || 1)) * 100 : 0;
+          previous = (data.previousTotal || 0) > 0 ? ((data.previousOccupied || 0) / (data.previousTotal || 1)) * 100 : 0;
+        } else {
+          current = data.current;
+          previous = data.previous;
+        }
+        divisions.push({
+          name,
+          region: data.region,
+          current,
+          previous,
+          growth: calculateGrowth(current, previous),
+          campusCount: data.campusCount
+        });
+      }
+      
+      // Aggregate to regions
+      const regionAgg = new Map<string, { 
+        current: number; 
+        previous: number; 
+        currentOccupied?: number; 
+        currentTotal?: number; 
+        previousOccupied?: number; 
+        previousTotal?: number;
+        divisionCount: number; 
+        campusCount: number 
+      }>();
+      
+      for (const div of divisions) {
+        if (!regionAgg.has(div.region)) {
+          regionAgg.set(div.region, { 
+            current: 0, 
+            previous: 0, 
+            currentOccupied: 0,
+            currentTotal: 0,
+            previousOccupied: 0,
+            previousTotal: 0,
+            divisionCount: 0, 
+            campusCount: 0 
+          });
+        }
+        const reg = regionAgg.get(div.region)!;
+        reg.divisionCount++;
+        reg.campusCount += div.campusCount;
+        
+        if (tileType === 'occupancy') {
+          const divData = divisionAgg.get(div.name)!;
+          reg.currentOccupied = (reg.currentOccupied || 0) + (divData.currentOccupied || 0);
+          reg.currentTotal = (reg.currentTotal || 0) + (divData.currentTotal || 0);
+          reg.previousOccupied = (reg.previousOccupied || 0) + (divData.previousOccupied || 0);
+          reg.previousTotal = (reg.previousTotal || 0) + (divData.previousTotal || 0);
+        } else {
+          reg.current += div.current;
+          reg.previous += div.previous;
+        }
+      }
+      
+      const regions: Array<{ 
+        name: string; 
+        current: number; 
+        previous: number; 
+        growth: number; 
+        divisionCount: number; 
+        campusCount: number 
+      }> = [];
+      
+      for (const [name, data] of regionAgg) {
+        let current: number, previous: number;
+        if (tileType === 'occupancy') {
+          current = (data.currentTotal || 0) > 0 ? ((data.currentOccupied || 0) / (data.currentTotal || 1)) * 100 : 0;
+          previous = (data.previousTotal || 0) > 0 ? ((data.previousOccupied || 0) / (data.previousTotal || 1)) * 100 : 0;
+        } else {
+          current = data.current;
+          previous = data.previous;
+        }
+        regions.push({
+          name,
+          current,
+          previous,
+          growth: calculateGrowth(current, previous),
+          divisionCount: data.divisionCount,
+          campusCount: data.campusCount
+        });
+      }
+      
+      // Sort by growth descending
+      regions.sort((a, b) => b.growth - a.growth);
+      divisions.sort((a, b) => b.growth - a.growth);
+      campuses.sort((a, b) => b.growth - a.growth);
+      
+      res.json({
+        tileType,
+        period,
+        serviceLine: serviceLine || 'all',
+        sameStore: isSameStoreOnly,
+        currentMonth: mostRecentMonth,
+        comparisonMonth,
+        regions,
+        divisions,
+        campuses
+      });
+      
+    } catch (error) {
+      console.error('Tile drill-down error:', error);
+      res.status(500).json({ error: 'Failed to fetch drill-down data' });
+    }
+  });
+
   // Census Summary endpoint - provides database vs census view comparison
   app.get("/api/overview/census", async (req, res) => {
     try {

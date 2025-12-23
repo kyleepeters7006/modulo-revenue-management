@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { TrendingUp, TrendingDown, Home, Users, DollarSign, ArrowRight, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { 
+  Collapsible, CollapsibleContent, CollapsibleTrigger 
+} from "@/components/ui/collapsible";
+import { TrendingUp, TrendingDown, Home, Users, DollarSign, ArrowRight, ChevronRight, ChevronDown, Building2, MapPin, X } from "lucide-react";
 import { 
   LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
@@ -69,6 +73,18 @@ interface TileDetailsResponse {
   rateMetrics?: RateMetrics;
 }
 
+interface DrillDownData {
+  tileType: string;
+  period: string;
+  serviceLine: string;
+  sameStore: boolean;
+  currentMonth: string;
+  comparisonMonth: string;
+  regions: Array<{ name: string; current: number; previous: number; growth: number; divisionCount: number; campusCount: number }>;
+  divisions: Array<{ name: string; region: string; current: number; previous: number; growth: number; campusCount: number }>;
+  campuses: Array<{ name: string; region: string; division: string; current: number; previous: number; growth: number }>;
+}
+
 // Trilogy brand-aligned colors
 const TRILOGY_TEAL = 'hsl(180, 65%, 45%)';
 const TRILOGY_TEAL_LIGHT = 'hsl(180, 60%, 60%)';
@@ -106,6 +122,12 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [selectedServiceLine, setSelectedServiceLine] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'revenue' | 'rate'>('revenue');
+  
+  // Drill-down state for growth stats
+  const [drillDownOpen, setDrillDownOpen] = useState(false);
+  const [drillDownPeriod, setDrillDownPeriod] = useState<'t1' | 't3' | 't6' | 't12' | 'ytd'>('t12');
+  const [drillDownServiceLine, setDrillDownServiceLine] = useState<string | null>(null);
+  const [drillDownSameStore, setDrillDownSameStore] = useState(false);
 
   const { data, isLoading, error } = useQuery<TileDetailsResponse>({
     queryKey: ['/api/tile-details', tileType],
@@ -113,6 +135,28 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     staleTime: 5 * 60 * 1000, // Cache data for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep unused data in cache for 10 minutes
   });
+  
+  // Drill-down data query
+  const { data: drillDownData, isLoading: drillDownLoading } = useQuery<DrillDownData>({
+    queryKey: ['/api/tile-details', tileType, 'drill-down', drillDownPeriod, drillDownServiceLine, drillDownSameStore],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period: drillDownPeriod });
+      if (drillDownServiceLine) params.set('serviceLine', drillDownServiceLine);
+      if (drillDownSameStore) params.set('sameStore', 'true');
+      const response = await fetch(`/api/tile-details/${tileType}/drill-down?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch drill-down data');
+      return response.json();
+    },
+    enabled: drillDownOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+  
+  const handleDrillDownClick = (period: 't1' | 't3' | 't6' | 't12' | 'ytd', serviceLine: string | null, isSameStore: boolean) => {
+    setDrillDownPeriod(period);
+    setDrillDownServiceLine(serviceLine);
+    setDrillDownSameStore(isSameStore);
+    setDrillDownOpen(true);
+  };
   
   const isRevenueTile = tileType === 'current-revenue' || tileType === 'potential-revenue';
   const hasRateMetrics = isRevenueTile && data?.rateMetrics;
@@ -156,7 +200,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     </Badge>
   );
 
-  const GrowthStatsPanel = ({ stats, title, serviceLineData, showUnits, currentValue, isOccupancy, isRate, isRevenue }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[]; showUnits?: boolean; currentValue?: number; isOccupancy?: boolean; isRate?: boolean; isRevenue?: boolean }) => {
+  const GrowthStatsPanel = ({ stats, title, serviceLineData, showUnits, currentValue, isOccupancy, isRate, isRevenue, isSameStore = false }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[]; showUnits?: boolean; currentValue?: number; isOccupancy?: boolean; isRate?: boolean; isRevenue?: boolean; isSameStore?: boolean }) => {
     const formatCell = (percent: number, value?: number) => {
       if (showUnits && value) {
         return formatUnitChange(value, percent);
@@ -178,6 +222,16 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     };
 
     const showCurrentColumn = isOccupancy || isRate || isRevenue;
+    
+    const ClickableCell = ({ period, percent, serviceLine = null, className, rowValue }: { period: 't1' | 't3' | 't6' | 't12' | 'ytd'; percent: number; serviceLine?: string | null; className?: string; rowValue?: number }) => (
+      <td 
+        className={`text-center py-2 px-1 cursor-pointer hover:bg-[var(--trilogy-teal)]/10 hover:underline transition-colors ${className}`}
+        onClick={() => handleDrillDownClick(period, serviceLine, isSameStore)}
+        data-testid={`drill-down-${period}${serviceLine ? `-${serviceLine}` : ''}${isSameStore ? '-samestore' : ''}`}
+      >
+        {formatCell(percent, showUnits ? (rowValue ?? currentValue) : undefined)}
+      </td>
+    );
     
     return (
     <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
@@ -204,11 +258,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                 {showCurrentColumn && currentValue !== undefined && (
                   <td className="text-center py-2 px-1 font-bold text-[var(--dashboard-text)]">{formatCurrentValue(currentValue)}</td>
                 )}
-                <td className={`text-center py-2 px-1 font-bold ${stats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t1, currentValue)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t3, currentValue)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t6, currentValue)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t12, currentValue)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.ytd, currentValue)}</td>
+                <ClickableCell period="t1" percent={stats.t1} rowValue={currentValue} className={`font-bold ${stats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`} />
+                <ClickableCell period="t3" percent={stats.t3} rowValue={currentValue} className={`font-bold ${stats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`} />
+                <ClickableCell period="t6" percent={stats.t6} rowValue={currentValue} className={`font-bold ${stats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`} />
+                <ClickableCell period="t12" percent={stats.t12} rowValue={currentValue} className={`font-bold ${stats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`} />
+                <ClickableCell period="ytd" percent={stats.ytd} rowValue={currentValue} className={`font-bold ${stats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`} />
               </tr>
               {serviceLineData?.map((sl) => (
                 <tr key={sl.serviceLine} className="border-b border-[var(--dashboard-border)] last:border-b-0">
@@ -224,11 +278,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                   {showCurrentColumn && (
                     <td className="text-center py-2 px-1 font-medium text-[var(--dashboard-text)]">{formatCurrentValue(sl.value)}</td>
                   )}
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t1, showUnits ? sl.value : undefined)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t3, showUnits ? sl.value : undefined)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t6, showUnits ? sl.value : undefined)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t12, showUnits ? sl.value : undefined)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.ytd, showUnits ? sl.value : undefined)}</td>
+                  <ClickableCell period="t1" percent={sl.growthStats.t1} serviceLine={sl.serviceLine} rowValue={sl.value} className={sl.growthStats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'} />
+                  <ClickableCell period="t3" percent={sl.growthStats.t3} serviceLine={sl.serviceLine} rowValue={sl.value} className={sl.growthStats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'} />
+                  <ClickableCell period="t6" percent={sl.growthStats.t6} serviceLine={sl.serviceLine} rowValue={sl.value} className={sl.growthStats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'} />
+                  <ClickableCell period="t12" percent={sl.growthStats.t12} serviceLine={sl.serviceLine} rowValue={sl.value} className={sl.growthStats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'} />
+                  <ClickableCell period="ytd" percent={sl.growthStats.ytd} serviceLine={sl.serviceLine} rowValue={sl.value} className={sl.growthStats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'} />
                 </tr>
               ))}
             </tbody>
@@ -377,6 +431,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       isOccupancy={tileType === 'occupancy'}
                       isRate={isRevenueTile && viewMode === 'rate'}
                       isRevenue={isRevenueTile && viewMode === 'revenue'}
+                      isSameStore={true}
                     />
                   </div>
                 </>
@@ -780,6 +835,193 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             </Tabs>
           </div>
         ) : null}
+        
+        {/* Hierarchical Drill-Down Dialog */}
+        {drillDownOpen && (
+          <Dialog open={drillDownOpen} onOpenChange={setDrillDownOpen}>
+            <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-[var(--trilogy-teal)]" />
+                  {drillDownPeriod.toUpperCase()} Growth Breakdown
+                  {drillDownServiceLine && <Badge variant="outline">{drillDownServiceLine}</Badge>}
+                  {drillDownSameStore && <Badge variant="secondary">Same Store</Badge>}
+                </DialogTitle>
+                <DialogDescription>
+                  Hierarchical breakdown by Region → Division → Campus
+                  {drillDownData && (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      ({drillDownData.comparisonMonth} → {drillDownData.currentMonth})
+                    </span>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              
+              {drillDownLoading ? (
+                <div className="space-y-4 py-4">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-32 w-full" />
+                  <Skeleton className="h-32 w-full" />
+                </div>
+              ) : drillDownData ? (
+                <div className="space-y-4 py-4">
+                  {/* Regions */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      By Region ({drillDownData.regions.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {drillDownData.regions.map((region) => (
+                        <Collapsible key={region.name}>
+                          <CollapsibleTrigger className="w-full" data-testid={`region-${region.name}`}>
+                            <div className="flex items-center justify-between p-3 bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-lg hover:bg-[var(--dashboard-surface)]/80 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <ChevronDown className="w-4 h-4 transition-transform" />
+                                <span className="font-medium">{region.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({region.divisionCount} divisions, {region.campusCount} campuses)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="text-sm">
+                                  {tileType === 'occupancy' 
+                                    ? `${region.current.toFixed(1)}%` 
+                                    : tileType === 'units' 
+                                    ? region.current.toLocaleString() 
+                                    : region.current >= 1000000 
+                                    ? `$${(region.current / 1000000).toFixed(1)}M`
+                                    : `$${Math.round(region.current).toLocaleString()}`}
+                                </span>
+                                <Badge 
+                                  variant="outline" 
+                                  className={region.growth >= 0 
+                                    ? 'text-[var(--trilogy-success)] border-[var(--trilogy-success)]/20 bg-[var(--trilogy-success)]/10' 
+                                    : 'text-[var(--trilogy-error)] border-[var(--trilogy-error)]/20 bg-[var(--trilogy-error)]/10'}
+                                >
+                                  {region.growth >= 0 ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                                  {region.growth >= 0 ? '+' : ''}{region.growth.toFixed(1)}%
+                                </Badge>
+                              </div>
+                            </div>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="ml-6 mt-2 space-y-2">
+                              {drillDownData.divisions
+                                .filter(d => d.region === region.name)
+                                .map((division) => (
+                                  <Collapsible key={division.name}>
+                                    <CollapsibleTrigger className="w-full" data-testid={`division-${division.name}`}>
+                                      <div className="flex items-center justify-between p-2 bg-[var(--dashboard-background)] border border-[var(--dashboard-border)] rounded-lg hover:bg-[var(--dashboard-surface)]/50 transition-colors">
+                                        <div className="flex items-center gap-3">
+                                          <ChevronDown className="w-3 h-3 transition-transform" />
+                                          <span className="text-sm font-medium">{division.name}</span>
+                                          <span className="text-xs text-muted-foreground">({division.campusCount} campuses)</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-xs">
+                                            {tileType === 'occupancy' 
+                                              ? `${division.current.toFixed(1)}%` 
+                                              : tileType === 'units'
+                                              ? division.current.toLocaleString()
+                                              : division.current >= 1000000 
+                                              ? `$${(division.current / 1000000).toFixed(1)}M`
+                                              : `$${Math.round(division.current).toLocaleString()}`}
+                                          </span>
+                                          <span className={`text-xs font-medium ${division.growth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                                            {division.growth >= 0 ? '+' : ''}{division.growth.toFixed(1)}%
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent>
+                                      <div className="ml-5 mt-1 space-y-1">
+                                        {drillDownData.campuses
+                                          .filter(c => c.division === division.name)
+                                          .map((campus) => (
+                                            <div 
+                                              key={campus.name} 
+                                              className="flex items-center justify-between p-2 text-xs border-l-2 border-[var(--dashboard-border)] pl-3"
+                                              data-testid={`campus-${campus.name}`}
+                                            >
+                                              <span>{campus.name}</span>
+                                              <div className="flex items-center gap-3">
+                                                <span>
+                                                  {tileType === 'occupancy' 
+                                                    ? `${campus.current.toFixed(1)}%` 
+                                                    : tileType === 'units'
+                                                    ? campus.current.toLocaleString()
+                                                    : campus.current >= 1000000 
+                                                    ? `$${(campus.current / 1000000).toFixed(1)}M`
+                                                    : `$${Math.round(campus.current).toLocaleString()}`}
+                                                </span>
+                                                <span className={`font-medium ${campus.growth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                                                  {campus.growth >= 0 ? '+' : ''}{campus.growth.toFixed(1)}%
+                                                </span>
+                                              </div>
+                                            </div>
+                                          ))}
+                                      </div>
+                                    </CollapsibleContent>
+                                  </Collapsible>
+                                ))}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Top/Bottom Performers Summary */}
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-[var(--dashboard-border)]">
+                    <Card className="bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
+                          <TrendingUp className="w-4 h-4" />
+                          Top 5 Campuses
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1">
+                        {drillDownData.campuses.slice(0, 5).map((c, i) => (
+                          <div key={c.name} className="flex justify-between text-xs">
+                            <span className="truncate max-w-[150px]">{i + 1}. {c.name}</span>
+                            <span className="text-green-600 font-medium">+{c.growth.toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2 text-red-700 dark:text-red-400">
+                          <TrendingDown className="w-4 h-4" />
+                          Bottom 5 Campuses
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1">
+                        {[...drillDownData.campuses].reverse().slice(0, 5).map((c, i) => (
+                          <div key={c.name} className="flex justify-between text-xs">
+                            <span className="truncate max-w-[150px]">{i + 1}. {c.name}</span>
+                            <span className="text-red-600 font-medium">{c.growth.toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-muted-foreground">
+                  No data available
+                </div>
+              )}
+              
+              <div className="flex justify-end pt-4 border-t">
+                <Button variant="outline" onClick={() => setDrillDownOpen(false)} data-testid="close-drill-down">
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </DialogContent>
     </Dialog>
   );

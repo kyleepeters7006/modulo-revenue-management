@@ -16,7 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DollarSign, Home, Layers, TrendingUp, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { DollarSign, Home, Layers, TrendingUp, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Filter } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface UnitWithAttributes {
   id: string;
@@ -70,6 +71,29 @@ export default function RoomAttributes() {
   
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  
+  // Column-level filters for the unit table
+  const [columnFilters, setColumnFilters] = useState<{
+    roomType: string;
+    serviceLine: string;
+    sizeRating: string;
+    viewRating: string;
+    renovationRating: string;
+    locationRating: string;
+    amenityRating: string;
+  }>({
+    roomType: 'all',
+    serviceLine: 'all',
+    sizeRating: 'all',
+    viewRating: 'all',
+    renovationRating: 'all',
+    locationRating: 'all',
+    amenityRating: 'all',
+  });
+  
+  const updateColumnFilter = (key: keyof typeof columnFilters, value: string) => {
+    setColumnFilters(prev => ({ ...prev, [key]: value }));
+  };
 
   useEffect(() => {
     const filters = {
@@ -143,6 +167,7 @@ export default function RoomAttributes() {
 
   const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
   const filteredUnits = rentRollData.filter(unit => {
+    // Global filters
     if (selectedServiceLine !== "All" && unit.serviceLine !== selectedServiceLine) return false;
     if (selectedLocations.length > 0 && !selectedLocations.includes(unit.location)) return false;
     
@@ -150,8 +175,37 @@ export default function RoomAttributes() {
     const isBBed = unit.roomNumber?.endsWith('/B');
     if (isSeniorHousing && isBBed) return false;
     
+    // Column-level filters
+    if (columnFilters.roomType !== 'all' && unit.roomType !== columnFilters.roomType) return false;
+    if (columnFilters.serviceLine !== 'all' && unit.serviceLine !== columnFilters.serviceLine) return false;
+    if (columnFilters.sizeRating !== 'all') {
+      if (columnFilters.sizeRating === 'none' && unit.sizeRating) return false;
+      if (columnFilters.sizeRating !== 'none' && unit.sizeRating !== columnFilters.sizeRating) return false;
+    }
+    if (columnFilters.viewRating !== 'all') {
+      if (columnFilters.viewRating === 'none' && unit.viewRating) return false;
+      if (columnFilters.viewRating !== 'none' && unit.viewRating !== columnFilters.viewRating) return false;
+    }
+    if (columnFilters.renovationRating !== 'all') {
+      if (columnFilters.renovationRating === 'none' && unit.renovationRating) return false;
+      if (columnFilters.renovationRating !== 'none' && unit.renovationRating !== columnFilters.renovationRating) return false;
+    }
+    if (columnFilters.locationRating !== 'all') {
+      if (columnFilters.locationRating === 'none' && unit.locationRating) return false;
+      if (columnFilters.locationRating !== 'none' && unit.locationRating !== columnFilters.locationRating) return false;
+    }
+    if (columnFilters.amenityRating !== 'all') {
+      if (columnFilters.amenityRating === 'none' && unit.amenityRating) return false;
+      if (columnFilters.amenityRating !== 'none' && unit.amenityRating !== columnFilters.amenityRating) return false;
+    }
+    
     return true;
   });
+  
+  // Get unique values for filter dropdowns
+  const uniqueRoomTypes = Array.from(new Set(rentRollData.map(u => u.roomType))).filter(Boolean).sort();
+  const uniqueServiceLines = Array.from(new Set(rentRollData.map(u => u.serviceLine))).filter(Boolean).sort();
+  const ratingOptions = ['A', 'B', 'C', 'D', 'none'];
 
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -560,6 +614,32 @@ export default function RoomAttributes() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {Object.values(columnFilters).some(v => v !== 'all') && (
+                <div className="flex items-center gap-2 mb-4 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <Filter className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm text-blue-700 dark:text-blue-300">
+                    {Object.values(columnFilters).filter(v => v !== 'all').length} column filter(s) active
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-6 text-xs"
+                    onClick={() => setColumnFilters({
+                      roomType: 'all',
+                      serviceLine: 'all',
+                      sizeRating: 'all',
+                      viewRating: 'all',
+                      renovationRating: 'all',
+                      locationRating: 'all',
+                      amenityRating: 'all',
+                    })}
+                    data-testid="clear-column-filters"
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Clear Filters
+                  </Button>
+                </div>
+              )}
               <div className="rounded-lg border">
                 <Table>
                   <TableHeader>
@@ -592,37 +672,138 @@ export default function RoomAttributes() {
                           )}
                         </div>
                       </TableHead>
-                      <TableHead 
-                        className="cursor-pointer hover:bg-gray-50"
-                        onClick={() => handleSort('type')}
-                      >
-                        <div className="flex items-center">
-                          Type
-                          {sortColumn === 'type' ? (
-                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
-                          ) : (
-                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-                          )}
+                      <TableHead>
+                        <div className="flex flex-col gap-1">
+                          <div 
+                            className="flex items-center cursor-pointer hover:text-primary"
+                            onClick={() => handleSort('type')}
+                          >
+                            Type
+                            {sortColumn === 'type' ? (
+                              sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                            ) : (
+                              <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                            )}
+                          </div>
+                          <Select value={columnFilters.roomType} onValueChange={(v) => updateColumnFilter('roomType', v)}>
+                            <SelectTrigger className="h-6 text-xs w-24">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {uniqueRoomTypes.map(rt => (
+                                <SelectItem key={rt} value={rt}>{rt}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </TableHead>
-                      <TableHead 
-                        className="cursor-pointer hover:bg-gray-50"
-                        onClick={() => handleSort('serviceLine')}
-                      >
-                        <div className="flex items-center">
-                          Service Line
-                          {sortColumn === 'serviceLine' ? (
-                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
-                          ) : (
-                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-                          )}
+                      <TableHead>
+                        <div className="flex flex-col gap-1">
+                          <div 
+                            className="flex items-center cursor-pointer hover:text-primary"
+                            onClick={() => handleSort('serviceLine')}
+                          >
+                            Service Line
+                            {sortColumn === 'serviceLine' ? (
+                              sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                            ) : (
+                              <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                            )}
+                          </div>
+                          <Select value={columnFilters.serviceLine} onValueChange={(v) => updateColumnFilter('serviceLine', v)}>
+                            <SelectTrigger className="h-6 text-xs w-16">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {uniqueServiceLines.map(sl => (
+                                <SelectItem key={sl} value={sl}>{sl}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </TableHead>
-                      <TableHead className="text-center">Size</TableHead>
-                      <TableHead className="text-center">View</TableHead>
-                      <TableHead className="text-center">Reno.</TableHead>
-                      <TableHead className="text-center">Loc.</TableHead>
-                      <TableHead className="text-center">Amen.</TableHead>
+                      <TableHead className="text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          <span>Size</span>
+                          <Select value={columnFilters.sizeRating} onValueChange={(v) => updateColumnFilter('sizeRating', v)}>
+                            <SelectTrigger className="h-6 text-xs w-14">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {ratingOptions.map(r => (
+                                <SelectItem key={r} value={r}>{r === 'none' ? '—' : r}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          <span>View</span>
+                          <Select value={columnFilters.viewRating} onValueChange={(v) => updateColumnFilter('viewRating', v)}>
+                            <SelectTrigger className="h-6 text-xs w-14">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {ratingOptions.map(r => (
+                                <SelectItem key={r} value={r}>{r === 'none' ? '—' : r}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          <span>Reno.</span>
+                          <Select value={columnFilters.renovationRating} onValueChange={(v) => updateColumnFilter('renovationRating', v)}>
+                            <SelectTrigger className="h-6 text-xs w-14">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {ratingOptions.map(r => (
+                                <SelectItem key={r} value={r}>{r === 'none' ? '—' : r}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          <span>Loc.</span>
+                          <Select value={columnFilters.locationRating} onValueChange={(v) => updateColumnFilter('locationRating', v)}>
+                            <SelectTrigger className="h-6 text-xs w-14">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {ratingOptions.map(r => (
+                                <SelectItem key={r} value={r}>{r === 'none' ? '—' : r}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableHead>
+                      <TableHead className="text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          <span>Amen.</span>
+                          <Select value={columnFilters.amenityRating} onValueChange={(v) => updateColumnFilter('amenityRating', v)}>
+                            <SelectTrigger className="h-6 text-xs w-14">
+                              <SelectValue placeholder="All" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              {ratingOptions.map(r => (
+                                <SelectItem key={r} value={r}>{r === 'none' ? '—' : r}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableHead>
                       <TableHead 
                         className="cursor-pointer hover:bg-gray-50 text-right"
                         onClick={() => handleSort('currentRate')}
