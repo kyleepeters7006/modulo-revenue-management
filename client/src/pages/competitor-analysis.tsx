@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, X } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ChevronDown, X, Building2, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 // Helper functions for localStorage persistence - using shared key for cross-page sync
@@ -66,6 +68,20 @@ export default function CompetitorAnalysis() {
   // Fetch locations data for filters
   const { data: locationsData } = useQuery({
     queryKey: ["/api/locations"],
+  });
+
+  // Fetch competitor rate comparison data when a single location is selected
+  const { data: competitorRateData, isLoading: isLoadingRates } = useQuery({
+    queryKey: ["/api/competitor-rate-comparison", selectedLocations[0], selectedServiceLines],
+    queryFn: async () => {
+      if (selectedLocations.length !== 1) return { data: [], trilogyRates: {} };
+      const params = new URLSearchParams();
+      params.append('location', selectedLocations[0]);
+      selectedServiceLines.forEach(sl => params.append('serviceLines', sl));
+      const res = await fetch(`/api/competitor-rate-comparison?${params.toString()}`);
+      return res.json();
+    },
+    enabled: selectedLocations.length === 1,
   });
 
   // Extract unique regions, divisions, and locations - sorted alphabetically
@@ -387,6 +403,100 @@ export default function CompetitorAnalysis() {
             />
           </div>
         </div>
+
+        {/* Competitor Rate Comparison Section */}
+        <Card className="mt-8" data-testid="card-competitor-rate-comparison">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-blue-600" />
+              <CardTitle>Competitor Rate Comparison</CardTitle>
+            </div>
+            <CardDescription>
+              {selectedLocations.length === 1 
+                ? `Comparing rates for ${selectedLocations[0]} with nearby competitors`
+                : "Select a single location to view competitor rate comparison"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {selectedLocations.length !== 1 ? (
+              <div className="text-center py-8 text-gray-500">
+                Please select exactly one location from the filter above to see competitor rate comparison.
+              </div>
+            ) : isLoadingRates ? (
+              <div className="text-center py-8 text-gray-500">Loading competitor data...</div>
+            ) : !competitorRateData?.data?.length ? (
+              <div className="text-center py-8 text-gray-500">
+                No competitor data available for this location and service line combination.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Competitor</TableHead>
+                      <TableHead>Service Line</TableHead>
+                      <TableHead>Room Type</TableHead>
+                      <TableHead className="text-right">Distance</TableHead>
+                      <TableHead className="text-right">Base Rate</TableHead>
+                      <TableHead className="text-right">Care Adj.</TableHead>
+                      <TableHead className="text-right">Med Mgmt</TableHead>
+                      <TableHead className="text-right">Adjusted Rate</TableHead>
+                      <TableHead className="text-right">Trilogy Rate</TableHead>
+                      <TableHead className="text-right">Market Position</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {competitorRateData.data.map((row: any) => {
+                      const positionColor = row.marketPosition >= 100 
+                        ? "text-green-600" 
+                        : row.marketPosition >= 90 
+                        ? "text-yellow-600" 
+                        : "text-red-600";
+                      const PositionIcon = row.marketPosition >= 100 
+                        ? TrendingUp 
+                        : row.marketPosition >= 90 
+                        ? Minus 
+                        : TrendingDown;
+                      return (
+                        <TableRow key={row.id} data-testid={`row-competitor-${row.id}`}>
+                          <TableCell className="font-medium">{row.competitorName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{row.serviceLine}</Badge>
+                          </TableCell>
+                          <TableCell>{row.roomType || 'N/A'}</TableCell>
+                          <TableCell className="text-right">
+                            {row.distanceMiles ? `${row.distanceMiles.toFixed(1)} mi` : 'N/A'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            ${row.baseRate?.toLocaleString() || 0}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.careLevel2Adjustment > 0 ? `+$${row.careLevel2Adjustment.toLocaleString()}` : '-'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.medMgmtAdjustment > 0 ? `+$${row.medMgmtAdjustment.toLocaleString()}` : '-'}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            ${row.adjustedRate?.toLocaleString() || 0}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-blue-600">
+                            ${row.trilogyRate?.toLocaleString() || 0}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className={`flex items-center justify-end gap-1 ${positionColor}`}>
+                              <PositionIcon className="h-4 w-4" />
+                              <span className="font-semibold">{row.marketPosition}%</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData } from "@shared/schema";
 import { sql, and, eq, gte, lt, or, desc, inArray } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -8790,6 +8790,141 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
   
+  // Competitor Rate Comparison - Get competitor data by service line and room type with Trilogy comparison
+  app.get("/api/competitor-rate-comparison", async (req, res) => {
+    try {
+      const { location, serviceLines } = req.query;
+      
+      if (!location) {
+        return res.json({ data: [], trilogyRates: {} });
+      }
+      
+      const locationName = location as string;
+      const serviceLineFilter = serviceLines ? (Array.isArray(serviceLines) ? serviceLines : [serviceLines]) : [];
+      
+      // Map service lines to competitor types
+      const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
+        'HC': 'HC',
+        'HC/MC': 'SMC',
+        'AL': 'AL',
+        'AL/MC': 'AL',  // AL/MC uses AL competitor data
+        'SL': 'IL_IL',
+        'VIL': 'IL_Villa'
+      };
+      
+      // Get competitor types to query
+      let competitorTypes: string[] = [];
+      if (serviceLineFilter.length > 0) {
+        competitorTypes = serviceLineFilter.map(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl as string]).filter(Boolean);
+      } else {
+        competitorTypes = Object.values(SERVICE_LINE_TO_COMPETITOR_TYPE);
+      }
+      
+      // Remove duplicates
+      competitorTypes = [...new Set(competitorTypes)];
+      
+      // Fetch competitive survey data for this location
+      const surveyData = await db.select()
+        .from(competitiveSurveyData)
+        .where(and(
+          eq(competitiveSurveyData.keyStatsLocation, locationName),
+          competitorTypes.length > 0 ? inArray(competitiveSurveyData.competitorType, competitorTypes) : sql`1=1`
+        ))
+        .orderBy(competitiveSurveyData.competitorType, competitiveSurveyData.roomType, competitiveSurveyData.competitorName);
+      
+      // Get latest month for Trilogy rates
+      const latestMonthData = await db.select({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .orderBy(desc(rentRollData.uploadMonth))
+        .limit(1);
+      const latestMonth = latestMonthData.length > 0 ? latestMonthData[0].uploadMonth : null;
+      
+      // Get Trilogy's average rates by service line and room type for this location
+      const trilogyRates: Record<string, Record<string, number>> = {};
+      if (latestMonth) {
+        const trilogyData = await db.select({
+          serviceLine: rentRollData.serviceLine,
+          roomType: rentRollData.roomType,
+          avgRate: sql<number>`AVG(${rentRollData.streetRate})`
+        })
+          .from(rentRollData)
+          .where(and(
+            eq(rentRollData.uploadMonth, latestMonth),
+            eq(rentRollData.location, locationName)
+          ))
+          .groupBy(rentRollData.serviceLine, rentRollData.roomType);
+        
+        for (const row of trilogyData) {
+          if (!trilogyRates[row.serviceLine]) {
+            trilogyRates[row.serviceLine] = {};
+          }
+          trilogyRates[row.serviceLine][row.roomType] = row.avgRate || 0;
+        }
+      }
+      
+      // Transform survey data with market position calculations
+      const COMPETITOR_TYPE_TO_SERVICE_LINE: Record<string, string> = {
+        'HC': 'HC',
+        'SMC': 'HC/MC',
+        'AL': 'AL',  // Note: AL serves both AL and AL/MC
+        'IL_IL': 'SL',
+        'IL_Villa': 'VIL'
+      };
+      
+      // Convert daily rates to monthly for HC/SMC
+      const DAYS_PER_MONTH = 30.44;
+      
+      const transformedData = surveyData.map(record => {
+        const serviceLine = COMPETITOR_TYPE_TO_SERVICE_LINE[record.competitorType || ''] || record.competitorType;
+        let baseRate = record.monthlyRateAvg || 0;
+        let careLevel2 = record.careLevel2Rate || 0;
+        let medMgmt = record.medicationManagementFee || 0;
+        
+        // Convert HC/SMC daily rates to monthly if they appear to be daily (< $1000)
+        if ((record.competitorType === 'HC' || record.competitorType === 'SMC') && baseRate > 0 && baseRate < 1000) {
+          baseRate = baseRate * DAYS_PER_MONTH;
+          if (careLevel2 > 0 && careLevel2 < 500) careLevel2 = careLevel2 * DAYS_PER_MONTH;
+          if (medMgmt > 0 && medMgmt < 100) medMgmt = medMgmt * DAYS_PER_MONTH;
+        }
+        
+        const adjustedRate = baseRate + careLevel2 + medMgmt;
+        
+        // Get Trilogy rate for comparison
+        const trilogyServiceLine = serviceLine === 'AL' ? 'AL' : serviceLine;
+        const trilogyRate = trilogyRates[trilogyServiceLine]?.[record.roomType || ''] || 
+                          trilogyRates[trilogyServiceLine]?.['Studio'] || 0;
+        
+        // Calculate market position (Trilogy rate / Competitor rate * 100)
+        const marketPosition = adjustedRate > 0 ? Math.round((trilogyRate / adjustedRate) * 100) : 0;
+        
+        return {
+          id: record.id,
+          competitorName: record.competitorName,
+          competitorType: record.competitorType,
+          serviceLine,
+          roomType: record.roomType,
+          distanceMiles: record.distanceMiles,
+          baseRate: Math.round(baseRate),
+          careLevel2Adjustment: Math.round(careLevel2),
+          medMgmtAdjustment: Math.round(medMgmt),
+          adjustedRate: Math.round(adjustedRate),
+          trilogyRate: Math.round(trilogyRate),
+          marketPosition,
+          occupancyRate: record.occupancyRate
+        };
+      });
+      
+      res.json({
+        data: transformedData,
+        trilogyRates,
+        location: locationName
+      });
+    } catch (error) {
+      console.error('Error fetching competitor rate comparison:', error);
+      res.status(500).json({ error: 'Failed to fetch competitor rate comparison' });
+    }
+  });
+
   // Job-based competitor rate matching - Start a new job
   app.post("/api/competitor-rates/job/start", async (req, res) => {
     try {
