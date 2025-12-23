@@ -272,7 +272,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
         stats.totalRecords = results.data.length;
         console.log(`Parsed ${stats.totalRecords} rows from CSV`);
 
-        const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
+        const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, IL_Villa: 0, IL_IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
         const allRecords: InsertCompetitiveSurveyData[] = [];
 
         try {
@@ -312,23 +312,54 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   return isNaN(parsed) ? null : parsed;
                 };
 
+                // Helper to get first non-null value from multiple column names
+                const getColumn = (...names: string[]): any => {
+                  for (const name of names) {
+                    if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+                      return row[name];
+                    }
+                  }
+                  return null;
+                };
+
                 // Service line definitions
+                // IL data is split: "IL_Villa" prefix for VIL service line, "IL_IL" prefix for SL service line
+                // Both use the same IL flag to indicate if competitor has Independent Living
                 const serviceLines = [
                   {
-                    type: 'IL',
-                    flag: row['IL flag'] || row['IL'],
-                    careLevel1: parseNumeric(row['IL_Level1']),
-                    careLevel2: parseNumeric(row['IL_Level2']),
-                    careLevel3: parseNumeric(row['IL_Level3']),
-                    careLevel4: parseNumeric(row['IL_Level4']),
-                    medicationManagement: parseNumeric(row['IL_MedicationManagement']),
+                    type: 'IL_Villa',
+                    targetServiceLine: 'VIL',
+                    flag: getColumn('IL flag', 'IL'),  // Check IL flag (common for both Villa and SL)
+                    careLevel1: parseNumeric(getColumn('IL_Level1')),
+                    careLevel2: parseNumeric(getColumn('IL_Level2')),
+                    careLevel3: parseNumeric(getColumn('IL_Level3')),
+                    careLevel4: parseNumeric(getColumn('IL_Level4')),
+                    medicationManagement: parseNumeric(getColumn('IL_MedicationManagement')),
                     roomTypes: [
-                      { name: 'Studio', rate: row['IL_StudioRate'] || row['IL_StudioPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
-                      { name: 'One Bedroom', rate: row['IL_OneBedRate'] || row['IL_1BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
-                      { name: 'Two Bedroom', rate: row['IL_TwoBedRate'] || row['IL_2BRPrivateRoomRate'], careLevel: row['IL_Comp_Care_Adj'], otherAdj: row['IL_Comp_Other_Adj'], weight: row['IL_Comp_Weight'] },
+                      { name: 'Studio', rate: getColumn('IL_VillaStudioPrivateRoomRate', 'IL_Villa_StudioRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
+                      { name: 'Companion', rate: getColumn('IL_VillaStudioCompanionRoomRate', 'IL_Villa_CompanionRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
+                      { name: 'One Bedroom', rate: getColumn('IL_Villa1BRPrivateRoomRate', 'IL_Villa_1BRRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
+                      { name: 'Two Bedroom', rate: getColumn('IL_Villa2BRPrivateRoomRate', 'IL_Villa_2BRRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
                     ],
-                    occupancy: row['IL_Occupancy'],
-                    totalUnits: row['IL_TotalUnits'],
+                    occupancy: getColumn('IL_Occupancy'),
+                    totalUnits: getColumn('IL_TotalUnits'),
+                  },
+                  {
+                    type: 'IL_IL',
+                    targetServiceLine: 'SL',
+                    flag: getColumn('IL flag', 'IL'),  // Check IL flag (common for both Villa and SL)
+                    careLevel1: parseNumeric(getColumn('IL_Level1')),
+                    careLevel2: parseNumeric(getColumn('IL_Level2')),
+                    careLevel3: parseNumeric(getColumn('IL_Level3')),
+                    careLevel4: parseNumeric(getColumn('IL_Level4')),
+                    medicationManagement: parseNumeric(getColumn('IL_MedicationManagement')),
+                    roomTypes: [
+                      { name: 'Studio', rate: getColumn('IL_ILStudioRoomRate', 'IL_IL_StudioRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
+                      { name: 'One Bedroom', rate: getColumn('IL_IL1BRRoomRate', 'IL_IL_1BRRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
+                      { name: 'Two Bedroom', rate: getColumn('IL_IL2BRRoomRate', 'IL_IL_2BRRate'), careLevel: getColumn('IL_Comp_Care_Adj'), otherAdj: getColumn('IL_Comp_Other_Adj'), weight: getColumn('IL_Comp_Weight') },
+                    ],
+                    occupancy: getColumn('IL_Occupancy'),
+                    totalUnits: getColumn('IL_TotalUnits'),
                   },
                   {
                     type: 'AL',
@@ -423,13 +454,16 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   for (const roomType of serviceLine.roomTypes) {
                     if (!roomType.rate || parseFloat(roomType.rate) === 0) continue;
 
+                    const dbType = (serviceLine as any).targetServiceLine === 'VIL' ? 'IL_Villa' 
+                                 : (serviceLine as any).targetServiceLine === 'SL' ? 'IL_IL' 
+                                 : serviceLine.type;
                     const record: InsertCompetitiveSurveyData = {
                       surveyMonth,
                       keyStatsLocation: trilogyCampus,
                       competitorName,
                       competitorAddress: address,
                       distanceMiles,
-                      competitorType: serviceLine.type,
+                      competitorType: dbType,
                       roomType: roomType.name,
                       squareFootage: null,
                       monthlyRateLow: null,
@@ -532,7 +566,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
 
     stats.totalRecords = data.length;
 
-    const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
+    const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, IL_Villa: 0, IL_IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
     
     await db.transaction(async (tx) => {
       await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
@@ -565,37 +599,75 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
           };
 
           // Service line definitions with their room type mappings
-          // IL (Independent Living) can be found under various column prefixes: IL, SL, Villa, Villas, IndependentLiving
+          // IL data is split: "IL_Villa" prefix for VIL service line, "IL_IL" prefix for SL service line
+          // Both use the same IL flag to indicate if competitor has Independent Living
           const serviceLines = [
             {
-              type: 'IL',
-              flag: getColumn('IL', 'SL', 'Villa', 'Villas', 'IndependentLiving', 'Independent Living', 'Senior Living'),
+              type: 'IL_Villa',
+              targetServiceLine: 'VIL',
+              flag: getColumn('IL', 'IL flag'),  // Check IL flag (common for both Villa and SL)
               roomTypes: [
-                // Support multiple column name formats for IL/SL/Villa data
                 { 
                   name: 'Studio', 
-                  rate: getColumn('IL_StudioRate', 'IL_StudioPrivateRoomRate', 'SL_StudioRate', 'Villa_StudioRate', 'Villas_StudioRate', 'IL_ILStudioRoomRate', 'SL_SLStudioRoomRate'),
-                  careLevel: getColumn('IL_Comp_Care_Adj', 'SL_Comp_Care_Adj', 'Villa_Comp_Care_Adj'),
-                  otherAdj: getColumn('IL_Comp_Other_Adj', 'SL_Comp_Other_Adj', 'Villa_Comp_Other_Adj'),
-                  weight: getColumn('IL_Comp_Weight', 'SL_Comp_Weight', 'Villa_Comp_Weight')
+                  rate: getColumn('IL_VillaStudioPrivateRoomRate', 'IL_Villa_StudioRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
+                },
+                { 
+                  name: 'Companion', 
+                  rate: getColumn('IL_VillaStudioCompanionRoomRate', 'IL_Villa_CompanionRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
                 },
                 { 
                   name: 'One Bedroom', 
-                  rate: getColumn('IL_OneBedRate', 'IL_1BRPrivateRoomRate', 'SL_OneBedRate', 'SL_1BRPrivateRoomRate', 'Villa_OneBedRate', 'Villas_OneBedRate', 'IL_IL1BRRoomRate', 'SL_SL1BRRoomRate', 'Villa_1BRPrivateRoomRate'),
-                  careLevel: getColumn('IL_Comp_Care_Adj', 'SL_Comp_Care_Adj', 'Villa_Comp_Care_Adj'),
-                  otherAdj: getColumn('IL_Comp_Other_Adj', 'SL_Comp_Other_Adj', 'Villa_Comp_Other_Adj'),
-                  weight: getColumn('IL_Comp_Weight', 'SL_Comp_Weight', 'Villa_Comp_Weight')
+                  rate: getColumn('IL_Villa1BRPrivateRoomRate', 'IL_Villa_1BRRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
                 },
                 { 
                   name: 'Two Bedroom', 
-                  rate: getColumn('IL_TwoBedRate', 'IL_2BRPrivateRoomRate', 'SL_TwoBedRate', 'SL_2BRPrivateRoomRate', 'Villa_TwoBedRate', 'Villas_TwoBedRate', 'IL_IL2BRRoomRate', 'SL_SL2BRRoomRate', 'Villa_2BRPrivateRoomRate'),
-                  careLevel: getColumn('IL_Comp_Care_Adj', 'SL_Comp_Care_Adj', 'Villa_Comp_Care_Adj'),
-                  otherAdj: getColumn('IL_Comp_Other_Adj', 'SL_Comp_Other_Adj', 'Villa_Comp_Other_Adj'),
-                  weight: getColumn('IL_Comp_Weight', 'SL_Comp_Weight', 'Villa_Comp_Weight')
+                  rate: getColumn('IL_Villa2BRPrivateRoomRate', 'IL_Villa_2BRRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
                 },
               ],
-              occupancy: getColumn('IL_Occupancy', 'SL_Occupancy', 'Villa_Occupancy'),
-              totalUnits: getColumn('IL_TotalUnits', 'SL_TotalUnits', 'Villa_TotalUnits'),
+              occupancy: getColumn('IL_Occupancy'),
+              totalUnits: getColumn('IL_TotalUnits'),
+            },
+            {
+              type: 'IL_IL',
+              targetServiceLine: 'SL',
+              flag: getColumn('IL', 'IL flag'),  // Check IL flag (common for both Villa and SL)
+              roomTypes: [
+                { 
+                  name: 'Studio', 
+                  rate: getColumn('IL_ILStudioRoomRate', 'IL_IL_StudioRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
+                },
+                { 
+                  name: 'One Bedroom', 
+                  rate: getColumn('IL_IL1BRRoomRate', 'IL_IL_1BRRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
+                },
+                { 
+                  name: 'Two Bedroom', 
+                  rate: getColumn('IL_IL2BRRoomRate', 'IL_IL_2BRRate'),
+                  careLevel: getColumn('IL_Comp_Care_Adj'),
+                  otherAdj: getColumn('IL_Comp_Other_Adj'),
+                  weight: getColumn('IL_Comp_Weight')
+                },
+              ],
+              occupancy: getColumn('IL_Occupancy'),
+              totalUnits: getColumn('IL_TotalUnits'),
             },
             {
               type: 'AL',
@@ -687,13 +759,16 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 continue;
               }
 
+              const dbType = (serviceLine as any).targetServiceLine === 'VIL' ? 'IL_Villa' 
+                           : (serviceLine as any).targetServiceLine === 'SL' ? 'IL_IL' 
+                           : serviceLine.type;
               const record: InsertCompetitiveSurveyData = {
                 surveyMonth,
                 keyStatsLocation: trilogyCampus,
                 competitorName,
                 competitorAddress: address,
                 distanceMiles,
-                competitorType: serviceLine.type,
+                competitorType: dbType,
                 roomType: roomType.name,
                 squareFootage: null,
                 monthlyRateLow: null,
@@ -726,7 +801,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               await tx.insert(competitiveSurveyData).values(record);
               stats.successfulImports++;
               stats.mappedRecords++;
-              insertCounts[serviceLine.type as keyof typeof insertCounts] = (insertCounts[serviceLine.type as keyof typeof insertCounts] || 0) + 1;
+              insertCounts[dbType as keyof typeof insertCounts] = (insertCounts[dbType as keyof typeof insertCounts] || 0) + 1;
             }
           }
         } catch (error: any) {

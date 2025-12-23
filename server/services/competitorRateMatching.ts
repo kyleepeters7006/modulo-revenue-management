@@ -19,14 +19,14 @@ import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { isDailyRateServiceLine, normalizeToMonthlyRate } from "./rateNormalization";
 
 // Mapping from Trilogy service line to competitor survey type
-// From "Competitor Has Service Line Column" in the mapping document
+// IL data is split: "IL_Villa" for VIL service line, "IL_IL" for SL service line
 const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
   'HC': 'HC',
   'HC/MC': 'SMC',
   'AL': 'AL',
   'AL/MC': 'AL',  // AL/MC uses AL competitor type
-  'SL': 'IL',
-  'VIL': 'IL'
+  'SL': 'IL_IL',  // SL (Senior Living) uses IL_IL competitor type from competitive survey
+  'VIL': 'IL_Villa'  // VIL (Villas) uses IL_Villa competitor type from competitive survey
 };
 
 // No fallback to other competitor types - use exact type matching only
