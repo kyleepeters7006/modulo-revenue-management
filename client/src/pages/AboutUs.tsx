@@ -71,9 +71,6 @@ export default function AboutUs() {
               Modulo brings together decades of experience in senior housing operations, technology, and revenue management. Our team has worked with leading operators to understand the unique challenges of pricing optimization in this complex market.
             </p>
             <p>
-              We've built Modulo to address real-world needs—from managing diverse service lines and care levels to navigating competitive markets and regulatory requirements. Our platform combines industry knowledge with advanced analytics to deliver actionable pricing recommendations.
-            </p>
-            <p>
               Our mission: help senior housing communities optimize revenue while maintaining high occupancy and delivering exceptional value to residents. Just as the modulo function captures every part of a calculation, we ensure every part of your revenue cycle is optimized—so you don't leave money on the table.
             </p>
             <div className="pt-4 flex flex-wrap gap-3">
