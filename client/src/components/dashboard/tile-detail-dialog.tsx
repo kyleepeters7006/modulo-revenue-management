@@ -345,7 +345,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
         {/* Note about assumed private pay percentage for potential revenue */}
         {tileType === 'potential-revenue' && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300">
-            <span className="font-medium">Note:</span> Potential revenue for vacant HC and HC/MC units assumes 65% private pay based on historical payor mix.
+            <span className="font-medium">Note:</span> Potential revenue for vacant units assumes private pay rates of 21% for HC and 31% for HC/MC based on current payor mix.
           </div>
         )}
 

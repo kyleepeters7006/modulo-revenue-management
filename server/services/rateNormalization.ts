@@ -122,8 +122,15 @@ export function calculateUnitAnnualRevenue(unit: any, occupied: boolean = true, 
     return (baseRateMonthly + careRateMonthly) * 12;
   } else {
     // Potential revenue: private pay occupied + vacant at street rate
-    // Apply private pay proportion estimate (65% for HC based on historical data)
-    const privatePayFactor = isHC ? 0.65 : 1.0;
+    // Apply private pay proportion based on actual payor mix data:
+    // HC: 21% private pay, HC/MC: 31% private pay
+    const serviceLine = unit.serviceLine || '';
+    let privatePayFactor = 1.0;
+    if (serviceLine === 'HC') {
+      privatePayFactor = 0.21;
+    } else if (serviceLine === 'HC/MC') {
+      privatePayFactor = 0.31;
+    }
     
     if (unit.occupiedYN) {
       // For occupied units in potential revenue calculation:
