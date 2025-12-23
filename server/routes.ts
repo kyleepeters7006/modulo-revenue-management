@@ -4314,23 +4314,36 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         };
       };
 
-      // Normalize service line to standard values (AL, HC, IL, MC, SL)
+      // Normalize service line to standard values, preserving Memory Care variants
+      // Order matters - check exact compound matches FIRST before checking components
       const normalizeServiceLine = (serviceLine: string): string => {
         if (!serviceLine) return 'AL';
         
         const normalized = serviceLine.toUpperCase().trim();
         
-        // Map compound service lines to primary service line
-        if (normalized.includes('HC') || normalized.includes('TCU')) return 'HC';
-        if (normalized.includes('AL') && normalized.includes('MC')) return 'AL';
-        if (normalized === 'AL' || normalized === 'ASSISTED LIVING') return 'AL';
-        if (normalized === 'HC' || normalized === 'HEALTH CENTER' || normalized === 'SKILLED NURSING') return 'HC';
-        if (normalized === 'IL' || normalized === 'INDEPENDENT LIVING') return 'SL';
-        if (normalized === 'MC' || normalized === 'MEMORY CARE') return 'MC';
-        if (normalized === 'SL' || normalized === 'SUPPORTIVE LIVING') return 'SL';
+        // Exact matches first (preserves HC/MC and AL/MC)
+        if (normalized === 'HC/MC') return 'HC/MC';
+        if (normalized === 'AL/MC') return 'AL/MC';
+        if (normalized === 'HC/TCU') return 'HC';
+        if (normalized === 'HC') return 'HC';
+        if (normalized === 'AL') return 'AL';
+        if (normalized === 'SL') return 'SL';
+        if (normalized === 'VIL') return 'VIL';
+        if (normalized === 'IL') return 'SL';
         
-        // Default to original value if no match
-        return normalized;
+        // Pattern matches (check compound patterns before simple ones)
+        if (normalized.includes('HC/MC') || normalized.includes('HC-MC')) return 'HC/MC';
+        if (normalized.includes('AL/MC') || normalized.includes('AL-MC')) return 'AL/MC';
+        if (normalized.includes('HC/TCU') || normalized.includes('TCU')) return 'HC';
+        if (normalized.includes('HC') || normalized === 'HEALTH CENTER' || normalized === 'SKILLED NURSING') return 'HC';
+        if (normalized.includes('AL') || normalized === 'ASSISTED LIVING') return 'AL';
+        if (normalized === 'INDEPENDENT LIVING') return 'SL';
+        if (normalized === 'MC' || normalized === 'MEMORY CARE') return 'AL/MC';
+        if (normalized === 'SUPPORTIVE LIVING') return 'SL';
+        if (normalized.includes('VIL') || normalized.includes('VILLA') || normalized.includes('VILLAGE')) return 'VIL';
+        
+        // Default to AL if unknown
+        return 'AL';
       };
 
       // Process and store data
