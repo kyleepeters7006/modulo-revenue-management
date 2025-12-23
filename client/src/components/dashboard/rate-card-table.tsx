@@ -732,8 +732,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       id={`unit-row-${unit.id}`}
                       className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
                     >
-                      <TableCell className="text-sm max-w-[180px] truncate" title={unit.locationName || unit.campusName || '-'}>
-                        {unit.locationName || unit.campusName || '-'}
+                      <TableCell className="text-sm max-w-[180px] truncate" title={unit.location || unit.locationName || unit.campusName || '-'}>
+                        {unit.location || unit.locationName || unit.campusName || '-'}
                       </TableCell>
                       <TableCell className="font-medium">
                         {unit.roomNumber}
