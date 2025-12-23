@@ -125,6 +125,12 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     return `${sign}${value.toFixed(1)}%`;
   };
 
+  const formatUnitChange = (currentValue: number, growthPercent: number) => {
+    const change = Math.round(currentValue * (growthPercent / 100) / (1 + growthPercent / 100));
+    const sign = change >= 0 ? '+' : '';
+    return `${sign}${change.toLocaleString()}`;
+  };
+
   const GrowthBadge = ({ value }: { value: number }) => (
     <Badge 
       variant="outline" 
@@ -135,7 +141,15 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
     </Badge>
   );
 
-  const GrowthStatsPanel = ({ stats, title, serviceLineData }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[] }) => (
+  const GrowthStatsPanel = ({ stats, title, serviceLineData, showUnits, currentValue }: { stats: GrowthStats; title: string; serviceLineData?: ServiceLineData[]; showUnits?: boolean; currentValue?: number }) => {
+    const formatCell = (percent: number, value?: number) => {
+      if (showUnits && value) {
+        return formatUnitChange(value, percent);
+      }
+      return formatGrowth(percent);
+    };
+    
+    return (
     <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-[var(--dashboard-text)]">{title}</CardTitle>
@@ -156,11 +170,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
             <tbody>
               <tr className="border-b border-[var(--dashboard-border)] bg-[var(--dashboard-background)]">
                 <td className="py-2 px-2 font-semibold text-[var(--dashboard-text)]">Portfolio</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t1)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t3)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t6)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.t12)}</td>
-                <td className={`text-center py-2 px-1 font-bold ${stats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(stats.ytd)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t1, currentValue)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t3, currentValue)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t6, currentValue)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.t12, currentValue)}</td>
+                <td className={`text-center py-2 px-1 font-bold ${stats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(stats.ytd, currentValue)}</td>
               </tr>
               {serviceLineData?.map((sl) => (
                 <tr key={sl.serviceLine} className="border-b border-[var(--dashboard-border)] last:border-b-0">
@@ -173,11 +187,11 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       <span className="text-[var(--dashboard-text)]">{sl.serviceLine}</span>
                     </div>
                   </td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t1)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t3)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t6)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.t12)}</td>
-                  <td className={`text-center py-2 px-1 ${sl.growthStats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatGrowth(sl.growthStats.ytd)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t1 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t1, showUnits ? sl.value : undefined)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t3 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t3, showUnits ? sl.value : undefined)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t6 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t6, showUnits ? sl.value : undefined)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.t12 >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.t12, showUnits ? sl.value : undefined)}</td>
+                  <td className={`text-center py-2 px-1 ${sl.growthStats.ytd >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>{formatCell(sl.growthStats.ytd, showUnits ? sl.value : undefined)}</td>
                 </tr>
               ))}
             </tbody>
@@ -186,6 +200,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
       </CardContent>
     </Card>
   );
+  };
 
   const handleDrillDown = (type: 'location' | 'serviceLine' | 'roomType', value: string) => {
     if (type === 'location') {
@@ -310,19 +325,23 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                       stats={displayData.growthStats} 
                       title={viewMode === 'rate' ? 'Portfolio Rate Growth' : 'Portfolio Growth'} 
                       serviceLineData={displayByServiceLine}
+                      showUnits={tileType === 'units'}
+                      currentValue={displayData.currentValue}
                     />
                     <GrowthStatsPanel 
                       stats={displaySameStore.growthStats} 
                       title={viewMode === 'rate' ? 'Same Store Rate Growth' : 'Same Store Growth'} 
                       serviceLineData={displaySameStore.byServiceLine}
+                      showUnits={tileType === 'units'}
+                      currentValue={displaySameStore.currentValue}
                     />
                   </div>
                 </>
               );
             })()}
 
-            {/* Tabs for different views */}
-            <Tabs defaultValue="trend" className="w-full">
+            {/* Tabs for different views - Units defaults to serviceLine tab */}
+            <Tabs defaultValue={tileType === 'units' ? 'serviceLine' : 'trend'} className="w-full">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="trend" data-testid="tab-trend">Monthly Trend</TabsTrigger>
                 <TabsTrigger value="serviceLine" data-testid="tab-service-line">By Service Line</TabsTrigger>
