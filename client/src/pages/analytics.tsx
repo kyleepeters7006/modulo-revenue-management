@@ -91,52 +91,52 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
     
     return (
       <div style={{ pointerEvents: 'auto', padding: '20px' }}>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-          <p className="font-semibold text-sm mb-2 text-gray-900 dark:text-gray-100">{data.campusName}</p>
+        <div className="bg-[var(--dashboard-surface)] p-4 rounded-lg shadow-lg border border-[var(--dashboard-border)]">
+          <p className="font-semibold text-sm mb-2 text-[var(--dashboard-text)]">{data.campusName}</p>
           <div className="space-y-1 text-xs mb-3">
-            <p className="text-gray-700 dark:text-gray-300">Region: {data.region}</p>
+            <p className="text-[var(--dashboard-muted)]">Region: {data.region}</p>
             {data.division && (
-              <p className="text-gray-700 dark:text-gray-300">Division: {data.division}</p>
+              <p className="text-[var(--dashboard-muted)]">Division: {data.division}</p>
             )}
             {/* Show rates by service line type instead of blended average */}
             {data.avgHcDailyRate > 0 && (
-              <p className="text-gray-700 dark:text-gray-300">
+              <p className="text-[var(--dashboard-text)]">
                 HC Daily Rate: ${Math.round(data.avgHcDailyRate).toLocaleString()}/day
               </p>
             )}
             {data.avgSeniorHousingMonthlyRate > 0 && (
-              <p className="text-gray-700 dark:text-gray-300">
+              <p className="text-[var(--dashboard-text)]">
                 Senior Housing: ${Math.round(data.avgSeniorHousingMonthlyRate).toLocaleString()}/mo
               </p>
             )}
             {/* Only show blended rate if specifically needed */}
             {!data.avgHcDailyRate && !data.avgSeniorHousingMonthlyRate && data.avgRate && (
-              <p className="text-gray-700 dark:text-gray-300">
+              <p className="text-[var(--dashboard-text)]">
                 Avg Rate: ${Math.round(data.avgRate).toLocaleString()}
               </p>
             )}
             {data.occupancy !== undefined && (
-              <p className="text-gray-700 dark:text-gray-300">
+              <p className="text-[var(--dashboard-text)]">
                 Occupancy: {(data.occupancy * 100).toFixed(1)}%
               </p>
             )}
             {data.competitorAvgRate && (
-              <p className="text-gray-700 dark:text-gray-300">
+              <p className="text-[var(--dashboard-muted)]">
                 Market Avg: ${Math.round(data.competitorAvgRate).toLocaleString()}
               </p>
             )}
             {data.pricePosition !== undefined && (
-              <p className={`font-medium ${data.pricePosition > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              <p className={`font-medium ${data.pricePosition > 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                 Position: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
               </p>
             )}
             {data.rateGrowthT6 !== undefined && (
-              <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              <p className={`font-medium ${data.rateGrowthT6 > 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                 T6 Rate Growth: {data.rateGrowthT6 > 0 ? '+' : ''}{data.rateGrowthT6.toFixed(1)}%
               </p>
             )}
             {data.revenueImpact && (
-              <p className="text-gray-700 dark:text-gray-300">
+              <p className="text-[var(--dashboard-text)]">
                 Revenue Impact: ${Math.round(data.revenueImpact / 1000).toLocaleString()}K
               </p>
             )}
@@ -1271,23 +1271,23 @@ export function Analytics() {
                         if (active && payload && payload.length) {
                           const data = payload[0].payload;
                           return (
-                            <div className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-                              <p className="font-semibold text-sm mb-1">{data.location}</p>
-                              <p className="text-xs">Room: {data.roomNumber}</p>
-                              <p className="text-xs">Type: {data.roomType} ({data.unitType})</p>
-                              <p className="text-xs">Service Line: {data.serviceLine}</p>
-                              <p className="text-xs font-medium mt-1">
+                            <div className="bg-[var(--dashboard-surface)] p-3 rounded-lg shadow-lg border border-[var(--dashboard-border)]">
+                              <p className="font-semibold text-sm mb-1 text-[var(--dashboard-text)]">{data.location}</p>
+                              <p className="text-xs text-[var(--dashboard-text)]">Room: {data.roomNumber}</p>
+                              <p className="text-xs text-[var(--dashboard-text)]">Type: {data.roomType} ({data.unitType})</p>
+                              <p className="text-xs text-[var(--dashboard-text)]">Service Line: {data.serviceLine}</p>
+                              <p className="text-xs font-medium mt-1 text-[var(--dashboard-text)]">
                                 Days Vacant: {data.daysVacant}
                               </p>
-                              <p className="text-xs">
+                              <p className="text-xs text-[var(--dashboard-text)]">
                                 Campus Occupancy: {data.campusOccupancy.toFixed(1)}%
                               </p>
                               {data.streetRate > 0 && (
-                                <p className="text-xs">
+                                <p className="text-xs text-[var(--dashboard-text)]">
                                   Street Rate: ${Math.round(data.streetRate).toLocaleString()}
                                 </p>
                               )}
-                              <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                              <div className="mt-2 pt-2 border-t border-[var(--dashboard-border)]">
                                 <p className="text-xs text-[var(--trilogy-teal)] font-medium">
                                   Click to view rate card →
                                 </p>
