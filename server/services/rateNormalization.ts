@@ -79,14 +79,39 @@ export function normalizeUnitRates(unit: any): {
 }
 
 /**
+ * Check if a unit is private pay (eligible for revenue calculations)
+ * Per project docs: Revenue calculations filter for private pay residents only
+ * (PRIVATE PAY, LEGACY - PVT PAY, BEDHOLDS), excluding Medicare/Medicaid
+ */
+export function isPrivatePay(unit: any): boolean {
+  const payorType = (unit.payorType || '').toUpperCase();
+  
+  // Empty/null payor type is treated as private pay
+  if (!payorType || payorType === '') return true;
+  
+  // Check for private pay variants
+  if (payorType.includes('PRIVATE')) return true;
+  if (payorType.includes('PVT')) return true;
+  if (payorType.includes('BEDHOLD')) return true;
+  
+  return false;
+}
+
+/**
  * Calculate annual revenue for a unit, properly handling daily vs monthly rates
  * @param unit The rent roll unit
  * @param occupied Whether to calculate for occupied status (true) or potential (false)
+ * @param privatePayOnly Whether to filter for private pay only (default: true per project docs)
  * @returns Annual revenue
  */
-export function calculateUnitAnnualRevenue(unit: any, occupied: boolean = true): number {
+export function calculateUnitAnnualRevenue(unit: any, occupied: boolean = true, privatePayOnly: boolean = true): number {
   if (occupied && !unit.occupiedYN) {
     return 0; // Vacant units contribute 0 to current revenue
+  }
+  
+  // Filter for private pay only if requested
+  if (occupied && privatePayOnly && !isPrivatePay(unit)) {
+    return 0; // Non-private pay residents excluded from revenue calculations
   }
   
   const { baseRateMonthly, careRateMonthly, streetRateMonthly } = normalizeUnitRates(unit);
@@ -96,6 +121,9 @@ export function calculateUnitAnnualRevenue(unit: any, occupied: boolean = true):
     return (baseRateMonthly + careRateMonthly) * 12;
   } else {
     // For potential revenue, use street rate
-    return (streetRateMonthly + careRateMonthly) * 12;
+    // Apply private pay proportion estimate (65% for HC based on historical data)
+    const isHC = ['HC', 'HC/MC'].includes(unit.serviceLine || '');
+    const privatePayFactor = isHC ? 0.65 : 1.0;
+    return (streetRateMonthly + careRateMonthly) * 12 * privatePayFactor;
   }
 }
