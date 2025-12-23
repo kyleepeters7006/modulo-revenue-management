@@ -14,14 +14,14 @@ interface JobProgress {
 
 // Service line mapping for matching based on Competitive Survey Mapping document
 // Maps Trilogy service lines to competitor survey types
-// Survey data has: AL, HC, SMC, IL competitor types
+// Survey data has: AL, HC, SMC, IL_IL, IL_Villa competitor types
 const SERVICE_LINE_MAPPING: Record<string, string[]> = {
   'AL': ['AL'],           // AL → AL
   'AL/MC': ['AL'],        // AL/MC → AL (not SMC, per mapping doc)
   'HC': ['HC'],           // HC → HC
   'HC/MC': ['SMC'],       // HC/MC → SMC
-  'SL': ['IL'],           // SL → IL (Independent Living)
-  'VIL': ['IL']           // VIL → IL (Independent Living)
+  'SL': ['IL_IL'],        // SL → IL_IL (Independent Living apartments)
+  'VIL': ['IL_Villa']     // VIL → IL_Villa (Independent Living villas)
 };
 
 // Care Level 2 applies only to HC and AL service lines

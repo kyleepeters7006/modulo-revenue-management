@@ -247,43 +247,64 @@ export default function OverviewTiles() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {overviewData.occupancyByServiceLine?.map((serviceLine) => (
-              <div 
-                key={serviceLine.serviceLine} 
-                className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-bold" style={{ color: '#1a1a1a' }}>
-                    {serviceLine.serviceLine}
-                  </h4>
-                  <span className="text-sm font-bold text-[var(--trilogy-teal)]">
-                    {formatPercentage(serviceLine.occupancyRate / 100, 0)}
-                  </span>
-                </div>
-                <div className="text-sm font-medium mb-2" style={{ color: '#4a4a4a' }}>
-                  {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
-                </div>
-                <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
-                  <div 
-                    className="bg-[var(--trilogy-teal)] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${serviceLine.occupancyRate}%` }}
-                  ></div>
-                </div>
+            {(() => {
+              // Sort service lines in preferred order: HC, HC/MC, AL, AL/MC, SL, VIL
+              const SERVICE_LINE_ORDER = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
+              const sortedServiceLines = [...(overviewData.occupancyByServiceLine || [])].sort((a, b) => {
+                const indexA = SERVICE_LINE_ORDER.indexOf(a.serviceLine);
+                const indexB = SERVICE_LINE_ORDER.indexOf(b.serviceLine);
+                const orderA = indexA === -1 ? 999 : indexA;
+                const orderB = indexB === -1 ? 999 : indexB;
+                return orderA - orderB;
+              });
+              
+              return sortedServiceLines.map((serviceLine) => {
+                // HC and HC/MC use daily rates - convert competitor rate from monthly back to daily
+                const isHcServiceLine = serviceLine.serviceLine === 'HC' || serviceLine.serviceLine === 'HC/MC';
+                const displayCompetitorRate = isHcServiceLine 
+                  ? (serviceLine.avgCompetitorRate || 0) / 30.44 
+                  : (serviceLine.avgCompetitorRate || 0);
+                const rateLabel = isHcServiceLine ? '/day' : '';
                 
-                {/* Rate Information */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="font-semibold" style={{ color: '#4a4a4a' }}>Avg Rate:</span>
-                    <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(serviceLine.avgRate || 0))}</span>
+                return (
+                  <div 
+                    key={serviceLine.serviceLine} 
+                    className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="font-bold" style={{ color: '#1a1a1a' }}>
+                        {serviceLine.serviceLine}
+                      </h4>
+                      <span className="text-sm font-bold text-[var(--trilogy-teal)]">
+                        {formatPercentage(serviceLine.occupancyRate / 100, 0)}
+                      </span>
+                    </div>
+                    <div className="text-sm font-medium mb-2" style={{ color: '#4a4a4a' }}>
+                      {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
+                    </div>
+                    <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
+                      <div 
+                        className="bg-[var(--trilogy-teal)] h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${serviceLine.occupancyRate}%` }}
+                      ></div>
+                    </div>
+                    
+                    {/* Rate Information */}
+                    <div className="space-y-1 text-xs">
+                      <div className="flex justify-between">
+                        <span className="font-semibold" style={{ color: '#4a4a4a' }}>Avg Rate:</span>
+                        <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(serviceLine.avgRate || 0))}{rateLabel}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-semibold" style={{ color: '#4a4a4a' }}>Competitor Rate:</span>
+                        <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(displayCompetitorRate))}{rateLabel}</span>
+                      </div>
+                      {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="font-semibold" style={{ color: '#4a4a4a' }}>Competitor Rate:</span>
-                    <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(serviceLine.avgCompetitorRate || 0))}</span>
-                  </div>
-                  {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
-                </div>
-              </div>
-            )) || []}
+                );
+              });
+            })()}
           </div>
         </CardContent>
       </Card>
