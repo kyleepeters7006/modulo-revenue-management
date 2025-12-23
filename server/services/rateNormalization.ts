@@ -80,21 +80,24 @@ export function normalizeUnitRates(unit: any): {
 
 /**
  * Check if a unit is private pay (eligible for revenue calculations)
- * Per project docs: Revenue calculations filter for private pay residents only
- * (PRIVATE PAY, LEGACY - PVT PAY, BEDHOLDS), excluding Medicare/Medicaid
+ * Private Pay = any DisplayPayer that is NOT one of the government/insurance payors.
+ * Non-private payors: HOSPICE, LEGACY - MEDICAID, MANAGED, MEDICAID, MEDICARE, MEDICARE ADVANTAGE
  */
 export function isPrivatePay(unit: any): boolean {
-  const payorType = (unit.payorType || '').toUpperCase();
+  const payorType = (unit.payorType || '').toUpperCase().trim();
   
   // Empty/null payor type is treated as private pay
   if (!payorType || payorType === '') return true;
   
-  // Check for private pay variants
-  if (payorType.includes('PRIVATE')) return true;
-  if (payorType.includes('PVT')) return true;
-  if (payorType.includes('BEDHOLD')) return true;
+  // Check for NON-private pay (government/insurance) payors
+  // If it matches any of these, it's NOT private pay
+  if (payorType.includes('HOSPICE')) return false;
+  if (payorType.includes('MEDICAID')) return false;  // Includes "LEGACY - MEDICAID"
+  if (payorType.includes('MEDICARE')) return false;  // Includes "MEDICARE ADVANTAGE"
+  if (payorType.includes('MANAGED')) return false;   // MANAGED CARE
   
-  return false;
+  // Everything else (PRIVATE PAY, BEDHOLDS, LEGACY - PVT PAY, etc.) is private pay
+  return true;
 }
 
 /**
