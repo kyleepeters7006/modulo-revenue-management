@@ -86,6 +86,21 @@ const SERVICE_LINE_COLORS: Record<string, string> = {
   'VIL': '#8b5cf6', // Purple for VIL
 };
 
+// Preferred sort order for service lines
+const SERVICE_LINE_ORDER = ['HC', 'AL', 'SL', 'VIL', 'AL/MC', 'HC/MC'];
+
+const sortServiceLines = <T extends { serviceLine: string }>(data: T[] | undefined): T[] => {
+  if (!data) return [];
+  return [...data].sort((a, b) => {
+    const indexA = SERVICE_LINE_ORDER.indexOf(a.serviceLine);
+    const indexB = SERVICE_LINE_ORDER.indexOf(b.serviceLine);
+    // If not in order array, put at end
+    const orderA = indexA === -1 ? 999 : indexA;
+    const orderB = indexB === -1 ? 999 : indexB;
+    return orderA - orderB;
+  });
+};
+
 export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: TileDetailDialogProps) {
   const [drillLevel, setDrillLevel] = useState<'overview' | 'location' | 'serviceLine' | 'roomType'>('overview');
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
@@ -333,7 +348,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                     <GrowthStatsPanel 
                       stats={displayData.growthStats} 
                       title={viewMode === 'rate' ? 'Portfolio Rate Growth' : 'Portfolio Growth'} 
-                      serviceLineData={displayByServiceLine}
+                      serviceLineData={sortServiceLines(displayByServiceLine)}
                       showUnits={tileType === 'units'}
                       currentValue={displayData.currentValue}
                       isOccupancy={tileType === 'occupancy'}
@@ -341,7 +356,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                     <GrowthStatsPanel 
                       stats={displaySameStore.growthStats} 
                       title={viewMode === 'rate' ? 'Same Store Rate Growth' : 'Same Store Growth'} 
-                      serviceLineData={displaySameStore.byServiceLine}
+                      serviceLineData={sortServiceLines(displaySameStore.byServiceLine)}
                       showUnits={tileType === 'units'}
                       currentValue={displaySameStore.currentValue}
                       isOccupancy={tileType === 'occupancy'}
@@ -391,6 +406,16 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                             fontSize={12}
                             tickLine={false}
                             axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
+                            domain={(() => {
+                              const values = data.monthlyTrend.map(d => d.value);
+                              const minVal = Math.min(...values);
+                              const maxVal = Math.max(...values);
+                              const range = maxVal - minVal;
+                              const padding = range * 0.1 || 5;
+                              const roundedMin = Math.floor((minVal - padding) / 5) * 5;
+                              const roundedMax = Math.ceil((maxVal + padding) / 5) * 5;
+                              return [Math.max(0, roundedMin), roundedMax];
+                            })()}
                             tickFormatter={(value) => {
                               if (tileType === 'occupancy') return `${value}%`;
                               if (value >= 1000000000) return `$${(value/1000000000).toFixed(1)}B`;
@@ -476,7 +501,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                           <Legend 
                             wrapperStyle={{ paddingTop: '10px' }}
                           />
-                          {data.byServiceLine.map((sl, idx) => (
+                          {sortServiceLines(data.byServiceLine).map((sl, idx) => (
                             <Line 
                               key={sl.serviceLine}
                               type="monotone"
@@ -513,7 +538,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
-                              data={data.byServiceLine}
+                              data={sortServiceLines(data.byServiceLine)}
                               cx="50%"
                               cy="50%"
                               innerRadius={60}
@@ -524,7 +549,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                               onClick={(entry) => handleDrillDown('serviceLine', entry.serviceLine)}
                               style={{ cursor: 'pointer' }}
                             >
-                              {data.byServiceLine.map((entry, index) => (
+                              {sortServiceLines(data.byServiceLine).map((entry, index) => (
                                 <Cell 
                                   key={`cell-${index}`} 
                                   fill={SERVICE_LINE_COLORS[entry.serviceLine] || COLORS[index % COLORS.length]} 
@@ -558,7 +583,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-3">
-                        {data.byServiceLine.map((sl) => (
+                        {sortServiceLines(data.byServiceLine).map((sl) => (
                           <div 
                             key={sl.serviceLine}
                             className="flex items-center justify-between p-3 bg-[var(--dashboard-surface)] border border-[var(--dashboard-border)] rounded-lg hover:border-[var(--trilogy-teal)]/30 cursor-pointer transition-colors"
