@@ -1329,13 +1329,26 @@ export class DatabaseStorage implements IStorage {
     
     // If service lines are specified, filter in-memory using OR/ANY logic
     if (filters.serviceLines && filters.serviceLines.length > 0) {
+      // Map service lines to competitor types for matching
+      const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
+        'HC': 'HC',
+        'HC/MC': 'SMC',
+        'AL': 'AL',
+        'AL/MC': 'AL',
+        'SL': 'IL_IL',
+        'VIL': 'IL_Villa'
+      };
+      
+      // Convert filter service lines to competitor types
+      const competitorTypes = filters.serviceLines.map(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl] || sl);
+      
       results = results.filter((competitor: any) => {
         if (!competitor.serviceLines || competitor.serviceLines.length === 0) {
           return false; // Exclude competitors without service lines when filter is active
         }
-        // Check if the competitor has ANY of the selected service lines
+        // Check if the competitor has ANY of the mapped competitor types
         return competitor.serviceLines.some((line: string) => 
-          filters.serviceLines!.includes(line)
+          competitorTypes.includes(line)
         );
       });
     }
