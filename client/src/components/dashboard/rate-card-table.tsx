@@ -359,6 +359,10 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
       let aVal, bVal;
       
       switch (sortColumn) {
+        case 'location':
+          aVal = a.locationName || a.campusName || '';
+          bVal = b.locationName || b.campusName || '';
+          break;
         case 'unit':
           aVal = a.roomNumber || '';
           bVal = b.roomNumber || '';
@@ -629,6 +633,16 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   <TableRow>
                     <TableHead 
                       className="cursor-pointer hover:bg-slate-50 select-none"
+                      onClick={() => handleSort('location')}
+                      data-testid="sort-location"
+                    >
+                      <div className="flex items-center">
+                        Location
+                        <SortIcon column="location" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('unit')}
                       data-testid="sort-unit"
                     >
@@ -718,6 +732,9 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       id={`unit-row-${unit.id}`}
                       className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
                     >
+                      <TableCell className="text-sm max-w-[180px] truncate" title={unit.locationName || unit.campusName || '-'}>
+                        {unit.locationName || unit.campusName || '-'}
+                      </TableCell>
                       <TableCell className="font-medium">
                         {unit.roomNumber}
                       </TableCell>
