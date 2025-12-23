@@ -406,8 +406,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTotalUnits(): Promise<number> {
-    const units = await db.select().from(rentRollData);
-    return units.length;
+    const result = await db.select({ count: sql<number>`COUNT(*)::int` }).from(rentRollData);
+    return result[0]?.count ?? 0;
   }
 
   async getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]> {
