@@ -122,19 +122,24 @@ export default function AICalculationDialog({
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Total Adjustment</p>
-                    <p className="text-lg font-bold flex items-center gap-1" data-testid="ai-total-adjustment">
-                      {calcDetails.totalAdjustment > 0 ? (
-                        <>
-                          <TrendingUp className="h-4 w-4 text-green-600" />
-                          <span className="text-green-600">+{formatPercent(calcDetails.totalAdjustment)}</span>
-                        </>
-                      ) : (
-                        <>
-                          <TrendingDown className="h-4 w-4 text-red-600" />
-                          <span className="text-red-600">{formatPercent(calcDetails.totalAdjustment)}</span>
-                        </>
-                      )}
-                    </p>
+                    {(() => {
+                      const effectiveAdj = baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0;
+                      return (
+                        <p className="text-lg font-bold flex items-center gap-1" data-testid="ai-total-adjustment">
+                          {effectiveAdj > 0 ? (
+                            <>
+                              <TrendingUp className="h-4 w-4 text-green-600" />
+                              <span className="text-green-600">+{formatPercent(effectiveAdj)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <TrendingDown className="h-4 w-4 text-red-600" />
+                              <span className="text-red-600">{formatPercent(effectiveAdj)}</span>
+                            </>
+                          )}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">AI Calculated</p>
@@ -437,12 +442,25 @@ export default function AICalculationDialog({
                       
                       {/* Subtotal */}
                       <Separator />
-                      <div className="flex justify-between items-center py-2 font-medium">
-                        <span>AI Algorithm Total</span>
-                        <span className={getAdjustmentColor(calcDetails.totalAdjustment)}>
-                          {calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}
-                        </span>
-                      </div>
+                      {(() => {
+                        const effectiveAdj = baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0;
+                        const hasGuardrail = Math.abs(effectiveAdj - calcDetails.totalAdjustment) > 0.001;
+                        return (
+                          <div className="py-2 font-medium space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span>AI Algorithm Total</span>
+                              <span className={getAdjustmentColor(effectiveAdj)}>
+                                {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
+                              </span>
+                            </div>
+                            {hasGuardrail && (
+                              <div className="text-xs text-amber-600 dark:text-amber-400">
+                                (Pre-guardrail: {calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)})
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </>
                   ) : (
                     <div className="text-center text-muted-foreground py-4">
@@ -513,17 +531,29 @@ export default function AICalculationDialog({
             <Card className="bg-gray-50 dark:bg-gray-800">
               <CardContent className="pt-4">
                 <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">Calculation Formula:</h3>
-                <div className="space-y-2 text-sm font-mono">
-                  <div className="text-gray-700 dark:text-gray-300">
-                    Base Rate × (1 + Total Adjustments) = Final Rate
-                  </div>
-                  <div className="text-blue-700 dark:text-blue-300 font-medium">
-                    {formatCurrency(baseRate)} × (1 + {formatPercent(calcDetails.totalAdjustment)}) = {formatCurrency(aiSuggestedRate)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    = {formatCurrency(baseRate)} × {(1 + calcDetails.totalAdjustment).toFixed(4)} = {formatCurrency(aiSuggestedRate)}
-                  </div>
-                </div>
+                {(() => {
+                  const effectiveAdjustment = baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0;
+                  const hasGuardrailAdjustment = Math.abs(effectiveAdjustment - calcDetails.totalAdjustment) > 0.001;
+                  return (
+                    <div className="space-y-2 text-sm font-mono">
+                      <div className="text-gray-700 dark:text-gray-300">
+                        Base Rate × (1 + Total Adjustments) = Final Rate
+                      </div>
+                      <div className="text-blue-700 dark:text-blue-300 font-medium">
+                        {formatCurrency(baseRate)} × (1 + {formatPercent(effectiveAdjustment)}) = {formatCurrency(aiSuggestedRate)}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-2">
+                        = {formatCurrency(baseRate)} × {(1 + effectiveAdjustment).toFixed(4)} = {formatCurrency(aiSuggestedRate)}
+                      </div>
+                      {hasGuardrailAdjustment && (
+                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
+                          <span>⚠️</span>
+                          <span>Guardrail applied: Algorithm suggested {formatPercent(calcDetails.totalAdjustment)}, adjusted to {formatPercent(effectiveAdjustment)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
 
