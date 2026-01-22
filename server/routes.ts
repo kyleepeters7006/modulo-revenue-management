@@ -1040,6 +1040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const competitorTemplate = [
         // Row 1: Field descriptions
         {
+          'Survey Month': 'DESCRIPTION: Month of survey data (YYYY-MM format, used to select most recent data)',
           'KeyStats Location': 'DESCRIPTION: Your facility name this competitor is near (must match Location Data)',
           'Competitor Name': 'DESCRIPTION: Name of the competing facility',
           'Competitor Address': 'DESCRIPTION: Full address of competitor (used for mapping)',
@@ -1054,6 +1055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         // Row 2: Example data
         {
+          'Survey Month': '2024-01',
           'KeyStats Location': 'Anderson - 112',
           'Competitor Name': 'Sunrise Senior Living',
           'Competitor Address': '123 Main Street, Anderson, IN 46011',
