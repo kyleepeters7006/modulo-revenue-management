@@ -1044,9 +1044,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Room Type': 'DESCRIPTION: Studio, One Bedroom, Two Bedroom, Companion',
           'Monthly Rate Avg': 'DESCRIPTION: Average monthly base rent rate (number)',
           'Care Fees Avg': 'DESCRIPTION: Average monthly care fee (number)',
-          'Care Level 2 Rate': 'DESCRIPTION: Care Level 2 fee for rate adjustments (optional)',
-          'Medication Management Fee': 'DESCRIPTION: Medication management fee (optional)',
-          'Weight': 'DESCRIPTION: Relative importance weight 0-1 (optional, used in rate matching)'
+          'Care Level 2 Rate': 'DESCRIPTION: Care Level 2 fee for rate adjustments (used in competitor rate calculations)',
+          'Medication Management Fee': 'DESCRIPTION: Medication management fee (used in competitor rate calculations)',
+          'Weight': 'DESCRIPTION: Relative importance weight 0-1 (used in rate matching calculations)'
         },
         // Row 2: Example data
         {
