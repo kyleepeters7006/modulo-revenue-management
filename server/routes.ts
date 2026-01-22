@@ -857,7 +857,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Size Rating': 'DESCRIPTION: Room size quality rating (A, B, or C)',
           'View Rating': 'DESCRIPTION: Room view quality rating (A, B, or C)',
           'Renovation Rating': 'DESCRIPTION: Room renovation status rating (A, B, or C)',
-          'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)'
+          'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)',
+          'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, used for ML training)'
         },
         // Row 2: Example data
         {
@@ -877,7 +878,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Size Rating': 'B',
           'View Rating': 'A',
           'Renovation Rating': 'B',
-          'Amenity Rating': 'A'
+          'Amenity Rating': 'A',
+          'Move In Date': '2023-06-15'
         },
         // Row 3: Empty row for spacing
         {},
