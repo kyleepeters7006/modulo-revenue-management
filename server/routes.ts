@@ -957,7 +957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         {},
         // Row 4: Frequency note
         {
-          Date: 'FREQUENCY: Monthly upload. Upload aggregated inquiry data per month using the last day of each month as the Date.'
+          Date: 'FREQUENCY: Daily or monthly upload. System aggregates daily data into monthly totals automatically.'
         }
       ];
       
