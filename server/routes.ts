@@ -836,7 +836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
-      // Template with description row first, then example data
+      // Template with description row first, then example data, then empty row, then frequency note
       // Only includes fields that are actually used in the system
       const rentRollTemplate = [
         // Row 1: Field descriptions
@@ -874,6 +874,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Resident ID': 'RES001',
           'Resident Name': 'John Smith',
           'Move In Date': '2023-06-15'
+        },
+        // Row 3: Empty row for spacing
+        {},
+        // Row 4: Frequency note
+        {
+          Date: 'FREQUENCY: Monthly upload. Upload one snapshot per month using the last day of each month as the Date.'
         }
       ];
       
@@ -925,7 +931,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
-      // Template with description row first, then example data
+      // Template with description row first, then example data, then empty row, then frequency note
       const inquiryTemplate = [
         // Row 1: Field descriptions
         {
@@ -946,6 +952,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Inquiry Count': 15,
           'Tour Count': 8,
           'Conversion Count': 3
+        },
+        // Row 3: Empty row for spacing
+        {},
+        // Row 4: Frequency note
+        {
+          Date: 'FREQUENCY: Monthly upload. Upload aggregated inquiry data per month using the last day of each month as the Date.'
         }
       ];
       
@@ -968,13 +980,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
-      // Create template with description row first, then header row, then example data
+      // Create template with description row first, then example data, then empty row, then frequency note
       const templateData = [
         // Row 1: Field descriptions
         {
           'Location Name': 'DESCRIPTION: Unique facility/campus name used as the primary identifier',
           'Region': 'DESCRIPTION: Geographic region grouping (e.g., East, West, Central)',
           'Division': 'DESCRIPTION: Sub-region or division within the region',
+          'Class': 'DESCRIPTION: Campus classification (e.g., Same Store, New Acquisition)',
           'Address': 'DESCRIPTION: Street address of the facility',
           'City': 'DESCRIPTION: City name',
           'State': 'DESCRIPTION: Two-letter state code (e.g., IN, OH, KY)',
@@ -985,10 +998,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Location Name': 'Anderson - 112',
           'Region': 'East',
           'Division': 'Indiana',
+          'Class': 'Same Store',
           'Address': '123 Main Street',
           'City': 'Anderson',
           'State': 'IN',
           'Zip Code': '46011'
+        },
+        // Row 3: Empty row for spacing
+        {},
+        // Row 4: Frequency note
+        {
+          'Location Name': 'FREQUENCY: One upload per data set. System does not account for changes in Regions/Divisions/Classes.'
         }
       ];
       
@@ -1011,7 +1031,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
-      // Template with description row first, then example data
+      // Template with description row first, then example data, then empty row, then frequency note
       // Only includes fields that are actually used in competitor matching
       const competitorTemplate = [
         // Row 1: Field descriptions
@@ -1041,6 +1061,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Care Level 2 Rate': 800,
           'Medication Management Fee': 250,
           'Weight': 0.8
+        },
+        // Row 3: Empty row for spacing
+        {},
+        // Row 4: Frequency note
+        {
+          'KeyStats Location': 'FREQUENCY: Periodic upload. Update when new competitive survey data is available (typically quarterly or as market conditions change).'
         }
       ];
       
@@ -4744,10 +4770,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: 'No data found in file' });
       }
 
-      // Filter out description rows (rows that start with "DESCRIPTION:")
+      // Filter out description rows and frequency rows (rows that start with "DESCRIPTION:" or "FREQUENCY:")
       const dataRows = jsonData.filter((row: any) => {
         const firstValue = Object.values(row)[0];
-        return typeof firstValue !== 'string' || !firstValue.startsWith('DESCRIPTION:');
+        if (typeof firstValue !== 'string') return true;
+        return !firstValue.startsWith('DESCRIPTION:') && !firstValue.startsWith('FREQUENCY:');
       });
 
       if (dataRows.length === 0) {
@@ -4765,6 +4792,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           name: locationName,
           region: row['Region'] || row['region'] || null,
           division: row['Division'] || row['division'] || null,
+          locationClass: row['Class'] || row['class'] || row['Location Class'] || row['location class'] || null,
           address: row['Address'] || row['address'] || null,
           city: row['City'] || row['city'] || null,
           state: row['State'] || row['state'] || null,
@@ -4785,6 +4813,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             .set({
               region: locationData.region,
               division: locationData.division,
+              locationClass: locationData.locationClass,
               address: locationData.address,
               city: locationData.city,
               state: locationData.state,

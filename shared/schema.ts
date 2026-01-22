@@ -80,6 +80,7 @@ export const locations = pgTable("locations", {
   locationCode: text("location_code"), // 4-digit location code
   region: text("region"),
   division: text("division"),
+  locationClass: text("location_class"), // Campus classification (e.g., Same Store, New Acquisition)
   address: text("address"),
   city: text("city"),
   state: text("state"),
