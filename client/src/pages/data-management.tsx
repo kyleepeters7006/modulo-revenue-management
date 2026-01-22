@@ -24,22 +24,25 @@ export default function DataManagement() {
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
+  const locationFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
 
-  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor') => {
+  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location') => {
     try {
       const endpoints = {
         'rent-roll': '/api/template/rent-roll',
         'inquiry': '/api/template/inquiry',
-        'competitor': '/api/template/competitor'
+        'competitor': '/api/template/competitor',
+        'location': '/api/template/location'
       };
       
       const filenames = {
         'rent-roll': 'rent_roll_template.xlsx',
         'inquiry': 'inquiry_data_template.xlsx',
-        'competitor': 'competitive_data_template.xlsx'
+        'competitor': 'competitive_data_template.xlsx',
+        'location': 'location_template.xlsx'
       };
       
       const response = await fetch(endpoints[type]);
@@ -188,6 +191,44 @@ export default function DataManagement() {
     onSettled: () => {
       if (competitorFileInputRef.current) {
         competitorFileInputRef.current.value = '';
+      }
+    },
+  });
+
+  const locationMutation = useMutation({
+    mutationFn: async ({ formData, uploadId }: { formData: FormData; uploadId: string }) => {
+      const response = await fetch('/api/upload/locations', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Upload failed');
+      }
+      
+      return { data: await response.json(), uploadId };
+    },
+    onSuccess: ({ data, uploadId }) => {
+      updateUpload(uploadId, { status: 'success', message: `Processed ${data.recordsProcessed || 0} locations` });
+      toast({
+        title: "Location Upload Successful",
+        description: `Processed ${data.recordsProcessed || 0} locations (${data.created || 0} created, ${data.updated || 0} updated).`,
+      });
+      setUploadHistory(prev => [{ ...data, type: 'location', timestamp: new Date() }, ...prev.slice(0, 9)]);
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+    },
+    onError: (error: Error, variables) => {
+      updateUpload(variables.uploadId, { status: 'error', error: error.message });
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      if (locationFileInputRef.current) {
+        locationFileInputRef.current.value = '';
       }
     },
   });
@@ -364,7 +405,7 @@ export default function DataManagement() {
     }
   };
 
-  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor') => (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location') => (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
@@ -380,7 +421,8 @@ export default function DataManagement() {
     const mutations = {
       'rent-roll': rentRollMutation,
       'inquiry': inquiryMutation,
-      'competitor': competitorMutation
+      'competitor': competitorMutation,
+      'location': locationMutation
     };
     
     mutations[type].mutate({ formData, uploadId });
@@ -445,6 +487,54 @@ export default function DataManagement() {
         )}
 
         <div className="space-y-6">
+          {/* Location/Region/Division Upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Location Data Upload</CardTitle>
+              <CardDescription>
+                Upload your organization's locations with region and division hierarchy
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="h-4 w-4" />
+                <AlertDescription>
+                  Upload location data including facility names, regions, divisions, and addresses. This establishes the organizational hierarchy for all data.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col space-y-3">
+                <Button
+                  onClick={() => handleDownloadTemplate('location')}
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                  data-testid="button-download-location-template"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Location Template
+                </Button>
+                
+                <Button
+                  onClick={() => locationFileInputRef.current?.click()}
+                  disabled={isUploading('location')}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
+                  data-testid="button-upload-location"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {isUploading('location') ? 'Processing...' : 'Upload Location Data'}
+                </Button>
+              </div>
+              
+              <input
+                ref={locationFileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={handleFileUpload('location')}
+                data-testid="input-location-file"
+              />
+            </CardContent>
+          </Card>
+
           {/* Rent Roll Upload */}
           <Card>
             <CardHeader>

@@ -836,33 +836,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
+      // Template with description row first, then example data
+      // Only includes fields that are actually used in the system
       const rentRollTemplate = [
+        // Row 1: Field descriptions
+        {
+          Date: 'DESCRIPTION: Date of rent roll snapshot (YYYY-MM-DD format, use last day of month)',
+          Location: 'DESCRIPTION: Facility/campus name (must match Location Data)',
+          'Room Number': 'DESCRIPTION: Unit identifier (e.g., 101, 101A, 101B for companion rooms)',
+          'Room Type': 'DESCRIPTION: Studio, One Bedroom, Two Bedroom, Companion, Suite',
+          'Service Line': 'DESCRIPTION: HC, HC/MC, AL, AL/MC, SL, or VIL',
+          'Occupied Y/N': 'DESCRIPTION: Y if occupied, N if vacant',
+          'Days Vacant': 'DESCRIPTION: Number of days unit has been vacant (0 if occupied)',
+          'Street Rate': 'DESCRIPTION: Monthly rate for new admissions (daily rate for HC/HC-MC)',
+          'In-House Rate': 'DESCRIPTION: Current rate being charged (daily for HC/HC-MC)',
+          'Care Level': 'DESCRIPTION: Care level tier (Level 1, Level 2, Level 3, Level 4)',
+          'Care Rate': 'DESCRIPTION: Monthly care fee based on care level',
+          'Payor Type': 'DESCRIPTION: Payment source (Private Pay, Medicaid, Medicare, Managed Care, Hospice)',
+          'Resident ID': 'DESCRIPTION: Unique resident identifier (optional)',
+          'Resident Name': 'DESCRIPTION: Resident full name (optional)',
+          'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, optional)'
+        },
+        // Row 2: Example data
         {
           Date: '2024-01-31',
-          Region: 'East',
-          Division: 'Mid-Atlantic',
-          Location: 'Louisville East',
+          Location: 'Anderson - 112',
           'Room Number': '101',
           'Room Type': 'Studio',
           'Service Line': 'AL',
           'Occupied Y/N': 'Y',
           'Days Vacant': 0,
-          'Preferred Location': 'Y',
-          Size: 'Studio',
-          View: 'Garden View',
-          Renovated: 'Y',
-          'Other Premium Feature': '',
-          'Location Rating': 'A',
-          'Size Rating': 'B',
-          'View Rating': 'A',
-          'Renovation Rating': 'A',
-          'Amenity Rating': 'B',
           'Street Rate': 3500,
           'In-House Rate': 3200,
-          'Discount to Street Rate': 300,
           'Care Level': 'Level 1',
           'Care Rate': 500,
-          'Rent and Care Rate': 3700
+          'Payor Type': 'Private Pay',
+          'Resident ID': 'RES001',
+          'Resident Name': 'John Smith',
+          'Move In Date': '2023-06-15'
         }
       ];
       
@@ -914,20 +925,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const workbook = xlsx.utils.book_new();
       
+      // Template with description row first, then example data
       const inquiryTemplate = [
+        // Row 1: Field descriptions
+        {
+          Date: 'DESCRIPTION: Date of inquiry data (YYYY-MM-DD format, use last day of month)',
+          Location: 'DESCRIPTION: Facility/campus name (must match Location Data)',
+          'Service Line': 'DESCRIPTION: HC, HC/MC, AL, AL/MC, SL, or VIL',
+          'Lead Source': 'DESCRIPTION: Marketing source (Website, Referral, A Place for Mom, etc.)',
+          'Inquiry Count': 'DESCRIPTION: Number of inquiries received (whole number)',
+          'Tour Count': 'DESCRIPTION: Number of tours conducted (whole number)',
+          'Conversion Count': 'DESCRIPTION: Number of move-ins from inquiries (whole number)'
+        },
+        // Row 2: Example data
         {
           Date: '2024-01-31',
-          Region: 'East',
-          Division: 'Mid-Atlantic',
-          Location: 'Louisville East',
+          Location: 'Anderson - 112',
           'Service Line': 'AL',
           'Lead Source': 'Website',
           'Inquiry Count': 15,
           'Tour Count': 8,
-          'Conversion Count': 3,
-          'Conversion Rate': 37.5,
-          'Days to Tour': 5,
-          'Days to Move-In': 21
+          'Conversion Count': 3
         }
       ];
       
@@ -945,40 +963,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Location template download endpoint with description row
+  app.get("/api/template/location", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+      
+      // Create template with description row first, then header row, then example data
+      const templateData = [
+        // Row 1: Field descriptions
+        {
+          'Location Name': 'DESCRIPTION: Unique facility/campus name used as the primary identifier',
+          'Region': 'DESCRIPTION: Geographic region grouping (e.g., East, West, Central)',
+          'Division': 'DESCRIPTION: Sub-region or division within the region',
+          'Address': 'DESCRIPTION: Street address of the facility',
+          'City': 'DESCRIPTION: City name',
+          'State': 'DESCRIPTION: Two-letter state code (e.g., IN, OH, KY)',
+          'Zip Code': 'DESCRIPTION: 5-digit postal code'
+        },
+        // Row 2: Example data
+        {
+          'Location Name': 'Anderson - 112',
+          'Region': 'East',
+          'Division': 'Indiana',
+          'Address': '123 Main Street',
+          'City': 'Anderson',
+          'State': 'IN',
+          'Zip Code': '46011'
+        }
+      ];
+      
+      const sheet = xlsx.utils.json_to_sheet(templateData);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Locations');
+      
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="location_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating location template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
   // Competitive Survey Data template download endpoint
   app.get("/api/template/competitor", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
       
-      // Template matches the importCompetitiveSurveyExcel expected format
+      // Template with description row first, then example data
+      // Only includes fields that are actually used in competitor matching
       const competitorTemplate = [
+        // Row 1: Field descriptions
+        {
+          'KeyStats Location': 'DESCRIPTION: Your facility name this competitor is near (must match Location Data)',
+          'Competitor Name': 'DESCRIPTION: Name of the competing facility',
+          'Competitor Address': 'DESCRIPTION: Full address of competitor (used for mapping)',
+          'Distance (Miles)': 'DESCRIPTION: Distance from your facility in miles (decimal number)',
+          'Competitor Type': 'DESCRIPTION: Service line - HC, HC/MC (or SMC), AL, AL/MC, SL (or IL_IL), VIL (or IL_Villa)',
+          'Room Type': 'DESCRIPTION: Studio, One Bedroom, Two Bedroom, Companion',
+          'Monthly Rate Avg': 'DESCRIPTION: Average monthly base rent rate (number)',
+          'Care Fees Avg': 'DESCRIPTION: Average monthly care fee (number)',
+          'Care Level 2 Rate': 'DESCRIPTION: Care Level 2 fee for rate adjustments (optional)',
+          'Medication Management Fee': 'DESCRIPTION: Medication management fee (optional)',
+          'Weight': 'DESCRIPTION: Relative importance weight 0-1 (optional, used in rate matching)'
+        },
+        // Row 2: Example data
         {
           'KeyStats Location': 'Anderson - 112',
           'Competitor Name': 'Sunrise Senior Living',
-          'Competitor Address': '123 Main Street, Louisville, KY 40202',
+          'Competitor Address': '123 Main Street, Anderson, IN 46011',
           'Distance (Miles)': 2.5,
           'Competitor Type': 'AL',
           'Room Type': 'Studio',
-          'Square Footage': 350,
-          'Monthly Rate Low': 3200,
-          'Monthly Rate High': 3800,
           'Monthly Rate Avg': 3500,
-          'Care Fees Low': 400,
-          'Care Fees High': 800,
           'Care Fees Avg': 600,
-          'Total Monthly Low': 3600,
-          'Total Monthly High': 4600,
-          'Total Monthly Avg': 4100,
-          'Community Fee': 500,
-          'Pet Fee': 50,
-          'Other Fees': 0,
-          'Incentives': 'First month free',
-          'Total Units': 85,
-          'Occupancy Rate': 92.5,
-          'Year Built': 2015,
-          'Last Renovation': 2020,
-          'Amenities': 'Pool, Fitness Center, Beauty Salon',
-          'Notes': 'Competitor offers memory care in separate building'
+          'Care Level 2 Rate': 800,
+          'Medication Management Fee': 250,
+          'Weight': 0.8
         }
       ];
       
@@ -4651,6 +4713,103 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     } catch (error) {
       console.error('Competitor upload error:', error);
       res.status(500).json({ error: 'Failed to process competitor data upload' });
+    }
+  });
+
+  // Location upload endpoint
+  app.post("/api/upload/locations", upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const buffer = req.file.buffer;
+      let jsonData: any[] = [];
+
+      // Parse file based on type
+      if (req.file.originalname.endsWith('.csv')) {
+        const csvText = buffer.toString();
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        jsonData = parsed.data as any[];
+      } else if (req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
+        const workbook = xlsx.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        jsonData = xlsx.utils.sheet_to_json(worksheet);
+      } else {
+        return res.status(400).json({ error: 'Unsupported file format. Please use CSV or Excel files.' });
+      }
+
+      if (jsonData.length === 0) {
+        return res.status(400).json({ error: 'No data found in file' });
+      }
+
+      // Filter out description rows (rows that start with "DESCRIPTION:")
+      const dataRows = jsonData.filter((row: any) => {
+        const firstValue = Object.values(row)[0];
+        return typeof firstValue !== 'string' || !firstValue.startsWith('DESCRIPTION:');
+      });
+
+      if (dataRows.length === 0) {
+        return res.status(400).json({ error: 'No valid data rows found (only description rows detected)' });
+      }
+
+      let created = 0;
+      let updated = 0;
+
+      for (const row of dataRows) {
+        const locationName = row['Location Name'] || row['location name'] || row['Location'] || row['location'] || row['Name'] || row['name'] || '';
+        if (!locationName) continue;
+
+        const locationData = {
+          name: locationName,
+          region: row['Region'] || row['region'] || null,
+          division: row['Division'] || row['division'] || null,
+          address: row['Address'] || row['address'] || null,
+          city: row['City'] || row['city'] || null,
+          state: row['State'] || row['state'] || null,
+          zipCode: row['Zip Code'] || row['zip code'] || row['ZipCode'] || row['zipcode'] || null,
+        };
+
+        // Check if location exists by name
+        const existingLocations = await db
+          .select()
+          .from(locations)
+          .where(eq(locations.name, locationName))
+          .limit(1);
+
+        if (existingLocations.length > 0) {
+          // Update existing location
+          await db
+            .update(locations)
+            .set({
+              region: locationData.region,
+              division: locationData.division,
+              address: locationData.address,
+              city: locationData.city,
+              state: locationData.state,
+              zipCode: locationData.zipCode,
+              updatedAt: new Date(),
+            })
+            .where(eq(locations.name, locationName));
+          updated++;
+        } else {
+          // Create new location
+          await db.insert(locations).values(locationData);
+          created++;
+        }
+      }
+
+      res.json({
+        message: 'Location upload successful',
+        recordsProcessed: created + updated,
+        created,
+        updated
+      });
+
+    } catch (error) {
+      console.error('Location upload error:', error);
+      res.status(500).json({ error: 'Failed to process location data upload' });
     }
   });
 
