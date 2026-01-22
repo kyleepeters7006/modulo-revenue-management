@@ -935,23 +935,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const inquiryTemplate = [
         // Row 1: Field descriptions
         {
-          Date: 'DESCRIPTION: Date of inquiry data (YYYY-MM-DD format, use last day of month)',
+          Date: 'DESCRIPTION: Date of inquiry data (YYYY-MM-DD format)',
           Location: 'DESCRIPTION: Facility/campus name (must match Location Data)',
           'Service Line': 'DESCRIPTION: HC, HC/MC, AL, AL/MC, SL, or VIL',
           'Lead Source': 'DESCRIPTION: Marketing source (Website, Referral, A Place for Mom, etc.)',
           'Inquiry Count': 'DESCRIPTION: Number of inquiries received (whole number)',
-          'Tour Count': 'DESCRIPTION: Number of tours conducted (whole number)',
-          'Conversion Count': 'DESCRIPTION: Number of move-ins from inquiries (whole number)'
+          'Tour Count': 'DESCRIPTION: Number of tours conducted (whole number)'
         },
         // Row 2: Example data
         {
-          Date: '2024-01-31',
+          Date: '2024-01-15',
           Location: 'Anderson - 112',
           'Service Line': 'AL',
           'Lead Source': 'Website',
-          'Inquiry Count': 15,
-          'Tour Count': 8,
-          'Conversion Count': 3
+          'Inquiry Count': 5,
+          'Tour Count': 2
         },
         // Row 3: Empty row for spacing
         {},
