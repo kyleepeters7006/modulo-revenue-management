@@ -853,6 +853,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Care Level': 'DESCRIPTION: Care level tier (Level 1, Level 2, Level 3, Level 4)',
           'Care Rate': 'DESCRIPTION: Monthly care fee based on care level',
           'Payor Type': 'DESCRIPTION: Payment source (Private Pay, Medicaid, Medicare, Managed Care, Hospice)',
+          'Location Rating': 'DESCRIPTION: Room location quality rating (A, B, or C)',
+          'Size Rating': 'DESCRIPTION: Room size quality rating (A, B, or C)',
+          'View Rating': 'DESCRIPTION: Room view quality rating (A, B, or C)',
+          'Renovation Rating': 'DESCRIPTION: Room renovation status rating (A, B, or C)',
+          'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)',
           'Resident ID': 'DESCRIPTION: Unique resident identifier (optional)',
           'Resident Name': 'DESCRIPTION: Resident full name (optional)',
           'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, optional)'
@@ -871,6 +876,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Care Level': 'Level 1',
           'Care Rate': 500,
           'Payor Type': 'Private Pay',
+          'Location Rating': 'A',
+          'Size Rating': 'B',
+          'View Rating': 'A',
+          'Renovation Rating': 'B',
+          'Amenity Rating': 'A',
           'Resident ID': 'RES001',
           'Resident Name': 'John Smith',
           'Move In Date': '2023-06-15'
