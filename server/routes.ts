@@ -860,7 +860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)',
           'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, used for ML training)',
           'Move Out Date': 'DESCRIPTION: Date resident moved out (YYYY-MM-DD, leave blank if still a current resident, used for ML training)',
-          'Promotion Allowance': 'DESCRIPTION: Dollar amount of any room rate discount or adjustment applied to the unit (0 if none, used for discount trend analytics)'
+          'Promotion Allowance': 'DESCRIPTION: Dollar amount of any room rate discount applied to the unit — enter as a POSITIVE number (e.g., 150 for a $150 discount). Enter 0 if no discount. Used for RRA discount trend analytics.'
         },
         // Row 2: Example data
         {
