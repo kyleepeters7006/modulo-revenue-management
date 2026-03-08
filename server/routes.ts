@@ -860,7 +860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)',
           'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, used for ML training)',
           'Move Out Date': 'DESCRIPTION: Date resident moved out (YYYY-MM-DD, leave blank if still a current resident, used for ML training)',
-          'Promotion Allowance': 'DESCRIPTION: Dollar amount of any room rate discount applied to the unit — enter as a POSITIVE number (e.g., 150 for a $150 discount). Enter 0 if no discount. Used for RRA discount trend analytics.'
+          'Promotion Allowance': 'DESCRIPTION: Dollar amount of any room rate discount applied to the unit — enter as a NEGATIVE number (e.g., -150 for a $150 discount). Enter 0 if no discount. Used for RRA discount trend analytics.'
         },
         // Row 2: Example data
         {
@@ -883,7 +883,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Amenity Rating': 'A',
           'Move In Date': '2023-06-15',
           'Move Out Date': '',
-          'Promotion Allowance': 0
+          'Promotion Allowance': -150
         },
         // Row 3: Empty row for spacing
         {},
@@ -4306,26 +4306,28 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return '';
       };
 
-      // Parse Room Rate Adjustment values from various formats: "($10)", "2", "$20", numeric
+      // Parse Room Rate Adjustment values from various formats: "($10)", "-$20", "-150", numeric
+      // Discounts are stored as NEGATIVE numbers (e.g., -150 for a $150 discount)
       const parseRoomRateAdjustment = (value: any): number => {
         if (!value || value === '') return 0;
         const str = String(value).trim();
         
-        // Handle parentheses for negative values like "($10)" or "(10)"
+        // Handle parentheses notation for negatives like "($10)" or "(10)" — accounting standard for negative
         const parenMatch = str.match(/\([\$]?(\d+(?:\.\d+)?)\)/);
         if (parenMatch) {
-          return parseFloat(parenMatch[1]) || 0;
+          return -(parseFloat(parenMatch[1]) || 0);
         }
         
-        // Handle dollar amounts like "$20" or "-$20"
-        const dollarMatch = str.match(/[\-]?\$(\d+(?:\.\d+)?)/);
+        // Handle dollar amounts like "-$20" or "$20"
+        const dollarMatch = str.match(/([\-]?)\$(\d+(?:\.\d+)?)/);
         if (dollarMatch) {
-          return parseFloat(dollarMatch[1]) || 0;
+          const sign = dollarMatch[1] === '-' ? -1 : 1;
+          return sign * (parseFloat(dollarMatch[2]) || 0);
         }
         
-        // Handle plain numbers
+        // Handle plain numbers — pass through as-is (negative means discount)
         const numericValue = parseFloat(str.replace(/[^0-9.\-]/g, ''));
-        return isNaN(numericValue) ? 0 : Math.abs(numericValue);
+        return isNaN(numericValue) ? 0 : numericValue;
       };
 
       // Function to parse attributes from room type field
@@ -9848,9 +9850,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           location: rentRollData.location,
           serviceLine: rentRollData.serviceLine,
           totalUnits: sql<number>`COUNT(*)::int`,
-          unitsWithDiscount: sql<number>`SUM(CASE WHEN ${rentRollData.promotionAllowance} > 0 THEN 1 ELSE 0 END)::int`,
-          totalDiscountAmount: sql<number>`SUM(COALESCE(${rentRollData.promotionAllowance}, 0))`,
-          avgDiscount: sql<number>`AVG(CASE WHEN ${rentRollData.promotionAllowance} > 0 THEN ${rentRollData.promotionAllowance} END)`,
+          unitsWithDiscount: sql<number>`SUM(CASE WHEN ${rentRollData.promotionAllowance} < 0 THEN 1 ELSE 0 END)::int`,
+          totalDiscountAmount: sql<number>`ABS(SUM(COALESCE(${rentRollData.promotionAllowance}, 0)))`,
+          avgDiscount: sql<number>`ABS(AVG(CASE WHEN ${rentRollData.promotionAllowance} < 0 THEN ${rentRollData.promotionAllowance} END))`,
           avgStreetRate: sql<number>`AVG(${rentRollData.streetRate})`,
           avgInHouseRate: sql<number>`AVG(${rentRollData.inHouseRate})`,
         })
@@ -10188,7 +10190,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           careRate: 850,
           competitorRate: 4100,
           competitorAvgCareRate: 900,
-          promotionAllowance: 100
+          promotionAllowance: -100
         },
         {
           uploadMonth: currentMonth,
@@ -10207,7 +10209,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           careRate: 1200,
           competitorRate: 3850,
           competitorAvgCareRate: 950,
-          promotionAllowance: 150
+          promotionAllowance: -150
         },
         {
           uploadMonth: currentMonth,
@@ -10226,7 +10228,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           careRate: 800,
           competitorRate: 4750,
           competitorAvgCareRate: 850,
-          promotionAllowance: 50
+          promotionAllowance: -50
         },
         {
           uploadMonth: currentMonth,
@@ -10245,7 +10247,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           careRate: 1300,
           competitorRate: 5750,
           competitorAvgCareRate: 1250,
-          promotionAllowance: 200
+          promotionAllowance: -200
         },
         {
           uploadMonth: currentMonth,
@@ -10264,7 +10266,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           careRate: 1900,
           competitorRate: 3400,
           competitorAvgCareRate: 1850,
-          promotionAllowance: 300
+          promotionAllowance: -300
         }
       ];
 
