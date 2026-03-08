@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable } from "@shared/schema";
 import { sql, and, eq, gte, lt, or, desc, inArray } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -93,6 +93,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import * as fs from 'fs';
 import * as cron from 'node-cron';
+import bcrypt from 'bcryptjs';
 import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageParser";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -304,14 +305,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve attached assets statically
   app.use('/attached_assets', express.static(path.resolve('attached_assets')));
   
-  // Mock auth user endpoint (no authentication required)
-  app.get('/api/auth/user', async (req: any, res) => {
-    res.json({
-      id: 'demo-user',
-      email: 'demo@example.com',
-      firstName: 'Demo',
-      lastName: 'User'
+  // ============================================================================
+  // SESSION MIDDLEWARE
+  // ============================================================================
+  {
+    const sessionLib = await import('express-session');
+    const connectPg = (await import('connect-pg-simple')).default;
+    const pgStore = connectPg(sessionLib.default);
+    const sessionStore = new pgStore({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+      ttl: 7 * 24 * 60 * 60,
+      tableName: 'sessions',
     });
+    app.use(sessionLib.default({
+      secret: process.env.SESSION_SECRET || process.env.SEED_SECRET || 'modulo-dev-secret',
+      store: sessionStore,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: false, // Allow HTTP in dev; set to true in production
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      },
+    }));
+  }
+
+  // ============================================================================
+  // MULTI-TENANT AUTHENTICATION
+  // ============================================================================
+
+  // clientId middleware — runs before all data routes
+  // Unauthenticated requests default to 'demo' client
+  app.use((req: any, res, next) => {
+    req.clientId = (req.session as any)?.clientId || 'demo';
+    next();
+  });
+
+  // GET /api/auth/user — returns session user or demo state
+  app.get('/api/auth/user', async (req: any, res) => {
+    const session = req.session as any;
+    if (session?.userId && session?.clientId) {
+      try {
+        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        const clientRows = await db.select().from(clients).where(eq(clients.id, session.clientId)).limit(1);
+        if (userRows.length > 0 && clientRows.length > 0) {
+          return res.json({
+            isAuthenticated: true,
+            id: userRows[0].id,
+            username: userRows[0].username,
+            clientId: clientRows[0].id,
+            clientName: clientRows[0].name,
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching auth user:', e);
+      }
+    }
+    res.json({ isAuthenticated: false, clientId: 'demo', clientName: 'Demo' });
+  });
+
+  // POST /api/auth/login — username + password login
+  app.post('/api/auth/login', async (req: any, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+    try {
+      const userRows = await db.select().from(users).where(eq(users.username, username)).limit(1);
+      if (userRows.length === 0) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+      const user = userRows[0];
+      if (!user.passwordHash) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+      const clientRows = await db.select().from(clients).where(eq(clients.id, user.clientId!)).limit(1);
+      const client = clientRows[0];
+      (req.session as any).userId = user.id;
+      (req.session as any).clientId = user.clientId;
+      req.session.save(() => {
+        res.json({
+          isAuthenticated: true,
+          id: user.id,
+          username: user.username,
+          clientId: client.id,
+          clientName: client.name,
+        });
+      });
+    } catch (e) {
+      console.error('Login error:', e);
+      res.status(500).json({ error: 'Login failed' });
+    }
+  });
+
+  // POST /api/auth/logout — destroy session
+  app.post('/api/auth/logout', (req: any, res) => {
+    req.session.destroy(() => {
+      res.json({ success: true });
+    });
+  });
+
+  // POST /api/admin/seed-clients — one-time setup of client environments and users
+  app.post('/api/admin/seed-clients', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      // Upsert the 4 client environments
+      const clientDefs = [
+        { id: 'demo', name: 'Demo' },
+        { id: 'trilogy', name: 'Trilogy Health Services' },
+        { id: 'glm', name: 'Great Lakes Management' },
+        { id: 'ssmg', name: 'Senior Solutions Management Group' },
+      ];
+      for (const c of clientDefs) {
+        await db.execute(sql`INSERT INTO clients (id, name) VALUES (${c.id}, ${c.name}) ON CONFLICT (id) DO UPDATE SET name = ${c.name}`);
+      }
+
+      // Create/update user accounts for each client
+      const userDefs = [
+        { username: 'trilogy_admin', password: process.env.TRILOGY_PASSWORD!, clientId: 'trilogy', firstName: 'Trilogy', lastName: 'Admin' },
+        { username: 'glm_admin', password: process.env.GLM_PASSWORD!, clientId: 'glm', firstName: 'GLM', lastName: 'Admin' },
+        { username: 'ssmg_admin', password: process.env.SSMG_PASSWORD!, clientId: 'ssmg', firstName: 'SSMG', lastName: 'Admin' },
+      ];
+      for (const u of userDefs) {
+        if (!u.password) continue;
+        const hash = await bcrypt.hash(u.password, 12);
+        await db.execute(sql`
+          INSERT INTO users (id, username, password_hash, client_id, first_name, last_name)
+          VALUES (gen_random_uuid(), ${u.username}, ${hash}, ${u.clientId}, ${u.firstName}, ${u.lastName})
+          ON CONFLICT (username) DO UPDATE SET password_hash = ${hash}, client_id = ${u.clientId}
+        `);
+      }
+
+      // Tag all existing locations + rent roll data as demo if they have no clientId
+      await db.execute(sql`UPDATE locations SET client_id = 'demo' WHERE client_id IS NULL`);
+      await db.execute(sql`UPDATE rent_roll_data SET client_id = 'demo' WHERE client_id IS NULL`);
+      await db.execute(sql`UPDATE competitors SET client_id = 'demo' WHERE client_id IS NULL`);
+      await db.execute(sql`UPDATE competitive_survey_data SET client_id = 'demo' WHERE client_id IS NULL`);
+
+      res.json({ success: true, message: 'Clients and users seeded. Existing data tagged as demo.' });
+    } catch (e: any) {
+      console.error('Seed error:', e);
+      res.status(500).json({ error: e.message });
+    }
   });
   
   // Test endpoint to verify competitor distances
@@ -1958,9 +2101,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * S&P 500 data requires ALPHA_VANTAGE_API_KEY environment variable.
    * Falls back to modeled data if API unavailable.
    */
-  app.get("/api/series", async (req, res) => {
+  app.get("/api/series", async (req: any, res) => {
     try {
       const timeRange = req.query.timeRange as string || '12M';
+      const clientId = req.clientId || 'demo';
       const months = timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24;
       
       const assumptions = await storage.getCurrentAssumptions();
@@ -2013,7 +2157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get revenue aggregated by month directly from database
       // This is much more memory efficient than loading all 391,030 records
-      const revenueByMonth = await storage.getRevenueByMonths(monthsToFetch);
+      const revenueByMonth = await storage.getRevenueByMonths(monthsToFetch, clientId);
       
       // Convert monthly revenue to annual (multiply by 12) for display
       Object.keys(revenueByMonth).forEach(month => {
@@ -2092,9 +2236,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * 
    * Response: { items: Competitor[], currentLocation: LocationInfo, totalLocations, totalCompetitors }
    */
-  app.get("/api/competitors", async (req, res) => {
+  app.get("/api/competitors", async (req: any, res) => {
     try {
       const { regions, divisions, locations, serviceLines } = req.query;
+      const clientId = req.clientId || 'demo';
       
       // Build filters object
       const filters: {
@@ -2102,6 +2247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         divisions?: string[];
         locations?: string[];
         serviceLines?: string[];
+        clientId?: string;
       } = {};
       
       // Parse filters from query params
@@ -2122,12 +2268,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasFilters = !!(filters.regions?.length || filters.divisions?.length || 
                            filters.locations?.length || filters.serviceLines?.length);
       
+      filters.clientId = clientId;
       let allCompetitors = hasFilters 
         ? await storage.getCompetitorsWithFilters(filters)
-        : await storage.getCompetitors();
+        : await storage.getCompetitors(clientId);
       
       // Get locations for metadata
-      const locationData = await storage.getLocations();
+      const locationData = await storage.getLocations(clientId);
       const locationIdToName = new Map<string, string>();
       locationData.forEach(loc => {
         locationIdToName.set(loc.id, loc.name);
@@ -2248,13 +2395,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // API endpoint for location filter data
-  app.get("/api/locations", async (req, res) => {
+  app.get("/api/locations", async (req: any, res) => {
     try {
-      const allLocations = await storage.getLocations();
+      const clientId = req.clientId || 'demo';
+      const allLocations = await storage.getLocations(clientId);
       
-      // Get distinct locations that have rent roll data
+      // Get distinct locations that have rent roll data for this client
       const locationsWithData = await db.selectDistinct({ location: rentRollData.location })
-        .from(rentRollData);
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
       
       const locationsWithDataSet = new Set(locationsWithData.map(item => item.location));
       
@@ -3124,12 +3273,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Analytics - Campus Metrics for Scatter Plots
-  app.get("/api/analytics/campus-metrics", async (req, res) => {
+  app.get("/api/analytics/campus-metrics", async (req: any, res) => {
     try {
       const { region, division, serviceLine } = req.query;
+      const clientId = req.clientId || 'demo';
       
       // Check cache first
-      const cacheKey = `campus-metrics:${region || 'all'}:${division || 'all'}:${serviceLine || 'all'}`;
+      const cacheKey = `campus-metrics:${clientId}:${region || 'all'}:${division || 'all'}:${serviceLine || 'all'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
         console.log(`Analytics: Serving cached result for ${cacheKey}`);
@@ -3139,9 +3289,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get all required data - use most recent month (2025-11)
       const currentMonth = '2025-11';  // Fixed to November 2025 which has data
       const [rentRollData, campusData, competitors, pricingWeights] = await Promise.all([
-        storage.getRentRollDataByMonth(currentMonth),  // Only get current month data
-        storage.getAllCampuses(),
-        storage.getCompetitors(),
+        storage.getRentRollDataByMonth(currentMonth, clientId),  // Only get current month data
+        storage.getAllCampuses(clientId),
+        storage.getCompetitors(clientId),
         storage.getPricingWeights()
       ]);
       
@@ -3446,12 +3596,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Vacancy scatter plot data endpoint
-  app.get("/api/analytics/vacancy-scatter", async (req, res) => {
+  app.get("/api/analytics/vacancy-scatter", async (req: any, res) => {
     try {
       const { location, serviceLine } = req.query;
+      const clientId = req.clientId || 'demo';
       
       // Check cache first
-      const cacheKey = `vacancy-scatter:${location || 'all'}:${serviceLine || 'all'}`;
+      const cacheKey = `vacancy-scatter:${clientId}:${location || 'all'}:${serviceLine || 'all'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
         console.log(`Vacancy: Serving cached result for ${cacheKey}`);
@@ -3467,7 +3618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Vacancy analysis using upload month:', uploadMonth);
       
       // Get all rent roll data - getRentRollDataFiltered expects month as first param, filters as second
-      const filters: any = {};
+      const filters: any = { clientId };
       if (location) {
         filters.locations = [location as string];
       }
@@ -3562,12 +3713,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Rate breakdown analytics - rates by service line and room type with historical changes
-  app.get("/api/analytics/rate-breakdown", async (req, res) => {
+  app.get("/api/analytics/rate-breakdown", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       // Get all available months from the database
       const monthsResult = await db
         .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
         .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`);
       
       const availableMonths = monthsResult.map(m => m.month).filter(Boolean).sort().reverse();
@@ -3617,7 +3770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const allData: any[] = [];
       for (const month of monthsToFetch) {
-        const monthData = await storage.getRentRollDataByMonth(month);
+        const monthData = await storage.getRentRollDataByMonth(month, clientId);
         allData.push(...monthData.map((u: any) => ({ ...u, fetchedMonth: month })));
       }
       
@@ -4215,7 +4368,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Data upload endpoint
-  app.post("/api/upload/rent-roll", upload.single('file'), async (req, res) => {
+  app.post("/api/upload/rent-roll", upload.single('file'), async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -4522,7 +4675,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           assessmentDate: getRowValue(row, 'Assessment Date', 'assessment date', 'AssessmentDate', 'assessmentDate') || null,
           marketingSource: getRowValue(row, 'Marketing Source', 'marketing source', 'MarketingSource', 'marketingSource') || null,
           inquiryCount: parseInt(getRowValue(row, 'Inquiry Count', 'inquiry count', 'InquiryCount', 'inquiryCount')) || 0,
-          tourCount: parseInt(getRowValue(row, 'Tour Count', 'tour count', 'TourCount', 'tourCount')) || 0
+          tourCount: parseInt(getRowValue(row, 'Tour Count', 'tour count', 'TourCount', 'tourCount')) || 0,
+          clientId: req.clientId || 'demo'
         };
 
         processedRecords.push(rentRollEntry);
@@ -4685,7 +4839,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Competitor Data upload endpoint
-  app.post("/api/upload/competitor", upload.single('file'), async (req, res) => {
+  app.post("/api/upload/competitor", upload.single('file'), async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
@@ -4733,6 +4887,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           rank: parseInt(row.Rank || row.rank) || null,
           weight: parseFloat(row.Weight || row.weight) || null,
           rating: row.Rating || row.rating || null,
+          clientId: req.clientId || 'demo',
         };
 
         processedRecords.push(competitorEntry);
@@ -4888,28 +5043,33 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
    * - avgHcRate: Average daily rate for skilled nursing beds
    * - avgSeniorHousingRate: Average monthly rate for AL/IL/SL units
    */
-  app.get("/api/overview", async (req, res) => {
+  app.get("/api/overview", async (req: any, res) => {
     try {
       const serviceLineFilter = req.query.serviceLine as string;
+      const clientId = req.clientId || 'demo';
       
-      // Check cache first (use service line filter as part of key)
-      const cacheKey = `overview_${serviceLineFilter || 'all'}`;
+      // Check cache first (use service line filter and client as part of key)
+      const cacheKey = `overview_${clientId}_${serviceLineFilter || 'all'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
         return res.json(cached);
       }
       
-      // Get the most recent month's data only
+      // Get the most recent month's data only for this client
       const mostRecentMonthResult = await db
         .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
-        .from(rentRollData);
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
       const mostRecentMonth = mostRecentMonthResult[0]?.month || '2025-11';
       
-      // Filter to most recent month only
+      // Filter to most recent month only for this client
       const allRentRollData = await db
         .select()
         .from(rentRollData)
-        .where(sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`);
+        .where(and(
+          sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`,
+          eq(rentRollData.clientId, clientId)
+        ));
       
       // Filter by service line if specified
       const rentRollDataFiltered = serviceLineFilter && serviceLineFilter !== 'All' 
@@ -6425,9 +6585,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Rate card endpoint - shows summary and unit-level view
-  app.get("/api/rate-card", async (req, res) => {
+  app.get("/api/rate-card", async (req: any, res) => {
     try {
       const { month, regions, divisions, locations, location, page = '1', limit = '1000' } = req.query;
+      const clientId = req.clientId || 'demo';
       let targetMonth = month as string || new Date().toISOString().substring(0, 7);
       const pageNum = parseInt(page as string, 10);
       const pageLimit = Math.min(parseInt(limit as string, 10), 5000); // Max 5000 items per page
@@ -6437,9 +6598,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       // Get latest month with data if not specified
       if (!month) {
-        // Efficient query to get the latest month
+        // Efficient query to get the latest month for this client
         const latestMonthData = await db.select({ uploadMonth: rentRollData.uploadMonth })
           .from(rentRollData)
+          .where(eq(rentRollData.clientId, clientId))
           .orderBy(desc(rentRollData.uploadMonth))
           .limit(1);
         
@@ -8995,9 +9157,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
   
   // Competitor Rate Comparison - Get competitor data by service line and room type with Trilogy comparison
-  app.get("/api/competitor-rate-comparison", async (req, res) => {
+  app.get("/api/competitor-rate-comparison", async (req: any, res) => {
     try {
       const { location, serviceLines } = req.query;
+      const clientId = req.clientId || 'demo';
       
       if (!location) {
         return res.json({ data: [], trilogyRates: {} });
@@ -9032,6 +9195,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         .from(competitiveSurveyData)
         .where(and(
           eq(competitiveSurveyData.keyStatsLocation, locationName),
+          eq(competitiveSurveyData.clientId, clientId),
           competitorTypes.length > 0 ? inArray(competitiveSurveyData.competitorType, competitorTypes) : sql`1=1`
         ))
         .orderBy(competitiveSurveyData.competitorType, competitiveSurveyData.roomType, competitiveSurveyData.competitorName);
@@ -9818,9 +9982,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Room Rate Adjustment (RRA) Analytics - T3 Discounts
-  app.get("/api/analytics/rra", async (req, res) => {
+  app.get("/api/analytics/rra", async (req: any, res) => {
     try {
       const { location, serviceLine } = req.query;
+      const clientId = req.clientId || 'demo';
       
       // Get last 3 months of data
       const now = new Date();
@@ -9831,9 +9996,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       }
       
       // Build where conditions
-      const conditions = [
+      const conditions: any[] = [
         inArray(rentRollData.uploadMonth, months),
-        eq(rentRollData.occupiedYN, true)
+        eq(rentRollData.occupiedYN, true),
+        eq(rentRollData.clientId, clientId)
       ];
       
       if (location && location !== 'all') {
@@ -11684,7 +11850,7 @@ Respond in JSON format:
     }
   });
   
-  app.post("/api/import/competitive-survey", upload.single("file"), async (req, res) => {
+  app.post("/api/import/competitive-survey", upload.single("file"), async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
@@ -11695,11 +11861,13 @@ Respond in JSON format:
         return res.status(400).json({ error: "Survey month is required" });
       }
       
+      const clientId = req.clientId || 'demo';
       const { importCompetitiveSurveyExcel } = await import('./dataImport');
       
       const importStats = await importCompetitiveSurveyExcel(
         req.file.buffer,
-        surveyMonth
+        surveyMonth,
+        clientId
       );
       
       // Auto-trigger competitor rate matching after successful import

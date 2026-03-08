@@ -98,8 +98,8 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   
   // Location operations
-  getLocations(): Promise<Location[]>;
-  getAllCampuses(): Promise<Location[]>;
+  getLocations(clientId?: string): Promise<Location[]>;
+  getAllCampuses(clientId?: string): Promise<Location[]>;
   getLocationById(id: string): Promise<Location | undefined>;
   getLocationByName(name: string): Promise<Location | undefined>;
   createLocation(data: InsertLocation): Promise<Location>;
@@ -109,16 +109,17 @@ export interface IStorage {
   // Rent roll data operations
   getRentRollData(): Promise<RentRollData[]>;
   getTotalUnits(): Promise<number>;
-  getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]>;
+  getRentRollDataByMonth(uploadMonth: string, clientId?: string): Promise<RentRollData[]>;
   getRentRollDataFiltered(month: string, filters: {
     regions?: string[];
     divisions?: string[];
     locations?: string[];
     offset?: number;
     limit?: number;
+    clientId?: string;
   }): Promise<RentRollData[]>;
   getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
-  getRevenueByMonths(months: string[]): Promise<Record<string, number>>;
+  getRevenueByMonths(months: string[], clientId?: string): Promise<Record<string, number>>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[]): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
@@ -166,7 +167,7 @@ export interface IStorage {
   bulkCreateOrUpdateWeights(weightsList: Array<InsertPricingWeights & { locationId?: string | null; serviceLine?: string | null }>): Promise<PricingWeights[]>;
   
   // Competitors
-  getCompetitors(): Promise<Competitor[]>;
+  getCompetitors(clientId?: string): Promise<Competitor[]>;
   getCompetitorsByLocation(location: string): Promise<Competitor[]>;
   getCompetitorsByLocationAndServiceLine(location: string, serviceLine: string): Promise<Competitor[]>;
   getCompetitorsWithFilters(filters: {
@@ -174,6 +175,7 @@ export interface IStorage {
     divisions?: string[];
     locations?: string[];
     serviceLines?: string[];
+    clientId?: string;
   }): Promise<Competitor[]>;
   createCompetitor(data: InsertCompetitor): Promise<Competitor>;
   updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor>;
@@ -362,11 +364,17 @@ export class DatabaseStorage implements IStorage {
     return location;
   }
 
-  async getLocations(): Promise<Location[]> {
+  async getLocations(clientId?: string): Promise<Location[]> {
+    if (clientId) {
+      return await db.select().from(locations).where(eq(locations.clientId, clientId));
+    }
     return await db.select().from(locations);
   }
 
-  async getAllCampuses(): Promise<Location[]> {
+  async getAllCampuses(clientId?: string): Promise<Location[]> {
+    if (clientId) {
+      return await db.select().from(locations).where(eq(locations.clientId, clientId));
+    }
     return await db.select().from(locations);
   }
 
@@ -411,8 +419,10 @@ export class DatabaseStorage implements IStorage {
     return result[0]?.count ?? 0;
   }
 
-  async getRentRollDataByMonth(uploadMonth: string): Promise<RentRollData[]> {
-    return await db.select().from(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth));
+  async getRentRollDataByMonth(uploadMonth: string, clientId?: string): Promise<RentRollData[]> {
+    const conditions: any[] = [eq(rentRollData.uploadMonth, uploadMonth)];
+    if (clientId) conditions.push(eq(rentRollData.clientId, clientId));
+    return await db.select().from(rentRollData).where(and(...conditions));
   }
 
   async getRentRollDataFiltered(month: string, filters: {
@@ -421,10 +431,12 @@ export class DatabaseStorage implements IStorage {
     locations?: string[];
     offset?: number;
     limit?: number;
+    clientId?: string;
   }): Promise<RentRollData[]> {
     // Build optimized query with filters
     let query = db.select().from(rentRollData);
     const conditions: any[] = [eq(rentRollData.uploadMonth, month)];
+    if (filters.clientId) conditions.push(eq(rentRollData.clientId, filters.clientId));
     
     // If regions/divisions are specified, we need to join with locations table
     if ((filters.regions && filters.regions.length > 0) || 
@@ -494,11 +506,14 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async getRevenueByMonths(months: string[]): Promise<Record<string, number>> {
+  async getRevenueByMonths(months: string[], clientId?: string): Promise<Record<string, number>> {
     // Query to get sum of revenue grouped by upload_month
     // For occupied units: use inHouseRate if available, otherwise streetRate
     // For vacant units: contribute 0 to current revenue (they're not generating revenue)
     // This properly reflects actual revenue, not potential revenue
+    const clientFilter = clientId ? eq(rentRollData.clientId, clientId) : undefined;
+    const monthFilter = inArray(rentRollData.uploadMonth, months);
+    const whereClause = clientFilter ? and(monthFilter, clientFilter) : monthFilter;
     const result = await db
       .select({
         uploadMonth: rentRollData.uploadMonth,
@@ -514,7 +529,7 @@ export class DatabaseStorage implements IStorage {
         )`.as('totalRevenue')
       })
       .from(rentRollData)
-      .where(inArray(rentRollData.uploadMonth, months))
+      .where(whereClause)
       .groupBy(rentRollData.uploadMonth);
     
     // Convert to Record<string, number>
@@ -1048,9 +1063,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Competitors
-  async getCompetitors(): Promise<Competitor[]> {
+  async getCompetitors(clientId?: string): Promise<Competitor[]> {
     // Query competitive survey data instead of old competitors table
-    const surveyData = await db.select().from(competitiveSurveyData);
+    const surveyData = clientId
+      ? await db.select().from(competitiveSurveyData).where(eq(competitiveSurveyData.clientId, clientId))
+      : await db.select().from(competitiveSurveyData);
     
     // Get location coordinates for better geocoding context
     const locationCoords = new Map<string, { lat: number; lng: number }>();
@@ -1198,10 +1215,12 @@ export class DatabaseStorage implements IStorage {
     divisions?: string[];
     locations?: string[];
     serviceLines?: string[];
+    clientId?: string;
   }): Promise<Competitor[]> {
     // Build query for competitive survey data
     let query = db.select().from(competitiveSurveyData);
     const conditions: any[] = [];
+    if (filters.clientId) conditions.push(eq(competitiveSurveyData.clientId, filters.clientId));
     
     // If locations are specified, filter by keystats location names
     if (filters.locations && filters.locations.length > 0) {

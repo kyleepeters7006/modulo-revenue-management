@@ -548,7 +548,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
   });
 }
 
-export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMonth: string): Promise<ImportStats> {
+export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMonth: string, clientId: string = 'demo'): Promise<ImportStats> {
   const stats: ImportStats = {
     totalRecords: 0,
     successfulImports: 0,
@@ -569,7 +569,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, IL_Villa: 0, IL_IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
     
     await db.transaction(async (tx) => {
-      await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+      await tx.delete(competitiveSurveyData).where(and(eq(competitiveSurveyData.surveyMonth, surveyMonth), eq(competitiveSurveyData.clientId, clientId)));
 
       for (const row of data) {
         try {
@@ -789,6 +789,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 yearBuilt: row['Age'] ? parseInt(row['Age']) : null,
                 lastRenovation: null,
                 amenities: null,
+                clientId,
                 notes: JSON.stringify({
                   weight: roomType.weight || 0,
                   latitude,

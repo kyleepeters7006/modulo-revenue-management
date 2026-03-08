@@ -25,7 +25,17 @@ Preferred communication style: Simple, everyday language.
 ## Database
 - **Primary**: PostgreSQL (Neon serverless driver)
 - **Schema Management**: Drizzle Kit
-- **Key Tables**: `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `guardrails`, `ml_models`, `inquiry_metrics`, `ai_rate_outcomes`, `ai_weight_versions`, `revenue_growth_targets`.
+- **Key Tables**: `clients`, `users`, `rent_roll_data`, `locations`, `campus_maps`, `floor_plans`, `unit_polygons`, `assumptions`, `pricing_weights`, `competitors`, `competitive_survey_data`, `guardrails`, `ml_models`, `inquiry_metrics`, `ai_rate_outcomes`, `ai_weight_versions`, `revenue_growth_targets`.
+
+## Multi-Tenant Architecture
+- **4 Client Environments**: `demo` (public default), `trilogy` (Trilogy Health Services), `glm` (Great Lakes Management), `ssmg` (Senior Solutions Management Group)
+- **`clients` table**: id, name — 4 rows seeded
+- **`client_id` column**: Present on `users`, `locations`, `rent_roll_data`, `competitors`, `competitive_survey_data` — all data queries filter by clientId
+- **Session Auth**: `POST /api/auth/login` (username+password) sets session. `GET /api/auth/user` returns `{isAuthenticated, clientId, clientName}`. Unauthenticated defaults to `clientId='demo'`
+- **Login accounts**: `trilogy_admin`, `glm_admin`, `ssmg_admin` — passwords stored as bcrypt hashes
+- **Demo-first UX**: App loads with demo data immediately. A teal banner at top says "Demo Mode" with a Login button. After login, switches to client data.
+- **Seed endpoint**: `POST /api/admin/seed-clients` with `x-seed-secret` header (env: `SEED_SECRET`) — creates clients + hashed user accounts + tags existing data as demo
+- **Required env vars**: `TRILOGY_PASSWORD`, `GLM_PASSWORD`, `SSMG_PASSWORD`, `SEED_SECRET`, `SESSION_SECRET`
 
 ## Core Features
 - **Dynamic Pricing Engine**: Multi-factor algorithm considering occupancy, vacancy, room attributes, seasonality, competitors, and market conditions, with a premium positioning strategy.

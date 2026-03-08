@@ -576,6 +576,7 @@ export const competitiveSurveyData = pgTable("competitive_survey_data", {
   lastRenovation: integer("last_renovation"),
   amenities: text("amenities"), // JSON array of amenities
   notes: text("notes"),
+  clientId: varchar("client_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
