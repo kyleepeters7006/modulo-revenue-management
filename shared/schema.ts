@@ -26,6 +26,13 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+// Multi-tenant client environments
+export const clients = pgTable("clients", {
+  id: varchar("id").primaryKey(), // slug: 'demo', 'trilogy', 'glm', 'ssmg'
+  name: text("name").notNull(), // Display name
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // User storage table.
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
 export const users = pgTable("users", {
@@ -34,6 +41,10 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  // Multi-tenant auth fields
+  username: varchar("username").unique(),
+  passwordHash: varchar("password_hash"),
+  clientId: varchar("client_id").references(() => clients.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -88,6 +99,7 @@ export const locations = pgTable("locations", {
   lat: real("lat"),
   lng: real("lng"),
   totalUnits: integer("total_units").default(0),
+  clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this location
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -153,6 +165,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   inquiryCount: integer("inquiry_count").default(0), // Number of inquiries for this unit in trailing 30 days
   tourCount: integer("tour_count").default(0), // Number of tours for this unit in trailing 30 days
   sameStore: boolean("same_store").default(true), // Same Store comparison flag - true if location existed in prior year
+  clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this record
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -216,6 +229,7 @@ export const competitors = pgTable("competitors", {
   serviceLines: text("service_lines").array(), // Service lines offered: HC, HC/MC, AL, AL/MC, IL, SL
   careLevel2Rate: real("care_level_2_rate"), // Care level 2 rate for comparison with Trilogy
   medicationManagementFee: real("medication_management_fee"), // Med management fee (Trilogy doesn't charge)
+  clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this competitor
   createdAt: timestamp("created_at").defaultNow(),
 });
 
