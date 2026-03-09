@@ -812,6 +812,7 @@ export const inquiryMetrics = pgTable("inquiry_metrics", {
   conversionRate: real("conversion_rate").default(0),
   daysToTour: integer("days_to_tour").default(0),
   daysToMoveIn: integer("days_to_move_in").default(0),
+  clientId: varchar("client_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

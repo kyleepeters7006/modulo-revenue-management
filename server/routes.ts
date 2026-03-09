@@ -449,6 +449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.execute(sql`UPDATE rent_roll_data SET client_id = 'demo' WHERE client_id IS NULL`);
       await db.execute(sql`UPDATE competitors SET client_id = 'demo' WHERE client_id IS NULL`);
       await db.execute(sql`UPDATE competitive_survey_data SET client_id = 'demo' WHERE client_id IS NULL`);
+      await db.execute(sql`UPDATE inquiry_metrics SET client_id = 'demo' WHERE client_id IS NULL`);
 
       res.json({ success: true, message: 'Clients and users seeded. Existing data tagged as demo.' });
     } catch (e: any) {
@@ -457,6 +458,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // POST /api/admin/generate-demo-data — generates 50 synthetic demo locations with full data
+  app.post('/api/admin/generate-demo-data', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      console.log('[generate-demo-data] Clearing existing demo data...');
+      // Clear existing demo data first (idempotent)
+      await db.execute(sql`DELETE FROM inquiry_metrics WHERE client_id = 'demo'`);
+      await db.execute(sql`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`);
+      await db.execute(sql`DELETE FROM rent_roll_data WHERE client_id = 'demo'`);
+      await db.execute(sql`DELETE FROM locations WHERE client_id = 'demo'`);
+      console.log('[generate-demo-data] Demo data cleared. Generating new data...');
+
+      const { generateDemoData } = await import('./seedDemoData');
+      const result = await generateDemoData();
+
+      res.json({
+        success: true,
+        stats: result,
+        message: `Demo data generated: ${result.locations} locations, ${result.rentRoll} rent roll, ${result.competitive} competitive, ${result.inquiry} inquiry records`,
+      });
+    } catch (e: any) {
+      console.error('[generate-demo-data] Error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Test endpoint to verify competitor distances
   app.get('/api/test/competitor-distances', async (req, res) => {
     try {
