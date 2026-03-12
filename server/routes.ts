@@ -2117,17 +2117,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * GET /api/series
    * 
    * Generates time series data for the main performance chart showing:
-   * - Trilogy portfolio revenue over time (from actual rent roll data)
-   * - S&P 500 index values (from Alpha Vantage API if configured)
-   * - Senior living industry benchmark growth (4% annual estimate)
+   * - Portfolio revenue over time (from actual rent roll data)
+   * - S&P 500 index values (SPY ETF from Alpha Vantage API)
+   * - Senior living industry basket: equal-weighted WELL, VTR, BKD, AMH, AGNG
    * 
    * @query timeRange - '1M', '3M', '12M', or '24M' (default: 12M)
    * 
    * Revenue is calculated from stored monthlyRevenue values in rent roll data,
    * converted to annual figures for display (monthly × 12).
+   * HC/HC-MC daily rates are multiplied by calendar days per month.
    * 
-   * S&P 500 data requires ALPHA_VANTAGE_API_KEY environment variable.
+   * S&P 500 and industry basket require ALPHA_VANTAGE_API_KEY environment variable.
    * Falls back to modeled data if API unavailable.
+   * Market data lines return null for the current (incomplete) month.
    */
   app.get("/api/series", async (req: any, res) => {
     try {
@@ -2198,13 +2200,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasRealIndustryData = INDUSTRY_BASKET.some(s => Object.keys(basketSeriesMap[s]).length > months);
       
       const currentDate = new Date();
-      const startDate = new Date();
-      startDate.setMonth(currentDate.getMonth() - months + 1);
+      const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+      const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - months + 1, 1);
       
       const monthsToFetch = [];
       for (let i = 0; i < months; i++) {
-        const date = new Date(startDate);
-        date.setMonth(date.getMonth() + i);
+        const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         monthsToFetch.push(monthKey);
       }
@@ -2220,18 +2221,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sp500: (number | null)[] = [];
       const industry: (number | null)[] = [];
       
+      const industryBaseValues: Record<string, number | null> = {};
+      for (const symbol of INDUSTRY_BASKET) {
+        const series = basketSeriesMap[symbol];
+        const sorted = Object.keys(series).sort();
+        if (sorted.length === 0) { industryBaseValues[symbol] = null; continue; }
+        const firstMonthDate = new Date(startDate.getFullYear(), startDate.getMonth(), 28);
+        const baseMatch = findClosestPastDate(sorted, firstMonthDate);
+        industryBaseValues[symbol] = baseMatch ? series[baseMatch] : null;
+      }
+
       for (let i = 0; i < months; i++) {
-        const date = new Date(startDate);
-        date.setMonth(date.getMonth() + i);
+        const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         labels.push(date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
         
         const realRevenue = revenueByMonth[monthKey];
         revenue.push(realRevenue ? Math.round(realRevenue) : null);
         
+        const isCurrentMonth = monthKey === currentYearMonth;
+        const monthEndTarget = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+
         if (useRealSP500Data) {
-          const matchDate = findClosestPastDate(spySortedDates, date);
-          sp500.push(matchDate ? Math.round(spyData[matchDate]) : null);
+          if (isCurrentMonth) {
+            sp500.push(null);
+          } else {
+            const matchDate = findClosestPastDate(spySortedDates, monthEndTarget);
+            sp500.push(matchDate ? Math.round(spyData[matchDate]) : null);
+          }
         } else {
           const baseSP500 = 5800;
           const avgMonthlyReturn = 0.008;
@@ -2239,19 +2256,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         if (hasRealIndustryData) {
-          const values: number[] = [];
-          for (const symbol of INDUSTRY_BASKET) {
-            const series = basketSeriesMap[symbol];
-            const sorted = Object.keys(series).sort();
-            if (sorted.length === 0) continue;
-            const matchDate = findClosestPastDate(sorted, date);
-            if (matchDate) values.push(series[matchDate]);
-          }
-          if (values.length > 0) {
-            const avg = values.reduce((a, b) => a + b, 0) / values.length;
-            industry.push(Math.round(avg * 100) / 100);
-          } else {
+          if (isCurrentMonth) {
             industry.push(null);
+          } else {
+            const normalizedValues: number[] = [];
+            for (const symbol of INDUSTRY_BASKET) {
+              const series = basketSeriesMap[symbol];
+              const sorted = Object.keys(series).sort();
+              if (sorted.length === 0) continue;
+              const baseVal = industryBaseValues[symbol];
+              if (!baseVal) continue;
+              const matchDate = findClosestPastDate(sorted, monthEndTarget);
+              if (matchDate) {
+                normalizedValues.push((series[matchDate] / baseVal) * 100);
+              }
+            }
+            if (normalizedValues.length > 0) {
+              const avg = normalizedValues.reduce((a, b) => a + b, 0) / normalizedValues.length;
+              industry.push(Math.round(avg * 100) / 100);
+            } else {
+              industry.push(null);
+            }
           }
         } else {
           const baseIndustryValue = revenue[0] || 600000000;
