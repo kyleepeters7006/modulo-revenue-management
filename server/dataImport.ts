@@ -92,7 +92,7 @@ export async function importRentRollCSV(
                   residentId: row['Resident ID'] || row['resident_id'] || null,
                   residentName: row['Resident Name'] || row['resident_name'] || null,
                   moveInDate: row['Move In Date'] || row['move_in_date'] || null,
-                  moveOutDate: row['Move Out Date'] || row['move_out_date'] || (() => {
+                  moveOutDate: (() => {
                     const dv = parseInt(row['Days Vacant'] || row['days_vacant']) || 0;
                     const occupied = parseBoolean(row['Occupied Y/N'] || row['occupied_yn']);
                     if (!occupied && dv > 0) {

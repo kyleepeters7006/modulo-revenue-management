@@ -4747,8 +4747,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
           moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
           moveOutDate: (() => {
-            const explicit = getRowValue(row, 'Move Out Date', 'move out date', 'MoveOutDate', 'moveOutDate');
-            if (explicit) return explicit;
             const dv = parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0;
             if (!isOccupied && dv > 0) {
               const refDate = new Date(getRowValue(row, 'Date', 'date') || uploadDate);
