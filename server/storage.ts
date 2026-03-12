@@ -507,10 +507,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRevenueByMonths(months: string[], clientId?: string, sameStoreOnly: boolean = true): Promise<Record<string, number>> {
-    // Query to get sum of revenue grouped by upload_month
-    // For occupied units: use inHouseRate if available, otherwise streetRate
-    // For vacant units: contribute 0 to current revenue (they're not generating revenue)
-    // This properly reflects actual revenue, not potential revenue
     const clientFilter = clientId ? eq(rentRollData.clientId, clientId) : undefined;
     const monthFilter = inArray(rentRollData.uploadMonth, months);
     const sameStoreFilter = sameStoreOnly ? eq(rentRollData.sameStore, true) : undefined;
@@ -522,8 +518,16 @@ export class DatabaseStorage implements IStorage {
           CASE 
             WHEN ${rentRollData.occupiedYN} = true THEN 
               CASE 
-                WHEN ${rentRollData.inHouseRate} > 0 THEN ${rentRollData.inHouseRate}
-                ELSE COALESCE(${rentRollData.streetRate}, 0)
+                WHEN ${rentRollData.inHouseRate} > 0 THEN
+                  CASE WHEN ${rentRollData.serviceLine} IN ('HC','HC/MC') 
+                    THEN ${rentRollData.inHouseRate} * EXTRACT(days FROM (DATE_TRUNC('month', TO_DATE(${rentRollData.uploadMonth} || '-01', 'YYYY-MM-DD')) + INTERVAL '1 month' - INTERVAL '1 day'))
+                    ELSE ${rentRollData.inHouseRate}
+                  END
+                ELSE
+                  CASE WHEN ${rentRollData.serviceLine} IN ('HC','HC/MC')
+                    THEN COALESCE(${rentRollData.streetRate}, 0) * EXTRACT(days FROM (DATE_TRUNC('month', TO_DATE(${rentRollData.uploadMonth} || '-01', 'YYYY-MM-DD')) + INTERVAL '1 month' - INTERVAL '1 day'))
+                    ELSE COALESCE(${rentRollData.streetRate}, 0)
+                  END
               END
             ELSE 0
           END

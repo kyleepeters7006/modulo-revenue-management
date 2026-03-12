@@ -2135,46 +2135,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clientId = req.clientId || 'demo';
       const months = timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24;
       
-      const assumptions = await storage.getCurrentAssumptions();
-      
-      // Fetch REAL S&P 500 data from Alpha Vantage
       const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
-      let realSP500Data: Record<string, number> = {};
-      
-      if (apiKey) {
+
+      async function fetchMonthlySeriesFromAlphaVantage(symbol: string): Promise<Record<string, number>> {
+        if (!apiKey) return {};
+        const cached = await storage.getCachedStockData(symbol, 'monthly_series');
+        if (cached && cached.metadata) {
+          return (cached.metadata as any).series || {};
+        }
         try {
-          const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=SPY&apikey=${apiKey}`;
+          const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=${symbol}&apikey=${apiKey}`;
           const response = await fetch(url);
           const data = await response.json();
-          
           if (data["Monthly Time Series"]) {
-            const timeSeries = data["Monthly Time Series"];
-            // Convert to map of date -> closing price
-            Object.keys(timeSeries).forEach(date => {
-              realSP500Data[date] = parseFloat(timeSeries[date]["4. close"]);
+            const series: Record<string, number> = {};
+            Object.keys(data["Monthly Time Series"]).forEach(date => {
+              series[date] = parseFloat(data["Monthly Time Series"][date]["4. close"]);
             });
+            const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            await storage.setCachedStockData({
+              symbol,
+              dataType: 'monthly_series',
+              value: 0,
+              metadata: { series },
+              expiresAt
+            });
+            console.log(`Fetched ${symbol} monthly series (${Object.keys(series).length} data points) — cached 24h`);
+            return series;
           }
+          if (data["Note"]) console.warn(`Alpha Vantage rate limit for ${symbol}:`, data["Note"]);
+          if (data["Error Message"]) console.error(`Alpha Vantage error for ${symbol}:`, data["Error Message"]);
         } catch (error) {
-          console.error("Failed to fetch S&P 500 data for chart:", error);
+          console.error(`Failed to fetch ${symbol} monthly series:`, error);
         }
+        return {};
       }
+
+      function findClosestPastDate(sortedDates: string[], targetDate: Date, maxDaysBack: number = 45): string | null {
+        const targetTime = targetDate.getTime();
+        const maxMs = maxDaysBack * 24 * 60 * 60 * 1000;
+        let best: string | null = null;
+        let bestDiff = Infinity;
+        for (const d of sortedDates) {
+          const diff = targetTime - new Date(d).getTime();
+          if (diff >= 0 && diff <= maxMs && diff < bestDiff) {
+            best = d;
+            bestDiff = diff;
+          }
+        }
+        return best;
+      }
+
+      const spyData = await fetchMonthlySeriesFromAlphaVantage('SPY');
+      const spySortedDates = Object.keys(spyData).sort();
+      const useRealSP500Data = spySortedDates.length > months;
+
+      const INDUSTRY_BASKET = ['WELL', 'VTR', 'BKD', 'AMH', 'AGNG'];
+      const basketSeriesMap: Record<string, Record<string, number>> = {};
+      for (const symbol of INDUSTRY_BASKET) {
+        basketSeriesMap[symbol] = await fetchMonthlySeriesFromAlphaVantage(symbol);
+      }
+      const hasRealIndustryData = INDUSTRY_BASKET.some(s => Object.keys(basketSeriesMap[s]).length > months);
       
-      const labels = [];
-      const revenue = [];
-      const sp500 = [];
-      const industry = [];
-      
-      // Get real historical dates and S&P 500 values
-      const sortedDates = Object.keys(realSP500Data).sort();
-      const useRealSP500Data = sortedDates.length > months;
-      
-      // Calculate REAL revenue from rent roll data across ALL months
-      // We need to get data for each month separately to show actual growth
       const currentDate = new Date();
       const startDate = new Date();
       startDate.setMonth(currentDate.getMonth() - months + 1);
       
-      // Generate list of months to fetch
       const monthsToFetch = [];
       for (let i = 0; i < months; i++) {
         const date = new Date(startDate);
@@ -2183,48 +2209,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         monthsToFetch.push(monthKey);
       }
       
-      // Get revenue aggregated by month directly from database
-      // This is much more memory efficient than loading all 391,030 records
       const revenueByMonth = await storage.getRevenueByMonths(monthsToFetch, clientId);
       
-      // Convert monthly revenue to annual (multiply by 12) for display
       Object.keys(revenueByMonth).forEach(month => {
         revenueByMonth[month] = revenueByMonth[month] * 12;
       });
+
+      const labels: string[] = [];
+      const revenue: (number | null)[] = [];
+      const sp500: (number | null)[] = [];
+      const industry: (number | null)[] = [];
       
-      // Generate data points for the chart
       for (let i = 0; i < months; i++) {
         const date = new Date(startDate);
         date.setMonth(date.getMonth() + i);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         labels.push(date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
         
-        // Use REAL revenue if available for this month, otherwise null
         const realRevenue = revenueByMonth[monthKey];
         revenue.push(realRevenue ? Math.round(realRevenue) : null);
         
-        // S&P 500: Use REAL data if available
         if (useRealSP500Data) {
-          const closestDate = sortedDates.reduce((prev, curr) => {
-            const prevDiff = Math.abs(new Date(prev).getTime() - date.getTime());
-            const currDiff = Math.abs(new Date(curr).getTime() - date.getTime());
-            return currDiff < prevDiff ? curr : prev;
-          });
-          sp500.push(Math.round(realSP500Data[closestDate]));
+          const matchDate = findClosestPastDate(spySortedDates, date);
+          sp500.push(matchDate ? Math.round(spyData[matchDate]) : null);
         } else {
-          // Fallback to realistic pattern if API unavailable
           const baseSP500 = 5800;
           const avgMonthlyReturn = 0.008;
           sp500.push(Math.round(baseSP500 * Math.pow(1 + avgMonthlyReturn, i)));
         }
         
-        // Industry: Use senior living industry benchmarks
-        // Senior living has shown ~3-5% annual growth historically
-        // Convert to monthly growth: 4% annual = 0.327% monthly
-        const baseIndustryValue = revenue[0] || 600000000; // Use first revenue value as base
-        const monthlyIndustryGrowth = 0.00327; // 4% annual / 12 months
-        const industryValue = baseIndustryValue * Math.pow(1 + monthlyIndustryGrowth, i);
-        industry.push(Math.round(industryValue));
+        if (hasRealIndustryData) {
+          const values: number[] = [];
+          for (const symbol of INDUSTRY_BASKET) {
+            const series = basketSeriesMap[symbol];
+            const sorted = Object.keys(series).sort();
+            if (sorted.length === 0) continue;
+            const matchDate = findClosestPastDate(sorted, date);
+            if (matchDate) values.push(series[matchDate]);
+          }
+          if (values.length > 0) {
+            const avg = values.reduce((a, b) => a + b, 0) / values.length;
+            industry.push(Math.round(avg * 100) / 100);
+          } else {
+            industry.push(null);
+          }
+        } else {
+          const baseIndustryValue = revenue[0] || 600000000;
+          const monthlyIndustryGrowth = 0.00565;
+          const industryValue = baseIndustryValue * Math.pow(1 + monthlyIndustryGrowth, i);
+          industry.push(Math.round(industryValue));
+        }
       }
 
       res.json({ 
