@@ -2259,18 +2259,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (hasRealIndustryData) {
           const normalizedValues: number[] = [];
+          let missingCount = 0;
           for (const symbol of INDUSTRY_BASKET) {
             const series = basketSeriesMap[symbol];
             const sorted = Object.keys(series).sort();
-            if (sorted.length === 0) continue;
             const baseVal = industryBaseValues[symbol];
-            if (!baseVal) continue;
+            if (sorted.length === 0 || !baseVal) { missingCount++; continue; }
             const matchDate = findClosestPastDate(sorted, monthEndTarget);
             if (matchDate && isInSameMonth(matchDate, date)) {
               normalizedValues.push((series[matchDate] / baseVal) * 100);
+            } else {
+              missingCount++;
             }
           }
-          if (normalizedValues.length > 0) {
+          if (missingCount === 0 && normalizedValues.length === INDUSTRY_BASKET.length) {
             const avg = normalizedValues.reduce((a, b) => a + b, 0) / normalizedValues.length;
             industry.push(Math.round(avg * 100) / 100);
           } else {
