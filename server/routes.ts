@@ -2188,6 +2188,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return best;
       }
 
+      function isInSameMonth(dateStr: string, targetDate: Date): boolean {
+        const d = new Date(dateStr);
+        return d.getFullYear() === targetDate.getFullYear() && d.getMonth() === targetDate.getMonth();
+      }
+
       const spyData = await fetchMonthlySeriesFromAlphaVantage('SPY');
       const spySortedDates = Object.keys(spyData).sort();
       const useRealSP500Data = spySortedDates.length > months;
@@ -2239,50 +2244,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const realRevenue = revenueByMonth[monthKey];
         revenue.push(realRevenue ? Math.round(realRevenue) : null);
         
-        const isCurrentMonth = monthKey === currentYearMonth;
         const monthEndTarget = new Date(date.getFullYear(), date.getMonth() + 1, 0);
 
         if (useRealSP500Data) {
-          if (isCurrentMonth) {
-            sp500.push(null);
+          const matchDate = findClosestPastDate(spySortedDates, monthEndTarget);
+          if (matchDate && isInSameMonth(matchDate, date)) {
+            sp500.push(Math.round(spyData[matchDate]));
           } else {
-            const matchDate = findClosestPastDate(spySortedDates, monthEndTarget);
-            sp500.push(matchDate ? Math.round(spyData[matchDate]) : null);
+            sp500.push(null);
           }
         } else {
-          const baseSP500 = 5800;
-          const avgMonthlyReturn = 0.008;
-          sp500.push(Math.round(baseSP500 * Math.pow(1 + avgMonthlyReturn, i)));
+          sp500.push(null);
         }
         
         if (hasRealIndustryData) {
-          if (isCurrentMonth) {
-            industry.push(null);
-          } else {
-            const normalizedValues: number[] = [];
-            for (const symbol of INDUSTRY_BASKET) {
-              const series = basketSeriesMap[symbol];
-              const sorted = Object.keys(series).sort();
-              if (sorted.length === 0) continue;
-              const baseVal = industryBaseValues[symbol];
-              if (!baseVal) continue;
-              const matchDate = findClosestPastDate(sorted, monthEndTarget);
-              if (matchDate) {
-                normalizedValues.push((series[matchDate] / baseVal) * 100);
-              }
-            }
-            if (normalizedValues.length > 0) {
-              const avg = normalizedValues.reduce((a, b) => a + b, 0) / normalizedValues.length;
-              industry.push(Math.round(avg * 100) / 100);
-            } else {
-              industry.push(null);
+          const normalizedValues: number[] = [];
+          for (const symbol of INDUSTRY_BASKET) {
+            const series = basketSeriesMap[symbol];
+            const sorted = Object.keys(series).sort();
+            if (sorted.length === 0) continue;
+            const baseVal = industryBaseValues[symbol];
+            if (!baseVal) continue;
+            const matchDate = findClosestPastDate(sorted, monthEndTarget);
+            if (matchDate && isInSameMonth(matchDate, date)) {
+              normalizedValues.push((series[matchDate] / baseVal) * 100);
             }
           }
+          if (normalizedValues.length > 0) {
+            const avg = normalizedValues.reduce((a, b) => a + b, 0) / normalizedValues.length;
+            industry.push(Math.round(avg * 100) / 100);
+          } else {
+            industry.push(null);
+          }
         } else {
-          const baseIndustryValue = revenue[0] || 600000000;
-          const monthlyIndustryGrowth = 0.00565;
-          const industryValue = baseIndustryValue * Math.pow(1 + monthlyIndustryGrowth, i);
-          industry.push(Math.round(industryValue));
+          industry.push(null);
         }
       }
 
@@ -2291,7 +2286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         revenue, 
         sp500, 
         industry,
-        dataSource: useRealSP500Data ? "Alpha Vantage (Real Market Data)" : "Mock Data (API Key Not Set)"
+        dataSource: useRealSP500Data ? "Alpha Vantage (Real Market Data)" : "Market data unavailable (API key not configured)"
       });
     } catch (error) {
       console.error("Error generating series data:", error);
