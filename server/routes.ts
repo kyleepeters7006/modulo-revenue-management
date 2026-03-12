@@ -4702,15 +4702,20 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         const competitorAvgCareRateValue = getRowValue(row, 'Competitive Average Care Rate', 'competitive average care rate', 'Competitor Average Care Rate', 'competitor average care rate', 'Competitive Avg Care Rate', 'CompetitiveAvgCareRate');
         const competitorFinalRateValue = getRowValue(row, 'Competitive Final Rate', 'competitive final rate', 'Competitor Final Rate', 'competitor final rate', 'CompetitiveFinalRate', 'CompetitorFinalRate');
 
-        // Get BaseRate1 and handle currency formatting
+        // Get street rate: prefer BaseRate1, fall back to Room_Rate when blank
+        const parseRate = (raw: string | null | undefined): number => {
+          if (!raw) return 0;
+          const cleaned = raw.toString().replace(/[$,()]/g, '').trim();
+          const parsed = parseFloat(cleaned);
+          return isNaN(parsed) ? 0 : parsed;
+        };
         const baseRateRaw = getRowValue(row, 'BaseRate1', 'Base Rate', 'base rate', 'Street Rate', 'street rate', 'StreetRate', 'streetRate', 'Rate', 'rate');
-        let streetRate = 0;
-        if (baseRateRaw) {
-          // Remove dollar signs, commas, and parse
-          const cleanedValue = baseRateRaw.toString().replace(/[$,]/g, '').trim();
-          const parsedRate = parseFloat(cleanedValue);
-          streetRate = isNaN(parsedRate) ? 0 : parsedRate;
-        }
+        const roomRateRaw = getRowValue(row, 'Room_Rate', 'Room Rate', 'room rate', 'RoomRate');
+        const streetRate = parseRate(baseRateRaw) || parseRate(roomRateRaw);
+
+        // Get in-house rate: FinalRate = agreed room charge after special rates (before RRA discounts)
+        const finalRateRaw = getRowValue(row, 'FinalRate', 'Final Rate', 'final rate', 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate');
+        const inHouseRate = parseRate(finalRateRaw);
 
         const rentRollEntry = {
           uploadMonth: uploadMonth,
@@ -4732,7 +4737,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           renovationRating: renovationRating,
           amenityRating: amenityRating,
           streetRate: streetRate,
-          inHouseRate: parseFloat(getRowValue(row, 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate')) || 0,
+          inHouseRate: inHouseRate,
           discountToStreetRate: parseFloat(getRowValue(row, 'Discount to Street Rate', 'discount to street rate')) || 0,
           careLevel: getRowValue(row, 'Care Level', 'care level') || null,
           careRate: parseFloat(getRowValue(row, 'Care Rate', 'care rate')) || 0,
