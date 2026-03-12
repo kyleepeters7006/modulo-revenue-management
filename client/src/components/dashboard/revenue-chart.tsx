@@ -223,7 +223,7 @@ export default function RevenueChart() {
         </div>
       </div>
       
-      <div className="h-64 sm:h-72 lg:h-80 relative w-full overflow-hidden">
+      <div className="h-64 sm:h-72 lg:h-80 relative w-full overflow-visible">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-[var(--dashboard-muted)]" data-testid="text-chart-loading">Loading revenue data...</p>
@@ -268,7 +268,7 @@ export default function RevenueChart() {
                 strokeDasharray: '4 4'
               }}
               wrapperStyle={{ outline: 'none' }}
-              allowEscapeViewBox={{ x: false, y: false }}
+              allowEscapeViewBox={{ x: false, y: true }}
             />
             <Legend 
               wrapperStyle={{ 
