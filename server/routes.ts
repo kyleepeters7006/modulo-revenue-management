@@ -1032,7 +1032,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Renovation Rating': 'DESCRIPTION: Room renovation status rating (A, B, or C)',
           'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)',
           'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, used for ML training)',
-          'Move Out Date': 'DESCRIPTION: Date resident moved out (YYYY-MM-DD, leave blank if still a current resident, used for ML training)',
           'Promotion Allowance': 'DESCRIPTION: Dollar amount of any room rate discount applied to the unit — enter as a NEGATIVE number (e.g., -150 for a $150 discount). Enter 0 if no discount. Used for RRA discount trend analytics.'
         },
         // Row 2: Example data
@@ -1055,7 +1054,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Renovation Rating': 'B',
           'Amenity Rating': 'A',
           'Move In Date': '2023-06-15',
-          'Move Out Date': '',
           'Promotion Allowance': -150
         },
         // Row 3: Empty row for spacing
@@ -4748,7 +4746,17 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           residentId: getRowValue(row, 'Resident ID', 'resident id', 'ResidentID', 'residentId') || null,
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
           moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
-          moveOutDate: getRowValue(row, 'Move Out Date', 'move out date', 'MoveOutDate', 'moveOutDate') || null,
+          moveOutDate: (() => {
+            const explicit = getRowValue(row, 'Move Out Date', 'move out date', 'MoveOutDate', 'moveOutDate');
+            if (explicit) return explicit;
+            const dv = parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0;
+            if (!isOccupied && dv > 0) {
+              const refDate = new Date(getRowValue(row, 'Date', 'date') || uploadDate);
+              refDate.setDate(refDate.getDate() - dv);
+              return refDate.toISOString().split('T')[0];
+            }
+            return null;
+          })(),
           payorType: getRowValue(row, 'DisplayPayer', 'PayerName', 'Payor Type', 'payor type', 'PayorType', 'payorType', 'Payer', 'payer', 'Payor', 'payor') || null,
           admissionStatus: getRowValue(row, 'Admission Status', 'admission status', 'AdmissionStatus', 'admissionStatus') || null,
           levelOfCare: getRowValue(row, 'Level of Care', 'level of care', 'LevelOfCare', 'levelOfCare') || null,

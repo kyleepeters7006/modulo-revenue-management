@@ -92,7 +92,16 @@ export async function importRentRollCSV(
                   residentId: row['Resident ID'] || row['resident_id'] || null,
                   residentName: row['Resident Name'] || row['resident_name'] || null,
                   moveInDate: row['Move In Date'] || row['move_in_date'] || null,
-                  moveOutDate: row['Move Out Date'] || row['move_out_date'] || null,
+                  moveOutDate: row['Move Out Date'] || row['move_out_date'] || (() => {
+                    const dv = parseInt(row['Days Vacant'] || row['days_vacant']) || 0;
+                    const occupied = parseBoolean(row['Occupied Y/N'] || row['occupied_yn']);
+                    if (!occupied && dv > 0) {
+                      const refDate = new Date(row['Date'] || row['date'] || uploadMonth);
+                      refDate.setDate(refDate.getDate() - dv);
+                      return refDate.toISOString().split('T')[0];
+                    }
+                    return null;
+                  })(),
                   payorType: row['DisplayPayer'] || row['PayerName'] || row['Payor Type'] || row['payor_type'] || row['Payer'] || row['payer'] || row['Payor'] || row['payor'] || null,
                   admissionStatus: row['Admission Status'] || row['admission_status'] || null,
                   levelOfCare: row['Level of Care'] || row['level_of_care'] || null,
