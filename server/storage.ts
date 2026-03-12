@@ -119,7 +119,7 @@ export interface IStorage {
     clientId?: string;
   }): Promise<RentRollData[]>;
   getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
-  getRevenueByMonths(months: string[], clientId?: string): Promise<Record<string, number>>;
+  getRevenueByMonths(months: string[], clientId?: string, sameStoreOnly?: boolean): Promise<Record<string, number>>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[]): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
@@ -506,14 +506,15 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async getRevenueByMonths(months: string[], clientId?: string): Promise<Record<string, number>> {
+  async getRevenueByMonths(months: string[], clientId?: string, sameStoreOnly: boolean = true): Promise<Record<string, number>> {
     // Query to get sum of revenue grouped by upload_month
     // For occupied units: use inHouseRate if available, otherwise streetRate
     // For vacant units: contribute 0 to current revenue (they're not generating revenue)
     // This properly reflects actual revenue, not potential revenue
     const clientFilter = clientId ? eq(rentRollData.clientId, clientId) : undefined;
     const monthFilter = inArray(rentRollData.uploadMonth, months);
-    const whereClause = clientFilter ? and(monthFilter, clientFilter) : monthFilter;
+    const sameStoreFilter = sameStoreOnly ? eq(rentRollData.sameStore, true) : undefined;
+    const whereClause = and(monthFilter, clientFilter, sameStoreFilter);
     const result = await db
       .select({
         uploadMonth: rentRollData.uploadMonth,
