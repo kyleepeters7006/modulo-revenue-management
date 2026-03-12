@@ -3318,12 +3318,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get all required data - use most recent month (2025-11)
       const currentMonth = '2025-11';  // Fixed to November 2025 which has data
-      const [rentRollData, campusData, competitors, pricingWeights] = await Promise.all([
+      const [rentRollData, campusData, competitors, pricingWeights, surveyData] = await Promise.all([
         storage.getRentRollDataByMonth(currentMonth, clientId),  // Only get current month data
         storage.getAllCampuses(clientId),
         storage.getCompetitors(clientId),
-        storage.getPricingWeights()
+        storage.getPricingWeights(),
+        // Fetch competitive survey data as fallback for market position when units lack competitorFinalRate
+        db.select({
+          keyStatsLocation: competitiveSurveyData.keyStatsLocation,
+          competitorType: competitiveSurveyData.competitorType,
+          roomType: competitiveSurveyData.roomType,
+          monthlyRateAvg: competitiveSurveyData.monthlyRateAvg,
+        }).from(competitiveSurveyData).where(eq(competitiveSurveyData.clientId, clientId))
       ]);
+
+      // Build a lookup map from competitive survey data:
+      // location → compType → roomType → avg rate (for fallback market position)
+      const surveyRateMap = new Map<string, Map<string, number[]>>();
+      for (const row of surveyData) {
+        if (!row.keyStatsLocation || !row.monthlyRateAvg || row.monthlyRateAvg <= 0) continue;
+        if (!surveyRateMap.has(row.keyStatsLocation)) surveyRateMap.set(row.keyStatsLocation, new Map());
+        const locMap = surveyRateMap.get(row.keyStatsLocation)!;
+        const key = `${row.competitorType || 'ALL'}:${row.roomType || 'ALL'}`;
+        if (!locMap.has(key)) locMap.set(key, []);
+        locMap.get(key)!.push(row.monthlyRateAvg);
+      }
+
+      // Map service lines to competitor types for survey lookup
+      const SL_TO_COMP_TYPE: Record<string, string> = {
+        'HC': 'HC', 'HC/MC': 'SMC',
+        'AL': 'AL', 'AL/MC': 'AL',
+        'SL': 'IL_IL', 'VIL': 'IL_Villa',
+      };
       
       console.log(`Analytics: Processing ${rentRollData.length} units for ${currentMonth}`);
 
@@ -3497,6 +3523,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         });
+
+        // Fallback: if no units have competitorFinalRate, use competitive_survey_data
+        if (unitsWithCompetitorData === 0) {
+          const locSurveyMap = surveyRateMap.get(campusId);
+          if (locSurveyMap) {
+            metrics.units.forEach((unit: any) => {
+              const trilogyRate = unit.streetRate || unit.inHouseRate || 0;
+              if (trilogyRate <= 0) return;
+              const compType = SL_TO_COMP_TYPE[unit.serviceLine] || null;
+              if (!compType) return;
+              // Normalize room type to match survey keys
+              const rt = (unit.size || unit.roomType || '').replace('Two Bedroom', 'Two Bedroom').replace('One Bedroom', 'One Bedroom');
+              const key = `${compType}:${rt}`;
+              const fallbackKey = `${compType}:ALL`;
+              const rates = locSurveyMap.get(key) || locSurveyMap.get(fallbackKey);
+              if (rates && rates.length > 0) {
+                const avg = rates.reduce((s: number, r: number) => s + r, 0) / rates.length;
+                if (avg > 0) {
+                  totalTrilogyRate += trilogyRate;
+                  totalCompetitorRate += avg;
+                  unitsWithCompetitorData++;
+                }
+              }
+            });
+          }
+        }
         
         // Calculate average rates for units with competitor data
         const avgTrilogyRateWithComp = unitsWithCompetitorData > 0 
