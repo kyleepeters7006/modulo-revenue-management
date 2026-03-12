@@ -2231,9 +2231,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const series = basketSeriesMap[symbol];
         const sorted = Object.keys(series).sort();
         if (sorted.length === 0) { industryBaseValues[symbol] = null; continue; }
-        const firstMonthDate = new Date(startDate.getFullYear(), startDate.getMonth(), 28);
-        const baseMatch = findClosestPastDate(sorted, firstMonthDate);
-        industryBaseValues[symbol] = baseMatch ? series[baseMatch] : null;
+        const firstMonthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+        const baseMatch = findClosestPastDate(sorted, firstMonthEnd);
+        industryBaseValues[symbol] = (baseMatch && isInSameMonth(baseMatch, startDate)) ? series[baseMatch] : null;
       }
 
       for (let i = 0; i < months; i++) {
