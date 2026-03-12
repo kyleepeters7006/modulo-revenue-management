@@ -630,7 +630,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-max">
                 <TableHeader>
                   <TableRow>
                     <TableHead 
@@ -724,7 +724,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         <SortIcon column="competitor" />
                       </div>
                     </TableHead>
-                    <TableHead>Attributes</TableHead>
+                    <TableHead className="min-w-[160px]">Attributes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
