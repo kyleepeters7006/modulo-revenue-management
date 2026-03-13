@@ -5781,12 +5781,21 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         monthlyData[month] = { total: 0, occupied: 0, byServiceLine: {} };
         sameStoreData[month] = { total: 0, occupied: 0, byServiceLine: {} };
       }
+
+      // Build the "same store" location set from the most recent month.
+      // Using the current month's same_store=true locations ensures a consistent
+      // unit set is applied to ALL comparison months, preventing apples-vs-oranges growth.
+      const sameStoreLocations = new Set<string>(
+        aggregatedData
+          .filter(r => r.month === mostRecentMonth && r.sameStore)
+          .map(r => r.location)
+      );
       
       // Aggregate the data
       for (const row of aggregatedData) {
         const month = row.month;
         const sl = row.serviceLine;
-        const isSameStore = row.sameStore;
+        const isSameStore = sameStoreLocations.has(row.location);
         
         if (!monthlyData[month]) continue;
         
