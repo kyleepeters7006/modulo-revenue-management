@@ -2140,11 +2140,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 
       async function fetchMonthlySeriesFromAlphaVantage(symbol: string): Promise<Record<string, number>> {
-        if (!apiKey) return {};
         const cached = await storage.getCachedStockData(symbol, 'monthly_series');
         if (cached && cached.metadata) {
           return (cached.metadata as any).series || {};
         }
+        if (!apiKey) return {};
         try {
           const url = `https://www.alphavantage.co/query?function=TIME_SERIES_MONTHLY&symbol=${symbol}&apikey=${apiKey}`;
           const response = await fetch(url);

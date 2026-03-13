@@ -57,6 +57,14 @@ app.use((req, res, next) => {
     }
   }, 5000); // Start backfill 5 seconds after server starts
 
+  // Log Alpha Vantage API key availability at startup
+  const avKey = process.env.ALPHA_VANTAGE_API_KEY;
+  if (avKey) {
+    log(`[Market Data] Alpha Vantage API key configured (${avKey.substring(0, 4)}...)`);
+  } else {
+    log("[Market Data] Alpha Vantage API key NOT found — market benchmark lines will be unavailable");
+  }
+
   // Resume any interrupted competitor rate jobs after server restart
   setTimeout(async () => {
     try {
