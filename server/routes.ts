@@ -5038,7 +5038,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const care = normalizeCareType(row['Individual Care'] || '');
           const sl = careToServiceLine[care] || (care ? care : 'HC');
           if (alServiceLines.includes(sl)) continue;
-          const finalSL = hcServiceLines.includes(sl) ? sl : 'HC';
+          const finalSL = care === '' ? 'HC' : sl;
 
           let month: string;
           if (typeof dateVal === 'number') {
