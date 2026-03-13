@@ -203,7 +203,7 @@ export default function PricingStrategyDocumentation() {
                               <ChevronRight className="h-4 w-4 text-gray-500" />
                             )}
                             <Building2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                            <span className="font-medium text-sm">{campus}</span>
+                            <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{campus}</span>
                           </div>
                           <Badge variant="secondary" className="text-xs">
                             {serviceLines.length} services
@@ -221,7 +221,7 @@ export default function PricingStrategyDocumentation() {
                               >
                                 <div className="flex items-center gap-2">
                                   <Building2 className="h-3 w-3 text-gray-400" />
-                                  <span className="text-sm">All Service Lines</span>
+                                  <span className="text-sm text-gray-900 dark:text-gray-100">All Service Lines</span>
                                 </div>
                               </button>
                             )}
@@ -237,7 +237,7 @@ export default function PricingStrategyDocumentation() {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <Home className="h-3 w-3 text-gray-400" />
-                                    <span className="text-sm">
+                                    <span className="text-sm text-gray-900 dark:text-gray-100">
                                       {getServiceLineName(doc.serviceLine || '')}
                                     </span>
                                   </div>
