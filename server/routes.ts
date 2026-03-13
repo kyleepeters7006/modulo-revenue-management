@@ -4935,6 +4935,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       const hasEnquireDetail = headers.includes('SaleStage') && headers.includes('Inquiry Date');
       const hasPostAcute = headers.includes('Status') && headers.includes('Referral Date') && !headers.includes('SaleStage');
 
+      const normalizeCareType = (raw: string): string => {
+        return raw.trim().replace(/\s*-\s*/g, '-').replace(/\s*\/\s*/g, '/');
+      };
+
       const careToServiceLine: Record<string, string> = {
         'Assisted Living': 'AL',
         'Memory Care-AL': 'AL/MC',
@@ -4942,14 +4946,14 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         'IL Patio Homes': 'VIL',
         'Independent Living Apts': 'VIL',
         'Independent Living': 'IL',
-        'SNF - Short Term Rehab': 'HC',
-        'SNF - Long Term Care': 'HC',
+        'SNF-Short Term Rehab': 'HC',
+        'SNF-Long Term Care': 'HC',
         'Outpatient Therapy': 'HC',
-        'Dialysis- SNF': 'HC',
-        'Dialysis- Outpatient': 'HC',
+        'Dialysis-SNF': 'HC',
+        'Dialysis-Outpatient': 'HC',
         'Memory Care-HC': 'HC/MC',
-        'Adult Day/ Night-AL': 'AL',
-        'Adult Day/ Night-HC': 'HC',
+        'Adult Day/Night-AL': 'AL',
+        'Adult Day/Night-HC': 'HC',
       };
 
       const alServiceLines = ['AL', 'AL/MC', 'SL', 'VIL', 'IL'];
@@ -4969,7 +4973,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const dateVal = row['Inquiry Date'];
           if (!dateVal || !row['Location']) continue;
 
-          const care = (row['Individual Care'] || '').trim();
+          const care = normalizeCareType(row['Individual Care'] || '');
           const sl = careToServiceLine[care] || care || 'Unknown';
           if (hcServiceLines.includes(sl)) continue;
 
@@ -5031,7 +5035,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const dateVal = row['Referral Date'];
           if (!dateVal || !row['Location']) continue;
 
-          const care = (row['Individual Care'] || '').trim();
+          const care = normalizeCareType(row['Individual Care'] || '');
           const sl = careToServiceLine[care] || (care ? care : 'HC');
           if (alServiceLines.includes(sl)) continue;
           const finalSL = hcServiceLines.includes(sl) ? sl : 'HC';
