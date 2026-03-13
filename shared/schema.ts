@@ -99,6 +99,7 @@ export const locations = pgTable("locations", {
   lat: real("lat"),
   lng: real("lng"),
   totalUnits: integer("total_units").default(0),
+  sameStore: boolean("same_store").default(true), // If true, location is included in same-store comparisons
   clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this location
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

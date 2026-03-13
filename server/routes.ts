@@ -5765,6 +5765,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       const aggregatedData = await monthlyAggQuery;
       
+      // Fetch same-store location names from the locations table (authoritative source)
+      const sameStoreLocationRows = await db
+        .select({ name: locations.name })
+        .from(locations)
+        .where(and(eq(locations.clientId, clientId), eq(locations.sameStore, true)));
+      const sameStoreLocationNames = new Set<string>(sameStoreLocationRows.map(r => r.name));
+      
       // Process aggregated data to build response structures
       type MonthlyTrendItem = { month: string; value: number; byServiceLine: Record<string, number>; };
       const monthlyTrend: MonthlyTrendItem[] = [];
@@ -5782,20 +5789,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         sameStoreData[month] = { total: 0, occupied: 0, byServiceLine: {} };
       }
 
-      // Build the "same store" location set from the most recent month.
-      // Using the current month's same_store=true locations ensures a consistent
-      // unit set is applied to ALL comparison months, preventing apples-vs-oranges growth.
-      const sameStoreLocations = new Set<string>(
-        aggregatedData
-          .filter(r => r.month === mostRecentMonth && r.sameStore)
-          .map(r => r.location)
-      );
-      
       // Aggregate the data
       for (const row of aggregatedData) {
         const month = row.month;
         const sl = row.serviceLine;
-        const isSameStore = sameStoreLocations.has(row.location);
+        const isSameStore = sameStoreLocationNames.has(row.location);
         
         if (!monthlyData[month]) continue;
         
@@ -6012,7 +6010,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           .select({
             month: rentRollData.uploadMonth,
             serviceLine: rentRollData.serviceLine,
-            sameStore: rentRollData.sameStore,
+            location: rentRollData.location,
             totalRate: sql<number>`SUM(
               CASE 
                 WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
@@ -6025,10 +6023,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           })
           .from(rentRollData)
           .where(and(
+            eq(rentRollData.clientId, clientId),
             inArray(rentRollData.uploadMonth, months),
             tileType === 'current-revenue' ? eq(rentRollData.occupiedYN, true) : sql`TRUE`
           ))
-          .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.sameStore);
+          .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location);
         
         // Process rate data - accumulate sum of rates and counts
         const rateByMonth: Record<string, { totalRate: number; count: number; byServiceLine: Record<string, { totalRate: number; count: number }> }> = {};
@@ -6057,7 +6056,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           rateByMonth[month].byServiceLine[sl].totalRate += totalRate;
           rateByMonth[month].byServiceLine[sl].count += count;
           
-          if (row.sameStore) {
+          if (sameStoreLocationNames.has(row.location)) {
             sameStoreRateByMonth[month].totalRate += totalRate;
             sameStoreRateByMonth[month].count += count;
             
@@ -6276,14 +6275,16 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       const comparisonMonth = months[comparisonMonthIndex] || months[0] || mostRecentMonth;
       
-      // Get location data with region/division
+      // Get location data with region/division; also build same-store set from locations table
       const locationsMap = new Map<string, { region: string; division: string }>();
-      const locationsList = await db.select().from(locations);
+      const drillDownSameStoreNames = new Set<string>();
+      const locationsList = await db.select().from(locations).where(eq(locations.clientId, clientId));
       for (const loc of locationsList) {
         locationsMap.set(loc.name, { 
           region: loc.region || 'Unknown Region', 
           division: loc.division || 'Unknown Division' 
         });
+        if (loc.sameStore) drillDownSameStoreNames.add(loc.name);
       }
       
       // B-bed exclusion for non-revenue tile types
@@ -6302,8 +6303,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       if (serviceLine && serviceLine !== 'all') {
         conditions.push(eq(rentRollData.serviceLine, serviceLine as string));
       }
-      if (isSameStoreOnly) {
-        conditions.push(eq(rentRollData.sameStore, true));
+      if (isSameStoreOnly && drillDownSameStoreNames.size > 0) {
+        conditions.push(inArray(rentRollData.location, [...drillDownSameStoreNames]));
       }
       
       // Build the query based on tile type
