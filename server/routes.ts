@@ -4910,7 +4910,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
-      const clientId = (req as any).clientId || 'demo';
+      const clientId = req.clientId || 'demo';
       const buffer = req.file.buffer;
       let jsonData: any[] = [];
 
@@ -4974,7 +4974,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           if (!dateVal || !row['Location']) continue;
 
           const care = normalizeCareType(row['Individual Care'] || '');
-          const sl = careToServiceLine[care] || care || 'Unknown';
+          const sl = careToServiceLine[care] || (care ? care : 'AL');
           if (hcServiceLines.includes(sl)) continue;
 
           let month: string;
@@ -5764,7 +5764,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   app.get("/api/tile-details/:tileType", async (req, res) => {
     try {
       const { tileType } = req.params;
-      const clientId = (req as any).clientId || 'demo';
+      const clientId = req.clientId || 'demo';
       const validTileTypes = ['units', 'occupancy', 'current-revenue', 'potential-revenue'];
       
       if (!validTileTypes.includes(tileType)) {
@@ -6389,7 +6389,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     try {
       const { tileType } = req.params;
       const { period = 't12', serviceLine, sameStore } = req.query;
-      const clientId = (req as any).clientId || 'demo';
+      const clientId = req.clientId || 'demo';
       const validTileTypes = ['units', 'occupancy', 'current-revenue', 'potential-revenue'];
       const validPeriods = ['t1', 't3', 't6', 't12', 'ytd'];
       
