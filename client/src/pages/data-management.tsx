@@ -1055,8 +1055,8 @@ export default function DataManagement() {
               <div className="space-y-2">
                 <h3 className="font-semibold text-base text-[var(--trilogy-blue)]">Key Columns Used</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1">
-                    <p className="font-semibold text-xs text-gray-500 uppercase tracking-wide mb-2">Identity & Location</p>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
+                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Identity & Location</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">division</span> — Division name</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">location</span> — Campus name (must match exactly across files)</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Room_Bed</span> — Unit / bed identifier</p>
@@ -1064,8 +1064,8 @@ export default function DataManagement() {
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Service1</span> — Service line (AL, HC, SL, VIL, etc.)</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Private_Companion1</span> — Private or Companion unit</p>
                   </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1">
-                    <p className="font-semibold text-xs text-gray-500 uppercase tracking-wide mb-2">Occupancy & Resident</p>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
+                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Occupancy & Resident</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">PatientID1</span> — Resident ID (used for occupancy)</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">MoveInDate</span> — Move-in date</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">MoveOutDate</span> — Move-out date</p>
@@ -1073,8 +1073,8 @@ export default function DataManagement() {
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">DisplayPayer</span> — Display payer name</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">LevelOfCare1</span> — Care level description</p>
                   </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1">
-                    <p className="font-semibold text-xs text-gray-500 uppercase tracking-wide mb-2">Rates</p>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
+                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Rates</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BaseRate1</span> — Street rate <span className="text-gray-500">(fallback: Room_Rate)</span></p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">FinalRate</span> — In-house (actual billed) rate</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BilledRate</span> — Daily billed rate (HC/HC-MC units)</p>
@@ -1082,8 +1082,8 @@ export default function DataManagement() {
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">LOC_Rate</span> — Level-of-care rate</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Room_Rate_Adjustments</span> — Promotion allowance / RRA (stored negative)</p>
                   </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1">
-                    <p className="font-semibold text-xs text-gray-500 uppercase tracking-wide mb-2">Rate Charge Type</p>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
+                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Rate Charge Type</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">ChargeBy</span> — Rate charge basis (Day / Month)</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Rate_Type</span> — Rate type classification</p>
                     <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">RRADescription</span> — RRA reason description</p>
