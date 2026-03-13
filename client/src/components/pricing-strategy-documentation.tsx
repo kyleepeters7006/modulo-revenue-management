@@ -148,7 +148,7 @@ export default function PricingStrategyDocumentation() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-2xl font-bold flex items-center gap-2">
+            <CardTitle className="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-gray-100">
               <BookOpen className="h-6 w-6 text-[var(--trilogy-teal)]" />
               Pricing Strategy Documentation
             </CardTitle>
@@ -268,7 +268,7 @@ export default function PricingStrategyDocumentation() {
               <div className="border rounded-lg p-6 bg-white dark:bg-gray-900">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-gray-100">
                       <Building2 className="h-5 w-5 text-[var(--trilogy-teal)]" />
                       {selectedView.campus}
                       {selectedView.serviceLine && (
