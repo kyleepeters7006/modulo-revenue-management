@@ -8,7 +8,8 @@ export default function RevenueChart() {
   const [timeRange, setTimeRange] = useState<'1M' | '3M' | '12M' | '24M'>('12M');
   
   const { data: seriesData, isLoading } = useQuery({
-    queryKey: [`/api/series?timeRange=${timeRange}`],
+    queryKey: ['/api/series', timeRange],
+    queryFn: () => fetch(`/api/series?timeRange=${timeRange}`, { credentials: 'include' }).then(r => r.json()),
   });
 
   // Check if we have real API data (labels and arrays exist)
