@@ -5607,6 +5607,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   app.get("/api/tile-details/:tileType", async (req, res) => {
     try {
       const { tileType } = req.params;
+      const clientId = (req as any).clientId || 'demo';
       const validTileTypes = ['units', 'occupancy', 'current-revenue', 'potential-revenue'];
       
       if (!validTileTypes.includes(tileType)) {
@@ -5619,10 +5620,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return Math.round(((current - previous) / previous) * 100 * 100) / 100;
       };
       
-      // Get all available months from the database (last 12 months)
+      // Get all available months from the database (last 12 months) for this client
       const availableMonths = await db
         .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
         .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`)
         .limit(12);
       
@@ -5657,6 +5659,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             })
             .from(rentRollData)
             .where(and(
+              eq(rentRollData.clientId, clientId),
               inArray(rentRollData.uploadMonth, months),
               excludeBBeds
             ))
@@ -5676,6 +5679,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             })
             .from(rentRollData)
             .where(and(
+              eq(rentRollData.clientId, clientId),
               inArray(rentRollData.uploadMonth, months),
               excludeBBeds
             ))
@@ -5693,12 +5697,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               sameStore: rentRollData.sameStore,
               value: sql<number>`SUM(
                 CASE WHEN ${rentRollData.occupiedYN} 
-                  AND (
-                    ${rentRollData.payorType} IS NULL 
-                    OR ${rentRollData.payorType} = ''
-                    OR UPPER(${rentRollData.payorType}) LIKE '%PRIVATE%'
-                    OR UPPER(${rentRollData.payorType}) LIKE '%PVT%'
-                    OR UPPER(${rentRollData.payorType}) LIKE '%BEDHOLD%'
+                  AND NOT (
+                    UPPER(COALESCE(${rentRollData.payorType}, '')) LIKE '%HOSPICE%'
+                    OR UPPER(COALESCE(${rentRollData.payorType}, '')) LIKE '%MEDICAID%'
+                    OR UPPER(COALESCE(${rentRollData.payorType}, '')) LIKE '%MEDICARE%'
+                    OR UPPER(COALESCE(${rentRollData.payorType}, '')) LIKE '%MANAGED%'
                   )
                 THEN
                   CASE 
@@ -5711,7 +5714,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               )`,
             })
             .from(rentRollData)
-            .where(inArray(rentRollData.uploadMonth, months))
+            .where(and(eq(rentRollData.clientId, clientId), inArray(rentRollData.uploadMonth, months)))
             .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
           break;
           
@@ -5755,7 +5758,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               )`,
             })
             .from(rentRollData)
-            .where(inArray(rentRollData.uploadMonth, months))
+            .where(and(eq(rentRollData.clientId, clientId), inArray(rentRollData.uploadMonth, months)))
             .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
           break;
       }
@@ -6221,6 +6224,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     try {
       const { tileType } = req.params;
       const { period = 't12', serviceLine, sameStore } = req.query;
+      const clientId = (req as any).clientId || 'demo';
       const validTileTypes = ['units', 'occupancy', 'current-revenue', 'potential-revenue'];
       const validPeriods = ['t1', 't3', 't6', 't12', 'ytd'];
       
@@ -6233,10 +6237,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       const isSameStoreOnly = sameStore === 'true';
       
-      // Get available months
+      // Get available months for this client
       const availableMonths = await db
         .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
         .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`)
         .limit(13);
       
@@ -6278,6 +6283,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       // Build conditions
       const conditions = [
+        eq(rentRollData.clientId, clientId),
         inArray(rentRollData.uploadMonth, [mostRecentMonth, comparisonMonth])
       ];
       
