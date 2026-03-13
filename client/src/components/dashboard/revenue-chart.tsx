@@ -69,7 +69,7 @@ export default function RevenueChart() {
             {/* Revenue Section */}
             <div className="border-l-2 border-[var(--trilogy-teal)] pl-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[var(--dashboard-muted)]">Revenue Growth</span>
+                <span className="text-xs text-[var(--dashboard-muted)]">Revenue Growth (Same Store)</span>
                 <span className={`text-sm font-semibold ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
                   {data.revenueGrowth >= 0 ? '+' : ''}{formatPercentage(data.revenueGrowth / 100)}
                 </span>
@@ -319,7 +319,7 @@ export default function RevenueChart() {
                 strokeWidth: 2,
                 filter: 'drop-shadow(0 2px 4px hsl(180, 65%, 45%, 0.3))'
               }}
-              name="Revenue Growth %"
+              name="Revenue Growth % (Same Store)"
             />
             <Line
               type="monotone"
