@@ -28,14 +28,15 @@ export default function RevenueChart() {
   // Only check revenue, not sp500/industry, since those can be mock/API data
   const hasRealData = rawData.length > 0 && rawData.some((d: any) => d.revenue != null);
   
+  const firstRevenueIndex = rawData.findIndex((d: any) => d.revenue != null);
+  const firstRevenue = firstRevenueIndex >= 0 ? rawData[firstRevenueIndex].revenue : null;
+  const firstSP500 = rawData.find((d: any) => d.sp500 != null)?.sp500;
+  const firstIndustry = rawData.find((d: any) => d.industry != null)?.industry;
+
   const chartData = rawData.map((item: any, index: number) => {
-    // Find first non-null values as baseline for growth calculations
-    const firstRevenue = rawData.find((d: any) => d.revenue != null)?.revenue;
-    const firstSP500 = rawData.find((d: any) => d.sp500 != null)?.sp500;
-    const firstIndustry = rawData.find((d: any) => d.industry != null)?.industry;
-    
     return {
       ...item,
+      isRevenueBaseline: index === firstRevenueIndex,
       // Calculate percentage growth from period start - handle nulls, no defaults
       revenueGrowth: (item.revenue != null && firstRevenue != null) ? ((item.revenue - firstRevenue) / firstRevenue * 100) : null,
       sp500Growth: (item.sp500 != null && firstSP500 != null) ? ((item.sp500 - firstSP500) / firstSP500 * 100) : null,
@@ -70,22 +71,28 @@ export default function RevenueChart() {
             <div className="border-l-2 border-[var(--trilogy-teal)] pl-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[var(--dashboard-muted)]">Revenue Growth (Same Store)</span>
-                <span className={`text-sm font-semibold ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.revenueGrowth >= 0 ? '+' : ''}{formatPercentage(data.revenueGrowth / 100)}
-                </span>
+                {data.isRevenueBaseline ? (
+                  <span className="text-sm font-semibold text-[var(--dashboard-muted)] italic">Baseline</span>
+                ) : (
+                  <span className={`text-sm font-semibold ${data.revenueGrowth >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                    {data.revenueGrowth >= 0 ? '+' : ''}{formatPercentage(data.revenueGrowth / 100)}
+                  </span>
+                )}
               </div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-[var(--dashboard-muted)]">Revenue Value</span>
+                <span className="text-xs text-[var(--dashboard-muted)]">Monthly Revenue</span>
                 <span className="text-xs font-medium text-[var(--trilogy-teal-light)]">
-                  {formatCurrency(revenueData?.payload?.revenue)}
+                  {revenueData?.payload?.revenue != null ? `$${(revenueData.payload.revenue / 1_000_000).toFixed(1)}M` : '—'}
                 </span>
               </div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
-                <span className={`text-xs font-medium ${data.monthlyRevenueChange >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                  {data.monthlyRevenueChange >= 0 ? '+' : ''}{Math.round(data.monthlyRevenueChange)}%
-                </span>
-              </div>
+              {!data.isRevenueBaseline && (
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-[var(--dashboard-muted)]">Monthly Change</span>
+                  <span className={`text-xs font-medium ${data.monthlyRevenueChange >= 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
+                    {data.monthlyRevenueChange >= 0 ? '+' : ''}{Math.round(data.monthlyRevenueChange)}%
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* S&P 500 Section */}

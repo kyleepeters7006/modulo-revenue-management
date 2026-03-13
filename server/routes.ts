@@ -2216,10 +2216,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const revenueByMonth = await storage.getRevenueByMonths(monthsToFetch, clientId);
-      
-      Object.keys(revenueByMonth).forEach(month => {
-        revenueByMonth[month] = revenueByMonth[month] * 12;
-      });
 
       const labels: string[] = [];
       const revenue: (number | null)[] = [];
