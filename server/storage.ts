@@ -143,7 +143,7 @@ export interface IStorage {
   getCalculationHistoryByMonth(uploadMonth: string): Promise<CalculationHistory[]>;
   
   // Inquiry metrics
-  bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[]): Promise<void>;
+  bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[], options?: { clientId?: string; serviceLineScope?: string[] }): Promise<void>;
   getInquiryMetricsByMonth(uploadMonth: string): Promise<InquiryMetrics[]>;
   getDemandDataByLocationServiceLine(location: string, serviceLine: string, currentMonth: string): Promise<{
     currentDemand: number;
@@ -913,10 +913,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inquiry metrics
-  async bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[]): Promise<void> {
-    await db.delete(inquiryMetrics).where(eq(inquiryMetrics.uploadMonth, uploadMonth));
+  async bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[], options?: { clientId?: string; serviceLineScope?: string[] }): Promise<void> {
+    if (options?.clientId && options?.serviceLineScope && options.serviceLineScope.length > 0) {
+      await db.delete(inquiryMetrics).where(
+        and(
+          eq(inquiryMetrics.clientId, options.clientId),
+          inArray(inquiryMetrics.serviceLine, options.serviceLineScope)
+        )
+      );
+    } else {
+      await db.delete(inquiryMetrics).where(eq(inquiryMetrics.uploadMonth, uploadMonth));
+    }
     if (data.length > 0) {
-      await db.insert(inquiryMetrics).values(data);
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < data.length; i += BATCH_SIZE) {
+        const batch = data.slice(i, i + BATCH_SIZE);
+        await db.insert(inquiryMetrics).values(batch);
+      }
     }
   }
 

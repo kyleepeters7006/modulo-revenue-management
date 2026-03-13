@@ -4910,10 +4910,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
+      const clientId = (req as any).clientId || 'demo';
       const buffer = req.file.buffer;
       let jsonData: any[] = [];
 
-      // Parse file based on type
       if (req.file.originalname.endsWith('.csv')) {
         const csvText = buffer.toString();
         const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
@@ -4931,41 +4931,192 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: 'No data found in file' });
       }
 
-      // Process inquiry data (placeholder - actual storage implementation would go here)
-      const currentMonth = new Date().toISOString().substring(0, 7);
-      const processedRecords: any[] = [];
+      const headers = Object.keys(jsonData[0]);
+      const hasEnquireDetail = headers.includes('SaleStage') && headers.includes('Inquiry Date');
+      const hasPostAcute = headers.includes('Status') && headers.includes('Referral Date') && !headers.includes('SaleStage');
 
-      for (const row of jsonData) {
-        const inquiryEntry = {
-          uploadMonth: currentMonth,
-          date: row.Date || row.date || new Date().toISOString().split('T')[0],
-          region: row.Region || row.region || '',
-          division: row.Division || row.division || '',
-          location: row.Location || row.location || '',
-          serviceLine: row['Service Line'] || row.serviceLine || row['service line'] || '',
-          leadSource: row['Lead Source'] || row.leadSource || row['lead source'] || '',
-          inquiryCount: parseInt(row['Inquiry Count'] || row.inquiryCount || row['inquiry count']) || 0,
-          tourCount: parseInt(row['Tour Count'] || row.tourCount || row['tour count']) || 0,
-          conversionCount: parseInt(row['Conversion Count'] || row.conversionCount || row['conversion count']) || 0,
-          conversionRate: parseFloat(row['Conversion Rate'] || row.conversionRate || row['conversion rate']) || 0,
-          daysToTour: parseInt(row['Days to Tour'] || row.daysToTour || row['days to tour']) || 0,
-          daysToMoveIn: parseInt(row['Days to Move-In'] || row.daysToMoveIn || row['days to move-in']) || 0
-        };
+      const careToServiceLine: Record<string, string> = {
+        'Assisted Living': 'AL',
+        'Memory Care-AL': 'AL/MC',
+        'SL Apartments': 'SL',
+        'IL Patio Homes': 'VIL',
+        'Independent Living Apts': 'VIL',
+        'Independent Living': 'IL',
+        'SNF - Short Term Rehab': 'HC',
+        'SNF - Long Term Care': 'HC',
+        'Outpatient Therapy': 'HC',
+        'Dialysis- SNF': 'HC',
+        'Dialysis- Outpatient': 'HC',
+        'Memory Care-HC': 'HC/MC',
+        'Adult Day/ Night-AL': 'AL',
+        'Adult Day/ Night-HC': 'HC',
+      };
 
-        processedRecords.push(inquiryEntry);
+      const alServiceLines = ['AL', 'AL/MC', 'SL', 'VIL', 'IL'];
+      const hcServiceLines = ['HC', 'HC/MC'];
+
+      let processedRecords: any[] = [];
+      let serviceLineScope: string[] = [];
+      let detectedFormat = 'generic';
+
+      if (hasEnquireDetail) {
+        detectedFormat = 'enquire_detail';
+        serviceLineScope = alServiceLines;
+
+        const groups = new Map<string, { inquiries: number; tours: number; conversions: number }>();
+
+        for (const row of jsonData) {
+          const dateVal = row['Inquiry Date'];
+          if (!dateVal || !row['Location']) continue;
+
+          const care = (row['Individual Care'] || '').trim();
+          const sl = careToServiceLine[care] || care || 'Unknown';
+          if (hcServiceLines.includes(sl)) continue;
+
+          let month: string;
+          if (typeof dateVal === 'number') {
+            const excelDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+            month = excelDate.toISOString().substring(0, 7);
+          } else {
+            const d = new Date(dateVal);
+            month = d.toISOString().substring(0, 7);
+          }
+
+          const location = (row['Location'] || '').trim();
+          const leadSource = (row['Individual Market Source'] || '').trim();
+          const stage = (row['SaleStage'] || '').trim();
+
+          const key = `${month}|${location}|${sl}|${leadSource}`;
+          if (!groups.has(key)) groups.set(key, { inquiries: 0, tours: 0, conversions: 0 });
+          const g = groups.get(key)!;
+
+          if (stage === 'Inquiry') g.inquiries++;
+          else if (stage === 'Tour' || stage === 'Deposit') g.tours++;
+          else if (stage === 'Move In') g.conversions++;
+        }
+
+        for (const [key, counts] of groups) {
+          const [month, location, sl, leadSource] = key.split('|');
+          const yr = parseInt(month.substring(0, 4));
+          const mo = parseInt(month.substring(5, 7));
+          const lastDay = new Date(yr, mo, 0).getDate();
+          const total = counts.inquiries + counts.tours + counts.conversions;
+
+          processedRecords.push({
+            uploadMonth: month,
+            date: `${month}-${String(lastDay).padStart(2, '0')}`,
+            region: '',
+            division: '',
+            location,
+            serviceLine: sl,
+            leadSource,
+            inquiryCount: counts.inquiries,
+            tourCount: counts.tours,
+            conversionCount: counts.conversions,
+            conversionRate: total > 0 ? Math.round((counts.conversions / total) * 10000) / 100 : 0,
+            daysToTour: 0,
+            daysToMoveIn: 0,
+            clientId,
+          });
+        }
+
+      } else if (hasPostAcute) {
+        detectedFormat = 'post_acute';
+        serviceLineScope = hcServiceLines;
+
+        const admitStatuses = new Set(['Admit', 'Discharge', 'LTC - MCD', 'LTC - PP', 'Move In']);
+        const groups = new Map<string, { referrals: number; admissions: number }>();
+
+        for (const row of jsonData) {
+          const dateVal = row['Referral Date'];
+          if (!dateVal || !row['Location']) continue;
+
+          const care = (row['Individual Care'] || '').trim();
+          const sl = careToServiceLine[care] || (care ? care : 'HC');
+          if (alServiceLines.includes(sl)) continue;
+          const finalSL = hcServiceLines.includes(sl) ? sl : 'HC';
+
+          let month: string;
+          if (typeof dateVal === 'number') {
+            const excelDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+            month = excelDate.toISOString().substring(0, 7);
+          } else {
+            const d = new Date(dateVal);
+            month = d.toISOString().substring(0, 7);
+          }
+
+          const location = (row['Location'] || '').trim();
+          const leadSource = (row['Individual Market Source'] || '').trim();
+          const status = (row['Status'] || '').trim();
+
+          const key = `${month}|${location}|${finalSL}|${leadSource}`;
+          if (!groups.has(key)) groups.set(key, { referrals: 0, admissions: 0 });
+          const g = groups.get(key)!;
+
+          g.referrals++;
+          if (admitStatuses.has(status)) g.admissions++;
+        }
+
+        for (const [key, counts] of groups) {
+          const [month, location, sl, leadSource] = key.split('|');
+          const yr = parseInt(month.substring(0, 4));
+          const mo = parseInt(month.substring(5, 7));
+          const lastDay = new Date(yr, mo, 0).getDate();
+
+          processedRecords.push({
+            uploadMonth: month,
+            date: `${month}-${String(lastDay).padStart(2, '0')}`,
+            region: '',
+            division: '',
+            location,
+            serviceLine: sl,
+            leadSource,
+            inquiryCount: counts.referrals,
+            tourCount: 0,
+            conversionCount: counts.admissions,
+            conversionRate: counts.referrals > 0 ? Math.round((counts.admissions / counts.referrals) * 10000) / 100 : 0,
+            daysToTour: 0,
+            daysToMoveIn: 0,
+            clientId,
+          });
+        }
+
+      } else {
+        detectedFormat = 'generic';
+        const currentMonth = new Date().toISOString().substring(0, 7);
+        for (const row of jsonData) {
+          processedRecords.push({
+            uploadMonth: currentMonth,
+            date: row.Date || row.date || new Date().toISOString().split('T')[0],
+            region: row.Region || row.region || '',
+            division: row.Division || row.division || '',
+            location: row.Location || row.location || '',
+            serviceLine: row['Service Line'] || row.serviceLine || row['service line'] || '',
+            leadSource: row['Lead Source'] || row.leadSource || row['lead source'] || '',
+            inquiryCount: parseInt(row['Inquiry Count'] || row.inquiryCount || row['inquiry count']) || 0,
+            tourCount: parseInt(row['Tour Count'] || row.tourCount || row['tour count']) || 0,
+            conversionCount: parseInt(row['Conversion Count'] || row.conversionCount || row['conversion count']) || 0,
+            conversionRate: parseFloat(row['Conversion Rate'] || row.conversionRate || row['conversion rate']) || 0,
+            daysToTour: parseInt(row['Days to Tour'] || row.daysToTour || row['days to tour']) || 0,
+            daysToMoveIn: parseInt(row['Days to Move-In'] || row.daysToMoveIn || row['days to move-in']) || 0,
+            clientId,
+          });
+        }
       }
 
-      console.log('Inquiry data processed:', processedRecords.length, 'records');
+      console.log(`Inquiry data processed (${detectedFormat}): ${processedRecords.length} aggregated records from ${jsonData.length} raw rows`);
 
       const { insertInquiryMetricsSchema } = await import('@shared/schema');
-      const validatedRecords = processedRecords.map(record => {
-        return insertInquiryMetricsSchema.parse(record);
+      const validatedRecords = processedRecords.map(record => insertInquiryMetricsSchema.parse(record));
+
+      const uploadMonth = validatedRecords.length > 0 ? validatedRecords[0].uploadMonth : new Date().toISOString().substring(0, 7);
+      await storage.bulkInsertInquiryMetrics(uploadMonth, validatedRecords, {
+        clientId,
+        serviceLineScope: serviceLineScope.length > 0 ? serviceLineScope : undefined,
       });
 
-      await storage.bulkInsertInquiryMetrics(currentMonth, validatedRecords);
-
       await storage.createUploadHistory({
-        uploadMonth: currentMonth,
+        uploadMonth,
         fileName: req.file.originalname,
         uploadType: 'inquiry_metrics',
         totalRecords: processedRecords.length
@@ -4973,8 +5124,10 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
 
       res.json({
         message: 'Upload successful',
+        format: detectedFormat,
         recordsProcessed: processedRecords.length,
-        uploadMonth: currentMonth
+        rawRows: jsonData.length,
+        serviceLineScope: serviceLineScope.length > 0 ? serviceLineScope : 'all',
       });
 
     } catch (error) {
