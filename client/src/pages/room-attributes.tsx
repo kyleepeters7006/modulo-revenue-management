@@ -211,7 +211,7 @@ export default function RoomAttributes() {
       }
     });
     
-    return Math.round(price * 100) / 100;
+    return Math.ceil(price / 10) * 10 - 1;
   };
 
   const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
