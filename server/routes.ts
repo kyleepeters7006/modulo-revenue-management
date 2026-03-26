@@ -10081,11 +10081,50 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
   
-  // Issue #3 fix: Get attribute configuration status
+  // Get attribute configuration status - queries DB directly for accuracy
   app.get("/api/attribute-ratings/status", async (req, res) => {
     try {
-      const status = attributePricingService.getAttributeConfigurationStatus();
-      res.json(status);
+      const clientId = (req as any).clientId || 'demo';
+
+      const result = await db.execute(sql`
+        SELECT
+          COUNT(*) AS total_units,
+          COUNT(CASE WHEN
+            size_rating IS NOT NULL OR
+            view_rating IS NOT NULL OR
+            renovation_rating IS NOT NULL OR
+            location_rating IS NOT NULL OR
+            amenity_rating IS NOT NULL
+          THEN 1 END) AS attributed_units,
+          COUNT(DISTINCT location) AS total_locations,
+          COUNT(DISTINCT CASE WHEN
+            size_rating IS NOT NULL OR
+            view_rating IS NOT NULL OR
+            renovation_rating IS NOT NULL OR
+            location_rating IS NOT NULL OR
+            amenity_rating IS NOT NULL
+          THEN location END) AS locations_with_attributes
+        FROM rent_roll_data
+        WHERE client_id = ${clientId}
+      `);
+
+      const row = result.rows[0] as Record<string, unknown>;
+      const totalUnits = parseInt(String(row.total_units)) || 0;
+      const attributedUnits = parseInt(String(row.attributed_units)) || 0;
+      const totalLocations = parseInt(String(row.total_locations)) || 0;
+      const locationsWithAttributes = parseInt(String(row.locations_with_attributes)) || 0;
+      const overallCoverage = totalUnits > 0 ? Math.round(attributedUnits / totalUnits * 100) : 0;
+
+      res.json({
+        locations: [],
+        summary: {
+          totalLocations,
+          locationsWithAttributes,
+          totalUnits,
+          attributedUnits,
+          overallCoverage
+        }
+      });
     } catch (error) {
       console.error('Error getting attribute configuration status:', error);
       res.status(500).json({ error: 'Failed to get attribute configuration status' });
