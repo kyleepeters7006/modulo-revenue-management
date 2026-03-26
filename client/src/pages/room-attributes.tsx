@@ -326,8 +326,10 @@ export default function RoomAttributes() {
       case 'difference': {
         const apA = calculateAttributedPrice(a);
         const apB = calculateAttributedPrice(b);
-        aValue = apA !== null ? apA - (a.streetRate || 0) : -Infinity;
-        bValue = apB !== null ? apB - (b.streetRate || 0) : -Infinity;
+        const bpA = basePriceMap[a.roomType];
+        const bpB = basePriceMap[b.roomType];
+        aValue = apA !== null && bpA !== undefined ? apA - bpA : -Infinity;
+        bValue = apB !== null && bpB !== undefined ? apB - bpB : -Infinity;
         break;
       }
       default:
@@ -970,8 +972,9 @@ export default function RoomAttributes() {
                     ) : (
                       sortedUnits.slice(0, 100).map(unit => {
                         const attributedPrice = calculateAttributedPrice(unit);
-                        const difference = attributedPrice !== null ? attributedPrice - unit.streetRate : null;
-                        const percentDiff = difference !== null && unit.streetRate > 0 ? (difference / unit.streetRate * 100) : null;
+                        const basePrice = basePriceMap[unit.roomType];
+                        const difference = attributedPrice !== null && basePrice !== undefined ? attributedPrice - basePrice : null;
+                        const percentDiff = difference !== null && basePrice !== undefined && basePrice > 0 ? (difference / basePrice * 100) : null;
                         
                         return (
                           <TableRow key={unit.id}>
