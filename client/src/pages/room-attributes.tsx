@@ -907,20 +907,6 @@ export default function RoomAttributes() {
                       </TableHead>
                       <TableHead 
                         className="cursor-pointer hover:bg-gray-50 text-right"
-                        onClick={() => handleSort('currentRate')}
-                        data-testid="header-currentRate"
-                      >
-                        <div className="flex items-center justify-end">
-                          Current Rate
-                          {sortColumn === 'currentRate' ? (
-                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
-                          ) : (
-                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
-                          )}
-                        </div>
-                      </TableHead>
-                      <TableHead 
-                        className="cursor-pointer hover:bg-gray-50 text-right"
                         onClick={() => handleSort('attributedPrice')}
                       >
                         <div className="flex items-center justify-end">
@@ -940,6 +926,20 @@ export default function RoomAttributes() {
                         <div className="flex items-center justify-end">
                           Difference
                           {sortColumn === 'difference' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-gray-50 text-right"
+                        onClick={() => handleSort('currentRate')}
+                        data-testid="header-currentRate"
+                      >
+                        <div className="flex items-center justify-end">
+                          Current Street Rate
+                          {sortColumn === 'currentRate' ? (
                             sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
                           ) : (
                             <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
@@ -970,12 +970,9 @@ export default function RoomAttributes() {
                             <TableCell className="text-right font-mono text-sm">
                               {(() => {
                                 const bp = basePriceMap[unit.roomType];
-                                const val = bp !== undefined ? bp : unit.streetRate;
-                                return (
-                                  <span className={bp === undefined ? 'text-muted-foreground' : ''}>
-                                    ${Math.round(val).toLocaleString()}
-                                  </span>
-                                );
+                                return bp !== undefined
+                                  ? <span>${Math.round(bp).toLocaleString()}</span>
+                                  : <span className="text-muted-foreground">—</span>;
                               })()}
                             </TableCell>
                             <TableCell className="text-center">
@@ -1013,9 +1010,6 @@ export default function RoomAttributes() {
                                 </Badge>
                               ) : '-'}
                             </TableCell>
-                            <TableCell className="text-right font-mono">
-                              ${unit.streetRate.toLocaleString()}
-                            </TableCell>
                             <TableCell className="text-right font-mono text-green-600 font-semibold">
                               ${attributedPrice.toLocaleString()}
                             </TableCell>
@@ -1028,6 +1022,9 @@ export default function RoomAttributes() {
                                   ({percentDiff > 0 ? '+' : ''}{percentDiff.toFixed(1)}%)
                                 </span>
                               </div>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-muted-foreground">
+                              ${unit.streetRate.toLocaleString()}
                             </TableCell>
                           </TableRow>
                         );
