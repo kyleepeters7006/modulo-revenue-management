@@ -551,13 +551,13 @@ export function Analytics() {
               </Badge>
             )}
           </div>
-          <p className="text-muted-foreground mt-2">
+          <div className="text-muted-foreground mt-2 text-sm">
             {isLoading ? (
               <Skeleton className="h-4 w-64" />
             ) : (
               `Portfolio-wide pricing strategy visualization across ${processedData.length} campuses`
             )}
-          </p>
+          </div>
         </div>
         <Button onClick={handleExportChart} variant="outline" className="gap-2" disabled={isLoading}>
           <Download className="h-4 w-4" />
