@@ -314,6 +314,13 @@ export default function RoomAttributes() {
         aValue = calculateAttributedPrice(a);
         bValue = calculateAttributedPrice(b);
         break;
+      case 'basePrice': {
+        const bpA = basePriceMap[a.roomType];
+        const bpB = basePriceMap[b.roomType];
+        aValue = bpA !== undefined ? bpA : (a.streetRate || 0);
+        bValue = bpB !== undefined ? bpB : (b.streetRate || 0);
+        break;
+      }
       case 'difference':
         aValue = calculateAttributedPrice(a) - (a.streetRate || 0);
         bValue = calculateAttributedPrice(b) - (b.streetRate || 0);
@@ -805,6 +812,19 @@ export default function RoomAttributes() {
                           </Select>
                         </div>
                       </TableHead>
+                      <TableHead
+                        className="cursor-pointer hover:bg-gray-50 text-right"
+                        onClick={() => handleSort('basePrice')}
+                      >
+                        <div className="flex items-center justify-end">
+                          Base Price
+                          {sortColumn === 'basePrice' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="ml-1 h-3 w-3" /> : <ArrowDown className="ml-1 h-3 w-3" />
+                          ) : (
+                            <ArrowUpDown className="ml-1 h-3 w-3 opacity-50" />
+                          )}
+                        </div>
+                      </TableHead>
                       <TableHead className="text-center">
                         <div className="flex flex-col gap-1 items-center">
                           <span>Size</span>
@@ -931,7 +951,7 @@ export default function RoomAttributes() {
                   <TableBody>
                     {sortedUnits.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={13} className="text-center py-8 text-gray-500">
                           No units match the selected filters
                         </TableCell>
                       </TableRow>
@@ -947,6 +967,17 @@ export default function RoomAttributes() {
                             <TableCell className="font-medium">{unit.roomNumber}</TableCell>
                             <TableCell className="text-sm">{unit.roomType}</TableCell>
                             <TableCell className="text-sm">{unit.serviceLine}</TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              {(() => {
+                                const bp = basePriceMap[unit.roomType];
+                                const val = bp !== undefined ? bp : unit.streetRate;
+                                return (
+                                  <span className={bp === undefined ? 'text-muted-foreground' : ''}>
+                                    ${Math.round(val).toLocaleString()}
+                                  </span>
+                                );
+                              })()}
+                            </TableCell>
                             <TableCell className="text-center">
                               {unit.sizeRating ? (
                                 <Badge className={getRatingColor(unit.sizeRating)} variant="outline">
