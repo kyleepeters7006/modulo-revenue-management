@@ -910,29 +910,7 @@ export async function importMatrixCareRentRollCSV(
     errors: [],
   };
 
-  // Helper function to normalize room types to standardized list
-  const normalizeRoomType = (roomTypeInput: string): string => {
-    const rt = (roomTypeInput || '').toLowerCase();
-    
-    // Check for Companion
-    if (rt.includes('companion')) return 'Companion';
-    
-    // Check for Studio variations
-    if (rt.includes('studio dlx') || rt.includes('studio deluxe')) return 'Studio Dlx';
-    if (rt.includes('studio')) return 'Studio';
-    
-    // Check for bedroom variations
-    if (rt.includes('two bedroom') || rt.includes('2 bedroom') || rt.includes('2br')) return 'Two Bedroom';
-    if (rt.includes('one bedroom') || rt.includes('1 bedroom') || rt.includes('1br')) return 'One Bedroom';
-    
-    // Villa defaults to Two Bedroom if not specified otherwise
-    if (rt.includes('villa') || rt.includes('patio')) return 'Two Bedroom';
-    
-    // Default fallback
-    return 'Studio';
-  };
-
-  // Helper function to parse BedTypeDesc (e.g., "Studio;A Vw;A Loc;B Sz")
+  // Helper function to parse BedTypeDesc (e.g., "Studio;A Vw;A Loc;B Sz", "Companion;A Vw;B Loc")
   const parseBedTypeDesc = (bedTypeDesc: string) => {
     const parts = (bedTypeDesc || '').split(';').map(p => p.trim());
     let size = '';
@@ -942,7 +920,7 @@ export async function importMatrixCareRentRollCSV(
     let view = null;
 
     for (const part of parts) {
-      if (part.includes('Studio') || part.includes('Bedroom')) {
+      if (part.includes('Studio') || part.includes('Bedroom') || /compan/i.test(part)) {
         size = part;
       } else if (part.includes(' Vw')) {
         viewRating = part.charAt(0); // Extract A, B, or C

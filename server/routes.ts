@@ -114,6 +114,7 @@ import { importProductionData } from "./importProductionData";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { startCompetitorRateJob, getJobStatus, getJobsForMonth, resumeInterruptedJobs } from "./services/competitorRateJobService";
+import { normalizeRoomType } from "@shared/roomTypes";
 import { getGitHubUser, listRepositories, createRepository, getRepository } from "./github-export";
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
@@ -695,6 +696,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error re-seeding competitor data:', error);
       res.status(500).json({ error: 'Failed to re-seed competitor data' });
+    }
+  });
+
+  // POST /api/admin/backfill-companion-room-type
+  // Corrects historical rent_roll_data and rent_roll_history rows where room_type
+  // was stored as a non-canonical companion variant (e.g., "Companion Suite",
+  // "Companion Room") instead of the standard "Companion".
+  //
+  // Note: Records incorrectly stored as "Studio" due to the parseBedTypeDesc bug
+  // (where source BedTypeDesc started with "Compan" but size was not captured)
+  // cannot be retroactively identified because the raw BedTypeDesc source value
+  // is not persisted in any database column. Those records require re-upload from
+  // the original source files. This endpoint corrects all other identifiable cases.
+  //
+  // Safe to run multiple times (idempotent).
+  app.post('/api/admin/backfill-companion-room-type', async (req, res) => {
+    try {
+      console.log('Running Companion room type backfill...');
+
+      // Pre-check: count rows with non-canonical companion variants
+      const preCheckResult = await db.execute(sql`
+        SELECT
+          (SELECT count(*)::int FROM rent_roll_data WHERE lower(room_type) LIKE '%compan%' AND room_type != 'Companion') AS rent_roll_data_pre,
+          (SELECT count(*)::int FROM rent_roll_history WHERE lower(room_type) LIKE '%compan%' AND room_type != 'Companion') AS rent_roll_history_pre
+      `);
+      const preCheck = preCheckResult.rows[0] as any;
+      console.log(`Pre-backfill: rent_roll_data=${preCheck?.rent_roll_data_pre}, rent_roll_history=${preCheck?.rent_roll_history_pre}`);
+
+      const rentRollResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE rent_roll_data
+          SET room_type = 'Companion'
+          WHERE lower(room_type) LIKE '%compan%'
+            AND room_type != 'Companion'
+          RETURNING id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+
+      const historyResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE rent_roll_history
+          SET room_type = 'Companion'
+          WHERE lower(room_type) LIKE '%compan%'
+            AND room_type != 'Companion'
+          RETURNING id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+
+      const rentRollUpdated = (rentRollResult.rows[0] as any)?.rows_updated ?? 0;
+      const historyUpdated = (historyResult.rows[0] as any)?.rows_updated ?? 0;
+
+      console.log(`Companion backfill complete: rent_roll_data=${rentRollUpdated}, rent_roll_history=${historyUpdated}`);
+
+      res.json({
+        success: true,
+        rentRollDataRowsUpdated: rentRollUpdated,
+        rentRollHistoryRowsUpdated: historyUpdated,
+        preCheckCounts: {
+          rentRollDataAffected: preCheck?.rent_roll_data_pre ?? 0,
+          rentRollHistoryAffected: preCheck?.rent_roll_history_pre ?? 0,
+        },
+        message: `Backfill complete. Updated ${rentRollUpdated} rent_roll_data rows and ${historyUpdated} rent_roll_history rows.`
+      });
+    } catch (error) {
+      console.error('Error running Companion room type backfill:', error);
+      res.status(500).json({ error: 'Failed to run Companion room type backfill' });
     }
   });
 
@@ -1331,7 +1400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             location: locationName,
             locationId: location.id,
             roomNumber: row['Room Number'] || '',
-            roomType: row['Room Type'] || 'Studio',
+            roomType: normalizeRoomType(row['Room Type'] || 'Studio'),
             serviceLine: row['Service Line'] || 'AL',
             occupiedYN: row['Occupied Y/N'] === 'Y',
             daysVacant: parseInt(row['Days Vacant']) || 0,
@@ -4774,7 +4843,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           date: getRowValue(row, 'Date', 'date') || uploadDate,
           location: getRowValue(row, 'Location', 'location') || '',
           roomNumber: getRowValue(row, 'Room_Bed', 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
-          roomType: cleanRoomType,
+          roomType: normalizeRoomType(cleanRoomType),
           serviceLine: normalizedServiceLine,
           occupiedYN: isOccupied,
           daysVacant: parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0,
