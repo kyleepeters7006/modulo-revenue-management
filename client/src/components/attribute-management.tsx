@@ -348,115 +348,122 @@ export default function AttributeManagement({
             </Alert>
           )}
 
-          <div className="space-y-3">
-            {Object.entries(groupedRatings).map(([attributeType, ratings]: [string, AttributeRating[]]) => (
-              <div key={attributeType}>
-                <h3 className="font-medium text-lg capitalize mb-2">
-                  {attributeType} Ratings
-                </h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Rating</TableHead>
-                      <TableHead>Adjustment %</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Actions</TableHead>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-28">Attribute</TableHead>
+                <TableHead className="w-16">Rating</TableHead>
+                <TableHead className="w-28">Adjustment %</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Object.entries(groupedRatings).flatMap(([attributeType, ratings]: [string, AttributeRating[]], groupIdx) =>
+                ratings.map((rating: AttributeRating, rowIdx: number) => {
+                  const displayRating = getDisplayRating(rating);
+                  const changed = hasChanges(rating);
+                  const isFirstInGroup = rowIdx === 0;
+                  const isLastInGroup = rowIdx === ratings.length - 1;
+
+                  return (
+                    <TableRow
+                      key={`${rating.attributeType}-${rating.ratingLevel}`}
+                      className={`${changed ? "bg-yellow-50 dark:bg-yellow-900/20" : ""} ${!isLastInGroup ? "border-b-0" : groupIdx < Object.keys(groupedRatings).length - 1 ? "border-b-2 border-muted" : ""}`}
+                    >
+                      <TableCell className="py-1.5 align-middle">
+                        {isFirstInGroup && (
+                          <span className="font-medium text-sm capitalize">{attributeType}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <div className="flex items-center gap-1">
+                          <Badge className={`${getRatingColor(rating.ratingLevel)} text-xs px-1.5 py-0`}>
+                            {rating.ratingLevel}
+                          </Badge>
+                          {changed && (
+                            <Badge variant="outline" className="text-xs px-1 py-0 bg-yellow-100 border-yellow-400">
+                              •
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        {editingRating && editingRating.id === rating.id ? (
+                          <Input
+                            type="number"
+                            value={editingRating.adjustmentPercent}
+                            onChange={(e) => setEditingRating({
+                              ...editingRating,
+                              adjustmentPercent: parseFloat(e.target.value) || 0
+                            })}
+                            className="w-20 h-7 text-sm"
+                            step="0.1"
+                            data-testid={`input-adjustment-${rating.attributeType}-${rating.ratingLevel}`}
+                          />
+                        ) : (
+                          <span className={`text-sm ${displayRating.adjustmentPercent > 0 ? "text-green-600" : displayRating.adjustmentPercent < 0 ? "text-red-600" : ""}`}>
+                            {displayRating.adjustmentPercent > 0 ? '+' : ''}{displayRating.adjustmentPercent}%
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        {editingRating && editingRating.id === rating.id ? (
+                          <Input
+                            value={editingRating.description || ''}
+                            onChange={(e) => setEditingRating({
+                              ...editingRating,
+                              description: e.target.value
+                            })}
+                            className="h-7 text-sm"
+                            data-testid={`textarea-description-${rating.attributeType}-${rating.ratingLevel}`}
+                          />
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            {displayRating.description || '—'}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        {editingRating && editingRating.id === rating.id ? (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => handleSaveEdit(editingRating)}
+                              data-testid={`button-stage-${rating.attributeType}-${rating.ratingLevel}`}
+                            >
+                              <Check className="h-3 w-3 mr-1" />
+                              Stage
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => setEditingRating(null)}
+                              data-testid={`button-cancel-${rating.attributeType}-${rating.ratingLevel}`}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setEditingRating({...displayRating, id: rating.id})}
+                            data-testid={`button-edit-${rating.attributeType}-${rating.ratingLevel}`}
+                          >
+                            Edit
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ratings.map((rating: AttributeRating) => {
-                      const displayRating = getDisplayRating(rating);
-                      const changed = hasChanges(rating);
-                      
-                      return (
-                        <TableRow key={`${rating.attributeType}-${rating.ratingLevel}`} className={changed ? "bg-yellow-50" : ""}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Badge className={getRatingColor(rating.ratingLevel)}>
-                                {rating.ratingLevel}
-                              </Badge>
-                              {changed && (
-                                <Badge variant="outline" className="text-xs bg-yellow-100 border-yellow-400">
-                                  Changed
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {editingRating && editingRating.id === rating.id ? (
-                              <Input
-                                type="number"
-                                value={editingRating.adjustmentPercent}
-                                onChange={(e) => setEditingRating({
-                                  ...editingRating,
-                                  adjustmentPercent: parseFloat(e.target.value) || 0
-                                })}
-                                className="w-20"
-                                step="0.1"
-                                data-testid={`input-adjustment-${rating.attributeType}-${rating.ratingLevel}`}
-                              />
-                            ) : (
-                              <span className={displayRating.adjustmentPercent > 0 ? "text-green-600" : displayRating.adjustmentPercent < 0 ? "text-red-600" : ""}>
-                                {displayRating.adjustmentPercent > 0 ? '+' : ''}{displayRating.adjustmentPercent}%
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {editingRating && editingRating.id === rating.id ? (
-                              <Textarea
-                                value={editingRating.description || ''}
-                                onChange={(e) => setEditingRating({
-                                  ...editingRating,
-                                  description: e.target.value
-                                })}
-                                className="min-h-[60px]"
-                                data-testid={`textarea-description-${rating.attributeType}-${rating.ratingLevel}`}
-                              />
-                            ) : (
-                              <span className="text-sm text-gray-600">
-                                {displayRating.description || 'No description'}
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {editingRating && editingRating.id === rating.id ? (
-                              <div className="flex space-x-2">
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleSaveEdit(editingRating)}
-                                  data-testid={`button-stage-${rating.attributeType}-${rating.ratingLevel}`}
-                                >
-                                  <Check className="h-3 w-3 mr-1" />
-                                  Stage
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setEditingRating(null)}
-                                  data-testid={`button-cancel-${rating.attributeType}-${rating.ratingLevel}`}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingRating({...displayRating, id: rating.id})}
-                                data-testid={`button-edit-${rating.attributeType}-${rating.ratingLevel}`}
-                              >
-                                Edit
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            ))}
-          </div>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
