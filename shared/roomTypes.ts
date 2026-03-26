@@ -25,18 +25,17 @@ export type StandardRoomType = typeof STANDARD_ROOM_TYPES[keyof typeof STANDARD_
  * @returns One of the 5 standard room types, or 'Studio' as default
  */
 export function normalizeRoomType(rawRoomType: string | null | undefined): StandardRoomType {
-  // Handle null/undefined/empty inputs
   if (!rawRoomType || rawRoomType.trim() === '') {
     console.warn('Empty or null room type provided, defaulting to Studio');
     return STANDARD_ROOM_TYPES.STUDIO;
   }
 
-  // Convert to lowercase for case-insensitive matching and trim whitespace
   const normalized = rawRoomType.toLowerCase().trim();
 
   // Companion room mappings (shared/double occupancy)
   const companionKeywords = [
     'companion',
+    'compan',
     'double',
     'shared',
     'mc companion',

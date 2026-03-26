@@ -98,9 +98,9 @@ async function importRentRolls() {
         // Map MatrixCare fields to our schema
         const isOccupied = Boolean(row.PatientID1 && row.PatientID1.trim());
         const serviceLine = mapServiceLine(row.Service1);
-        const roomType = normalizeRoomType(row.BedTypeDesc);
         const payerType = row.DisplayPayer || row.PayerName || 'Unknown';
         const roomNumber = row.Room_Bed || 'Unknown';
+        const roomType = normalizeRoomType(row.BedTypeDesc);
         const locationName = row.location.trim();
         
         // **DUPLICATE CHECK**: Check if this unit already exists in this month

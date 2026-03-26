@@ -498,11 +498,11 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
                 <Button
                   onClick={() => {
-                    const unitsWithModulo = filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate) && !u.occupiedYN);
+                    const unitsWithModulo = filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate));
                     if (unitsWithModulo.length === 0) {
                       toast({ 
                         title: "No Modulo suggestions", 
-                        description: "Generate Modulo suggestions first or all units are occupied",
+                        description: "Generate Modulo suggestions first",
                         variant: "destructive"
                       });
                       return;
@@ -518,7 +518,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-modulo"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Modulo ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate) && !u.occupiedYN).length})
+                  Accept All Modulo ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate)).length})
                 </Button>
                 
                 <Button
@@ -760,7 +760,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         )}
                       </TableCell>
                       <TableCell>
-                        {(unit.ruleAdjustedRate || unit.moduloSuggestedRate) && !unit.occupiedYN ? (
+                        {(unit.ruleAdjustedRate || unit.moduloSuggestedRate) ? (
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <ModuloCalculationDialog
