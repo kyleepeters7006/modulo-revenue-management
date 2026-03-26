@@ -188,10 +188,12 @@ export default function RoomAttributes() {
     setSelected([]);
   };
 
-  const calculateAttributedPrice = (unit: UnitWithAttributes): number => {
+  const calculateAttributedPrice = (unit: UnitWithAttributes): number | null => {
     const storedBasePrice = basePriceMap[unit.roomType];
-    let price = storedBasePrice !== undefined ? storedBasePrice : (unit.streetRate || 0);
-    
+    if (storedBasePrice === undefined) return null;
+
+    let price = storedBasePrice;
+
     const attributeTypes = ['size', 'view', 'renovation', 'location', 'amenity'];
     
     attributeTypes.forEach(type => {
@@ -311,20 +313,23 @@ export default function RoomAttributes() {
         bValue = b.streetRate || 0;
         break;
       case 'attributedPrice':
-        aValue = calculateAttributedPrice(a);
-        bValue = calculateAttributedPrice(b);
+        aValue = calculateAttributedPrice(a) ?? -Infinity;
+        bValue = calculateAttributedPrice(b) ?? -Infinity;
         break;
       case 'basePrice': {
         const bpA = basePriceMap[a.roomType];
         const bpB = basePriceMap[b.roomType];
-        aValue = bpA !== undefined ? bpA : (a.streetRate || 0);
-        bValue = bpB !== undefined ? bpB : (b.streetRate || 0);
+        aValue = bpA !== undefined ? bpA : -Infinity;
+        bValue = bpB !== undefined ? bpB : -Infinity;
         break;
       }
-      case 'difference':
-        aValue = calculateAttributedPrice(a) - (a.streetRate || 0);
-        bValue = calculateAttributedPrice(b) - (b.streetRate || 0);
+      case 'difference': {
+        const apA = calculateAttributedPrice(a);
+        const apB = calculateAttributedPrice(b);
+        aValue = apA !== null ? apA - (a.streetRate || 0) : -Infinity;
+        bValue = apB !== null ? apB - (b.streetRate || 0) : -Infinity;
         break;
+      }
       default:
         return 0;
     }
@@ -344,7 +349,10 @@ export default function RoomAttributes() {
     const avgStreetRate = unitsOfType.reduce((sum, u) => sum + (u.streetRate || 0), 0) / unitsOfType.length || 0;
     const storedBasePrice = basePriceMap[roomType];
     const effectiveBasePrice = storedBasePrice !== undefined ? storedBasePrice : avgStreetRate;
-    const avgAttributedPrice = unitsOfType.reduce((sum, u) => sum + calculateAttributedPrice(u), 0) / unitsOfType.length || 0;
+    const attributedPrices = unitsOfType.map(u => calculateAttributedPrice(u)).filter((v): v is number => v !== null);
+    const avgAttributedPrice = attributedPrices.length > 0
+      ? attributedPrices.reduce((sum, v) => sum + v, 0) / attributedPrices.length
+      : null;
     
     return {
       roomType,
@@ -353,8 +361,8 @@ export default function RoomAttributes() {
       avgStreetRate,
       effectiveBasePrice,
       displayBasePrice: Math.round(effectiveBasePrice),
-      avgAttributedPrice: Math.round(avgAttributedPrice),
-      lift: avgAttributedPrice > 0 && effectiveBasePrice > 0 ? ((avgAttributedPrice - effectiveBasePrice) / effectiveBasePrice * 100).toFixed(1) : '0.0'
+      avgAttributedPrice: avgAttributedPrice !== null ? Math.round(avgAttributedPrice) : null,
+      lift: avgAttributedPrice !== null && effectiveBasePrice > 0 ? ((avgAttributedPrice - effectiveBasePrice) / effectiveBasePrice * 100).toFixed(1) : null
     };
   });
 
@@ -667,15 +675,19 @@ export default function RoomAttributes() {
                             )}
                           </TableCell>
                           <TableCell className="text-right font-mono text-green-600">
-                            ${avgAttributedPrice.toLocaleString()}
+                            {avgAttributedPrice !== null ? `$${avgAttributedPrice.toLocaleString()}` : <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Badge 
-                              variant={parseFloat(lift) > 5 ? "default" : "secondary"}
-                              className={parseFloat(lift) > 5 ? "bg-green-600" : ""}
-                            >
-                              +{lift}%
-                            </Badge>
+                            {lift !== null ? (
+                              <Badge
+                                variant={parseFloat(lift) > 5 ? "default" : "secondary"}
+                                className={parseFloat(lift) > 5 ? "bg-green-600" : ""}
+                              >
+                                +{lift}%
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">—</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -958,8 +970,8 @@ export default function RoomAttributes() {
                     ) : (
                       sortedUnits.slice(0, 100).map(unit => {
                         const attributedPrice = calculateAttributedPrice(unit);
-                        const difference = attributedPrice - unit.streetRate;
-                        const percentDiff = unit.streetRate > 0 ? (difference / unit.streetRate * 100) : 0;
+                        const difference = attributedPrice !== null ? attributedPrice - unit.streetRate : null;
+                        const percentDiff = difference !== null && unit.streetRate > 0 ? (difference / unit.streetRate * 100) : null;
                         
                         return (
                           <TableRow key={unit.id}>
@@ -1011,17 +1023,23 @@ export default function RoomAttributes() {
                               ) : '-'}
                             </TableCell>
                             <TableCell className="text-right font-mono text-green-600 font-semibold">
-                              ${attributedPrice.toLocaleString()}
+                              {attributedPrice !== null
+                                ? `$${attributedPrice.toLocaleString()}`
+                                : <span className="text-muted-foreground font-normal">—</span>}
                             </TableCell>
                             <TableCell className="text-right">
-                              <div className="flex flex-col items-end">
-                                <span className={difference > 0 ? "text-green-600" : difference < 0 ? "text-red-600" : "text-gray-500"}>
-                                  {difference > 0 ? '+' : ''}${Math.round(difference).toLocaleString()}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  ({percentDiff > 0 ? '+' : ''}{percentDiff.toFixed(1)}%)
-                                </span>
-                              </div>
+                              {difference !== null ? (
+                                <div className="flex flex-col items-end">
+                                  <span className={difference > 0 ? "text-green-600" : difference < 0 ? "text-red-600" : "text-gray-500"}>
+                                    {difference > 0 ? '+' : ''}${Math.round(difference).toLocaleString()}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    ({percentDiff !== null && percentDiff > 0 ? '+' : ''}{percentDiff !== null ? percentDiff.toFixed(1) : '0.0'}%)
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-right font-mono text-muted-foreground">
                               ${unit.streetRate.toLocaleString()}
