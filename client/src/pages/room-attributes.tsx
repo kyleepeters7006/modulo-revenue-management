@@ -4,6 +4,7 @@ import Navigation from "@/components/navigation";
 import AttributeManagement from "@/components/attribute-management";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -16,8 +17,9 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DollarSign, Home, Layers, TrendingUp, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Filter } from "lucide-react";
+import { DollarSign, Home, Layers, TrendingUp, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Filter, Check, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 
 interface UnitWithAttributes {
   id: string;
@@ -40,6 +42,12 @@ interface AttributeRating {
   ratingLevel: string;
   adjustmentPercent: number;
   description?: string;
+}
+
+interface RoomTypeBasePrice {
+  roomType: string;
+  basePrice: number;
+  updatedAt?: string;
 }
 
 const saveFiltersToStorage = (filters: any) => {
@@ -68,6 +76,11 @@ export default function RoomAttributes() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations || []);
+
+  // Local editing state for base price inputs: { [roomType]: inputValue }
+  const [editingBasePrices, setEditingBasePrices] = useState<Record<string, string>>({});
+  // Track which room types have just been saved (for save indicator)
+  const [savedRoomTypes, setSavedRoomTypes] = useState<Set<string>>(new Set());
   
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -113,6 +126,39 @@ export default function RoomAttributes() {
     queryKey: ['/api/attribute-ratings'],
   });
 
+  const { data: roomTypeBasePricesData = [] } = useQuery<RoomTypeBasePrice[]>({
+    queryKey: ['/api/room-type-base-prices'],
+  });
+
+  const basePriceMap: Record<string, number> = {};
+  for (const entry of roomTypeBasePricesData) {
+    basePriceMap[entry.roomType] = entry.basePrice;
+  }
+
+  const saveBasePriceMutation = useMutation({
+    mutationFn: async ({ roomType, basePrice }: { roomType: string; basePrice: number }) => {
+      return apiRequest('/api/room-type-base-prices', 'PUT', { roomType, basePrice });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/room-type-base-prices'] });
+      setSavedRoomTypes(prev => {
+        const next = new Set(prev);
+        next.add(variables.roomType);
+        return next;
+      });
+      setTimeout(() => {
+        setSavedRoomTypes(prev => {
+          const next = new Set(prev);
+          next.delete(variables.roomType);
+          return next;
+        });
+      }, 2000);
+    },
+    onError: () => {
+      toast({ title: 'Failed to save base price', variant: 'destructive' });
+    },
+  });
+
   const { data: locationsData } = useQuery<{
     locations?: Array<{ id: string; name: string; region?: string; division?: string }>;
     regions?: string[];
@@ -143,7 +189,8 @@ export default function RoomAttributes() {
   };
 
   const calculateAttributedPrice = (unit: UnitWithAttributes): number => {
-    let price = unit.streetRate || 0;
+    const storedBasePrice = basePriceMap[unit.roomType];
+    let price = storedBasePrice !== undefined ? storedBasePrice : (unit.streetRate || 0);
     
     const attributeTypes = ['size', 'view', 'renovation', 'location', 'amenity'];
     
@@ -287,15 +334,20 @@ export default function RoomAttributes() {
 
   const roomTypePricing = filteredRoomTypes.map(roomType => {
     const unitsOfType = filteredUnits.filter(unit => unit.roomType === roomType);
-    const avgBasePrice = unitsOfType.reduce((sum, u) => sum + (u.streetRate || 0), 0) / unitsOfType.length || 0;
+    const avgStreetRate = unitsOfType.reduce((sum, u) => sum + (u.streetRate || 0), 0) / unitsOfType.length || 0;
+    const storedBasePrice = basePriceMap[roomType];
+    const effectiveBasePrice = storedBasePrice !== undefined ? storedBasePrice : avgStreetRate;
     const avgAttributedPrice = unitsOfType.reduce((sum, u) => sum + calculateAttributedPrice(u), 0) / unitsOfType.length || 0;
     
     return {
       roomType,
       count: unitsOfType.length,
-      avgBasePrice: Math.round(avgBasePrice),
+      storedBasePrice,
+      avgStreetRate,
+      effectiveBasePrice,
+      displayBasePrice: Math.round(effectiveBasePrice),
       avgAttributedPrice: Math.round(avgAttributedPrice),
-      lift: avgAttributedPrice > 0 && avgBasePrice > 0 ? ((avgAttributedPrice - avgBasePrice) / avgBasePrice * 100).toFixed(1) : '0.0'
+      lift: avgAttributedPrice > 0 && effectiveBasePrice > 0 ? ((avgAttributedPrice - effectiveBasePrice) / effectiveBasePrice * 100).toFixed(1) : '0.0'
     };
   });
 
@@ -550,7 +602,7 @@ export default function RoomAttributes() {
                 <span>Base Pricing by Room Type</span>
               </CardTitle>
               <CardDescription>
-                Average pricing and attribute lift for room types based on current filters
+                Set a base price per room type. The attributed price is calculated from the base price plus attribute adjustments.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -559,9 +611,9 @@ export default function RoomAttributes() {
                   <TableRow>
                     <TableHead>Room Type</TableHead>
                     <TableHead className="text-right">Units</TableHead>
-                    <TableHead className="text-right">Avg. Base Price</TableHead>
+                    <TableHead className="text-right">Base Price</TableHead>
                     <TableHead className="text-right">Avg. Attributed Price</TableHead>
-                    <TableHead className="text-right">Price Lift</TableHead>
+                    <TableHead className="text-right">Avg. Attributed Lift</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -572,26 +624,55 @@ export default function RoomAttributes() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    roomTypePricing.map(({ roomType, count, avgBasePrice, avgAttributedPrice, lift }) => (
-                      <TableRow key={roomType}>
-                        <TableCell className="font-medium">{roomType || 'Unknown'}</TableCell>
-                        <TableCell className="text-right">{count}</TableCell>
-                        <TableCell className="text-right font-mono">
-                          ${avgBasePrice.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-green-600">
-                          ${avgAttributedPrice.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Badge 
-                            variant={parseFloat(lift) > 5 ? "default" : "secondary"}
-                            className={parseFloat(lift) > 5 ? "bg-green-600" : ""}
-                          >
-                            +{lift}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    roomTypePricing.map(({ roomType, count, storedBasePrice, avgStreetRate, effectiveBasePrice, displayBasePrice, avgAttributedPrice, lift }) => {
+                      const inputVal = editingBasePrices[roomType] !== undefined
+                        ? editingBasePrices[roomType]
+                        : storedBasePrice !== undefined ? String(storedBasePrice) : String(displayBasePrice);
+                      const isSaving = saveBasePriceMutation.isPending && saveBasePriceMutation.variables?.roomType === roomType;
+                      const isSaved = savedRoomTypes.has(roomType);
+
+                      const handleSave = () => {
+                        const parsed = parseFloat(inputVal.replace(/,/g, ''));
+                        if (!isNaN(parsed) && parsed >= 0) {
+                          saveBasePriceMutation.mutate({ roomType, basePrice: parsed });
+                        }
+                      };
+
+                      return (
+                        <TableRow key={roomType}>
+                          <TableCell className="font-medium">{roomType || 'Unknown'}</TableCell>
+                          <TableCell className="text-right">{count}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <span className="text-gray-400 text-sm">$</span>
+                              <Input
+                                className="w-28 h-7 text-right font-mono text-sm px-1"
+                                value={inputVal}
+                                onChange={e => setEditingBasePrices(prev => ({ ...prev, [roomType]: e.target.value }))}
+                                onBlur={handleSave}
+                                onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
+                              />
+                              {isSaving && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+                              {isSaved && !isSaving && <Check className="h-4 w-4 text-green-500" />}
+                            </div>
+                            {storedBasePrice === undefined && (
+                              <p className="text-xs text-gray-400 mt-0.5 text-right">avg. street rate</p>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-green-600">
+                            ${avgAttributedPrice.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Badge 
+                              variant={parseFloat(lift) > 5 ? "default" : "secondary"}
+                              className={parseFloat(lift) > 5 ? "bg-green-600" : ""}
+                            >
+                              +{lift}%
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>

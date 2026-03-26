@@ -937,6 +937,20 @@ export const insertAiWeightVersionsSchema = createInsertSchema(aiWeightVersions)
   createdAt: true,
 });
 
+// Room Type Base Prices - One editable base price per room type name
+export const roomTypeBasePrices = pgTable("room_type_base_prices", {
+  roomType: text("room_type").primaryKey(),
+  basePrice: real("base_price").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertRoomTypeBasePricesSchema = createInsertSchema(roomTypeBasePrices).omit({
+  updatedAt: true,
+});
+
+export type RoomTypeBasePrice = typeof roomTypeBasePrices.$inferSelect;
+export type InsertRoomTypeBasePrice = z.infer<typeof insertRoomTypeBasePricesSchema>;
+
 // Revenue Growth Targets - Store target annual growth % by location/service line
 export const revenueGrowthTargets = pgTable("revenue_growth_targets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

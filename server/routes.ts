@@ -10092,6 +10092,34 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
   
+  // Room Type Base Prices endpoints
+  app.get("/api/room-type-base-prices", async (req, res) => {
+    try {
+      const basePrices = await storage.getRoomTypeBasePrices();
+      res.json(basePrices);
+    } catch (error) {
+      console.error('Error fetching room type base prices:', error);
+      res.status(500).json({ error: 'Failed to fetch room type base prices' });
+    }
+  });
+
+  app.put("/api/room-type-base-prices", async (req, res) => {
+    try {
+      const { roomType, basePrice } = req.body;
+      if (!roomType || typeof roomType !== 'string') {
+        return res.status(400).json({ error: 'roomType is required' });
+      }
+      if (typeof basePrice !== 'number' || basePrice < 0) {
+        return res.status(400).json({ error: 'basePrice must be a non-negative number' });
+      }
+      const result = await storage.upsertRoomTypeBasePrice(roomType, basePrice);
+      res.json(result);
+    } catch (error) {
+      console.error('Error upserting room type base price:', error);
+      res.status(500).json({ error: 'Failed to save room type base price' });
+    }
+  });
+
   // Add the missing room-attributes endpoint
   app.get("/api/room-attributes", async (req, res) => {
     try {

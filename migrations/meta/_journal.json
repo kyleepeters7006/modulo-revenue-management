@@ -15,6 +15,13 @@
       "when": 1763918856407,
       "tag": "0001_freezing_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774535800000,
+      "tag": "0002_room_type_base_prices",
+      "breakpoints": true
     }
   ]
 }

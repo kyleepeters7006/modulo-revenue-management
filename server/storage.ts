@@ -29,6 +29,7 @@ import {
   calculationHistory,
   revenueGrowthTargets,
   aiRateOutcomes,
+  roomTypeBasePrices,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -262,6 +263,10 @@ export interface IStorage {
   upsertRevenueGrowthTarget(data: InsertRevenueGrowthTarget): Promise<RevenueGrowthTarget>;
   bulkUpsertRevenueGrowthTargets(data: InsertRevenueGrowthTarget[]): Promise<number>;
   getRevenueGrowthTargets(locationId?: string): Promise<RevenueGrowthTarget[]>;
+
+  // Room Type Base Prices
+  getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]>;
+  upsertRoomTypeBasePrice(roomType: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2150,6 +2155,22 @@ export class DatabaseStorage implements IStorage {
       return db.select().from(revenueGrowthTargets).where(eq(revenueGrowthTargets.locationId, locationId));
     }
     return db.select().from(revenueGrowthTargets);
+  }
+
+  async getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]> {
+    return db.select().from(roomTypeBasePrices);
+  }
+
+  async upsertRoomTypeBasePrice(roomType: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice> {
+    const [result] = await db
+      .insert(roomTypeBasePrices)
+      .values({ roomType, basePrice, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: roomTypeBasePrices.roomType,
+        set: { basePrice, updatedAt: new Date() },
+      })
+      .returning();
+    return result;
   }
 }
 
