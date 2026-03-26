@@ -10106,6 +10106,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           THEN location END) AS locations_with_attributes
         FROM rent_roll_data
         WHERE client_id = ${clientId}
+          AND upload_month = (
+            SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = ${clientId}
+          )
       `);
 
       const row = result.rows[0] as Record<string, unknown>;
