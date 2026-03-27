@@ -7552,14 +7552,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         }
         // If manualRuleApplied is true, calculationDetails was already set above, so don't overwrite it
         
-        // Ensure suggestions are different from street rates (minimum 1% change) - only if no manual rule
-        if (!manualRuleApplied) {
-          const minChange = unit.streetRate * 0.01;
-          if (Math.abs(suggestion - unit.streetRate) < minChange) {
-            suggestion = unit.streetRate + (Math.random() > 0.5 ? minChange : -minChange);
-          }
-        }
-        
         // Debug final suggestion for HC unit
         if (unit.streetRate === 11460) {
           console.log('DEBUG HC-305 Final values:', {
