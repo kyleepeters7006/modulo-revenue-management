@@ -55,6 +55,23 @@ export default function ModuloCalculationDialog({
   // Use provided details or API details
   const calcDetails = details || apiDetails;
 
+  // Effective (post-guardrail) adjustment = actual applied change from street rate to final rate.
+  // This matches the % shown in the rate card table and is arithmetically correct.
+  // calcDetails.totalAdjustment is the pre-guardrail group average, which can differ when guardrails cap the rate.
+  const effectiveAdj = (() => {
+    if (!calcDetails) return 0;
+    if (typeof calcDetails.baseRate === 'number' && typeof calcDetails.finalRate === 'number' && calcDetails.baseRate > 0) {
+      return (calcDetails.finalRate - calcDetails.baseRate) / calcDetails.baseRate;
+    }
+    return calcDetails.totalAdjustment ?? 0;
+  })();
+
+  // Guardrails were applied if the new object format says so, or old array format is non-empty
+  const guardrailsWereApplied = !!(
+    calcDetails?.guardrailsApplied?.wasAdjusted === true ||
+    (Array.isArray(calcDetails?.guardrailsApplied) && calcDetails.guardrailsApplied.length > 0)
+  );
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -113,15 +130,15 @@ export default function ModuloCalculationDialog({
                     <div>
                       <p className="text-xs text-muted-foreground">Total Adjustment</p>
                       <p className="text-lg font-bold flex items-center gap-1">
-                        {calcDetails.totalAdjustment > 0 ? (
+                        {effectiveAdj > 0 ? (
                           <>
                             <TrendingUp className="h-4 w-4 text-green-600" />
-                            <span className="text-green-600">+{formatPercent(calcDetails.totalAdjustment)}</span>
+                            <span className="text-green-600">+{formatPercent(effectiveAdj)}</span>
                           </>
                         ) : (
                           <>
                             <TrendingDown className="h-4 w-4 text-red-600" />
-                            <span className="text-red-600">{formatPercent(calcDetails.totalAdjustment)}</span>
+                            <span className="text-red-600">{formatPercent(effectiveAdj)}</span>
                           </>
                         )}
                       </p>
@@ -421,8 +438,8 @@ export default function ModuloCalculationDialog({
                 </Card>
               )}
 
-              {/* Smart Adjustments (Guardrails) */}
-              {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
+              {/* Smart Adjustments (Guardrails) - shown only for old array-format guardrail data */}
+              {Array.isArray(calcDetails.guardrailsApplied) && calcDetails.guardrailsApplied.length > 0 && (
                 <Card className="border-amber-500 bg-amber-50 dark:bg-amber-950/30 shadow-md">
                   <CardHeader className="pb-3 bg-amber-100 dark:bg-amber-950/50">
                     <CardTitle className="text-sm flex items-center gap-2">
@@ -444,7 +461,7 @@ export default function ModuloCalculationDialog({
                               {formatCurrency(calcDetails.finalRate)}
                             </p>
                             <p className="text-xs text-red-600">
-                              ({calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)})
+                              ({effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)})
                             </p>
                           </div>
                           <div>
@@ -500,19 +517,28 @@ export default function ModuloCalculationDialog({
                         </div>
                       ))}
                       <Separator />
+                      {guardrailsWereApplied && typeof calcDetails.totalAdjustment === 'number' && Math.abs(calcDetails.totalAdjustment - effectiveAdj) > 0.0001 && (
+                        <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-500">
+                          <span className="flex items-center gap-1">
+                            <Shield className="h-3 w-3" />
+                            Group Avg (pre-guardrail)
+                          </span>
+                          <span>{calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <span className="text-sm">Total Adjustment</span>
-                        <span className={`font-medium ${getAdjustmentColor(calcDetails.totalAdjustment)}`}>
-                          {calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}
+                        <span className={`font-medium ${getAdjustmentColor(effectiveAdj)}`}>
+                          {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
                         </span>
                       </div>
-                      {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
+                      {guardrailsWereApplied && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="flex items-center gap-1 text-amber-700 dark:text-amber-500">
                             <Shield className="h-3 w-3" />
-                            Smart Adjustments
+                            Guardrails Applied
                           </span>
-                          <span className="text-amber-700 dark:text-amber-500 font-medium">Applied</span>
+                          <span className="text-amber-700 dark:text-amber-500 font-medium">Capped</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between font-bold">
@@ -531,7 +557,7 @@ export default function ModuloCalculationDialog({
                   <div className="text-xs font-mono space-y-1">
                     <div>Base Rate × (1 + Total Weighted Adjustments) = Recommended Rate</div>
                     <div className="text-primary">
-                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(calcDetails.totalAdjustment || 0)}) = {formatCurrency(getFinalRate(calcDetails))}
+                      {formatCurrency(calcDetails.baseRate || currentRate)} × (1 + {formatPercent(effectiveAdj)}) = {formatCurrency(getFinalRate(calcDetails))}
                     </div>
                   </div>
                 </CardContent>
