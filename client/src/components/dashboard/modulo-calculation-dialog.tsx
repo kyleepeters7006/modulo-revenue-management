@@ -521,7 +521,7 @@ export default function ModuloCalculationDialog({
                         <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-500">
                           <span className="flex items-center gap-1">
                             <Shield className="h-3 w-3" />
-                            Group Avg (pre-guardrail)
+                            Pre-Guardrail Group Adjustment
                           </span>
                           <span>{calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}</span>
                         </div>
