@@ -38,6 +38,19 @@ interface ProcessingProgress {
 }
 
 // Process units in parallel with concurrency limit
+interface UnitRawResult {
+  id: string;
+  streetRate: number;
+  locationId: string;
+  serviceLine: string;
+  roomType: string;
+  rawTotalAdjustment: number;
+  weightsDisabled: boolean;
+  calculationDetailsTemplate: any;
+  pricingInputs: PricingInputs | null;
+  unitWeights: any;
+}
+
 async function processUnitBatch(
   units: any[],
   precomputedSignals: PrecomputedSignals,
@@ -46,15 +59,12 @@ async function processUnitBatch(
   globalWeights: any,
   guardrailsData: any,
   targetMonth: string
-): Promise<Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>> {
+): Promise<UnitRawResult[]> {
   const results = await Promise.allSettled(
     units.map(async (unit) => {
       try {
         const baseRate = unit.streetRate;
-        let suggestion = baseRate;
-        let calculationDetails: any;
         
-        // Get unit-specific weights with 3-tier fallback
         const unitWeights = getWeightsForUnit(
           unit, 
           weightsCache, 
@@ -63,130 +73,143 @@ async function processUnitBatch(
         );
         
         if (!unitWeights || unitWeights.enableWeights === false) {
-          // Weights disabled - use base rate
-          calculationDetails = {
-            baseRate,
-            adjustments: [],
-            weights: {},
-            totalAdjustment: 0,
-            finalRate: baseRate,
-            appliedRules: [],
-            guardrailsApplied: [],
-            weightsDisabled: true
-          };
-        } else {
-          // Get precomputed signals for this unit
-          const occupancy = precomputedSignals.locationOccupancy.get(
-            `${unit.locationId}|${unit.serviceLine}`
-          ) || precomputedSignals.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
-          
-          const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
-          
-          // Get competitor prices from pre-cached data (eliminates N+1 queries)
-          let competitorPrices: number[];
-          const competitorKey = `${unit.campus}|${unit.serviceLine}`;
-          const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
-          
-          if (cachedCompetitorData?.competitor && cachedCompetitorData.competitor.streetRate) {
-            const adjustmentResult = calculateAdjustedCompetitorRate({
-              competitorBaseRate: cachedCompetitorData.competitor.streetRate,
-              competitorCareLevel2Rate: cachedCompetitorData.competitor.careLevel2Rate || 0,
-              competitorMedicationManagementFee: cachedCompetitorData.competitor.medicationManagementFee || 0,
-              trilogyCareLevel2Rate: cachedCompetitorData.trilogyCareLevel2Rate || 0
-            });
-            competitorPrices = [adjustmentResult.adjustedRate];
-          } else if (serviceLineMedian && serviceLineMedian > 0) {
-            competitorPrices = [serviceLineMedian];
-          } else if (unit.competitorRate && unit.competitorRate > 0) {
-            competitorPrices = [unit.competitorRate];
-          } else {
-            competitorPrices = [baseRate * 0.95, baseRate * 1.05];
-          }
-          
-          // Get cached demand data for this location+serviceLine
-          const demandKey = `${unit.location}|${unit.serviceLine || ''}`;
-          const cachedDemand = precomputedSignals.demandCache.get(demandKey);
-          const demandCurrent = cachedDemand?.currentDemand || precomputedSignals.defaultDemandCurrent;
-          const demandHistory = cachedDemand?.demandHistory.length > 0 
-            ? cachedDemand.demandHistory 
-            : precomputedSignals.defaultDemandHistory;
-          
-          // Build pricing inputs
-          const pricingInputs: PricingInputs = {
-            occupancy,
-            daysVacant: unit.daysVacant || 0,
-            attrScore: 0.5, // Default attribute score, will be calculated in attributedPrice
-            monthIndex: precomputedSignals.monthIndex,
-            competitorPrices,
-            marketReturn: precomputedSignals.stockMarketChange / 100,
-            demandCurrent,
-            demandHistory,
-            serviceLine: unit.serviceLine
-          };
-          
-          // Calculate attributed price
-          const orchestratorResult = await calculateAttributedPrice(
-            unit, 
-            unitWeights, 
-            pricingInputs, 
-            guardrailsData || undefined
-          );
-          
-          suggestion = orchestratorResult.finalPrice;
-          
-          // Build calculation details
-          calculationDetails = {
-            baseRate: orchestratorResult.baseRate,
-            baseRateSource: orchestratorResult.baseRateSource,
-            attributedRate: orchestratorResult.attributedRate,
-            attributeBreakdown: orchestratorResult.attributeBreakdown,
-            adjustments: orchestratorResult.moduloDetails.adjustments?.map((adj: any) => ({
-              ...adj,
-              formula: adj.calculation,
-              description: getSentenceExplanation(adj.factor.toLowerCase(), pricingInputs, adj)
-            })) || [],
-            weights: {
-              occupancyPressure: unitWeights.occupancyPressure,
-              daysVacantDecay: unitWeights.daysVacantDecay,
-              seasonality: unitWeights.seasonality,
-              competitorRates: unitWeights.competitorRates,
-              stockMarket: unitWeights.stockMarket,
-              inquiryTourVolume: unitWeights.inquiryTourVolume
+          return {
+            id: unit.id,
+            streetRate: baseRate,
+            locationId: unit.locationId || unit.location || '',
+            serviceLine: unit.serviceLine || '',
+            roomType: unit.roomType || '',
+            rawTotalAdjustment: 0,
+            weightsDisabled: true,
+            calculationDetailsTemplate: {
+              baseRate,
+              adjustments: [],
+              weights: {},
+              totalAdjustment: 0,
+              finalRate: baseRate,
+              appliedRules: [],
+              guardrailsApplied: [],
+              weightsDisabled: true
             },
-            totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
-            finalRate: orchestratorResult.finalPrice,
-            moduloRate: orchestratorResult.moduloRate,
-            appliedRules: [],
-            signals: orchestratorResult.moduloDetails.signals,
-            blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
-            explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
-            guardrailsApplied: orchestratorResult.guardrailsApplied
+            pricingInputs: null,
+            unitWeights
           };
         }
         
+        const occupancy = precomputedSignals.locationOccupancy.get(
+          `${unit.locationId}|${unit.serviceLine}`
+        ) || precomputedSignals.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
+        
+        const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
+        
+        let competitorPrices: number[];
+        const competitorKey = `${unit.campus}|${unit.serviceLine}`;
+        const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
+        
+        if (cachedCompetitorData?.competitor && cachedCompetitorData.competitor.streetRate) {
+          const adjustmentResult = calculateAdjustedCompetitorRate({
+            competitorBaseRate: cachedCompetitorData.competitor.streetRate,
+            competitorCareLevel2Rate: cachedCompetitorData.competitor.careLevel2Rate || 0,
+            competitorMedicationManagementFee: cachedCompetitorData.competitor.medicationManagementFee || 0,
+            trilogyCareLevel2Rate: cachedCompetitorData.trilogyCareLevel2Rate || 0
+          });
+          competitorPrices = [adjustmentResult.adjustedRate];
+        } else if (serviceLineMedian && serviceLineMedian > 0) {
+          competitorPrices = [serviceLineMedian];
+        } else if (unit.competitorRate && unit.competitorRate > 0) {
+          competitorPrices = [unit.competitorRate];
+        } else {
+          competitorPrices = [baseRate * 0.95, baseRate * 1.05];
+        }
+        
+        const demandKey = `${unit.location}|${unit.serviceLine || ''}`;
+        const cachedDemand = precomputedSignals.demandCache.get(demandKey);
+        const demandCurrent = cachedDemand?.currentDemand || precomputedSignals.defaultDemandCurrent;
+        const demandHistory = cachedDemand?.demandHistory.length > 0 
+          ? cachedDemand.demandHistory 
+          : precomputedSignals.defaultDemandHistory;
+        
+        const pricingInputs: PricingInputs = {
+          occupancy,
+          daysVacant: unit.daysVacant || 0,
+          attrScore: 0.5,
+          monthIndex: precomputedSignals.monthIndex,
+          competitorPrices,
+          marketReturn: precomputedSignals.stockMarketChange / 100,
+          demandCurrent,
+          demandHistory,
+          serviceLine: unit.serviceLine
+        };
+        
+        // Calculate without guardrails first to get the raw totalAdjustment
+        const orchestratorResult = await calculateAttributedPrice(
+          unit, 
+          unitWeights, 
+          pricingInputs,
+          undefined
+        );
+        
+        const rawTotalAdjustment = orchestratorResult.moduloDetails.totalAdjustment;
+        
+        const calculationDetailsTemplate = {
+          baseRate: orchestratorResult.baseRate,
+          baseRateSource: orchestratorResult.baseRateSource,
+          attributedRate: orchestratorResult.attributedRate,
+          attributeBreakdown: orchestratorResult.attributeBreakdown,
+          adjustments: orchestratorResult.moduloDetails.adjustments?.map((adj: any) => ({
+            ...adj,
+            formula: adj.calculation,
+            description: getSentenceExplanation(adj.factor.toLowerCase(), pricingInputs, adj)
+          })) || [],
+          weights: {
+            occupancyPressure: unitWeights.occupancyPressure,
+            daysVacantDecay: unitWeights.daysVacantDecay,
+            seasonality: unitWeights.seasonality,
+            competitorRates: unitWeights.competitorRates,
+            stockMarket: unitWeights.stockMarket,
+            inquiryTourVolume: unitWeights.inquiryTourVolume
+          },
+          signals: orchestratorResult.moduloDetails.signals,
+          blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
+          explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
+          appliedRules: []
+        };
+        
         return {
           id: unit.id,
-          moduloSuggestedRate: Math.round(suggestion),
-          moduloCalculationDetails: JSON.stringify(calculationDetails)
+          streetRate: baseRate,
+          locationId: unit.locationId || unit.location || '',
+          serviceLine: unit.serviceLine || '',
+          roomType: unit.roomType || '',
+          rawTotalAdjustment,
+          weightsDisabled: false,
+          calculationDetailsTemplate,
+          pricingInputs,
+          unitWeights
         };
       } catch (error) {
         console.error(`Error processing unit ${unit.id}:`, error);
-        // Return base rate on error
         return {
           id: unit.id,
-          moduloSuggestedRate: Math.round(unit.streetRate),
-          moduloCalculationDetails: JSON.stringify({
+          streetRate: unit.streetRate,
+          locationId: unit.locationId || unit.location || '',
+          serviceLine: unit.serviceLine || '',
+          roomType: unit.roomType || '',
+          rawTotalAdjustment: 0,
+          weightsDisabled: true,
+          calculationDetailsTemplate: {
             baseRate: unit.streetRate,
             error: String(error),
             finalRate: unit.streetRate
-          })
+          },
+          pricingInputs: null,
+          unitWeights: null
         };
       }
     })
   );
   
-  // Extract successful results
-  const updates: any[] = [];
+  const updates: UnitRawResult[] = [];
   for (const result of results) {
     if (result.status === 'fulfilled') {
       updates.push(result.value);
@@ -196,6 +219,41 @@ async function processUnitBatch(
   }
   
   return updates;
+}
+
+// Note: guardrail logic mirrors pricingOrchestrator.ts calculateAttributedPrice.
+// If guardrail parameters change in the orchestrator, update this function accordingly.
+function applyGuardrails(
+  rate: number,
+  baseRate: number,
+  guardrailsData: any
+): { finalRate: number; minAllowed: number; maxAllowed: number; wasAdjusted: boolean } {
+  let finalRate = rate;
+  let wasAdjusted = false;
+  let minAllowed = 0;
+  let maxAllowed = Infinity;
+
+  if (guardrailsData) {
+    const minRateDecrease = guardrailsData.minRateDecrease || 0.05;
+    const maxRateIncrease = guardrailsData.maxRateIncrease || 0.15;
+    minAllowed = baseRate * (1 - minRateDecrease);
+    maxAllowed = baseRate * (1 + maxRateIncrease);
+
+    if (finalRate < minAllowed) {
+      finalRate = minAllowed;
+      wasAdjusted = true;
+    } else if (finalRate > maxAllowed) {
+      finalRate = maxAllowed;
+      wasAdjusted = true;
+    }
+
+    if (finalRate < 0) {
+      finalRate = minAllowed;
+      wasAdjusted = true;
+    }
+  }
+
+  return { finalRate, minAllowed, maxAllowed, wasAdjusted };
 }
 
 // Helper function to get weights for a unit with 3-tier fallback
@@ -471,7 +529,7 @@ export async function generateModuloOptimized(req: any, res: any) {
     
     console.log(`Processing ${units.length} units in ${totalBatches} batches of up to ${BATCH_SIZE} units`);
     
-    const allUpdates: any[] = [];
+    const allRawResults: UnitRawResult[] = [];
     const progress: ProcessingProgress = {
       total: units.length,
       processed: 0,
@@ -503,8 +561,8 @@ export async function generateModuloOptimized(req: any, res: any) {
       }
       
       const batchResults = await Promise.all(batchPromises);
-      for (const updates of batchResults) {
-        allUpdates.push(...updates);
+      for (const rawResults of batchResults) {
+        allRawResults.push(...rawResults);
       }
       
       progress.processed = Math.min(i + BATCH_SIZE * MAX_CONCURRENT_BATCHES, units.length);
@@ -513,7 +571,80 @@ export async function generateModuloOptimized(req: any, res: any) {
       console.log(`Calculation progress: ${progress.processed}/${progress.total} units (${progress.percentage}%)`);
     }
     
-    console.log(`Calculated ${allUpdates.length} Modulo suggestions, applying adjustment rules...`);
+    // Step 4b: Average rawTotalAdjustment by Location + Service Line + Room Type segment
+    // Units sharing the same segment get the same % adjustment applied to their street rate
+    console.log('Computing group-average adjustments by Room Type segment...');
+    
+    const groupSums = new Map<string, { sum: number; count: number }>();
+    for (const raw of allRawResults) {
+      if (raw.weightsDisabled) continue;
+      const key = `${raw.locationId}|${raw.serviceLine}|${raw.roomType}`;
+      const existing = groupSums.get(key);
+      if (existing) {
+        existing.sum += raw.rawTotalAdjustment;
+        existing.count += 1;
+      } else {
+        groupSums.set(key, { sum: raw.rawTotalAdjustment, count: 1 });
+      }
+    }
+    
+    const groupAverages = new Map<string, number>();
+    for (const [key, { sum, count }] of Array.from(groupSums)) {
+      groupAverages.set(key, count > 0 ? sum / count : 0);
+    }
+    
+    console.log(`Computed ${groupAverages.size} room type group adjustments`);
+    
+    // Step 4c: Build final updates by applying the group-averaged % to each unit's street rate,
+    // then applying guardrails per-unit
+    const allUpdates: any[] = [];
+    
+    for (const raw of allRawResults) {
+      if (raw.weightsDisabled) {
+        allUpdates.push({
+          id: raw.id,
+          moduloSuggestedRate: Math.round(raw.streetRate),
+          moduloCalculationDetails: JSON.stringify({
+            ...raw.calculationDetailsTemplate,
+            totalAdjustment: 0,
+            groupAdjustment: 0,
+            finalRate: raw.streetRate,
+            moduloRate: raw.streetRate,
+            guardrailsApplied: { minAllowed: 0, maxAllowed: Infinity, wasAdjusted: false }
+          })
+        });
+        continue;
+      }
+      
+      const segmentKey = `${raw.locationId}|${raw.serviceLine}|${raw.roomType}`;
+      const groupAdj = groupAverages.get(segmentKey) ?? raw.rawTotalAdjustment;
+      
+      const preGuardrailRate = raw.streetRate * (1 + groupAdj);
+      const guardrailResult = applyGuardrails(preGuardrailRate, raw.streetRate, guardrailsData);
+      const finalRate = Math.round(guardrailResult.finalRate);
+      
+      const calculationDetails = {
+        ...raw.calculationDetailsTemplate,
+        totalAdjustment: groupAdj,
+        groupAdjustment: groupAdj,
+        groupSegmentKey: segmentKey,
+        finalRate,
+        moduloRate: Math.round(preGuardrailRate),
+        guardrailsApplied: {
+          minAllowed: Math.round(guardrailResult.minAllowed),
+          maxAllowed: Math.round(guardrailResult.maxAllowed),
+          wasAdjusted: guardrailResult.wasAdjusted
+        }
+      };
+      
+      allUpdates.push({
+        id: raw.id,
+        moduloSuggestedRate: finalRate,
+        moduloCalculationDetails: JSON.stringify(calculationDetails)
+      });
+    }
+    
+    console.log(`Applied group adjustments and guardrails to ${allUpdates.length} units, applying adjustment rules...`);
     
     // Step 5: Apply adjustment rules to Modulo rates
     const unitsWithModuloRates = allUpdates.map((update, index) => ({
