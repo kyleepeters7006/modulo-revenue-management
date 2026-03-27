@@ -164,12 +164,6 @@ async function processUnitBatch(
           };
         }
         
-        // Ensure minimum change
-        const minChange = unit.streetRate * 0.01;
-        if (Math.abs(suggestion - unit.streetRate) < minChange) {
-          suggestion = unit.streetRate + (Math.random() > 0.5 ? minChange : -minChange);
-        }
-        
         return {
           id: unit.id,
           moduloSuggestedRate: Math.round(suggestion),
