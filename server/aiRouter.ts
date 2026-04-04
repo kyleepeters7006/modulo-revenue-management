@@ -15,16 +15,30 @@ export async function callClaude(
 ): Promise<string> {
   const label = opts?.label || 'claude';
   console.log(`[aiRouter:${label}] Calling ${CLAUDE_MODEL} via Replit AI Integrations...`);
-  const response = await aiClient.chat.completions.create({
-    model: CLAUDE_MODEL,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    max_tokens: opts?.maxTokens || 1024,
-    temperature: opts?.temperature ?? 0.3,
-  });
-  return response.choices[0].message.content || '';
+  try {
+    const response = await aiClient.chat.completions.create({
+      model: CLAUDE_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_completion_tokens: opts?.maxTokens || 1024,
+      temperature: opts?.temperature ?? 0.3,
+    });
+    return response.choices[0].message.content || '';
+  } catch (err) {
+    console.warn(`[aiRouter:${label}] Claude failed, falling back to ${GPT_MODEL}:`, err);
+    const response = await aiClient.chat.completions.create({
+      model: GPT_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_completion_tokens: opts?.maxTokens || 1024,
+      temperature: opts?.temperature ?? 0.3,
+    });
+    return response.choices[0].message.content || '';
+  }
 }
 
 export async function callGPT(
@@ -36,7 +50,7 @@ export async function callGPT(
   const response = await aiClient.chat.completions.create({
     model: GPT_MODEL,
     messages,
-    max_tokens: opts?.maxTokens || 800,
+    max_completion_tokens: opts?.maxTokens || 800,
     temperature: opts?.temperature ?? 0.3,
     ...(opts?.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
   });
