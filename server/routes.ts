@@ -8398,7 +8398,7 @@ IMPORTANT:
     return results;
   }
 
-  // Generate optimal settings from revenue growth targets using GPT-5.2
+  // Generate optimal settings from revenue growth targets using Claude→GPT-5.4
   app.post("/api/pricing/targets/generate", async (req, res) => {
     try {
       const { targets, filters, analyzeIndividually } = req.body;
@@ -8805,7 +8805,7 @@ IMPORTANT:
         salesVelocity.moveIns30 = recentMoveins;
       }
       
-      // Build the GPT-5.2 prompt with comprehensive portfolio data
+      // Build the Claude→GPT-5.4 prompt with comprehensive portfolio data
       const avgPortfolioRate = filteredUnits.length > 0 
         ? filteredUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / filteredUnits.length 
         : 0;
