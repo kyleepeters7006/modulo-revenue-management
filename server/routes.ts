@@ -98,7 +98,7 @@ import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageP
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import OpenAI from "openai";
+import { callClaude, callGPT, callClaudeThenGPT } from './aiRouter';
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
@@ -4105,11 +4105,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AI Insights
   app.post("/api/ai/suggest", async (req, res) => {
     try {
-      const openaiKey = process.env.OPENAI_API_KEY;
-      if (!openaiKey) {
-        return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
-      }
-
       const { location, serviceLine } = req.body || {};
       
       let allRentRollData = await storage.getRentRollData();
@@ -4200,28 +4195,16 @@ Provide actionable insights focusing on:
 
 Keep recommendations specific and quantitative when possible.${location ? ` Focus your analysis on ${location}.` : ''}${serviceLine ? ` Consider ${serviceLine}-specific market dynamics.` : ''}`;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5.2',
-          messages: [{ role: 'user', content: prompt }],
-          max_completion_tokens: 800,
-          temperature: 0.7
-        })
-      });
+      const text = await callClaudeThenGPT(
+        'You are a senior living revenue management expert.',
+        prompt,
+        'Format the following analysis as 3-4 specific, quantitative pricing recommendations for a senior living portfolio dashboard. Be concise, actionable, and reference specific numbers from the data.',
+        { label: 'ai-insights', claudeMaxTokens: 1024, gptMaxTokens: 800 }
+      );
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const result = await response.json();
       res.json({ 
         ok: true, 
-        text: result.choices[0].message.content,
+        text,
         filters: { location, serviceLine },
         context: {
           totalUnits: context.totalUnits,
@@ -7653,11 +7636,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
       
-      const openaiKey = process.env.OPENAI_API_KEY;
-      if (!openaiKey) {
-        return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
-      }
-      
       console.log('=== Starting OPTIMIZED AI Generation ===');
       console.log('Target month:', targetMonth);
       console.log('Filters:', { serviceLine, regions, divisions, locations });
@@ -7810,33 +7788,17 @@ Respond with ONLY a JSON object in this exact format:
 
 Ensure all weights are positive integers and sum to exactly 100.`;
 
-      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5.2',
-          messages: [{ role: 'user', content: weightPrompt }],
-          max_completion_tokens: 500,
-          temperature: 0.3,
-          response_format: { type: "json_object" }
-        })
-      });
-
-      if (!openaiResponse.ok) {
-        const errorText = await openaiResponse.text();
-        console.error('[AI Pricing] OpenAI API error:', errorText);
-        throw new Error(`OpenAI API error: ${openaiResponse.status}`);
-      }
-
-      const openaiResult = await openaiResponse.json();
       let aiSuggestedWeights = currentWeights;
       let aiReasoning = '';
       
       try {
-        const parsed = JSON.parse(openaiResult.choices[0].message.content);
+        const rawText = await callClaudeThenGPT(
+          'You are an expert senior living revenue management AI.',
+          weightPrompt,
+          'Based on the analysis, produce ONLY a JSON object with fields: occupancyPressure, daysVacantDecay, competitorRates, seasonality, stockMarket, inquiryTourVolume (positive integers summing to exactly 100), and reasoning (brief string). No other text.',
+          { label: 'pricing-weights', claudeMaxTokens: 512, gptMaxTokens: 500 }
+        );
+        const parsed = JSON.parse(rawText);
         aiSuggestedWeights = {
           occupancyPressure: parsed.occupancyPressure || currentWeights.occupancyPressure,
           daysVacantDecay: parsed.daysVacantDecay || currentWeights.daysVacantDecay,
@@ -7846,10 +7808,10 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           inquiryTourVolume: parsed.inquiryTourVolume || currentWeights.inquiryTourVolume
         };
         aiReasoning = parsed.reasoning || '';
-        console.log('[AI Pricing] GPT-5 suggested weights:', aiSuggestedWeights);
+        console.log('[AI Pricing] Suggested weights:', aiSuggestedWeights);
         console.log('[AI Pricing] Reasoning:', aiReasoning);
       } catch (parseError) {
-        console.warn('[AI Pricing] Failed to parse GPT-5 response, using current weights:', parseError);
+        console.warn('[AI Pricing] Failed to parse AI response, using current weights:', parseError);
       }
       
       // OPTIMIZATION 2: Pre-compute ALL revenue performance data in a Map for O(1) lookup
@@ -8116,7 +8078,6 @@ Ensure all weights are positive integers and sum to exactly 100.`;
     targets: Record<string, number>,
     currentMonth: string,
     previousMonth: string | null,
-    openaiKey: string,
     currentWeights: any,
     currentGuardrails: any,
     currentAdjustmentRanges: any,
@@ -8343,29 +8304,13 @@ IMPORTANT:
 - If revenue growth is BEHIND target, prioritize occupancy pressure and vacancy discounts to accelerate leasing.
 - If revenue growth EXCEEDS target, prioritize premium positioning and attribute adjustments.`;
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-5.2',
-        messages: [{ role: 'user', content: prompt }],
-        max_completion_tokens: 800,
-        temperature: 0.3,
-        response_format: { type: "json_object" }
-      })
-    });
-
-    if (!openaiResponse.ok) {
-      const errorText = await openaiResponse.text();
-      console.error(`[Individual Analysis] OpenAI API error for ${scopeLabel}:`, errorText);
-      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
-    }
-
-    const openaiResult = await openaiResponse.json();
-    const generatedSettings = JSON.parse(openaiResult.choices[0].message.content);
+    const rawText = await callClaudeThenGPT(
+      'You are an expert senior living revenue management AI.',
+      prompt,
+      'Based on the analysis, produce ONLY a valid JSON object following the exact schema in the analysis prompt (weights, guardrails, adjustmentRanges, attributeAdjustments, reasoning). No other text.',
+      { label: `target-settings:${scopeLabel}`, claudeMaxTokens: 512, gptMaxTokens: 800 }
+    );
+    const generatedSettings = JSON.parse(rawText);
     
     // Validate and clamp weights
     const weights = generatedSettings.weights;
@@ -8457,11 +8402,6 @@ IMPORTANT:
   app.post("/api/pricing/targets/generate", async (req, res) => {
     try {
       const { targets, filters, analyzeIndividually } = req.body;
-      
-      const openaiKey = process.env.OPENAI_API_KEY;
-      if (!openaiKey) {
-        return res.status(400).json({ error: "OPENAI_API_KEY not configured" });
-      }
       
       console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters, 'analyzeIndividually:', analyzeIndividually);
       
@@ -8578,7 +8518,6 @@ IMPORTANT:
               targets,
               currentMonth,
               previousMonth,
-              openaiKey,
               currentWeights,
               currentGuardrails,
               currentAdjustmentRanges,
@@ -8974,35 +8913,20 @@ Respond with ONLY a JSON object in this exact format:
 
 IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the portfolio data in your reasoning.`;
 
-      console.log('[Target Generation] Calling OpenAI GPT-5.2...');
+      console.log('[Target Generation] Calling Claude→GPT-5.4...');
       
-      const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5.2',
-          messages: [{ role: 'user', content: prompt }],
-          max_completion_tokens: 800,
-          temperature: 0.3,
-          response_format: { type: "json_object" }
-        })
-      });
+      const rawText = await callClaudeThenGPT(
+        'You are an expert senior living revenue management AI.',
+        prompt,
+        'Based on the analysis, produce ONLY a valid JSON object following the exact schema in the analysis prompt (weights, guardrails, adjustmentRanges, attributeAdjustments, reasoning). No other text.',
+        { label: 'target-settings:portfolio', claudeMaxTokens: 512, gptMaxTokens: 800 }
+      );
 
-      if (!openaiResponse.ok) {
-        const errorText = await openaiResponse.text();
-        console.error('[Target Generation] OpenAI API error:', errorText);
-        throw new Error(`OpenAI API error: ${openaiResponse.status}`);
-      }
-
-      const openaiResult = await openaiResponse.json();
       let generatedSettings;
       
       try {
-        generatedSettings = JSON.parse(openaiResult.choices[0].message.content);
-        console.log('[Target Generation] GPT-5.2 response:', generatedSettings);
+        generatedSettings = JSON.parse(rawText);
+        console.log('[Target Generation] Claude→GPT response received');
         
         // Validate and clamp weights to ensure they sum to 100
         const weights = generatedSettings.weights;
@@ -9022,7 +8946,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         guardrailsResponse.maxStreetRate = Math.max(6000, Math.min(15000, guardrailsResponse.maxStreetRate));
         
       } catch (parseError) {
-        console.error('[Target Generation] Failed to parse GPT response:', parseError);
+        console.error('[Target Generation] Failed to parse AI response:', parseError);
         throw new Error('Failed to parse AI response');
       }
       
@@ -11224,10 +11148,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         risk: "low" as "low" | "medium" | "high"
       };
       
-      if (preview && process.env.OPENAI_API_KEY) {
+      if (preview) {
         try {
-          const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-          
           const avgImpactPerUnit = totalImpact / affectedUnits;
           const percentageChange = parsedRule.action.adjustmentType === 'percentage' 
             ? parsedRule.action.adjustmentValue 
@@ -11261,15 +11183,13 @@ Respond in JSON format:
   "risk": "low" | "medium" | "high"
 }`;
 
-          const response = await openai.chat.completions.create({
-            model: "gpt-5",
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" },
-            temperature: 0.3,
-            max_completion_tokens: 500
-          });
+          const rawText = await callClaude(
+            'You are a senior living pricing expert. Always respond with valid JSON.',
+            prompt,
+            { maxTokens: 500, label: 'pricing-rule-validation' }
+          );
 
-          const result = JSON.parse(response.choices[0].message.content || '{}');
+          const result = JSON.parse(rawText || '{}');
           reasonabilityCheck = {
             isReasonable: result.isReasonable !== false,
             explanation: result.explanation || reasonabilityCheck.explanation,
@@ -11278,7 +11198,7 @@ Respond in JSON format:
           };
           
         } catch (error) {
-          console.error('ChatGPT validation error:', error);
+          console.error('AI validation error:', error);
           // Continue with default reasonability check if AI fails
         }
       }

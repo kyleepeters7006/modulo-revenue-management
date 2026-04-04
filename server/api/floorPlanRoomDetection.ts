@@ -1,9 +1,6 @@
-import OpenAI from "openai";
+import { aiClient as openai } from "../aiRouter";
 import { Request, Response } from "express";
 import sharp from "sharp";
-
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function detectRoomsInFloorPlan(req: Request, res: Response) {
   try {
@@ -31,7 +28,7 @@ export async function detectRoomsInFloorPlan(req: Request, res: Response) {
     
     // Use GPT-5 Vision to analyze the floor plan
     const visionResponse = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-5.4",
       messages: [
         {
           role: "system",

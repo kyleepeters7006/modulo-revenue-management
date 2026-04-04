@@ -1,7 +1,7 @@
 import { SelectRentRollData } from '@shared/schema';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
-import OpenAI from 'openai';
+import { callClaude } from './aiRouter';
 
 // MatrixCare field mappings
 interface MatrixCareRow {
@@ -246,11 +246,9 @@ async function validateMatrixCareMapping(
     seen.add(key);
   });
   
-  // Use AI for advanced validation if available
-  if (process.env.OPENAI_API_KEY && matrixCareData.length > 0) {
+  // Use AI for advanced validation
+  if (matrixCareData.length > 0) {
     try {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      
       // Sample a few rows for AI validation
       const sampleRows = matrixCareData.slice(0, 5);
       
@@ -279,15 +277,13 @@ Respond in JSON format:
   "mappingAccuracy": "high" | "medium" | "low"
 }`;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-5.2",
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_completion_tokens: 1000
-      });
+      const rawText = await callClaude(
+        'You are a healthcare data expert familiar with MatrixCare EHR systems. Always respond with valid JSON.',
+        prompt,
+        { maxTokens: 1000, label: 'matrixcare-validation' }
+      );
 
-      const result = JSON.parse(response.choices[0].message.content || '{}');
+      const result = JSON.parse(rawText || '{}');
       
       if (result.criticalIssues) {
         issues.push(...result.criticalIssues);

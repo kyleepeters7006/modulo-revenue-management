@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import OpenAI from 'openai';
+import { aiClient } from './aiRouter';
 
 const execAsync = promisify(exec);
 
@@ -33,7 +34,7 @@ export class RoomDetectionService {
   private openai: OpenAI;
 
   constructor() {
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    this.openai = aiClient;
   }
 
   async detect(
@@ -152,7 +153,7 @@ export class RoomDetectionService {
       
       const response = await Promise.race([
         this.openai.chat.completions.create({
-          model: "gpt-5.2",
+          model: "gpt-5.4",
           messages: [
             {
               role: "system",

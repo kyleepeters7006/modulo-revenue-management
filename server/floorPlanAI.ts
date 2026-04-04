@@ -39,7 +39,7 @@ export async function detectRoomsWithAI(imageUrl: string): Promise<RoomDetection
     console.log('Starting AI room detection for image:', imageUrl);
     
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-5.4",
       messages: [
         {
           role: "system",

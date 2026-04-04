@@ -85,12 +85,8 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, isNull, inArray, or } from "drizzle-orm";
-import OpenAI from "openai";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
-
-// Initialize OpenAI if API key is available
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
 // Interface for storage operations
 export interface IStorage {
