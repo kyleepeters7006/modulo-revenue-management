@@ -32,6 +32,7 @@ export async function callClaude(
       const response = await anthropicClient.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: maxTokens,
+        temperature,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       });

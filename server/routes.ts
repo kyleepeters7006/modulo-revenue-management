@@ -98,7 +98,7 @@ import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageP
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { callClaude, callGPT, callClaudeThenGPT } from './aiRouter';
+import { callClaude, callClaudeThenGPT } from './aiRouter';
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
