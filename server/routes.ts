@@ -4783,6 +4783,19 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return 'AL';
       };
 
+      // Helper to convert Excel serial date numbers to YYYY-MM-DD strings
+      // Excel serial for 2000-01-01 = 36526; for 1970-01-01 = 25569
+      const convertDate = (val: any): string | null => {
+        if (val === null || val === undefined || val === '') return null;
+        const num = typeof val === 'number' ? val : Number(val);
+        if (!isNaN(num) && num > 36526) {
+          const jsDate = new Date((num - 25569) * 86400 * 1000);
+          if (!isNaN(jsDate.getTime())) return jsDate.toISOString().split('T')[0];
+        }
+        const str = val.toString().trim();
+        return str || null;
+      };
+
       // Process and store data
       const processedRecords: any[] = [];
 
@@ -4793,9 +4806,29 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         // Parse attributes from room type
         const { cleanRoomType, viewRating, sizeRating, locationRating, renovationRating, amenityRating } = parseAttributes(rawRoomType);
 
-        // Get patient ID to determine vacancy
+        // Skip template description/header rows (e.g., rows where room_number is a placeholder like "DESCRIPTION: ...")
+        const rawRoomNumber = getRowValue(row, 'Room_Bed', 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '';
+        if (rawRoomNumber.toString().toUpperCase().startsWith('DESCRIPTION:') ||
+            rawRoomNumber.toString().toUpperCase().startsWith('EXAMPLE:')) {
+          continue;
+        }
+
+        // Determine occupancy status with multi-format fallback:
+        // 1. MatrixCare/Trilogy: PatientID present → occupied
+        // 2. Explicit "Occupied Y/N" column
+        // 3. GLM and other formats: in-house rate > 0 → occupied
         const patientId = getRowValue(row, 'PatientID1', 'PatientID', 'patientId', 'patient_id');
-        const isOccupied = patientId ? (patientId.toString().trim() !== '') : false;
+        const explicitOccupied = getRowValue(row, 'Occupied Y/N', 'Occupied_YN', 'occupied_yn', 'Occupied', 'Is Occupied');
+        const inHouseRateRawForOccupancy = getRowValue(row, 'FinalRate', 'Final Rate', 'final rate', 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate');
+        const inHouseRateNumForOccupancy = parseFloat((inHouseRateRawForOccupancy || '').toString().replace(/[$,()]/g, '').trim()) || 0;
+        let isOccupied: boolean;
+        if (patientId && patientId.toString().trim() !== '') {
+          isOccupied = true;
+        } else if (explicitOccupied !== '') {
+          isOccupied = ['y', 'yes', 'true', '1', 'occupied'].includes(explicitOccupied.toString().toLowerCase());
+        } else {
+          isOccupied = inHouseRateNumForOccupancy > 0;
+        }
         
         // Get and normalize service line
         const rawServiceLine = getRowValue(row, 'Service1', 'Service Line', 'service line', 'ServiceLine', 'serviceLine') || 'AL';
@@ -4854,7 +4887,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           promotionAllowance: parseRoomRateAdjustment(getRowValue(row, 'Room_Rate_Adjustments', 'RoomRateAdjustments', 'RRA', 'Promotion Allowance', 'PromotionAllowance')),
           residentId: getRowValue(row, 'Resident ID', 'resident id', 'ResidentID', 'residentId') || null,
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
-          moveInDate: getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate') || null,
+          moveInDate: convertDate(getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate')) || null,
           moveOutDate: (() => {
             const dv = parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0;
             if (!isOccupied && dv > 0) {
