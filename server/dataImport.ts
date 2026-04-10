@@ -23,6 +23,8 @@ export interface ImportStats {
   mappedRecords: number;
   unmappedRecords: number;
   errors: string[];
+  warning?: string;
+  columnWarning?: string;
 }
 
 export async function importRentRollCSV(
@@ -582,7 +584,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
       const hasExpectedCols = cols.some(c => ['TrilogyCampusName', 'CompetitorFacilityName', 'AL', 'HC'].includes(c));
       if (!hasExpectedCols) {
         console.warn('[CompetitiveSurvey] WARNING: File does not contain expected column names (TrilogyCampusName, AL, HC, etc). Import will likely produce 0 records.');
-        (stats as any).columnWarning = `Unexpected columns. Expected: TrilogyCampusName, CompetitorFacilityName, AL, HC, AL_StudioRate, etc. Got: ${cols.slice(0, 10).join(', ')}${cols.length > 10 ? '...' : ''}`;
+        stats.columnWarning = `Unexpected columns. Expected: TrilogyCampusName, CompetitorFacilityName, AL, HC, AL_StudioRate, etc. Got: ${cols.slice(0, 10).join(', ')}${cols.length > 10 ? '...' : ''}`;
       }
     }
 
@@ -841,7 +843,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     });
     if (stats.successfulImports === 0 && data.length > 0) {
       console.warn('[CompetitiveSurvey] 0 records inserted from', data.length, 'rows. Check that service line flags (AL, HC, etc.) are set to "True" and rate columns match expected names.');
-      (stats as any).warning = `0 records were imported from ${data.length} rows in the file. The file format may not match the expected competitive survey template. Check that service line flags (AL, HC, etc.) are "True" and column names match the template.`;
+      stats.warning = `0 records were imported from ${data.length} rows in the file. The file format may not match the expected competitive survey template. Check that service line flags (AL, HC, etc.) are "True" and column names match the template.`;
     }
     
   } catch (error: any) {
