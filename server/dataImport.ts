@@ -575,6 +575,17 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
 
     stats.totalRecords = data.length;
 
+    // Log column headers for diagnosing format mismatches
+    if (data.length > 0) {
+      const cols = Object.keys(data[0]);
+      console.log(`[CompetitiveSurvey] File columns (${cols.length}): ${cols.join(', ')}`);
+      const hasExpectedCols = cols.some(c => ['TrilogyCampusName', 'CompetitorFacilityName', 'AL', 'HC'].includes(c));
+      if (!hasExpectedCols) {
+        console.warn('[CompetitiveSurvey] WARNING: File does not contain expected column names (TrilogyCampusName, AL, HC, etc). Import will likely produce 0 records.');
+        (stats as any).columnWarning = `Unexpected columns. Expected: TrilogyCampusName, CompetitorFacilityName, AL, HC, AL_StudioRate, etc. Got: ${cols.slice(0, 10).join(', ')}${cols.length > 10 ? '...' : ''}`;
+      }
+    }
+
     const insertCounts = { AL: 0, HC: 0, SMC: 0, MC: 0, IL: 0, IL_Villa: 0, IL_IL: 0, 'AL/MC': 0, 'HC/MC': 0 };
     
     await db.transaction(async (tx) => {
@@ -828,6 +839,10 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
     Object.entries(insertCounts).forEach(([type, count]) => {
       if (count > 0) console.log(`  ${type}: ${count}`);
     });
+    if (stats.successfulImports === 0 && data.length > 0) {
+      console.warn('[CompetitiveSurvey] 0 records inserted from', data.length, 'rows. Check that service line flags (AL, HC, etc.) are set to "True" and rate columns match expected names.');
+      (stats as any).warning = `0 records were imported from ${data.length} rows in the file. The file format may not match the expected competitive survey template. Check that service line flags (AL, HC, etc.) are "True" and column names match the template.`;
+    }
     
   } catch (error: any) {
     stats.errors.push(`Excel parsing error: ${error.message}`);

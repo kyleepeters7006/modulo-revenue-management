@@ -167,18 +167,33 @@ export default function DataManagement() {
       return { data: await response.json(), uploadId };
     },
     onSuccess: ({ data, uploadId }) => {
-      updateUpload(uploadId, { status: 'success', message: `Processed ${data.successfulImports || 0} records` });
-      toast({
-        title: "Competitive Survey Upload Successful",
-        description: `Processed ${data.successfulImports || 0} competitive survey records. System will recalculate competitor rates in the background.`,
-      });
+      const imported = data.successfulImports || 0;
+      const totalRows = data.totalRecords || 0;
+      const hasWarning = imported === 0 && totalRows > 0;
+
+      if (hasWarning) {
+        updateUpload(uploadId, { status: 'error', message: `0 of ${totalRows} rows imported — column format mismatch` });
+        toast({
+          title: "Competitive Survey: 0 Records Imported",
+          description: data.warning || `The file had ${totalRows} rows but 0 records were imported. The column names likely don't match the expected template format (TrilogyCampusName, AL, HC, AL_StudioRate, etc.).`,
+          variant: "destructive",
+        });
+      } else {
+        updateUpload(uploadId, { status: 'success', message: `Processed ${imported} records` });
+        toast({
+          title: "Competitive Survey Upload Successful",
+          description: `Processed ${imported} competitive survey records. System will recalculate competitor rates in the background.`,
+        });
+      }
       setUploadHistory(prev => [{ ...data, type: 'competitor', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
       
-      // Trigger background recalculation of competitor rates
-      fetch('/api/competitor-rates/recalculate', { method: 'POST' }).catch(err => {
-        console.warn('Failed to trigger competitor rate recalculation:', err);
-      });
+      // Only trigger recalculation if records were actually imported
+      if (imported > 0) {
+        fetch('/api/competitor-rates/recalculate', { method: 'POST' }).catch(err => {
+          console.warn('Failed to trigger competitor rate recalculation:', err);
+        });
+      }
     },
     onError: (error: Error, variables) => {
       updateUpload(variables.uploadId, { status: 'error', error: error.message });
