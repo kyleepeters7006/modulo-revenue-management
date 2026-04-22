@@ -233,52 +233,6 @@ export function AiAdjustmentRanges() {
           </div>
         </div>
 
-        {/* Room Attributes */}
-        <div className="space-y-3">
-          <Label className="text-sm font-medium">Room Attributes</Label>
-          <p className="text-xs text-[var(--dashboard-muted)]">{rangeDescriptions.attributes}</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-5 w-5 text-red-500" strokeWidth={3.5} />
-                <Label className="text-xs">Min Adjustment</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <DialPicker
-                  value={parseFloat(formatPercentage(localRanges.attributesMin))}
-                  onChange={(value) => handleRangeChange('attributesMin', parsePercentage(value.toString()).toString())}
-                  min={-50}
-                  max={50}
-                  step={1}
-                  suffix="%"
-                  className="w-20"
-                  data-testid="input-ai-attributes-min"
-                />
-                <span className="text-sm text-[var(--dashboard-muted)]">%</span>
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-5 w-5 text-green-500" strokeWidth={3.5} />
-                <Label className="text-xs">Max Adjustment</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <DialPicker
-                  value={parseFloat(formatPercentage(localRanges.attributesMax))}
-                  onChange={(value) => handleRangeChange('attributesMax', parsePercentage(value.toString()).toString())}
-                  min={-50}
-                  max={50}
-                  step={1}
-                  suffix="%"
-                  className="w-20"
-                  data-testid="input-ai-attributes-max"
-                />
-                <span className="text-sm text-[var(--dashboard-muted)]">%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Competitor Rates */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Competitor Rates</Label>

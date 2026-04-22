@@ -157,11 +157,6 @@ export default function AdjustmentRanges({ locationId, serviceLine }: Adjustment
       description: 'Reduce rates for units that have been vacant longer'
     },
     { 
-      key: 'attributes', 
-      label: 'Room Attributes',
-      description: 'Premium for renovated units, views, and amenities'
-    },
-    { 
       key: 'seasonality', 
       label: 'Seasonality',
       description: 'Seasonal demand adjustments'

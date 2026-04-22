@@ -947,28 +947,12 @@ export default function PricingControls() {
                         <div className="space-y-1 text-sm">
                           <div className="flex justify-between"><span>Occupancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.occupancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.occupancyMax * 100).toFixed(0)}%</span></div>
                           <div className="flex justify-between"><span>Vacancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.vacancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.vacancyMax * 100).toFixed(0)}%</span></div>
-                          <div className="flex justify-between"><span>Attributes:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.attributesMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.attributesMax * 100).toFixed(0)}%</span></div>
                           <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.seasonalityMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.seasonalityMax * 100).toFixed(0)}%</span></div>
                           <div className="flex justify-between"><span>Competitor:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.competitorMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.competitorMax * 100).toFixed(0)}%</span></div>
                         </div>
                       </div>
                     )}
                     
-                    {/* Attribute Adjustments - Display only (not persisted yet) */}
-                    <div className="rounded-md p-3 border border-gray-200 bg-gray-50/50">
-                      <h5 className="text-xs font-medium text-gray-400 uppercase mb-2">Attribute Suggestions</h5>
-                      <div className="space-y-1 text-sm text-gray-500">
-                        {Object.entries(generatedSettings.attributeAdjustments).slice(0, 5).map(([attr, val]) => (
-                          <div key={attr} className="flex justify-between">
-                            <span className="capitalize">{attr.replace(/([A-Z])/g, ' $1').trim()}:</span>
-                            <span className={`font-medium ${Number(val) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {Number(val) >= 0 ? '+' : ''}{val}%
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-gray-400 mt-2 italic">Reference only - adjust manually in Room Attributes</p>
-                    </div>
                   </div>
                   
                   <div className="bg-white/80 rounded-md p-3">
