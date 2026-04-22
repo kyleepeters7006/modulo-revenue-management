@@ -70,10 +70,6 @@ interface ModuloPricingConfig {
   dvMaxCut: number;         // max discount from days-vacant alone (-15%)
   dvDecaySpeed: number;     // higher → reaches max faster after grace
 
-  // Room Attributes (per-unit desirability score in [0,1])
-  attrMidpoint: number;
-  attrMaxSpan: number;      // ±10% swing at extremes from attributes
-
   // Seasonality
   seasonalitySpan: number;  // ±5% max
   seasonalityProfile: number[]; // 12 months
@@ -106,9 +102,6 @@ const defaultConfig: ModuloPricingConfig = {
   dvGraceDays: 7,
   dvMaxCut: -0.15,
   dvDecaySpeed: 0.20,
-  
-  attrMidpoint: 0.50,
-  attrMaxSpan: 0.10,
   
   seasonalitySpan: 0.05,
   seasonalityProfile: [

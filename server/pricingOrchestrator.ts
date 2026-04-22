@@ -51,7 +51,7 @@ export async function calculateAttributedPrice(
   const baseRate = unit.streetRate || 0;
   const baseRateSource = 'street_rate';
 
-  // Still compute attribute breakdown to derive the attrScore signal
+  // Compute attribute breakdown for attrScore (used in explanation text only)
   const attributeData = attributePricingService.getAttributeBreakdown(unit);
   const attributeMultiplier = attributeData.totalMultiplier;
 
