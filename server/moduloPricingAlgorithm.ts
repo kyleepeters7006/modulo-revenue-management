@@ -524,7 +524,7 @@ export function calculateModuloPrice(
 function getFactorDescription(factor: string, inputs: PricingInputs, adjustment: number, basePrice: number): string {
   switch(factor) {
     case 'occupancy':
-      return `Campus at ${Math.round(inputs.occupancy * 100)}% occupancy (target: 90%)`;
+      return `Room type at ${Math.round(inputs.occupancy * 100)}% occupancy (target: 90%)`;
     case 'daysVacant':
       return `Unit vacant for ${inputs.daysVacant} days`;
     case 'roomAttributes':

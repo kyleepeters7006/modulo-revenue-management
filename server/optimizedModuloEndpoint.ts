@@ -23,6 +23,7 @@ interface PrecomputedSignals {
   stockMarketChange: number;
   serviceLineOccupancy: Map<string, number>;
   locationOccupancy: Map<string, number>;
+  locationRoomTypeOccupancy: Map<string, number>;
   serviceLineMedians: Map<string, number>;
   monthIndex: number;
   demandCache: Map<string, DemandData>;
@@ -96,9 +97,15 @@ async function processUnitBatch(
           };
         }
         
-        const occupancy = precomputedSignals.locationOccupancy.get(
-          `${unit.locationId}|${unit.serviceLine}`
-        ) || precomputedSignals.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
+        const occupancy =
+          precomputedSignals.locationRoomTypeOccupancy.get(
+            `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`
+          ) ||
+          precomputedSignals.locationOccupancy.get(
+            `${unit.locationId}|${unit.serviceLine}`
+          ) ||
+          precomputedSignals.serviceLineOccupancy.get(unit.serviceLine) ||
+          0.87;
         
         const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
         
@@ -347,15 +354,25 @@ export async function generateModuloOptimized(req: any, res: any) {
       return true;
     });
     
-    // Precompute occupancy by location+serviceLine and by serviceLine
+    // Precompute occupancy by location+serviceLine+roomType, location+serviceLine, and serviceLine
+    const locationRoomTypeOccupancy = new Map<string, number>();
     const locationOccupancy = new Map<string, number>();
     const serviceLineOccupancy = new Map<string, number>();
     const occupancyStats = new Map<string, { occupied: number; total: number }>();
     
     for (const unit of unitsForOccupancy) {
+      const locServiceRoomKey = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
       const locServiceKey = `${unit.locationId}|${unit.serviceLine}`;
       const serviceKey = unit.serviceLine || 'Unknown';
       
+      // Location + Service Line + Room Type stats (most granular)
+      if (!occupancyStats.has(locServiceRoomKey)) {
+        occupancyStats.set(locServiceRoomKey, { occupied: 0, total: 0 });
+      }
+      const roomStats = occupancyStats.get(locServiceRoomKey)!;
+      roomStats.total++;
+      if (unit.occupiedYN) roomStats.occupied++;
+
       // Location + Service Line stats
       if (!occupancyStats.has(locServiceKey)) {
         occupancyStats.set(locServiceKey, { occupied: 0, total: 0 });
@@ -373,10 +390,16 @@ export async function generateModuloOptimized(req: any, res: any) {
       if (unit.occupiedYN) slStats.occupied++;
     }
     
-    // Calculate occupancy percentages
+    // Calculate occupancy percentages — key format determines bucket:
+    //   two pipes  = locationId|serviceLine|roomType → locationRoomTypeOccupancy
+    //   one pipe   = locationId|serviceLine          → locationOccupancy
+    //   no pipe    = serviceLine                     → serviceLineOccupancy
     for (const [key, stats] of Array.from(occupancyStats)) {
       const occ = stats.total > 0 ? stats.occupied / stats.total : 0;
-      if (key.includes('|')) {
+      const pipeCount = (key.match(/\|/g) || []).length;
+      if (pipeCount === 2) {
+        locationRoomTypeOccupancy.set(key, occ);
+      } else if (pipeCount === 1) {
         locationOccupancy.set(key, occ);
       } else {
         serviceLineOccupancy.set(key, occ);
@@ -442,7 +465,7 @@ export async function generateModuloOptimized(req: any, res: any) {
     
     await Promise.all([...locationWeightPromises, ...comboWeightPromises]);
     
-    console.log(`Precomputed: ${locationOccupancy.size} location occupancies, ${serviceLineOccupancy.size} service line occupancies`);
+    console.log(`Precomputed: ${locationRoomTypeOccupancy.size} room-type occupancies, ${locationOccupancy.size} location occupancies, ${serviceLineOccupancy.size} service line occupancies`);
     console.log(`Weights cache: ${weightsCache.size} specific, ${locationWeightsCache.size} location-level`);
     
     // Precompute demand data for all unique location+serviceLine combinations
@@ -514,6 +537,7 @@ export async function generateModuloOptimized(req: any, res: any) {
       stockMarketChange,
       serviceLineOccupancy,
       locationOccupancy,
+      locationRoomTypeOccupancy,
       serviceLineMedians,
       monthIndex: new Date(targetMonth).getMonth() + 1,
       demandCache,
