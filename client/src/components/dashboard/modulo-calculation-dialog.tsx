@@ -210,13 +210,6 @@ export default function ModuloCalculationDialog({
                       </div>
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span>Attributes</span>
-                          <span className="font-medium">{calcDetails.weights.roomAttributes}%</span>
-                        </div>
-                        <Progress value={calcDetails.weights.roomAttributes} className="h-2" />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-xs">
                           <span>Seasonality</span>
                           <span className="font-medium">{calcDetails.weights.seasonality}%</span>
                         </div>

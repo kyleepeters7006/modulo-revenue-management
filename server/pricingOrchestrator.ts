@@ -74,7 +74,6 @@ export async function calculateAttributedPrice(
   const moduloWeights: ModuloPricingWeights = {
     occupancy: weights.occupancyPressure,
     daysVacant: weights.daysVacantDecay,
-    roomAttributes: weights.roomAttributes || 10,
     seasonality: weights.seasonality,
     competitors: weights.competitorRates,
     market: weights.stockMarket,
