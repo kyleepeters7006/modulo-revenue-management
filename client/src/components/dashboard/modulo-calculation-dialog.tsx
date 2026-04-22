@@ -518,7 +518,9 @@ export default function ModuloCalculationDialog({
                       ))}
                       {/* Unit Calculation Subtotal — arithmetic sum of the individual factor rows above */}
                       {(() => {
-                        const unitSubtotal = calcDetails.adjustments.reduce((sum: number, adj: any) => sum + (adj.weightedAdjustment || 0), 0);
+                        const unitSubtotal = typeof calcDetails.rawUnitTotalAdjustment === 'number'
+                          ? calcDetails.rawUnitTotalAdjustment
+                          : calcDetails.adjustments.reduce((sum: number, adj: any) => sum + (adj.weightedAdjustment || 0), 0);
                         const groupAdj = calcDetails.totalAdjustment;
                         const groupDiffersFromUnit = typeof groupAdj === 'number' && Math.abs(groupAdj - unitSubtotal) > 0.0001;
                         return (
@@ -534,7 +536,7 @@ export default function ModuloCalculationDialog({
                                   title="All units sharing the same Location + Service Line + Room Type receive the same % adjustment (group average), ensuring consistent pricing across comparable units. The group average may differ from this unit's individual calculation."
                                 >
                                   <Info className="h-3 w-3" />
-                                  Group Avg Adjustment (overrides unit)
+                                  Group Avg Override (pre-guardrail)
                                 </span>
                                 <span>{groupAdj > 0 ? '+' : ''}{formatPercent(groupAdj)}</span>
                               </div>
