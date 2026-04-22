@@ -51,6 +51,7 @@ export class PricingAlgorithm {
     const defaultWeights = {
       occupancyPressure: 25,
       daysVacantDecay: 15,
+      roomAttributes: 20,
       seasonality: 5,
       competitorRates: 10,
       stockMarket: 5,
@@ -95,6 +96,7 @@ export class PricingAlgorithm {
     const moduloWeights: ModuloPricingWeights = {
       occupancy: activeWeights.occupancyPressure || 25,
       daysVacant: activeWeights.daysVacantDecay || 15,
+      roomAttributes: activeWeights.roomAttributes || 20,
       seasonality: activeWeights.seasonality || 5,
       competitors: activeWeights.competitorRates || 10,
       market: activeWeights.stockMarket || 5,

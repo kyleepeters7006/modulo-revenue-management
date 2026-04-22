@@ -51,7 +51,7 @@ export async function calculateAttributedPrice(
   const baseRate = unit.streetRate || 0;
   const baseRateSource = 'street_rate';
 
-  // Compute attribute breakdown for attrScore (used in explanation text only)
+  // Still compute attribute breakdown to derive the attrScore signal
   const attributeData = attributePricingService.getAttributeBreakdown(unit);
   const attributeMultiplier = attributeData.totalMultiplier;
 
@@ -74,6 +74,7 @@ export async function calculateAttributedPrice(
   const moduloWeights: ModuloPricingWeights = {
     occupancy: weights.occupancyPressure,
     daysVacant: weights.daysVacantDecay,
+    roomAttributes: weights.roomAttributes || 10,
     seasonality: weights.seasonality,
     competitors: weights.competitorRates,
     market: weights.stockMarket,
