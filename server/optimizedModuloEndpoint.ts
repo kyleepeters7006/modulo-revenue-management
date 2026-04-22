@@ -97,15 +97,16 @@ async function processUnitBatch(
           };
         }
         
+        const locServiceRoomOccKey = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
+        const locServiceOccKey = `${unit.locationId}|${unit.serviceLine}`;
         const occupancy =
-          precomputedSignals.locationRoomTypeOccupancy.get(
-            `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`
-          ) ||
-          precomputedSignals.locationOccupancy.get(
-            `${unit.locationId}|${unit.serviceLine}`
-          ) ||
-          precomputedSignals.serviceLineOccupancy.get(unit.serviceLine) ||
-          0.87;
+          precomputedSignals.locationRoomTypeOccupancy.has(locServiceRoomOccKey)
+            ? precomputedSignals.locationRoomTypeOccupancy.get(locServiceRoomOccKey)!
+            : precomputedSignals.locationOccupancy.has(locServiceOccKey)
+              ? precomputedSignals.locationOccupancy.get(locServiceOccKey)!
+              : precomputedSignals.serviceLineOccupancy.has(unit.serviceLine)
+                ? precomputedSignals.serviceLineOccupancy.get(unit.serviceLine)!
+                : 0.87;
         
         const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
         
