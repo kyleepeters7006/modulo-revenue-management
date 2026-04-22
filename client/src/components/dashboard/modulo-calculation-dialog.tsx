@@ -516,16 +516,33 @@ export default function ModuloCalculationDialog({
                           </span>
                         </div>
                       ))}
+                      {/* Unit Calculation Subtotal — arithmetic sum of the individual factor rows above */}
+                      {(() => {
+                        const unitSubtotal = calcDetails.adjustments.reduce((sum: number, adj: any) => sum + (adj.weightedAdjustment || 0), 0);
+                        const groupAdj = calcDetails.totalAdjustment;
+                        const groupDiffersFromUnit = typeof groupAdj === 'number' && Math.abs(groupAdj - unitSubtotal) > 0.0001;
+                        return (
+                          <>
+                            <div className="flex items-center justify-between text-xs pt-1 border-t border-dashed border-muted-foreground/30">
+                              <span className="text-muted-foreground italic">Unit Calculation Subtotal</span>
+                              <span className="text-muted-foreground">{unitSubtotal > 0 ? '+' : ''}{formatPercent(unitSubtotal)}</span>
+                            </div>
+                            {groupDiffersFromUnit && (
+                              <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-500">
+                                <span
+                                  className="flex items-center gap-1 cursor-help"
+                                  title="All units sharing the same Location + Service Line + Room Type receive the same % adjustment (group average), ensuring consistent pricing across comparable units. The group average may differ from this unit's individual calculation."
+                                >
+                                  <Info className="h-3 w-3" />
+                                  Group Avg Adjustment (overrides unit)
+                                </span>
+                                <span>{groupAdj > 0 ? '+' : ''}{formatPercent(groupAdj)}</span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       <Separator />
-                      {guardrailsWereApplied && typeof calcDetails.totalAdjustment === 'number' && Math.abs(calcDetails.totalAdjustment - effectiveAdj) > 0.0001 && (
-                        <div className="flex items-center justify-between text-xs text-amber-700 dark:text-amber-500">
-                          <span className="flex items-center gap-1">
-                            <Shield className="h-3 w-3" />
-                            Pre-Guardrail Group Adjustment
-                          </span>
-                          <span>{calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)}</span>
-                        </div>
-                      )}
                       <div className="flex items-center justify-between">
                         <span className="text-sm">Total Adjustment</span>
                         <span className={`font-medium ${getAdjustmentColor(effectiveAdj)}`}>

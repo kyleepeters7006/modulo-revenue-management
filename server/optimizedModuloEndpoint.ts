@@ -626,6 +626,7 @@ export async function generateModuloOptimized(req: any, res: any) {
       const calculationDetails = {
         ...raw.calculationDetailsTemplate,
         totalAdjustment: groupAdj,
+        rawUnitTotalAdjustment: raw.rawTotalAdjustment,
         groupAdjustment: groupAdj,
         groupSegmentKey: segmentKey,
         finalRate,
