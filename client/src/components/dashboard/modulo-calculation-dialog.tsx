@@ -294,29 +294,51 @@ export default function ModuloCalculationDialog({
                             
                             <Collapsible>
                               <CollapsibleTrigger className="w-full group">
-                                <div className="flex items-center gap-2 text-xs hover:bg-muted/50 rounded p-2 transition-colors">
-                                  <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90 transition-transform" />
-                                  <div className="flex items-center gap-4 flex-1">
+                                <div className="flex flex-col gap-1 text-xs hover:bg-muted/50 rounded p-2 transition-colors">
+                                  <div className="flex items-center gap-2">
+                                  <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90 transition-transform flex-shrink-0" />
+                                  <div className="flex items-center gap-2 flex-1 flex-wrap">
+                                    <span className="text-muted-foreground">(</span>
                                     <div className="flex items-center gap-1">
-                                      <span className="text-muted-foreground">Raw adjustment:</span>
-                                      <span className="font-medium">
-                                        {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
+                                      <span className="text-muted-foreground">Signal</span>
+                                      <span className="font-mono font-medium">
+                                        {adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}
                                       </span>
                                     </div>
                                     <span className="text-muted-foreground">×</span>
                                     <div className="flex items-center gap-1">
-                                      <span className="text-muted-foreground">Weight:</span>
-                                      <span className="font-medium">{adj.weight}%</span>
+                                      <span className="text-muted-foreground">Weight</span>
+                                      <span className="font-mono font-medium">{adj.weight}%</span>
+                                    </div>
+                                    <span className="text-muted-foreground">)</span>
+                                    <span className="text-muted-foreground">÷</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-muted-foreground">Blended</span>
+                                      <span className="font-mono font-medium">
+                                        {calcDetails?.blendedSignal !== undefined ? calcDetails.blendedSignal.toFixed(3) : 'N/A'}
+                                      </span>
+                                    </div>
+                                    <span className="text-muted-foreground">×</span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-muted-foreground">Total Adj</span>
+                                      <span className="font-mono font-medium">
+                                        {calcDetails?.totalAdjustment !== undefined
+                                          ? `${calcDetails.totalAdjustment > 0 ? '+' : ''}${formatPercent(calcDetails.totalAdjustment)}`
+                                          : 'N/A'}
+                                      </span>
                                     </div>
                                     <span className="text-muted-foreground">=</span>
                                     <div className="flex items-center gap-1">
-                                      <span className="text-muted-foreground">Weighted:</span>
-                                      <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                      <span className={`font-mono font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
                                         {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
                                       </span>
                                     </div>
                                   </div>
-                                  <span className="text-xs text-muted-foreground italic">Click for details</span>
+                                  <span className="text-xs text-muted-foreground italic shrink-0">Click for details</span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground italic pl-5">
+                                    This factor's share of the blended signal, applied to the total adjustment
+                                  </p>
                                 </div>
                               </CollapsibleTrigger>
                               <CollapsibleContent>
