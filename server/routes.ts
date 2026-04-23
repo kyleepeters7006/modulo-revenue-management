@@ -10597,27 +10597,6 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
 
-  // Update unit attribute ratings
-  app.put("/api/units/:id/attributes", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { locationRating, sizeRating, viewRating, renovationRating, amenityRating } = req.body;
-      
-      await storage.updateRentRollData(id, {
-        locationRating,
-        sizeRating, 
-        viewRating,
-        renovationRating,
-        amenityRating
-      });
-      
-      res.json({ success: true, message: 'Unit attributes updated' });
-    } catch (error) {
-      console.error('Error updating unit attributes:', error);
-      res.status(500).json({ error: 'Failed to update unit attributes' });
-    }
-  });
-
   // Get detailed calculation for a specific unit's AI rate
   app.get("/api/ai-calculation/:unitId", async (req, res) => {
     try {
