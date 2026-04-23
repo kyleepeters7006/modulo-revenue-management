@@ -26,7 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Brain, Calculator, CheckCircle, AlertCircle, Edit, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Brain, Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -49,7 +49,6 @@ export default function RateCardTable({
   selectedUnit
 }: RateCardTableProps) {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [editingUnit, setEditingUnit] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
   const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
@@ -203,19 +202,6 @@ export default function RateCardTable({
       });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       queryClient.invalidateQueries({ queryKey: ['/api/pricing-history'] });
-    }
-  });
-
-  const updateAttributesMutation = useMutation({
-    mutationFn: ({ unitId, attributes }: { unitId: string, attributes: any }) =>
-      apiRequest(`/api/units/${unitId}/attributes`, 'PUT', attributes),
-    onSuccess: () => {
-      toast({
-        title: "Attributes updated",
-        description: "Unit attribute ratings have been saved"
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-      setEditingUnit(null);
     }
   });
 
@@ -724,7 +710,6 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         <SortIcon column="competitor" />
                       </div>
                     </TableHead>
-                    <TableHead className="min-w-[160px]">Attributes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -912,180 +897,6 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           </CompetitorAdjustmentDialog>
                         ) : (
                           <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {editingUnit === unit.id ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-medium">Location:</span>
-                              <Select
-                                value={unit.locationRating || 'B'}
-                                onValueChange={(value) => {
-                                  unit.locationRating = value;
-                                }}
-                                data-testid={`select-location-rating-${unit.roomNumber}`}
-                              >
-                                <SelectTrigger className="w-16 h-7">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="A">A</SelectItem>
-                                  <SelectItem value="B">B</SelectItem>
-                                  <SelectItem value="C">C</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-medium">Size:</span>
-                              <Select
-                                value={unit.sizeRating || 'B'}
-                                onValueChange={(value) => {
-                                  unit.sizeRating = value;
-                                }}
-                                data-testid={`select-size-rating-${unit.roomNumber}`}
-                              >
-                                <SelectTrigger className="w-16 h-7">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="A">A</SelectItem>
-                                  <SelectItem value="B">B</SelectItem>
-                                  <SelectItem value="C">C</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-medium">View:</span>
-                              <Select
-                                value={unit.viewRating || 'B'}
-                                onValueChange={(value) => {
-                                  unit.viewRating = value;
-                                }}
-                                data-testid={`select-view-rating-${unit.roomNumber}`}
-                              >
-                                <SelectTrigger className="w-16 h-7">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="A">A</SelectItem>
-                                  <SelectItem value="B">B</SelectItem>
-                                  <SelectItem value="C">C</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-medium">Reno:</span>
-                              <Select
-                                value={unit.renovationRating || 'B'}
-                                onValueChange={(value) => {
-                                  unit.renovationRating = value;
-                                }}
-                                data-testid={`select-renovation-rating-${unit.roomNumber}`}
-                              >
-                                <SelectTrigger className="w-16 h-7">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="A">A</SelectItem>
-                                  <SelectItem value="B">B</SelectItem>
-                                  <SelectItem value="C">C</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-medium">Amenity:</span>
-                              <Select
-                                value={unit.amenityRating || 'B'}
-                                onValueChange={(value) => {
-                                  unit.amenityRating = value;
-                                }}
-                                data-testid={`select-amenity-rating-${unit.roomNumber}`}
-                              >
-                                <SelectTrigger className="w-16 h-7">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="A">A</SelectItem>
-                                  <SelectItem value="B">B</SelectItem>
-                                  <SelectItem value="C">C</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="flex items-center space-x-2 mt-2 pt-2 border-t">
-                              <Button
-                                size="sm"
-                                onClick={() => {
-                                  updateAttributesMutation.mutate({
-                                    unitId: unit.id,
-                                    attributes: {
-                                      locationRating: unit.locationRating || 'B',
-                                      sizeRating: unit.sizeRating || 'B',
-                                      viewRating: unit.viewRating || 'B',
-                                      renovationRating: unit.renovationRating || 'B',
-                                      amenityRating: unit.amenityRating || 'B'
-                                    }
-                                  });
-                                }}
-                                disabled={updateAttributesMutation.isPending}
-                                data-testid={`button-save-attributes-${unit.roomNumber}`}
-                              >
-                                <CheckCircle className="h-3 w-3 mr-1" /> Save
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingUnit(null)}
-                                data-testid={`button-cancel-attributes-${unit.roomNumber}`}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-start space-x-3">
-                            <div className="space-y-1">
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-500">Loc:</span>
-                                <Badge variant={unit.locationRating === 'A' ? 'default' : unit.locationRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
-                                  {unit.locationRating || 'B'}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-500">Size:</span>
-                                <Badge variant={unit.sizeRating === 'A' ? 'default' : unit.sizeRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
-                                  {unit.sizeRating || 'B'}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-500">View:</span>
-                                <Badge variant={unit.viewRating === 'A' ? 'default' : unit.viewRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
-                                  {unit.viewRating || 'B'}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-500">Reno:</span>
-                                <Badge variant={unit.renovationRating === 'A' ? 'default' : unit.renovationRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
-                                  {unit.renovationRating || 'B'}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-500">Amenity:</span>
-                                <Badge variant={unit.amenityRating === 'A' ? 'default' : unit.amenityRating === 'B' ? 'secondary' : 'outline'} className="text-xs">
-                                  {unit.amenityRating || 'B'}
-                                </Badge>
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setEditingUnit(unit.id)}
-                              data-testid={`button-edit-attributes-${unit.roomNumber}`}
-                              className="shrink-0"
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                          </div>
                         )}
                       </TableCell>
                     </TableRow>
