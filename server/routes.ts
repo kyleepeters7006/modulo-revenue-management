@@ -11968,11 +11968,16 @@ Respond in JSON format:
   // Get all rent roll data
   app.get("/api/rent-roll", async (req, res) => {
     try {
-      // Get the latest upload month to avoid fetching all historical data
+      const clientId = req.clientId || 'demo';
+
+      // Get the latest upload month for this client
       const latestMonthResult = await db
         .select({ uploadMonth: rentRollData.uploadMonth })
         .from(rentRollData)
-        .where(sql`${rentRollData.uploadMonth} IS NOT NULL`)
+        .where(and(
+          sql`${rentRollData.uploadMonth} IS NOT NULL`,
+          eq(rentRollData.clientId, clientId)
+        ))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`)
         .limit(1);
       
@@ -11996,7 +12001,10 @@ Respond in JSON format:
           occupiedYN: rentRollData.occupiedYN
         })
         .from(rentRollData)
-        .where(eq(rentRollData.uploadMonth, latestMonth));
+        .where(and(
+          eq(rentRollData.uploadMonth, latestMonth),
+          eq(rentRollData.clientId, clientId)
+        ));
       
       res.json(currentMonthData);
     } catch (error) {
