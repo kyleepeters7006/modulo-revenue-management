@@ -12016,10 +12016,14 @@ Respond in JSON format:
   // Get available upload months
   app.get("/api/rent-roll/available-months", async (req, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const result = await db
         .selectDistinct({ uploadMonth: rentRollData.uploadMonth })
         .from(rentRollData)
-        .where(sql`${rentRollData.uploadMonth} IS NOT NULL`)
+        .where(and(
+          sql`${rentRollData.uploadMonth} IS NOT NULL`,
+          eq(rentRollData.clientId, clientId)
+        ))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`);
       
       const months = result.map(r => r.uploadMonth).filter(Boolean);
