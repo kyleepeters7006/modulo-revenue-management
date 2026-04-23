@@ -145,6 +145,16 @@ const PAYOR_TYPES: Record<string, { type: string; weight: number }[]> = {
   'VIL':   [{ type: 'PRIVATE PAY', weight: 1.00 }],
 };
 
+// Maps service line to the competitor type used in competitive survey data
+const SL_TO_COMP_TYPE: Record<string, string> = {
+  'HC':    'HC',
+  'HC/MC': 'SMC',
+  'AL':    'AL',
+  'AL/MC': 'AL',
+  'SL':    'IL_IL',
+  'VIL':   'IL_Villa',
+};
+
 // Competitor name pool (80 names)
 const COMPETITOR_NAMES = [
   'Sunrise Senior Living', 'Brookdale Senior Living', 'Atria Senior Living', 'Emeritus',
@@ -255,91 +265,11 @@ export async function generateDemoData(): Promise<{
   }
   console.log(`[demo]   ✓ ${stats.locations} locations`);
 
-  // ── 2. Rent Roll Data ─────────────────────────────────────────────────────
-  console.log('[demo] Generating rent roll data...');
-  const months = ['2025-09', '2025-10', '2025-11'];
-  const rentRollBatch: any[] = [];
-
-  for (const loc of insertedLocations) {
-    const serviceLines = SIZE_SERVICE_LINES[loc.size];
-    const unitCounts = UNIT_COUNTS[loc.size];
-    // Use a location-specific seed so rates are stable per location
-    const locSeed = seededRand(
-      loc.name.split('').reduce((acc, c) => acc * 31 + c.charCodeAt(0), 7) & 0x7fffffff
-    );
-
-    for (const sl of serviceLines) {
-      const roomSizes = SL_ROOM_SIZES[sl] || [];
-      const [rateMin, rateMax] = STREET_RATE_RANGES[sl];
-      const baseRate = Math.round(randBetween(locSeed, rateMin, rateMax));
-      const [occMin, occMax] = OCC_RATES[sl];
-      const targetOcc = randBetween(locSeed, occMin, occMax);
-
-      for (const roomSize of roomSizes) {
-        const premium = ROOM_PREMIUM[roomSize] || 1.0;
-        const streetRate = Math.round(baseRate * premium);
-        const unitCount = unitCounts[sl]?.[roomSize] ?? 6;
-
-        for (const month of months) {
-          // Global rand for per-month variance (not location-seeded, so each month slightly different)
-          const globalR = seededRand(month.charCodeAt(5) * 97 + loc.name.charCodeAt(0) * 13 + sl.charCodeAt(0) * 7);
-          const monthOccVariance = (globalR() - 0.5) * 0.04;
-          const occ = Math.max(0.3, Math.min(0.99, targetOcc + monthOccVariance));
-          const occupiedCount = Math.round(unitCount * occ);
-
-          for (let i = 0; i < unitCount; i++) {
-            const isOccupied = i < occupiedCount;
-            const unitNum = 100 + Math.floor(i / 2) * 10 + (i % 2);
-            const roomNumber = `${sl.replace('/', '')}-${unitNum}`;
-            const inHouseRate = isOccupied ? Math.round(streetRate * randBetween(locSeed, 0.85, 0.98)) : 0;
-            const daysVacant = isOccupied ? 0 : randInt(locSeed, 1, 180);
-            const moveInDate = isOccupied ? pastDate(locSeed, 6, 36) : null;
-            const payorType = isOccupied ? pickPayorType(locSeed, sl) : null;
-
-            rentRollBatch.push({
-              uploadMonth: month,
-              date: `${month}-01`,
-              location: loc.name,
-              locationId: loc.id,
-              roomNumber,
-              size: roomSize,
-              roomType: roomSize,
-              serviceLine: sl,
-              occupiedYN: isOccupied,
-              daysVacant,
-              streetRate,
-              inHouseRate,
-              discountToStreetRate: isOccupied ? streetRate - inHouseRate : 0,
-              promotionAllowance: 0,
-              payorType,
-              moveInDate,
-              clientId: 'demo',
-            });
-          }
-        }
-      }
-    }
-  }
-
-  for (let i = 0; i < rentRollBatch.length; i += BATCH_SIZE) {
-    await db.insert(rentRollData).values(rentRollBatch.slice(i, i + BATCH_SIZE));
-    stats.rentRoll += Math.min(BATCH_SIZE, rentRollBatch.length - i);
-  }
-  console.log(`[demo]   ✓ ${stats.rentRoll} rent roll records`);
-
-  // ── 3. Competitive Survey Data ─────────────────────────────────────────────
+  // ── 2. Generate Competitive Survey Data first (in-memory) ──────────────────
+  // We generate competitor data first so we can use it when building rent roll records,
+  // pre-populating competitorFinalRate for a complete demo experience.
   console.log('[demo] Generating competitive survey data...');
   const surveyMonth = '2025-11';
-
-  // Competitor type that matches each service line
-  const SL_TO_COMP_TYPE: Record<string, string> = {
-    'HC':    'HC',
-    'HC/MC': 'SMC',
-    'AL':    'AL',
-    'AL/MC': 'AL',
-    'SL':    'IL_IL',
-    'VIL':   'IL_Villa',
-  };
 
   const COMP_ROOM_SIZES: Record<string, string[]> = {
     HC:       ['Studio', 'Companion'],
@@ -348,6 +278,10 @@ export async function generateDemoData(): Promise<{
     IL_IL:    ['Studio', 'One Bedroom', 'Two Bedroom'],
     IL_Villa: ['One Bedroom', 'Two Bedroom'],
   };
+
+  // Competitor rate lookup: "locName|compType|roomType" -> average monthly rate
+  // Used to pre-populate competitorFinalRate in rent roll records
+  const competitorRateMap = new Map<string, number[]>();
 
   const competitiveBatch: any[] = [];
 
@@ -362,7 +296,6 @@ export async function generateDemoData(): Promise<{
     const locCompNames: string[] = [];
 
     for (let ci = 0; ci < numCompetitors; ci++) {
-      // Pick a name not already used for this location
       let compName = '';
       for (let attempt = 0; attempt < 30; attempt++) {
         const idx = randInt(locSeed, 0, COMPETITOR_NAMES.length - 1);
@@ -403,18 +336,159 @@ export async function generateDemoData(): Promise<{
             totalUnits: randInt(locSeed, 40, 160),
             clientId: 'demo',
           });
+
+          // Accumulate rates for the lookup map
+          const mapKey = `${loc.name}|${compType}|${roomSize}`;
+          if (!competitorRateMap.has(mapKey)) {
+            competitorRateMap.set(mapKey, []);
+          }
+          competitorRateMap.get(mapKey)!.push(compRate);
         }
       }
     }
   }
 
+  // Helper: look up the average competitor rate for a location/serviceLine/roomType combination
+  function lookupCompetitorRate(locName: string, sl: string, roomType: string): number | null {
+    const compType = SL_TO_COMP_TYPE[sl];
+    if (!compType) return null;
+
+    // Direct lookup
+    const key = `${locName}|${compType}|${roomType}`;
+    const rates = competitorRateMap.get(key);
+    if (rates && rates.length > 0) {
+      return Math.round(rates.reduce((a, b) => a + b, 0) / rates.length);
+    }
+
+    // Fallback: try Studio for Companion (AL/MC companion -> AL studio)
+    if (roomType === 'Companion') {
+      const fallbackKey = `${locName}|${compType}|Studio`;
+      const fallbackRates = competitorRateMap.get(fallbackKey);
+      if (fallbackRates && fallbackRates.length > 0) {
+        return Math.round(fallbackRates.reduce((a, b) => a + b, 0) / fallbackRates.length * 0.85);
+      }
+    }
+
+    // Fallback: try One Bedroom for Two Bedroom
+    if (roomType === 'Two Bedroom') {
+      const fallbackKey = `${locName}|${compType}|One Bedroom`;
+      const fallbackRates = competitorRateMap.get(fallbackKey);
+      if (fallbackRates && fallbackRates.length > 0) {
+        return Math.round(fallbackRates.reduce((a, b) => a + b, 0) / fallbackRates.length * 1.25);
+      }
+    }
+
+    // Fallback: any room type for this location+compType
+    for (const [k, r] of competitorRateMap) {
+      if (k.startsWith(`${locName}|${compType}|`) && r.length > 0) {
+        return Math.round(r.reduce((a, b) => a + b, 0) / r.length);
+      }
+    }
+
+    return null;
+  }
+
+  // ── 3. Rent Roll Data ──────────────────────────────────────────────────────
+  console.log('[demo] Generating rent roll data...');
+  const months = ['2025-09', '2025-10', '2025-11'];
+  const rentRollBatch: any[] = [];
+
+  for (const loc of insertedLocations) {
+    const serviceLines = SIZE_SERVICE_LINES[loc.size];
+    const unitCounts = UNIT_COUNTS[loc.size];
+    const locSeed = seededRand(
+      loc.name.split('').reduce((acc, c) => acc * 31 + c.charCodeAt(0), 7) & 0x7fffffff
+    );
+
+    for (const sl of serviceLines) {
+      const roomSizes = SL_ROOM_SIZES[sl] || [];
+      const [rateMin, rateMax] = STREET_RATE_RANGES[sl];
+      const baseRate = Math.round(randBetween(locSeed, rateMin, rateMax));
+      const [occMin, occMax] = OCC_RATES[sl];
+      const targetOcc = randBetween(locSeed, occMin, occMax);
+
+      // Calculate Modulo factor based on occupancy:
+      // High occupancy (>90%) → suggest 5-8% increase
+      // Mid occupancy (80-90%) → suggest 1-4% increase
+      // Low occupancy (<80%) → suggest hold or tiny decrease
+      const rawModuloFactor = 1.0 + Math.min(0.08, Math.max(-0.03, (targetOcc - 0.83) * 0.15));
+      // Add small random variation ±1% to make suggestions look realistic
+      const moduloVarianceSeed = seededRand(
+        loc.name.charCodeAt(0) * 17 + sl.charCodeAt(0) * 31 + 99
+      );
+
+      for (const roomSize of roomSizes) {
+        const premium = ROOM_PREMIUM[roomSize] || 1.0;
+        const streetRate = Math.round(baseRate * premium);
+        const unitCount = unitCounts[sl]?.[roomSize] ?? 6;
+
+        // Pre-compute competitor rate for this location/sl/roomType (same for all months)
+        const competitorFinalRate = lookupCompetitorRate(loc.name, sl, roomSize);
+
+        for (const month of months) {
+          const globalR = seededRand(month.charCodeAt(5) * 97 + loc.name.charCodeAt(0) * 13 + sl.charCodeAt(0) * 7);
+          const monthOccVariance = (globalR() - 0.5) * 0.04;
+          const occ = Math.max(0.3, Math.min(0.99, targetOcc + monthOccVariance));
+          const occupiedCount = Math.round(unitCount * occ);
+
+          // Month-specific Modulo variance (±1.5%)
+          const monthModuloVariance = 1.0 + (moduloVarianceSeed() - 0.5) * 0.015;
+          const moduloFactor = rawModuloFactor * monthModuloVariance;
+          const moduloSuggestedRate = Math.round(streetRate * moduloFactor);
+
+          for (let i = 0; i < unitCount; i++) {
+            const isOccupied = i < occupiedCount;
+            const unitNum = 100 + Math.floor(i / 2) * 10 + (i % 2);
+            const roomNumber = `${sl.replace('/', '')}-${unitNum}`;
+            const inHouseRate = isOccupied ? Math.round(streetRate * randBetween(locSeed, 0.85, 0.98)) : 0;
+            const daysVacant = isOccupied ? 0 : randInt(locSeed, 1, 180);
+            const moveInDate = isOccupied ? pastDate(locSeed, 6, 36) : null;
+            const payorType = isOccupied ? pickPayorType(locSeed, sl) : null;
+
+            rentRollBatch.push({
+              uploadMonth: month,
+              date: `${month}-01`,
+              location: loc.name,
+              locationId: loc.id,
+              roomNumber,
+              size: roomSize,
+              roomType: roomSize,
+              serviceLine: sl,
+              occupiedYN: isOccupied,
+              daysVacant,
+              streetRate,
+              inHouseRate,
+              discountToStreetRate: isOccupied ? streetRate - inHouseRate : 0,
+              promotionAllowance: 0,
+              payorType,
+              moveInDate,
+              clientId: 'demo',
+              // Pre-computed competitor rate from survey data
+              competitorFinalRate,
+              competitorRate: competitorFinalRate,
+              // Pre-computed Modulo suggestion based on occupancy trend
+              moduloSuggestedRate,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < rentRollBatch.length; i += BATCH_SIZE) {
+    await db.insert(rentRollData).values(rentRollBatch.slice(i, i + BATCH_SIZE));
+    stats.rentRoll += Math.min(BATCH_SIZE, rentRollBatch.length - i);
+  }
+  console.log(`[demo]   ✓ ${stats.rentRoll} rent roll records`);
+
+  // ── 4. Insert Competitive Survey Data ─────────────────────────────────────
   for (let i = 0; i < competitiveBatch.length; i += BATCH_SIZE) {
     await db.insert(competitiveSurveyData).values(competitiveBatch.slice(i, i + BATCH_SIZE));
     stats.competitive += Math.min(BATCH_SIZE, competitiveBatch.length - i);
   }
   console.log(`[demo]   ✓ ${stats.competitive} competitive survey records`);
 
-  // ── 4. Inquiry Metrics ────────────────────────────────────────────────────
+  // ── 5. Inquiry Metrics ────────────────────────────────────────────────────
   console.log('[demo] Generating inquiry metrics...');
   const inquiryMonths = ['2025-09', '2025-10', '2025-11'];
   const leadSources = ['Website', 'Referral', 'A Place for Mom', 'Phone', 'Walk-in'];
@@ -427,7 +501,6 @@ export async function generateDemoData(): Promise<{
     const serviceLines = SIZE_SERVICE_LINES[loc.size];
 
     for (const sl of serviceLines) {
-      // HC/HC/MC typically don't have standard inquiry funnel data
       if (sl === 'HC' || sl === 'HC/MC') continue;
 
       for (const month of inquiryMonths) {

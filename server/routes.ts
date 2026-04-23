@@ -7058,7 +7058,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         divisions: Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []),
         locations: Array.isArray(locationParam) ? locationParam : (locationParam ? [locationParam] : []),
         offset: (pageNum - 1) * pageLimit,
-        limit: pageLimit
+        limit: pageLimit,
+        clientId
       });
       
       // NOTE: Removed legacy competitor fetching and calculation code
