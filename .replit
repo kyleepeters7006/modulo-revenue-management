@@ -44,4 +44,4 @@ integrations = ["javascript_gemini:1.0.0", "javascript_database:1.0.0", "javascr
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 60000
