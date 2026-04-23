@@ -60,19 +60,6 @@ export class PricingAlgorithm {
     const activeWeights = weights || defaultWeights;
     const baseRate = inputs.competitorRate || inputs.currentRate;
     
-    // Calculate attribute score (0-1 normalized)
-    let attrScore = 0.5; // Default to midpoint
-    if (inputs.attributes) {
-      // Simple scoring based on presence of premium features
-      let score = 0.5;
-      if (inputs.attributes.view === 'city' || inputs.attributes.view === 'garden') score += 0.1;
-      if (inputs.attributes.renovation === 'recent') score += 0.15;
-      if (inputs.attributes.location === 'corner' || inputs.attributes.location === 'end') score += 0.1;
-      if (inputs.attributes.size === 'large') score += 0.1;
-      if (inputs.attributes.amenity === 'premium') score += 0.05;
-      attrScore = Math.min(1.0, score);
-    }
-    
     // Get competitor prices (if available)
     const competitorPrices: number[] = inputs.competitorRate ? [inputs.competitorRate] : [];
     
@@ -84,7 +71,6 @@ export class PricingAlgorithm {
     const moduloInputs: ModuloPricingInputs = {
       occupancy: inputs.occupancyRate,
       daysVacant: inputs.daysVacant,
-      attrScore,
       monthIndex: new Date().getMonth() + 1, // 1-12
       competitorPrices,
       marketReturn: 0.02, // Static 2% for now (should be fetched from market API)
@@ -123,7 +109,6 @@ export class PricingAlgorithm {
     const adjustments = result.adjustments || [];
     const occupancyAdj = adjustments.find(a => a.factor === 'Occupancy');
     const vacancyAdj = adjustments.find(a => a.factor === 'DaysVacant');
-    const attrAdj = adjustments.find(a => a.factor === 'RoomAttributes');
     const seasonalAdj = adjustments.find(a => a.factor === 'Seasonality');
     const competitorAdj = adjustments.find(a => a.factor === 'Competitors');
     const marketAdj = adjustments.find(a => a.factor === 'Market');
@@ -134,7 +119,6 @@ export class PricingAlgorithm {
         baseRate,
         occupancyAdjustment: occupancyAdj?.adjustment || 0,
         vacancyAdjustment: vacancyAdj?.adjustment || 0,
-        attributeAdjustment: attrAdj?.adjustment || 0,
         seasonalAdjustment: seasonalAdj?.adjustment || 0,
         competitorAdjustment: competitorAdj?.adjustment || 0,
         marketAdjustment: marketAdj?.adjustment || 0,

@@ -51,24 +51,12 @@ export async function calculateAttributedPrice(
   const baseRate = unit.streetRate || 0;
   const baseRateSource = 'street_rate';
 
-  // Still compute attribute breakdown to derive the attrScore signal
+  // Compute attribute breakdown for result metadata
   const attributeData = attributePricingService.getAttributeBreakdown(unit);
   const attributeMultiplier = attributeData.totalMultiplier;
 
-  // Calculate normalized attribute score (0-1) from the totalMultiplier
-  // A multiplier of 1.0 (neutral) maps to 0.5, with range from 0.7-1.3 mapping to 0-1
-  // This ensures units with no attributes (multiplier = 1.0) get a neutral score
-  const normalizeAttrScore = (multiplier: number): number => {
-    const minMultiplier = 0.7;
-    const maxMultiplier = 1.3;
-    const clampedMultiplier = Math.max(minMultiplier, Math.min(maxMultiplier, multiplier));
-    return (clampedMultiplier - minMultiplier) / (maxMultiplier - minMultiplier);
-  };
-
-  const attrScore = normalizeAttrScore(attributeMultiplier);
   const moduloInputs: PricingInputs = {
-    ...inputs,
-    attrScore
+    ...inputs
   };
 
   const moduloWeights: ModuloPricingWeights = {

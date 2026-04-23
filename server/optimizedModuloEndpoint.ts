@@ -140,7 +140,6 @@ async function processUnitBatch(
         const pricingInputs: PricingInputs = {
           occupancy,
           daysVacant: unit.daysVacant || 0,
-          attrScore: 0.5,
           monthIndex: precomputedSignals.monthIndex,
           competitorPrices,
           marketReturn: precomputedSignals.stockMarketChange / 100,
