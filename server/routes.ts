@@ -7604,6 +7604,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               inquiryTourVolume: unitWeights.inquiryTourVolume
             },
             totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
+            preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
             finalRate: orchestratorResult.finalPrice,
             moduloRate: orchestratorResult.moduloRate,
             appliedRules: [] as string[],
@@ -8085,6 +8086,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           weights: aiSuggestedWeights,
           aiReasoning: aiReasoning,
           totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
+          preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
           finalRate: orchestratorResult.finalPrice,
           moduloRate: orchestratorResult.moduloRate,
           signals: orchestratorResult.moduloDetails.signals,
@@ -10786,6 +10788,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
             inquiryTourVolume: algorithmWeights.demand
           },
           totalAdjustment: result.totalAdjustment,
+          preOverrideTotalAdj: result.preOverrideTotalAdj,
           finalRate: aiSuggestedRate,
           signals: result.signals,
           blendedSignal: result.blendedSignal,

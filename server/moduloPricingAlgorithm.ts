@@ -336,6 +336,7 @@ export interface PricingResult {
   weights: Record<string, number>;
   blendedSignal: number;
   totalAdjustment: number;
+  preOverrideTotalAdj?: number;
   finalPrice: number;
   adjustments?: Array<{
     factor: string;
@@ -487,6 +488,7 @@ export function calculateModuloPrice(
     weights: w,
     blendedSignal,
     totalAdjustment: finalTotalAdj,
+    preOverrideTotalAdj: totalAdj,
     finalPrice: Math.round(finalPrice * 100) / 100,
     adjustments
   };

@@ -21,6 +21,7 @@ interface CalculationDetails {
     weights: Record<string, number>;
     blendedSignal: number;
     totalAdjustment: number;
+    preOverrideTotalAdj?: number;
     adjustments?: Array<{
       factor: string;
       adjustment: number;
@@ -133,6 +134,7 @@ export async function calculateAttributedPrice(
       weights: moduloResult.weights,
       blendedSignal: moduloResult.blendedSignal,
       totalAdjustment: moduloResult.totalAdjustment,
+      preOverrideTotalAdj: moduloResult.preOverrideTotalAdj,
       adjustments: moduloResult.adjustments
     },
     guardrailsApplied: {

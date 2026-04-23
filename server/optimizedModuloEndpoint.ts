@@ -178,6 +178,7 @@ async function processUnitBatch(
           },
           signals: orchestratorResult.moduloDetails.signals,
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
+          preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
           appliedRules: []
         };

@@ -719,6 +719,7 @@ class PricingJobManager {
             inquiryTourVolume: unitWeights.inquiryTourVolume
           },
           totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
+          preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
           finalRate: orchestratorResult.finalPrice,
           moduloRate: orchestratorResult.moduloRate,
           appliedRules: [],

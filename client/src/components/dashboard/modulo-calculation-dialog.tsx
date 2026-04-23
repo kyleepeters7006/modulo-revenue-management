@@ -322,8 +322,8 @@ export default function ModuloCalculationDialog({
                                     <div className="flex items-center gap-1">
                                       <span className="text-muted-foreground">Total Adj</span>
                                       <span className="font-mono font-medium">
-                                        {calcDetails?.totalAdjustment !== undefined
-                                          ? `${calcDetails.totalAdjustment > 0 ? '+' : ''}${formatPercent(calcDetails.totalAdjustment)}`
+                                        {(calcDetails?.preOverrideTotalAdj ?? calcDetails?.totalAdjustment) !== undefined
+                                          ? `${(calcDetails.preOverrideTotalAdj ?? calcDetails.totalAdjustment) > 0 ? '+' : ''}${formatPercent(calcDetails.preOverrideTotalAdj ?? calcDetails.totalAdjustment)}`
                                           : 'N/A'}
                                       </span>
                                     </div>
