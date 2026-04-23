@@ -5,11 +5,11 @@ export function getSentenceExplanation(factor: string, inputs: any, adjustment: 
     case 'occupancy':
       const occPct = (inputs.occupancy * 100).toFixed(0);
       if (inputs.occupancy < 0.85) {
-        return `The campus is currently at ${occPct}% occupancy, which is below our hard floor of 85%. This low occupancy triggers stronger rate reductions to help fill vacant units quickly and improve cash flow.`;
+        return `At ${occPct}% occupancy for this unit type, we're below our 85% floor. This low occupancy triggers stronger rate reductions to help fill vacant units quickly and improve cash flow.`;
       } else if (inputs.occupancy < 0.90) {
-        return `At ${occPct}% occupancy, the campus is between our 85% floor and 90% target. We're applying moderate rate adjustments to incentivize occupancy while maintaining revenue stability.`;
+        return `At ${occPct}% occupancy for this unit type, we're between our 85% floor and 90% target. We're applying moderate rate adjustments to incentivize occupancy while maintaining revenue stability.`;
       } else {
-        return `With ${occPct}% occupancy exceeding our 90% target, we have pricing power. Higher occupancy allows us to optimize rates for maximum revenue rather than focusing on filling units.`;
+        return `With ${occPct}% occupancy for this unit type exceeding our 90% target, we have pricing power. Higher occupancy allows us to optimize rates for maximum revenue rather than focusing on filling units.`;
       }
 
     case 'daysvacant':
