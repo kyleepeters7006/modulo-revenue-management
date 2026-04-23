@@ -6,6 +6,7 @@ export interface AuthUser {
   username?: string;
   clientId: string;
   clientName: string;
+  isAdmin?: boolean;
 }
 
 export function useAuth() {
@@ -20,5 +21,6 @@ export function useAuth() {
     isAuthenticated: user?.isAuthenticated ?? false,
     clientId: user?.clientId ?? 'demo',
     clientName: user?.clientName ?? 'Demo',
+    isAdmin: user?.isAdmin ?? false,
   };
 }

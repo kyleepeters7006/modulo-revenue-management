@@ -351,12 +351,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
         const clientRows = await db.select().from(clients).where(eq(clients.id, session.clientId)).limit(1);
         if (userRows.length > 0 && clientRows.length > 0) {
+          const username = userRows[0].username ?? '';
           return res.json({
             isAuthenticated: true,
             id: userRows[0].id,
-            username: userRows[0].username,
+            username,
             clientId: clientRows[0].id,
             clientName: clientRows[0].name,
+            isAdmin: username.endsWith('_admin'),
           });
         }
       } catch (e) {
@@ -459,6 +461,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // POST /api/admin/regenerate-demo-data — UI-accessible endpoint for authenticated admins to re-seed demo data
+  app.post('/api/admin/regenerate-demo-data', async (req: any, res) => {
+    const session = req.session as any;
+    if (!session?.userId || !session?.clientId) {
+      return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
+    }
+    // Verify the logged-in user has an admin username (e.g. trilogy_admin, glm_admin, ssmg_admin)
+    try {
+      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
+    try {
+      console.log('[regenerate-demo-data] Clearing existing demo data...');
+      await db.execute(sql`DELETE FROM inquiry_metrics WHERE client_id = 'demo'`);
+      await db.execute(sql`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`);
+      await db.execute(sql`DELETE FROM rent_roll_data WHERE client_id = 'demo'`);
+      await db.execute(sql`DELETE FROM locations WHERE client_id = 'demo'`);
+      console.log('[regenerate-demo-data] Demo data cleared. Generating new data...');
+
+      const { generateDemoData } = await import('./seedDemoData');
+      const result = await generateDemoData();
+
+      res.json({
+        success: true,
+        stats: result,
+        message: `Demo data generated: ${result.locations} locations, ${result.rentRoll} rent roll, ${result.competitive} competitive, ${result.inquiry} inquiry records`,
+      });
+    } catch (e: any) {
+      console.error('[regenerate-demo-data] Error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/admin/generate-demo-data — generates 50 synthetic demo locations with full data
   app.post('/api/admin/generate-demo-data', async (req: any, res) => {
     const seedSecret = req.headers['x-seed-secret'];

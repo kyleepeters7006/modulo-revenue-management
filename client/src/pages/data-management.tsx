@@ -3,13 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
 import { useUploads } from "@/contexts/upload-context";
+import { useAuth } from "@/hooks/useAuth";
 
 interface FileWithDate {
   file: File;
@@ -28,6 +29,32 @@ export default function DataManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
+  const { isAdmin } = useAuth();
+
+  const regenerateDemoDataMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/admin/regenerate-demo-data', { method: 'POST' });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to regenerate demo data');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Demo Data Regenerated",
+        description: data.message || "Demo data has been successfully regenerated.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Regeneration Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location') => {
     try {
@@ -1052,6 +1079,38 @@ export default function DataManagement() {
               </Alert>
             </CardContent>
           </Card>
+
+          {/* Admin: Regenerate Demo Data — visible to authenticated admins only */}
+          {isAdmin && (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardHeader>
+                <CardTitle className="text-amber-900">Admin: Demo Data Management</CardTitle>
+                <CardDescription className="text-amber-700">
+                  Re-seed the demo environment with fresh synthetic data. This will replace all existing demo locations, rent roll, competitive, and inquiry records.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={() => regenerateDemoDataMutation.mutate()}
+                  disabled={regenerateDemoDataMutation.isPending}
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                  data-testid="button-regenerate-demo-data"
+                >
+                  {regenerateDemoDataMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Regenerating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Regenerate Demo Data
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Pricing Strategy Documentation */}
           <PricingStrategyDocumentation />
