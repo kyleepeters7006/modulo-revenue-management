@@ -3,6 +3,9 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { backfillRoomTypes } from "./backfillRoomTypes";
 import { resumeInterruptedJobs } from "./services/competitorRateJobService";
+import { db } from "./db";
+import { rentRollData } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 
 const app = express();
 app.use(express.json());
@@ -90,6 +93,27 @@ app.use((req, res, next) => {
     await setupVite(app, server);
   } else {
     serveStatic(app);
+  }
+
+  // Ensure demo rent-roll data is present before accepting traffic.
+  // On first cold start the seed takes ~15 s; on subsequent restarts the
+  // COUNT query short-circuits in <100 ms so startup is not meaningfully delayed.
+  try {
+    const countResult = await db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(rentRollData)
+      .where(eq(rentRollData.clientId, 'demo'));
+    const demoCount = countResult[0]?.count ?? 0;
+    if (demoCount === 0) {
+      log("[demo] No rent roll data for demo client — seeding now (this only happens once)...");
+      const { generateDemoData } = await import('./seedDemoData');
+      const seedResult = await generateDemoData();
+      log(`[demo] Seeded: ${seedResult.locations} locations, ${seedResult.rentRoll} rent roll, ${seedResult.competitive} competitive, ${seedResult.inquiry} inquiry records`);
+    } else {
+      log(`[demo] Demo rent roll data present (${demoCount} rows) — skipping seed`);
+    }
+  } catch (seedError) {
+    log(`[demo] Auto-seed error (non-fatal): ${seedError instanceof Error ? seedError.message : String(seedError)}`);
   }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
