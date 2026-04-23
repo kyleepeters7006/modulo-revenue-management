@@ -322,9 +322,15 @@ export default function ModuloCalculationDialog({
                                     <div className="flex items-center gap-1">
                                       <span className="text-muted-foreground">Total Adj</span>
                                       <span className="font-mono font-medium">
-                                        {(calcDetails?.preOverrideTotalAdj ?? calcDetails?.totalAdjustment) !== undefined
-                                          ? `${(calcDetails.preOverrideTotalAdj ?? calcDetails.totalAdjustment) > 0 ? '+' : ''}${formatPercent(calcDetails.preOverrideTotalAdj ?? calcDetails.totalAdjustment)}`
-                                          : 'N/A'}
+                                        {(() => {
+                                          const derived = calcDetails?.adjustments
+                                            ?.filter((a: any) => a.factor !== 'RevenueTarget')
+                                            ?.reduce((sum: number, a: any) => sum + (a.weightedAdjustment || 0), 0);
+                                          const val = derived ?? calcDetails?.preOverrideTotalAdj ?? calcDetails?.totalAdjustment;
+                                          return val !== undefined
+                                            ? `${val > 0 ? '+' : ''}${formatPercent(val)}`
+                                            : 'N/A';
+                                        })()}
                                       </span>
                                     </div>
                                     <span className="text-muted-foreground">=</span>
