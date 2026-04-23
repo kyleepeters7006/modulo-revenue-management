@@ -970,11 +970,11 @@ export default function PricingControls() {
             locationId={selectedLocationId} 
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
-          <NaturalLanguageAdjustments 
+          <AdjustmentRanges 
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
-          <AdjustmentRanges 
+          <NaturalLanguageAdjustments 
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
