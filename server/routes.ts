@@ -528,10 +528,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Test endpoint to verify competitor distances
-  app.get('/api/test/competitor-distances', async (req, res) => {
+  app.get('/api/test/competitor-distances', async (req: any, res) => {
     try {
-      const competitors = await storage.getCompetitors();
-      const locations = await storage.getLocations();
+      const clientId = req.clientId || 'demo';
+      const competitors = await storage.getCompetitors(clientId);
+      const locations = await storage.getLocations(clientId);
       
       const distanceReport = locations.map(location => {
         const locationCompetitors = competitors.filter(c => c.location === location.name);
@@ -553,8 +554,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Endpoint to fix competitor rates in the database directly
-  app.post('/api/admin/fix-competitor-rates', async (req, res) => {
+  app.post('/api/admin/fix-competitor-rates', async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       console.log('🔧 Fixing competitor rates in database...');
       
       const { fixCompetitorRates } = await import('./fixCompetitorRates');
@@ -566,7 +568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Process only the latest month for efficiency
       const latestMonth = '2025-11';
-      const matchingStats = await processAllUnitsForCompetitorRates(latestMonth);
+      const matchingStats = await processAllUnitsForCompetitorRates(latestMonth, clientId);
       
       res.json({
         success: true,
@@ -589,18 +591,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Endpoint to recalculate competitor rates with fixed daily-to-monthly conversion
-  app.post('/api/admin/recalculate-competitor-rates', async (req, res) => {
+  app.post('/api/admin/recalculate-competitor-rates', async (req: any, res) => {
     try {
       console.log('🔄 Starting competitor rate recalculation with fixed conversion logic...');
       
       // Get optional filters from request
       const { location, serviceLine, uploadMonth } = req.body;
+      const clientId = req.clientId || 'demo';
       
       // Import the processing function
       const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
       
-      // Build filter conditions
-      const conditions: any[] = [];
+      // Build filter conditions - always scope by clientId
+      const conditions: any[] = [eq(rentRollData.clientId, clientId)];
       if (location) {
         conditions.push(eq(rentRollData.location, location));
         console.log(`Filtering by location: ${location}`);
@@ -615,9 +618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get units to process
-      const unitsQuery = conditions.length > 0 
-        ? db.select().from(rentRollData).where(and(...conditions))
-        : db.select().from(rentRollData);
+      const unitsQuery = db.select().from(rentRollData).where(and(...conditions));
         
       const units = await unitsQuery;
       console.log(`Found ${units.length} units to process`);
@@ -634,7 +635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(units.length/batchSize)}`);
         
         // Process this batch
-        const stats = await processAllUnitsForCompetitorRates(uploadMonth || null);
+        const stats = await processAllUnitsForCompetitorRates(uploadMonth || undefined, clientId);
         totalProcessed += stats.processed;
         totalUpdated += stats.updated;
         totalErrors += stats.errors;
@@ -645,7 +646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Get summary of changes
+      // Get summary of changes (scoped by clientId)
       const changedUnits = await db.select({
         location: rentRollData.location,
         serviceLine: rentRollData.serviceLine,
@@ -655,6 +656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .from(rentRollData)
       .where(and(
+        eq(rentRollData.clientId, clientId),
         sql`${rentRollData.competitorRate} IS NOT NULL`,
         sql`${rentRollData.competitorRate} > 0`
       ))
@@ -870,9 +872,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Status endpoint - get dashboard overview
-  app.get("/api/status", async (req, res) => {
+  app.get("/api/status", async (req: any, res) => {
     try {
-      const rentRollData = await storage.getRentRollData();
+      const clientId = req.clientId || 'demo';
+      const rentRollData = await storage.getRentRollData(clientId);
       const assumptions = await storage.getCurrentAssumptions();
       const weights = await storage.getCurrentWeights();
       
@@ -2131,8 +2134,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ items: buildingMaps });
   });
 
-  app.post("/api/upload-building-map", upload.single("buildingMap"), async (req, res) => {
+  app.post("/api/upload-building-map", upload.single("buildingMap"), async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
@@ -2144,7 +2148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const detectedRooms = await processImageForRooms(req.file.buffer);
       
       // Match detected rooms with rent roll data
-      const rentRollData = await storage.getRentRollData();
+      const rentRollData = await storage.getRentRollData(clientId);
       const matchedRooms = detectedRooms.map(room => {
         const match = rentRollData.find(unit => 
           unit.unitId.toLowerCase().includes(room.roomNumber.toLowerCase()) ||
@@ -2572,9 +2576,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Portfolio Management Routes
-  app.get("/api/portfolio/locations", async (req, res) => {
+  app.get("/api/portfolio/locations", async (req: any, res) => {
     try {
-      const locations = await storage.getLocations();
+      const clientId = req.clientId || 'demo';
+      const locations = await storage.getLocations(clientId);
       res.json(locations);
     } catch (error) {
       console.error("Error fetching locations:", error);
@@ -3032,9 +3037,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing recommendations
-  app.get("/api/recommendations", async (req, res) => {
+  app.get("/api/recommendations", async (req: any, res) => {
     try {
-      let rentRollData = await storage.getRentRollData();
+      const clientId = req.clientId || 'demo';
+      let rentRollData = await storage.getRentRollData(clientId);
       
       // If no rent roll data exists, return error
       if (rentRollData.length === 0) {
@@ -3042,7 +3048,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const weights = await storage.getCurrentWeights();
-      const competitors = await storage.getCompetitors();
+      const competitors = await storage.getCompetitors(clientId);
       
       // Generate recommendations based on algorithm
       const recommendations = await Promise.all(rentRollData.map(async unit => {
@@ -3144,10 +3150,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Room type comparison
-  app.get("/api/compare", async (req, res) => {
+  app.get("/api/compare", async (req: any, res) => {
     try {
-      const rentRollData = await storage.getRentRollData();
-      const competitors = await storage.getCompetitors();
+      const clientId = req.clientId || 'demo';
+      const rentRollData = await storage.getRentRollData(clientId);
+      const competitors = await storage.getCompetitors(clientId);
       
       // Group by room type
       const roomTypes = new Map();
@@ -3291,8 +3298,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing Strategy Documentation endpoints
-  app.get("/api/pricing-strategy-documentation", async (req, res) => {
+  app.get("/api/pricing-strategy-documentation", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { campus, serviceLine } = req.query;
       
       // Fetch all required data
@@ -3300,7 +3308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getPricingWeights(),
         storage.getAdjustmentRanges(),
         storage.getGuardrails(),
-        storage.getRentRollData()
+        storage.getRentRollData(clientId)
       ]);
       
       // Get active rules
@@ -3330,8 +3338,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Export pricing strategy documentation
-  app.get("/api/pricing-strategy-documentation/export", async (req, res) => {
+  app.get("/api/pricing-strategy-documentation/export", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { campus, serviceLine, format = 'text' } = req.query;
       
       // Fetch all required data
@@ -3339,7 +3348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getPricingWeights(),
         storage.getAdjustmentRanges(),
         storage.getGuardrails(),
-        storage.getRentRollData()
+        storage.getRentRollData(clientId)
       ]);
       
       // Get active rules
@@ -3392,12 +3401,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // MatrixCare Export - Export data in MatrixCare format
-  app.get("/api/export/matrixcare", async (req, res) => {
+  app.get("/api/export/matrixcare", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { format = 'xlsx' } = req.query;
       
       // Get all rent roll data
-      const rentRollData = await storage.getRentRollData();
+      const rentRollData = await storage.getRentRollData(clientId);
       
       if (!rentRollData || rentRollData.length === 0) {
         return res.status(404).json({ error: "No rent roll data available for export" });
@@ -3849,10 +3859,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(cached);
       }
       
-      // Get the most recent month's data from the database
+      // Get the most recent month's data from the database (filtered by clientId)
       const mostRecentMonthResult = await db
         .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
-        .from(rentRollData);
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
       const uploadMonth = mostRecentMonthResult[0]?.month || '2025-11';
       
       console.log('Vacancy analysis using upload month:', uploadMonth);
@@ -4142,12 +4153,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Insights
-  app.post("/api/ai/suggest", async (req, res) => {
+  app.post("/api/ai/suggest", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { location, serviceLine } = req.body || {};
       
-      let allRentRollData = await storage.getRentRollData();
-      let allCompetitors = await storage.getCompetitors();
+      let allRentRollData = await storage.getRentRollData(clientId);
+      let allCompetitors = await storage.getCompetitors(clientId);
       
       // Apply filters if provided
       let filteredData = allRentRollData;
@@ -4258,8 +4270,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Smart Analytics Training (formerly ML)
-  app.post("/api/ai/train", upload.single("file"), async (req, res) => {
+  app.post("/api/ai/train", upload.single("file"), async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       let trainingData = [];
       let rows = 0;
 
@@ -4271,7 +4284,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         rows = trainingData.length;
       } else {
         // Use current rent roll data as training set
-        const rentRollData = await storage.getRentRollData();
+        const rentRollData = await storage.getRentRollData(clientId);
         trainingData = rentRollData.map(unit => ({
           rent: unit.baseRent,
           room_type: unit.roomType,
@@ -4493,10 +4506,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Template download endpoint - exports current portfolio data as template
-  app.get("/api/template/download", async (req, res) => {
+  app.get("/api/template/download", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       // Get all rent roll data to export as template
-      const portfolioData = await storage.getRentRollData();
+      const portfolioData = await storage.getRentRollData(clientId);
       
       let templateData;
       
@@ -5336,8 +5350,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Location upload endpoint
-  app.post("/api/upload/locations", upload.single('file'), async (req, res) => {
+  app.post("/api/upload/locations", upload.single('file'), async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
       }
@@ -5383,6 +5398,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
 
         const locationData = {
           name: locationName,
+          clientId,
           region: row['Region'] || row['region'] || null,
           division: row['Division'] || row['division'] || null,
           locationClass: row['Class'] || row['class'] || row['Location Class'] || row['location class'] || null,
@@ -5392,11 +5408,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           zipCode: row['Zip Code'] || row['zip code'] || row['ZipCode'] || row['zipcode'] || null,
         };
 
-        // Check if location exists by name
+        // Check if location exists by name for this client
         const existingLocations = await db
           .select()
           .from(locations)
-          .where(eq(locations.name, locationName))
+          .where(and(eq(locations.clientId, clientId), eq(locations.name, locationName)))
           .limit(1);
 
         if (existingLocations.length > 0) {
@@ -5413,7 +5429,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
               zipCode: locationData.zipCode,
               updatedAt: new Date(),
             })
-            .where(eq(locations.name, locationName));
+            .where(and(eq(locations.clientId, clientId), eq(locations.name, locationName)));
           updated++;
         } else {
           // Create new location
@@ -5756,12 +5772,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         };
       });
 
-      // Get portfolio-wide statistics from locations table
+      // Get portfolio-wide statistics from locations table (scoped by clientId)
       const portfolioStats = await db
         .select({
           totalLocations: sql<number>`COUNT(*)::int`
         })
-        .from(locations);
+        .from(locations)
+        .where(eq(locations.clientId, clientId));
       
       const portfolioTotalLocations = portfolioStats[0]?.totalLocations || 0;
       
@@ -6911,26 +6928,29 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Census Summary endpoint - provides database vs census view comparison
-  app.get("/api/overview/census", async (req, res) => {
+  app.get("/api/overview/census", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       // Get the most recent month's data only
       const mostRecentMonthResult = await db
         .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
-        .from(rentRollData);
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
       const mostRecentMonth = mostRecentMonthResult[0]?.month || '2025-11';
       
       // Get all rent roll data for most recent month
       const allRentRollData = await db
         .select()
         .from(rentRollData)
-        .where(sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`);
+        .where(and(sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`, eq(rentRollData.clientId, clientId)));
       
-      // Get total campus count from locations table
+      // Get total campus count from locations table (scoped by clientId)
       const portfolioStats = await db
         .select({
           totalLocations: sql<number>`COUNT(*)::int`
         })
-        .from(locations);
+        .from(locations)
+        .where(eq(locations.clientId, clientId));
       
       const totalCampuses = 131; // Total Trilogy campuses
       const campusesWithData = new Set(allRentRollData.map(u => u.location)).size;
@@ -7054,6 +7074,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       // Build optimized query with filters applied in database
       let unitLevelData = await storage.getRentRollDataFiltered(targetMonth, {
+        clientId,
         regions: Array.isArray(regions) ? regions : (regions ? [regions] : []),
         divisions: Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []),
         locations: Array.isArray(locationParam) ? locationParam : (locationParam ? [locationParam] : []),
@@ -7291,8 +7312,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
   
   // Original Modulo endpoint (kept for reference, but not used)
-  app.post("/api/pricing/generate-modulo-legacy", async (req, res) => {
+  app.post("/api/pricing/generate-modulo-legacy", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { month, serviceLine, regions, divisions, locations } = req.body;
       // Default to November 2025 which has the latest data
       const targetMonth = month || '2025-11';
@@ -7324,7 +7346,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       // Get all units for the month - always process ALL units regardless of filters
       // This ensures pricing is generated for the entire portfolio
-      let units = await storage.getRentRollDataByMonth(targetMonth);
+      let units = await storage.getRentRollDataByMonth(targetMonth, clientId);
       
       // Filter out B beds for senior housing service lines when calculating occupancy
       // This is important for accurate occupancy-based pricing calculations
@@ -7679,13 +7701,18 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   });
 
   // Get modulo calculation details for a specific unit
-  app.get("/api/units/:id/modulo-calculation", async (req, res) => {
+  app.get("/api/units/:id/modulo-calculation", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { id } = req.params;
       const unit = await storage.getRentRollDataById(id);
       
       if (!unit) {
         return res.status(404).json({ error: "Unit not found" });
+      }
+
+      if (unit.clientId && unit.clientId !== clientId) {
+        return res.status(403).json({ error: 'Access denied' });
       }
       
       if (!unit.moduloCalculationDetails) {
@@ -7703,8 +7730,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
 
   // Generate AI pricing suggestions using OpenAI GPT-5 (OPTIMIZED)
   // Optimizations: Single data load, parallel batch processing, pre-cached revenue data
-  app.post("/api/pricing/generate-ai", async (req, res) => {
+  app.post("/api/pricing/generate-ai", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const startTime = Date.now();
       const { month, serviceLine, regions, divisions, locations } = req.body;
       const targetMonth = month || new Date().toISOString().substring(0, 7);
@@ -7718,7 +7746,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       // OPTIMIZATION 1: Load ALL rent roll data ONCE at the start
       // This eliminates the duplicate call that was loading 391K+ units twice
       console.log('[AI Pricing] Loading rent roll data (single load)...');
-      const allUnits = await storage.getRentRollData();
+      const allUnits = await storage.getRentRollData(clientId);
       console.log(`[AI Pricing] Loaded ${allUnits.length} total units`);
       
       // Get units for target month from the already-loaded data
@@ -7784,7 +7812,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         }),
         storage.getCurrentGuardrails(),
         storage.getRevenueGrowthTargets(),
-        storage.getCompetitors()
+        storage.getCompetitors(clientId)
       ]);
       
       // Build market context for OpenAI
@@ -7893,7 +7921,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       
       // Build location name -> locationId map from locations table (not from rent_roll_data)
       // This ensures we always have the correct locationId even if some units have null locationId
-      const allLocations = await storage.getLocations();
+      const allLocations = await storage.getLocations(clientId);
       const locationIdMap = new Map<string, string | undefined>();
       for (const loc of allLocations) {
         locationIdMap.set(loc.name, loc.id);
@@ -8472,8 +8500,9 @@ IMPORTANT:
   }
 
   // Generate optimal settings from revenue growth targets using Claude→GPT-5.4
-  app.post("/api/pricing/targets/generate", async (req, res) => {
+  app.post("/api/pricing/targets/generate", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { targets, filters, analyzeIndividually } = req.body;
       
       console.log('[Target Generation] Starting with targets:', targets, 'filters:', filters, 'analyzeIndividually:', analyzeIndividually);
@@ -8482,7 +8511,7 @@ IMPORTANT:
       const monthsResult = await db
         .selectDistinct({ uploadMonth: rentRollData.uploadMonth })
         .from(rentRollData)
-        .where(sql`${rentRollData.uploadMonth} IS NOT NULL`)
+        .where(and(sql`${rentRollData.uploadMonth} IS NOT NULL`, eq(rentRollData.clientId, clientId)))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`);
       
       const availableMonths = monthsResult.map(r => r.uploadMonth).filter(Boolean) as string[];
@@ -8492,7 +8521,7 @@ IMPORTANT:
       console.log('[Target Generation] Using month:', currentMonth, 'Previous:', previousMonth);
       
       // Get all rent roll data (not filtered by month initially to get more data)
-      let allUnits = await storage.getRentRollData();
+      let allUnits = await storage.getRentRollData(clientId);
       
       // Get current month units (use uploadMonth field)
       let units = allUnits.filter(u => u.uploadMonth === currentMonth);
@@ -8504,7 +8533,7 @@ IMPORTANT:
       }
       
       // Get all locations for ID lookup
-      const allLocations = await storage.getLocations();
+      const allLocations = await storage.getLocations(clientId);
       
       // Apply location/region/division filters
       if (filters?.locations && filters.locations.length > 0) {
@@ -8528,7 +8557,7 @@ IMPORTANT:
       console.log('[Target Generation] Filtered units:', filteredUnits.length, 'from total:', units.length);
 
       // Get all competitors for filtering later
-      const allCompetitors = await storage.getCompetitors();
+      const allCompetitors = await storage.getCompetitors(clientId);
       
       // Get current weights, guardrails, and adjustment ranges
       const currentWeights = await storage.getPricingWeights();
@@ -9048,15 +9077,16 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Apply AI-generated recommendations to database
-  app.post("/api/pricing/targets/apply", async (req, res) => {
+  app.post("/api/pricing/targets/apply", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { recommendations, filters } = req.body;
       const mode = recommendations.mode || 'portfolio';
       
       console.log('[Apply Recommendations] Starting with mode:', mode, 'filters:', filters);
       
       // Get all locations data
-      const allLocations = await storage.getLocations();
+      const allLocations = await storage.getLocations(clientId);
       
       let weightsUpdated = 0;
       let guardrailsUpdated = 0;
@@ -9220,14 +9250,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Save revenue growth targets by location and service line
-  app.post("/api/pricing/targets/save", async (req, res) => {
+  app.post("/api/pricing/targets/save", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { targets, filters } = req.body;
       
       console.log('[Save Targets] Starting with targets:', targets, 'filters:', filters);
       
       // Get all locations data
-      const allLocations = await storage.getLocations();
+      const allLocations = await storage.getLocations(clientId);
       
       // Filter locations based on filters
       let targetLocations = allLocations;
@@ -9279,12 +9310,13 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Get revenue growth targets based on filters (with averaging for conflicts)
-  app.get("/api/pricing/targets", async (req, res) => {
+  app.get("/api/pricing/targets", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { serviceLine, regions, divisions, locations } = req.query;
       
       // Get all locations data
-      const allLocations = await storage.getLocations();
+      const allLocations = await storage.getLocations(clientId);
       
       // Filter locations based on query params
       let targetLocations = allLocations;
@@ -9338,8 +9370,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Accept pricing suggestions
-  app.post("/api/pricing/accept-suggestions", async (req, res) => {
+  app.post("/api/pricing/accept-suggestions", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { unitIds, suggestionType, serviceLine } = req.body;
       
       // Track which months need rate card regeneration and changes for history
@@ -9349,6 +9382,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       for (const unitId of unitIds) {
         const unit = await storage.getRentRollDataById(unitId);
         if (!unit) continue;
+        if (unit.clientId && unit.clientId !== clientId) continue;
         
         const newRate = suggestionType === 'modulo' ? 
           unit.moduloSuggestedRate : unit.aiSuggestedRate;
@@ -9410,8 +9444,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
 
-  app.post("/api/pricing-history/:id/revert", async (req, res) => {
+  app.post("/api/pricing-history/:id/revert", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { id } = req.params;
       const historyRecord = await storage.getPricingHistoryById(id);
       
@@ -9426,6 +9461,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       for (const change of changesSnapshot) {
         const unit = await storage.getRentRollDataById(change.unitId);
         if (unit) {
+          if (unit.clientId && unit.clientId !== clientId) continue;
           await storage.updateRentRollData(change.unitId, {
             streetRate: change.oldRate
           });
@@ -9463,12 +9499,13 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Calculate and populate competitor rates - Enhanced version
-  app.post("/api/competitor-rates/calculate", async (req, res) => {
+  app.post("/api/competitor-rates/calculate", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { uploadMonth } = req.body;
       
       // Use the comprehensive competitor rate matching service
-      const result = await processAllUnitsForCompetitorRates(uploadMonth);
+      const result = await processAllUnitsForCompetitorRates(uploadMonth, clientId);
       
       res.json({ 
         success: true,
@@ -9489,17 +9526,18 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
   
   // New endpoint: Calculate competitor rates for specific units
-  app.post("/api/pricing/calculate-competitor-rates", async (req, res) => {
+  app.post("/api/pricing/calculate-competitor-rates", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { uploadMonth, location, serviceLine } = req.body;
       
       // Use the comprehensive competitor rate matching service
-      const result = await processAllUnitsForCompetitorRates(uploadMonth);
+      const result = await processAllUnitsForCompetitorRates(uploadMonth, clientId);
       
       // Get summary statistics
-      const summary = await getCompetitorRateSummary(uploadMonth);
+      const summary = await getCompetitorRateSummary(uploadMonth, clientId);
       
-      res.json({ 
+      res.json({
         success: true,
         statistics: {
           processed: result.processed,
@@ -9517,10 +9555,11 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
   
   // Get competitor rate summary
-  app.get("/api/competitor-rates/summary", async (req, res) => {
+  app.get("/api/competitor-rates/summary", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { uploadMonth } = req.query;
-      const summary = await getCompetitorRateSummary(uploadMonth as string);
+      const summary = await getCompetitorRateSummary(uploadMonth as string, clientId);
       
       res.json({
         success: true,
@@ -9576,9 +9615,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         ))
         .orderBy(competitiveSurveyData.competitorType, competitiveSurveyData.roomType, competitiveSurveyData.competitorName);
       
-      // Get latest month for Trilogy rates
+      // Get latest month for Trilogy rates (filtered by clientId)
       const latestMonthData = await db.select({ uploadMonth: rentRollData.uploadMonth })
         .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId))
         .orderBy(desc(rentRollData.uploadMonth))
         .limit(1);
       const latestMonth = latestMonthData.length > 0 ? latestMonthData[0].uploadMonth : null;
@@ -9593,6 +9633,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         })
           .from(rentRollData)
           .where(and(
+            eq(rentRollData.clientId, clientId),
             eq(rentRollData.uploadMonth, latestMonth),
             eq(rentRollData.location, locationName)
           ))
@@ -9812,8 +9853,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
   
   // Test endpoint: Calculate competitor rates for a small sample
-  app.post("/api/competitor-rates/test", async (req, res) => {
+  app.post("/api/competitor-rates/test", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { limit = 5, location } = req.body;
       
       // Get a small sample of units for testing
@@ -9821,13 +9863,16 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       if (location) {
         // Test with specific location
         units = await db.select().from(rentRollData)
-          .where(eq(rentRollData.location, location))
+          .where(and(eq(rentRollData.clientId, clientId), eq(rentRollData.location, location)))
           .limit(limit);
       } else {
         // Test with locations that have competitors
         const locationsWithCompetitors = ['Batesville - 120', 'Columbus - 107', 'Cynthiana - 114'];
         units = await db.select().from(rentRollData)
-          .where(sql`${rentRollData.location} IN (${sql.join(locationsWithCompetitors.map(l => sql`${l}`), sql`,`)})`)
+          .where(and(
+            eq(rentRollData.clientId, clientId),
+            sql`${rentRollData.location} IN (${sql.join(locationsWithCompetitors.map(l => sql`${l}`), sql`,`)})`
+          ))
           .limit(limit);
       }
       
@@ -9913,14 +9958,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
   
   // Issue #3 fix: Preview attribute weight changes
-  app.post("/api/attribute-ratings/preview", async (req, res) => {
+  app.post("/api/attribute-ratings/preview", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { proposedRatings, filters } = req.body;
       const locations = filters?.locations || [];
       const serviceLine = filters?.serviceLine || "All";
       
       // Build query conditions based on filters
-      const conditions = [];
+      const conditions: any[] = [eq(rentRollData.clientId, clientId)];
       if (locations.length > 0) {
         conditions.push(inArray(rentRollData.location, locations));
       }
@@ -9929,11 +9975,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       }
       
       // Get units based on filters (limit to 500 for performance)
-      let query = db.select().from(rentRollData);
-      if (conditions.length > 0) {
-        query = query.where(and(...conditions)) as any;
-      }
-      const sampleUnits = await query.limit(500);
+      const sampleUnits = await db.select().from(rentRollData).where(and(...conditions)).limit(500);
       
       const previews: Array<{
         unitId: string;
@@ -10152,8 +10194,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Add the missing room-attributes endpoint
-  app.get("/api/room-attributes", async (req, res) => {
+  app.get("/api/room-attributes", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       // Get attribute configuration status from the attribute pricing service
       const status = attributePricingService.getAttributeConfigurationStatus();
       
@@ -10163,15 +10206,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       // Fixed to November 2025 which has data
       const currentMonth = '2025-11';
       
-      // Get all locations
-      const locations = await storage.getLocations();
+      // Get all locations (scoped by clientId)
+      const locations = await storage.getLocations(clientId);
       
       // Sample the data - get units from first 10 locations to estimate attributes
       const sampleUnits = [];
       let totalUnitsEstimate = 0;
       
       for (let i = 0; i < Math.min(10, locations.length); i++) {
-        const locationUnits = await storage.getRentRollDataByLocation(locations[i].id, currentMonth);
+        const locationUnits = await storage.getRentRollDataByLocation(locations[i].name, clientId);
         sampleUnits.push(...locationUnits);
         totalUnitsEstimate += locationUnits.length;
       }
@@ -10219,8 +10262,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Analysis endpoint
-  app.get("/api/analysis", async (req, res) => {
+  app.get("/api/analysis", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { location = "all", period = "3M" } = req.query;
       
       // Calculate date range based on period
@@ -10231,8 +10275,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       // Get rent roll data
       const rentRollData = location === "all" 
-        ? await storage.getRentRollData()
-        : await storage.getRentRollDataByLocation(location as string);
+        ? await storage.getRentRollData(clientId)
+        : await storage.getRentRollDataByLocation(location as string, clientId);
       
       // Get targets and trends data
       const targetsData = location === "all"
@@ -10599,13 +10643,18 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Get detailed calculation for a specific unit's AI rate
-  app.get("/api/ai-calculation/:unitId", async (req, res) => {
+  app.get("/api/ai-calculation/:unitId", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { unitId } = req.params;
       const unit = await storage.getRentRollDataById(unitId);
       
       if (!unit) {
         return res.status(404).json({ error: 'Unit not found' });
+      }
+
+      if (unit.clientId && unit.clientId !== clientId) {
+        return res.status(403).json({ error: 'Access denied' });
       }
       
       // Use stored calculation details if available (like Modulo does)
@@ -10643,7 +10692,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       };
       
       // Calculate service-line-specific occupancy rate
-      const allUnits = await storage.getRentRollData();
+      const allUnits = await storage.getRentRollData(clientId);
       const serviceLineOccupancy: Record<string, number> = {};
       const serviceLineStats = allUnits.reduce((acc: any, u: any) => {
         const sl = u.serviceLine || 'Unknown';
@@ -10903,8 +10952,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Get detailed calculation for a specific unit's Modulo rate
-  app.get("/api/calculation/:roomType", async (req, res) => {
+  app.get("/api/calculation/:roomType", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { roomType } = req.params;
       const { unitId, currentRate } = req.query;
       
@@ -10946,8 +10996,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       let sampleUnit;
       if (unitId) {
         // If unitId provided, get that specific unit from all data
-        const allUnits = await storage.getRentRollData();
-        sampleUnit = allUnits.find(unit => unit.id === unitId);
+        const allUnitsForUnit = await storage.getRentRollData(clientId);
+        sampleUnit = allUnitsForUnit.find(unit => unit.id === unitId);
       }
       
       // Fallback to getting a sample unit of this room type
@@ -10959,7 +11009,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const streetRate = sampleUnit?.streetRate || (currentRate ? parseFloat(currentRate as string) : 3185);
       
       // Get all units to calculate actual occupancy rate
-      const allUnits = await storage.getRentRollData();
+      const allUnits = await storage.getRentRollData(clientId);
       const occupiedUnits = allUnits.filter(unit => unit.occupiedYN);
       const actualOccupancyRate = occupiedUnits.length / allUnits.length;
       
@@ -11090,8 +11140,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Natural Language Adjustment Rules endpoints
-  app.post("/api/adjustment-rules", async (req, res) => {
+  app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { description, preview, locationId, serviceLine } = req.body;
       
       // Parse the natural language rule
@@ -11113,7 +11164,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       }
       
       // Calculate estimated impact
-      const units = await storage.getRentRollData();
+      const units = await storage.getRentRollData(clientId);
       let affectedUnits = 0;
       let totalImpact = 0;
       
@@ -11375,8 +11426,9 @@ Respond in JSON format:
   });
   
   // Execute rules manually (can be triggered by cron job in production)
-  app.post("/api/adjustment-rules/execute", async (req, res) => {
+  app.post("/api/adjustment-rules/execute", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const activeRules = await storage.getActiveAdjustmentRules();
       const executionResults = [];
       
@@ -11414,7 +11466,7 @@ Respond in JSON format:
           }
           
           // Execute the rule
-          const units = await storage.getRentRollData();
+          const units = await storage.getRentRollData(clientId);
           let affectedCount = 0;
           let totalBefore = 0;
           let totalAfter = 0;
@@ -12054,8 +12106,9 @@ Respond in JSON format:
   });
 
   // Get all rent roll data for a location
-  app.get("/api/rent-roll-data/location/:locationId", async (req, res) => {
+  app.get("/api/rent-roll-data/location/:locationId", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { locationId } = req.params;
       
       // Get the location name from the ID
@@ -12065,7 +12118,7 @@ Respond in JSON format:
       }
       
       // Get units by location name
-      const units = await storage.getRentRollDataByLocation(location.name);
+      const units = await storage.getRentRollDataByLocation(location.name, clientId);
       res.json(units);
     } catch (error) {
       console.error('Error fetching rent roll data for location:', error);
@@ -12074,13 +12127,18 @@ Respond in JSON format:
   });
 
   // Get individual rent roll unit data by ID
-  app.get("/api/rent-roll-data/:unitId", async (req, res) => {
+  app.get("/api/rent-roll-data/:unitId", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { unitId } = req.params;
       const unit = await storage.getRentRollDataById(unitId);
       
       if (!unit) {
         return res.status(404).json({ error: "Unit not found" });
+      }
+
+      if (unit.clientId && unit.clientId !== clientId) {
+        return res.status(403).json({ error: 'Access denied' });
       }
       
       res.json(unit);
@@ -12308,7 +12366,7 @@ Respond in JSON format:
       const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
       
       // Run in background - don't wait for completion
-      processAllUnitsForCompetitorRates(surveyMonth).then(matchingStats => {
+      processAllUnitsForCompetitorRates(surveyMonth, clientId).then(matchingStats => {
         console.log('Competitor rate matching completed:', {
           processed: matchingStats.processed,
           updated: matchingStats.updated,
@@ -12329,14 +12387,15 @@ Respond in JSON format:
   });
   
   // Manually trigger competitor rate matching
-  app.post("/api/competitor-matching/process", async (req, res) => {
+  app.post("/api/competitor-matching/process", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { uploadMonth } = req.body;
       
       console.log(`Starting competitor rate matching for month: ${uploadMonth || 'all'}...`);
       const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
       
-      const stats = await processAllUnitsForCompetitorRates(uploadMonth);
+      const stats = await processAllUnitsForCompetitorRates(uploadMonth, clientId);
       
       console.log('Competitor rate matching completed:', stats);
       res.json({
@@ -12463,15 +12522,16 @@ Respond in JSON format:
     }
   });
   
-  app.get('/api/export/competitive-survey/:month', async (req, res) => {
+  app.get('/api/export/competitive-survey/:month', async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const month = req.params.month;
       const monthDate = new Date(month + '-01');
       
       const data = await db
         .select()
         .from(competitiveSurveyData)
-        .where(eq(competitiveSurveyData.surveyMonth, monthDate));
+        .where(and(eq(competitiveSurveyData.surveyMonth, monthDate), eq(competitiveSurveyData.clientId, clientId)));
       
       if (data.length === 0) {
         return res.status(404).json({ error: 'No data found for this month' });
@@ -12514,8 +12574,9 @@ Respond in JSON format:
   });
   
   // Rate card export endpoint - optimized with essential fields only
-  app.get('/api/export/rate-card', async (req, res) => {
+  app.get('/api/export/rate-card', async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { month, regions, divisions, locations } = req.query;
       let targetMonth = month as string || new Date().toISOString().substring(0, 7);
       
@@ -12523,6 +12584,7 @@ Respond in JSON format:
       if (!month) {
         const latestMonthData = await db.select({ uploadMonth: rentRollData.uploadMonth })
           .from(rentRollData)
+          .where(eq(rentRollData.clientId, clientId))
           .orderBy(desc(rentRollData.uploadMonth))
           .limit(1);
         
@@ -12536,7 +12598,8 @@ Respond in JSON format:
         regions: Array.isArray(regions) ? regions : (regions ? [regions] : []),
         divisions: Array.isArray(divisions) ? divisions : (divisions ? [divisions] : []),
         locations: Array.isArray(locations) ? locations : (locations ? [locations] : []),
-        limit: 10000 // Large limit for export
+        limit: 10000, // Large limit for export
+        clientId
       });
       
       if (data.length === 0) {

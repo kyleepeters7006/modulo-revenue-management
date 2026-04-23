@@ -516,7 +516,8 @@ export async function calculateCompetitorRateForUnit(
  * Process all units in rent roll and update competitor rates
  */
 export async function processAllUnitsForCompetitorRates(
-  uploadMonth?: string
+  uploadMonth?: string,
+  clientId: string = 'demo'
 ): Promise<{
   processed: number;
   updated: number;
@@ -531,10 +532,11 @@ export async function processAllUnitsForCompetitorRates(
   };
   
   try {
-    // Get all rent roll units for the specified month (or all if not specified)
+    // Get all rent roll units for the specified month (or all if not specified), scoped by clientId
+    const baseCondition = eq(rentRollData.clientId, clientId);
     const units = uploadMonth
-      ? await db.select().from(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth))
-      : await db.select().from(rentRollData);
+      ? await db.select().from(rentRollData).where(and(baseCondition, eq(rentRollData.uploadMonth, uploadMonth)))
+      : await db.select().from(rentRollData).where(baseCondition);
     
     console.log(`Processing ${units.length} units for competitor rate calculation...`);
     
@@ -602,8 +604,12 @@ export async function processAllUnitsForCompetitorRates(
 /**
  * Get competitor rate summary for reporting
  */
-export async function getCompetitorRateSummary(uploadMonth?: string) {
+export async function getCompetitorRateSummary(uploadMonth?: string, clientId: string = 'demo') {
   try {
+    const baseConditions = [
+      eq(rentRollData.clientId, clientId),
+      sql`${rentRollData.competitorRate} IS NOT NULL`
+    ];
     const query = uploadMonth 
       ? db.select({
           location: rentRollData.location,
@@ -617,7 +623,7 @@ export async function getCompetitorRateSummary(uploadMonth?: string) {
         .from(rentRollData)
         .where(and(
           eq(rentRollData.uploadMonth, uploadMonth),
-          sql`${rentRollData.competitorRate} IS NOT NULL`
+          ...baseConditions
         ))
         .groupBy(rentRollData.location, rentRollData.serviceLine, rentRollData.roomType)
       : db.select({
@@ -630,7 +636,7 @@ export async function getCompetitorRateSummary(uploadMonth?: string) {
           count: sql<number>`COUNT(*)`,
         })
         .from(rentRollData)
-        .where(sql`${rentRollData.competitorRate} IS NOT NULL`)
+        .where(and(...baseConditions))
         .groupBy(rentRollData.location, rentRollData.serviceLine, rentRollData.roomType);
     
     const summary = await query;

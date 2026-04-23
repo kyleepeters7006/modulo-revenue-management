@@ -104,7 +104,7 @@ export interface IStorage {
   updateLocationUnits(locationId: string, unitCount: number): Promise<void>;
   
   // Rent roll data operations
-  getRentRollData(): Promise<RentRollData[]>;
+  getRentRollData(clientId?: string): Promise<RentRollData[]>;
   getTotalUnits(): Promise<number>;
   getRentRollDataByMonth(uploadMonth: string, clientId?: string): Promise<RentRollData[]>;
   getRentRollDataFiltered(month: string, filters: {
@@ -115,7 +115,7 @@ export interface IStorage {
     limit?: number;
     clientId?: string;
   }): Promise<RentRollData[]>;
-  getRentRollDataByLocation(location: string): Promise<RentRollData[]>;
+  getRentRollDataByLocation(location: string, clientId?: string): Promise<RentRollData[]>;
   getRevenueByMonths(months: string[], clientId?: string, sameStoreOnly?: boolean): Promise<Record<string, number>>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[]): Promise<void>;
@@ -411,7 +411,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Rent roll data operations
-  async getRentRollData(): Promise<RentRollData[]> {
+  async getRentRollData(clientId?: string): Promise<RentRollData[]> {
+    if (clientId) {
+      return await db.select().from(rentRollData).where(eq(rentRollData.clientId, clientId));
+    }
     return await db.select().from(rentRollData);
   }
 
@@ -482,12 +485,14 @@ export class DatabaseStorage implements IStorage {
     return await query;
   }
 
-  async getRentRollDataByLocation(location: string): Promise<RentRollData[]> {
+  async getRentRollDataByLocation(location: string, clientId?: string): Promise<RentRollData[]> {
     // First get the latest upload month for this location
+    const monthConditions: any[] = [eq(rentRollData.location, location)];
+    if (clientId) monthConditions.push(eq(rentRollData.clientId, clientId));
     const latestMonthResult = await db
       .select({ maxMonth: sql<string>`MAX(${rentRollData.uploadMonth})` })
       .from(rentRollData)
-      .where(eq(rentRollData.location, location));
+      .where(and(...monthConditions));
     
     const latestMonth = latestMonthResult[0]?.maxMonth;
     
@@ -496,15 +501,15 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Return only units from the latest month for this location
+    const conditions: any[] = [
+      eq(rentRollData.location, location),
+      eq(rentRollData.uploadMonth, latestMonth)
+    ];
+    if (clientId) conditions.push(eq(rentRollData.clientId, clientId));
     return await db
       .select()
       .from(rentRollData)
-      .where(
-        and(
-          eq(rentRollData.location, location),
-          eq(rentRollData.uploadMonth, latestMonth)
-        )
-      );
+      .where(and(...conditions));
   }
 
   async getRevenueByMonths(months: string[], clientId?: string, sameStoreOnly: boolean = true): Promise<Record<string, number>> {
