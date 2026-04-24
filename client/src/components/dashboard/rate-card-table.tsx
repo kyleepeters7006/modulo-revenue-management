@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +51,7 @@ export default function RateCardTable({
 }: RateCardTableProps) {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
+  const [, navigate] = useLocation();
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
   const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
   const [sortColumn, setSortColumn] = useState<string | null>('status');
@@ -649,6 +651,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         <SortIcon column="roomType" />
                       </div>
                     </TableHead>
+                    <TableHead className="min-w-[120px]">Attributes</TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('serviceLine')}
@@ -726,6 +729,40 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         {unit.roomNumber}
                       </TableCell>
                       <TableCell>{unit.roomType}</TableCell>
+                      <TableCell>
+                        <button
+                          className="text-left cursor-pointer hover:opacity-70 transition-opacity"
+                          title="Click to edit attributes on Room Attributes page"
+                          onClick={() => {
+                            localStorage.setItem('roomAttributeFilters', JSON.stringify({
+                              locations: [unit.location],
+                              serviceLine: unit.serviceLine,
+                              regions: [],
+                              divisions: []
+                            }));
+                            navigate('/room-attributes');
+                          }}
+                        >
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+                            {[
+                              { label: 'Loc', val: unit.locationRating },
+                              { label: 'Sz', val: unit.sizeRating },
+                              { label: 'Vw', val: unit.viewRating },
+                              { label: 'Rn', val: unit.renovationRating },
+                              { label: 'Am', val: unit.amenityRating },
+                            ].map(({ label, val }) => {
+                              const grade = val || 'B';
+                              const color = grade === 'A' ? 'text-green-600 dark:text-green-400' : grade === 'C' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground';
+                              return (
+                                <span key={label} className="flex items-center gap-0.5">
+                                  <span className="text-muted-foreground">{label}</span>
+                                  <span className={`font-semibold ${color}`}>{grade}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{unit.serviceLine}</Badge>
                       </TableCell>
