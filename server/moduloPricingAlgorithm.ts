@@ -499,7 +499,7 @@ function getFactorDescription(factor: string, inputs: PricingInputs, adjustment:
     case 'occupancy':
       return `Unit type occupancy: ${Math.round(inputs.occupancy * 100)}% (target: 90%)`;
     case 'daysVacant':
-      return `Unit vacant for ${inputs.daysVacant} days`;
+      return `Unit type avg days vacant: ${inputs.daysVacant} days`;
     case 'seasonality':
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return `${months[inputs.monthIndex - 1]} seasonal adjustment`;
@@ -536,9 +536,9 @@ function getCalculationString(factor: string, inputs: PricingInputs, signal: num
     case 'daysVacant':
       const graceDays = 7;
       if (inputs.daysVacant <= graceDays) {
-        return `Within ${graceDays}-day grace period → 0% adjustment`;
+        return `Avg ${inputs.daysVacant}d vacant (within ${graceDays}-day grace) → 0% adjustment`;
       }
-      return `Days past grace: ${inputs.daysVacant - graceDays} → ${(adjustment * 100).toFixed(2)}%`;
+      return `Avg ${inputs.daysVacant}d vacant, ${inputs.daysVacant - graceDays}d past grace → ${(adjustment * 100).toFixed(2)}%`;
     case 'seasonality':
       return `Monthly factor → ${(adjustment * 100).toFixed(2)}%`;
     case 'competitors':
@@ -581,9 +581,9 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
       };
     case 'daysVacant':
       return {
-        'Days Vacant': inputs.daysVacant,
+        'Avg Days Vacant (Unit Type)': inputs.daysVacant,
         'Grace Period': '7 days',
-        'Days Beyond Grace': Math.max(0, inputs.daysVacant - 7),
+        'Avg Days Beyond Grace': Math.max(0, inputs.daysVacant - 7),
         'Max Decay': '-15%'
       };
     case 'seasonality':

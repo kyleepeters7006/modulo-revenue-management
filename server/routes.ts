@@ -7469,7 +7469,22 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       }
       
       console.log('Service line occupancy rates (excluding B beds for senior housing):', serviceLineOccupancy);
-      
+
+      // Compute average days vacant per Location+ServiceLine+RoomType group
+      // Only vacant units contribute (occupied units have daysVacant=0 which would skew the metric)
+      const groupAvgDaysVacant: Record<string, number> = {};
+      const groupVacantData = units.reduce((acc: Record<string, number[]>, unit: any) => {
+        if (!unit.occupiedYN) {
+          const key = `${unit.location}|${unit.serviceLine}|${unit.roomType}`;
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(unit.daysVacant || 0);
+        }
+        return acc;
+      }, {});
+      for (const [key, vals] of Object.entries(groupVacantData)) {
+        groupAvgDaysVacant[key] = Math.round((vals as number[]).reduce((a, b) => a + b, 0) / (vals as number[]).length);
+      }
+
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
@@ -7501,7 +7516,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           // Prepare inputs for sophisticated algorithm
           // Use service-line-specific occupancy instead of campus-level occupancy
           const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
-          const daysVacant = unit.daysVacant || 0;
+          const groupKey = `${unit.location}|${unit.serviceLine}|${unit.roomType}`;
+          const daysVacant = groupAvgDaysVacant[groupKey] ?? 0;
           
           const monthIndex = new Date(targetMonth).getMonth() + 1;
           

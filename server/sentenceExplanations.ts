@@ -14,11 +14,11 @@ export function getSentenceExplanation(factor: string, inputs: any, adjustment: 
 
     case 'daysvacant':
       if (inputs.daysVacant <= 7) {
-        return `This unit has been vacant for ${inputs.daysVacant} days, which is within our 7-day grace period. No vacancy discount is applied yet, maintaining full pricing to maximize potential revenue.`;
+        return `Units of this type have been vacant for an average of ${inputs.daysVacant} days, within our 7-day grace period. No vacancy discount is applied yet, maintaining full pricing to maximize potential revenue.`;
       } else if (inputs.daysVacant <= 30) {
-        return `After ${inputs.daysVacant} days vacant (${inputs.daysVacant - 7} days past grace), we're applying a modest discount to generate interest while avoiding aggressive price cuts that could hurt revenue.`;
+        return `Units of this type average ${inputs.daysVacant} days vacant (${inputs.daysVacant - 7} days past grace). We're applying a modest discount to generate interest while avoiding aggressive price cuts that could hurt revenue.`;
       } else {
-        return `This unit has been vacant for ${inputs.daysVacant} days. The extended vacancy requires more aggressive pricing to overcome market resistance and generate tours. Each additional week increases the discount exponentially.`;
+        return `Units of this type have been vacant for an average of ${inputs.daysVacant} days. The extended vacancy requires more aggressive pricing to overcome market resistance and generate tours. Each additional week increases the discount exponentially.`;
       }
 
     case 'attributes':
