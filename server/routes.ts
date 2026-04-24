@@ -80,7 +80,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable } from "@shared/schema";
-import { sql, and, eq, gte, lt, or, desc, inArray } from "drizzle-orm";
+import { sql, and, eq, gte, lt, or, desc, inArray, isNull } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
@@ -805,6 +805,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error running Companion room type backfill:', error);
       res.status(500).json({ error: 'Failed to run Companion room type backfill' });
+    }
+  });
+
+  // POST /api/admin/backfill-location-ids
+  // One-time backfill: for rent_roll_data and rent_roll_history rows that have a non-null
+  // location name but a null location_id, attempt to match the name against the locations
+  // table and update the row. This ensures group-average days-vacant keys are ID-based
+  // (stable) rather than name-string-based (fragile across name variations).
+  app.post('/api/admin/backfill-location-ids', async (req, res) => {
+    try {
+      console.log('Running location_id backfill for rent_roll_data and rent_roll_history...');
+
+      const preCheckResult = await db.execute(sql`
+        SELECT
+          (SELECT count(*)::int FROM rent_roll_data    WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS data_null_pre,
+          (SELECT count(*)::int FROM rent_roll_history WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS history_null_pre
+      `);
+      const preCheck = preCheckResult.rows[0] as any;
+      console.log(`Pre-backfill: rent_roll_data=${preCheck?.data_null_pre}, rent_roll_history=${preCheck?.history_null_pre}`);
+
+      const dataResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE rent_roll_data rrd
+          SET location_id = loc.id
+          FROM locations loc
+          WHERE rrd.location_id IS NULL
+            AND rrd.location IS NOT NULL
+            AND rrd.location != ''
+            AND lower(rrd.location) = lower(loc.name)
+            AND (rrd.client_id = loc.client_id OR loc.client_id IS NULL)
+          RETURNING rrd.id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+
+      const historyResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE rent_roll_history rrh
+          SET location_id = loc.id
+          FROM locations loc
+          WHERE rrh.location_id IS NULL
+            AND rrh.location IS NOT NULL
+            AND rrh.location != ''
+            AND lower(rrh.location) = lower(loc.name)
+          RETURNING rrh.id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+
+      const dataUpdated = (dataResult.rows[0] as any)?.rows_updated ?? 0;
+      const historyUpdated = (historyResult.rows[0] as any)?.rows_updated ?? 0;
+      console.log(`Location ID backfill complete: rent_roll_data=${dataUpdated}, rent_roll_history=${historyUpdated}`);
+
+      res.json({
+        success: true,
+        rentRollDataRowsUpdated: dataUpdated,
+        rentRollHistoryRowsUpdated: historyUpdated,
+        preCheckCounts: {
+          rentRollDataNullBefore: preCheck?.data_null_pre ?? 0,
+          rentRollHistoryNullBefore: preCheck?.history_null_pre ?? 0,
+        },
+        message: `Backfill complete. Updated ${dataUpdated} rent_roll_data rows and ${historyUpdated} rent_roll_history rows.`
+      });
+    } catch (error) {
+      console.error('Error running location_id backfill:', error);
+      res.status(500).json({ error: 'Failed to run location_id backfill' });
     }
   });
 
@@ -4849,6 +4915,15 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return str || null;
       };
 
+      // Build location lookup map so we can populate locationId on each row.
+      // Include both client-scoped locations and global (client_id IS NULL) locations so
+      // environments that rely on global location records are covered too.
+      const clientId = req.clientId || 'demo';
+      const allLocationsForClient = await db.select().from(locations).where(
+        or(eq(locations.clientId, clientId), isNull(locations.clientId))
+      );
+      const locationIdMap = new Map(allLocationsForClient.map(loc => [loc.name.toLowerCase().trim(), loc.id]));
+
       // Process and store data
       const processedRecords: any[] = [];
 
@@ -4911,6 +4986,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           uploadMonth: uploadMonth,
           date: getRowValue(row, 'Date', 'date') || uploadDate,
           location: getRowValue(row, 'Location', 'location') || '',
+          locationId: locationIdMap.get((getRowValue(row, 'Location', 'location') || '').toLowerCase().trim()) || null,
           roomNumber: getRowValue(row, 'Room_Bed', 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
           roomType: normalizeRoomType(cleanRoomType),
           serviceLine: normalizedServiceLine,
