@@ -7610,7 +7610,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       const groupAvgDaysVacant: Record<string, number> = {};
       const groupVacantData = units.reduce((acc: Record<string, number[]>, unit: any) => {
         if (!unit.occupiedYN) {
-          const key = `${unit.location}|${unit.serviceLine}|${unit.roomType}`;
+          const key = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
           if (!acc[key]) acc[key] = [];
           acc[key].push(unit.daysVacant || 0);
         }
@@ -7651,7 +7651,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           // Prepare inputs for sophisticated algorithm
           // Use service-line-specific occupancy instead of campus-level occupancy
           const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
-          const groupKey = `${unit.location}|${unit.serviceLine}|${unit.roomType}`;
+          const groupKey = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
           const daysVacant = groupAvgDaysVacant[groupKey] ?? 0;
           
           const monthIndex = new Date(targetMonth).getMonth() + 1;
