@@ -731,11 +731,12 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       <TableCell>{unit.roomType}</TableCell>
                       <TableCell>
                         <button
-                          className="text-left cursor-pointer hover:opacity-70 transition-opacity"
+                          type="button"
+                          className="text-left cursor-pointer hover:opacity-70 transition-opacity group"
                           title="Click to edit attributes on Room Attributes page"
                           onClick={() => {
                             localStorage.setItem('roomAttributeFilters', JSON.stringify({
-                              locations: [unit.location],
+                              locations: [unit.location || unit.locationName || unit.campusName].filter(Boolean),
                               serviceLine: unit.serviceLine,
                               regions: [],
                               divisions: []
@@ -743,7 +744,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                             navigate('/room-attributes');
                           }}
                         >
-                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs group-hover:underline underline-offset-2">
                             {[
                               { label: 'Loc', val: unit.locationRating },
                               { label: 'Sz', val: unit.sizeRating },
