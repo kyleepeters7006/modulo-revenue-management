@@ -825,6 +825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const preCheck = preCheckResult.rows[0] as any;
       console.log(`Pre-backfill: rent_roll_data=${preCheck?.data_null_pre}, rent_roll_history=${preCheck?.history_null_pre}`);
 
+      // Pass 1: exact name match
       const dataResult = await db.execute(sql`
         WITH updated AS (
           UPDATE rent_roll_data rrd
@@ -856,17 +857,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const dataUpdated = (dataResult.rows[0] as any)?.rows_updated ?? 0;
       const historyUpdated = (historyResult.rows[0] as any)?.rows_updated ?? 0;
-      console.log(`Location ID backfill complete: rent_roll_data=${dataUpdated}, rent_roll_history=${historyUpdated}`);
+      console.log(`Pass 1 (name match): rent_roll_data=${dataUpdated}, rent_roll_history=${historyUpdated}`);
+
+      // Pass 2: location-code match — extract embedded numeric code from location strings
+      // e.g. "Sylvania KSL-0560" -> "0560" (or 3-digit variant "KSL-560" -> "0560")
+      // then match against locations.location_code (stored as zero-padded 4 digits)
+      const dataCodeResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE rent_roll_data rrd
+          SET location_id = loc.id
+          FROM locations loc
+          WHERE rrd.location_id IS NULL
+            AND rrd.location IS NOT NULL
+            AND rrd.location != ''
+            AND loc.location_code IS NOT NULL
+            AND loc.location_code != ''
+            AND lpad(substring(rrd.location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
+            AND (rrd.client_id = loc.client_id OR loc.client_id IS NULL)
+          RETURNING rrd.id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+
+      const historyCodeResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE rent_roll_history rrh
+          SET location_id = loc.id
+          FROM locations loc
+          WHERE rrh.location_id IS NULL
+            AND rrh.location IS NOT NULL
+            AND rrh.location != ''
+            AND loc.location_code IS NOT NULL
+            AND loc.location_code != ''
+            AND lpad(substring(rrh.location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
+            AND (rrh.client_id = loc.client_id OR loc.client_id IS NULL)
+          RETURNING rrh.id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+
+      const dataCodeUpdated = (dataCodeResult.rows[0] as any)?.rows_updated ?? 0;
+      const historyCodeUpdated = (historyCodeResult.rows[0] as any)?.rows_updated ?? 0;
+      console.log(`Pass 2 (location-code match): rent_roll_data=${dataCodeUpdated}, rent_roll_history=${historyCodeUpdated}`);
+
+      const postCheckResult = await db.execute(sql`
+        SELECT
+          (SELECT count(*)::int FROM rent_roll_data    WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS data_null_post,
+          (SELECT count(*)::int FROM rent_roll_history WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS history_null_post
+      `);
+      const postCheck = postCheckResult.rows[0] as any;
+      console.log(`Post-backfill nulls: rent_roll_data=${postCheck?.data_null_post}, rent_roll_history=${postCheck?.history_null_post}`);
+
+      const totalDataUpdated = dataUpdated + dataCodeUpdated;
+      const totalHistoryUpdated = historyUpdated + historyCodeUpdated;
 
       res.json({
         success: true,
-        rentRollDataRowsUpdated: dataUpdated,
-        rentRollHistoryRowsUpdated: historyUpdated,
+        rentRollDataRowsUpdated: totalDataUpdated,
+        rentRollHistoryRowsUpdated: totalHistoryUpdated,
+        pass1: { rentRollDataRowsUpdated: dataUpdated, rentRollHistoryRowsUpdated: historyUpdated },
+        pass2: { rentRollDataRowsUpdated: dataCodeUpdated, rentRollHistoryRowsUpdated: historyCodeUpdated },
         preCheckCounts: {
           rentRollDataNullBefore: preCheck?.data_null_pre ?? 0,
           rentRollHistoryNullBefore: preCheck?.history_null_pre ?? 0,
         },
-        message: `Backfill complete. Updated ${dataUpdated} rent_roll_data rows and ${historyUpdated} rent_roll_history rows.`
+        postCheckCounts: {
+          rentRollDataNullAfter: postCheck?.data_null_post ?? 0,
+          rentRollHistoryNullAfter: postCheck?.history_null_post ?? 0,
+        },
+        message: `Backfill complete. Updated ${totalDataUpdated} rent_roll_data rows and ${totalHistoryUpdated} rent_roll_history rows (pass1: ${dataUpdated}+${historyUpdated}, pass2: ${dataCodeUpdated}+${historyCodeUpdated}).`
       });
     } catch (error) {
       console.error('Error running location_id backfill:', error);
