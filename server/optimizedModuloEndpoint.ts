@@ -141,7 +141,7 @@ async function processUnitBatch(
         const pricingInputs: PricingInputs = {
           occupancy,
           daysVacant: precomputedSignals.groupAvgDaysVacant.get(
-            `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`
+            `${unit.locationId ?? unit.location ?? 'unknown'}|${unit.serviceLine}|${unit.roomType}`
           ) ?? 0,
           monthIndex: precomputedSignals.monthIndex,
           competitorPrices,
@@ -541,7 +541,8 @@ export async function generateModuloOptimized(req: any, res: any) {
     const groupVacantAccum = new Map<string, number[]>();
     for (const unit of units) {
       if (!unit.occupiedYN) {
-        const key = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
+        const locKey = unit.locationId ?? unit.location ?? 'unknown';
+        const key = `${locKey}|${unit.serviceLine}|${unit.roomType}`;
         if (!groupVacantAccum.has(key)) groupVacantAccum.set(key, []);
         groupVacantAccum.get(key)!.push(unit.daysVacant || 0);
       }
