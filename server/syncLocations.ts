@@ -3,6 +3,17 @@ import { rentRollData, locations } from '../shared/schema';
 import { sql, eq } from 'drizzle-orm';
 
 /**
+ * Extract a zero-padded 4-digit location code from a location name string.
+ * Matches patterns like "Sylvania KSL-0560" or "KSL-560" → "0560".
+ * Returns null if no code pattern is found.
+ */
+function extractLocationCode(name: string): string | null {
+  const match = name.match(/[A-Za-z]+-(\d{3,4})\b/);
+  if (!match) return null;
+  return match[1].padStart(4, '0');
+}
+
+/**
  * Sync locations from rent roll data
  * This ensures the locations table reflects all unique campuses in rent_roll_data
  * OPTIMIZED: Uses batch operations instead of individual queries
@@ -32,7 +43,8 @@ export async function syncLocationsFromRentRoll() {
     
     let created = 0;
     let updated = 0;
-    const locationsToCreate: Array<{ name: string; totalUnits: number }> = [];
+    let codeBackfilled = 0;
+    const locationsToCreate: Array<{ name: string; totalUnits: number; locationCode: string | null }> = [];
     const locationsToUpdate: Array<{ id: string; name: string; totalUnits: number }> = [];
     
     // Prepare batch operations
@@ -45,7 +57,8 @@ export async function syncLocationsFromRentRoll() {
       if (!existing) {
         locationsToCreate.push({
           name: locationName,
-          totalUnits: unitCount
+          totalUnits: unitCount,
+          locationCode: extractLocationCode(locationName)
         });
       } else if (existing.totalUnits !== unitCount) {
         locationsToUpdate.push({
@@ -63,7 +76,8 @@ export async function syncLocationsFromRentRoll() {
           name: loc.name,
           region: null,
           division: null,
-          totalUnits: loc.totalUnits
+          totalUnits: loc.totalUnits,
+          locationCode: loc.locationCode
         })))
         .returning();
       
@@ -91,13 +105,30 @@ export async function syncLocationsFromRentRoll() {
       updated = locationsToUpdate.length;
     }
     
+    // Backfill location_code for existing locations that have NULL code but a code pattern in their name
+    const nullCodeLocations = existingLocations.filter(loc => !loc.locationCode);
+    for (const loc of nullCodeLocations) {
+      const code = extractLocationCode(loc.name);
+      if (code) {
+        await db
+          .update(locations)
+          .set({ locationCode: code, updatedAt: new Date() })
+          .where(eq(locations.id, loc.id));
+        codeBackfilled++;
+      }
+    }
+    if (codeBackfilled > 0) {
+      console.log(`Backfilled location_code for ${codeBackfilled} existing locations`);
+    }
+
     const duration = Date.now() - startTime;
-    console.log(`Location sync complete: ${created} created, ${updated} updated in ${duration}ms`);
+    console.log(`Location sync complete: ${created} created, ${updated} updated, ${codeBackfilled} codes backfilled in ${duration}ms`);
     
     return {
       success: true,
       created,
       updated,
+      codeBackfilled,
       total: locationStats.length
     };
   } catch (error) {
