@@ -933,6 +933,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Cleanup orphaned location rows that have zero references across all FK-referencing tables.
+  // Tenant-scoped to the authenticated admin's client — does NOT touch other tenants.
+  // Requires a logged-in _admin user. Safe to run repeatedly (idempotent).
+  app.post('/api/admin/cleanup-orphaned-locations', async (req: any, res) => {
+    // Server-side admin gate: require a logged-in _admin user
+    const session = req.session as any;
+    if (!session?.userId || !session?.clientId) {
+      return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
+    }
+    try {
+      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
+
+    const clientId = session.clientId as string;
+
+    try {
+      console.log(`Scanning for orphaned location rows for client: ${clientId}`);
+
+      // An orphaned alternate-name location is one that has ZERO references in ANY
+      // table that FK-references locations. Checking all referencing tables ensures we
+      // never delete a canonical location that simply hasn't had rent roll data imported
+      // yet but is otherwise active (e.g. in competitors, floor plans, pricing tables).
+      // Scoped to the authenticated admin's tenant to prevent cross-tenant deletion.
+      const orphansResult = await db.execute(sql`
+        SELECT loc.id, loc.name, loc.client_id, loc.location_code
+        FROM locations loc
+        WHERE loc.client_id = ${clientId}
+          AND NOT EXISTS (SELECT 1 FROM rent_roll_data        WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM rent_roll_history     WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM competitors           WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM floor_plans           WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM guardrails            WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM pricing_weights       WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM rate_card             WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM targets_and_trends    WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM inquiry_metrics       WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM adjustment_ranges     WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM adjustment_rules      WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM campus_maps           WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM revenue_growth_targets WHERE location_id         = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM ai_rate_outcomes      WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM upload_history        WHERE location_id          = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM location_mappings     WHERE target_location_id   = loc.id)
+          AND NOT EXISTS (SELECT 1 FROM enquire_data          WHERE mapped_location_id   = loc.id)
+        ORDER BY loc.name
+      `);
+
+      const orphans = orphansResult.rows as { id: string; name: string; client_id: string | null; location_code: string | null }[];
+      console.log(`Found ${orphans.length} orphaned location(s) for ${clientId}:`, orphans.map(o => o.name));
+
+      if (orphans.length === 0) {
+        return res.json({
+          success: true,
+          deletedCount: 0,
+          deletedLocations: [],
+          message: 'No orphaned location rows found. Nothing to clean up.',
+        });
+      }
+
+      // Build tenant-scoped subquery that identifies orphaned location IDs
+      const orphanSubquery = sql`
+        SELECT loc_inner.id FROM locations loc_inner
+        WHERE loc_inner.client_id = ${clientId}
+          AND NOT EXISTS (SELECT 1 FROM rent_roll_data        WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM rent_roll_history     WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM competitors           WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM floor_plans           WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM guardrails            WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM pricing_weights       WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM rate_card             WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM targets_and_trends    WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM inquiry_metrics       WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM adjustment_ranges     WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM adjustment_rules      WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM campus_maps           WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM revenue_growth_targets WHERE location_id         = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM ai_rate_outcomes      WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM upload_history        WHERE location_id          = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM location_mappings     WHERE target_location_id   = loc_inner.id)
+          AND NOT EXISTS (SELECT 1 FROM enquire_data          WHERE mapped_location_id   = loc_inner.id)
+      `;
+
+      // Execute all deletes in a single transaction for atomicity.
+      // For true orphans (no references anywhere) the dependent-table deletes are
+      // no-ops by definition; they are included as a defensive belt-and-suspenders guard.
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`DELETE FROM revenue_growth_targets WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM adjustment_ranges     WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM adjustment_rules      WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM ai_rate_outcomes      WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM campus_maps           WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM competitors           WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM enquire_data          WHERE mapped_location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM floor_plans           WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM guardrails            WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM inquiry_metrics       WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM location_mappings     WHERE target_location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM pricing_weights       WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM rate_card             WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM targets_and_trends    WHERE location_id IN (${orphanSubquery})`);
+        await tx.execute(sql`DELETE FROM upload_history        WHERE location_id IN (${orphanSubquery})`);
+
+        // Delete the orphaned location rows (tenant-scoped)
+        await tx.execute(sql`DELETE FROM locations WHERE id IN (${orphanSubquery})`);
+      });
+
+      console.log(`Deleted ${orphans.length} orphaned location(s).`);
+
+      return res.json({
+        success: true,
+        deletedCount: orphans.length,
+        deletedLocations: orphans.map(o => ({ id: o.id, name: o.name, clientId: o.client_id, locationCode: o.location_code })),
+        message: `Cleanup complete. Removed ${orphans.length} orphaned location row(s).`,
+      });
+    } catch (error) {
+      console.error('Error cleaning up orphaned locations:', error);
+      res.status(500).json({ error: 'Failed to clean up orphaned locations' });
+    }
+  });
+
   // Sync locations from rent roll data
   app.post('/api/admin/sync-locations', async (req, res) => {
     try {

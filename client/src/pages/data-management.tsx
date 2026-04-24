@@ -56,6 +56,31 @@ export default function DataManagement() {
     },
   });
 
+  const cleanupOrphanedLocationsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/admin/cleanup-orphaned-locations', { method: 'POST' });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to clean up orphaned locations');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Orphaned Locations Cleaned Up",
+        description: data.message || "Cleanup complete.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cleanup Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location') => {
     try {
       const endpoints = {
@@ -1105,6 +1130,38 @@ export default function DataManagement() {
                     <>
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Regenerate Demo Data
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Admin: Cleanup Orphaned Locations — visible to authenticated admins only */}
+          {isAdmin && (
+            <Card className="border-red-200 bg-red-50">
+              <CardHeader>
+                <CardTitle className="text-red-900">Admin: Cleanup Orphaned Campus Entries</CardTitle>
+                <CardDescription className="text-red-700">
+                  Remove location rows that were created from alternate rent-roll names (e.g. "Sylvania KSL-0560") but now have no rent roll data or history pointing to them. Canonical locations are preserved.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={() => cleanupOrphanedLocationsMutation.mutate()}
+                  disabled={cleanupOrphanedLocationsMutation.isPending}
+                  variant="destructive"
+                  data-testid="button-cleanup-orphaned-locations"
+                >
+                  {cleanupOrphanedLocationsMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Cleaning up...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Cleanup Orphaned Locations
                     </>
                   )}
                 </Button>
