@@ -30,6 +30,7 @@ interface PrecomputedSignals {
   defaultDemandHistory: number[];
   defaultDemandCurrent: number;
   competitorCache: Map<string, CompetitorData>;
+  groupAvgDaysVacant: Map<string, number>;
 }
 
 interface ProcessingProgress {
@@ -139,7 +140,9 @@ async function processUnitBatch(
         
         const pricingInputs: PricingInputs = {
           occupancy,
-          daysVacant: unit.daysVacant || 0,
+          daysVacant: precomputedSignals.groupAvgDaysVacant.get(
+            `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`
+          ) ?? 0,
           monthIndex: precomputedSignals.monthIndex,
           competitorPrices,
           marketReturn: precomputedSignals.stockMarketChange / 100,
@@ -533,6 +536,21 @@ export async function generateModuloOptimized(req: any, res: any) {
     await Promise.all(competitorPromises);
     console.log(`Competitor data cache: ${competitorCache.size} campus+service combinations pre-fetched`);
     
+    // Compute average days vacant per locationId+serviceLine+roomType group
+    // Only vacant units contribute (occupied units have daysVacant=0 which would skew downward)
+    const groupVacantAccum = new Map<string, number[]>();
+    for (const unit of units) {
+      if (!unit.occupiedYN) {
+        const key = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
+        if (!groupVacantAccum.has(key)) groupVacantAccum.set(key, []);
+        groupVacantAccum.get(key)!.push(unit.daysVacant || 0);
+      }
+    }
+    const groupAvgDaysVacant = new Map<string, number>();
+    for (const [key, vals] of Array.from(groupVacantAccum)) {
+      groupAvgDaysVacant.set(key, Math.round(vals.reduce((a, b) => a + b, 0) / vals.length));
+    }
+
     // Build precomputed signals object
     const precomputedSignals: PrecomputedSignals = {
       stockMarketChange,
@@ -544,7 +562,8 @@ export async function generateModuloOptimized(req: any, res: any) {
       demandCache,
       defaultDemandHistory: [10, 12, 15, 13, 14, 11],
       defaultDemandCurrent: 12,
-      competitorCache
+      competitorCache,
+      groupAvgDaysVacant
     };
     
     // Step 4: Process units in batches with parallelization
