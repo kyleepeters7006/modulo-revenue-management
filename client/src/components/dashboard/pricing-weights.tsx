@@ -280,8 +280,8 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       toast({
         title: "Weights Saved",
         description: applyToAllServiceLines && locationId && !serviceLine 
-          ? "Weights have been applied to all service lines for this location" 
-          : "Weights have been saved successfully",
+          ? "Weights have been applied to all service lines for this location. Regenerate Modulo pricing to apply the new settings." 
+          : "Weights saved. Regenerate Modulo pricing to apply the new settings.",
       });
     },
     onError: (error) => {

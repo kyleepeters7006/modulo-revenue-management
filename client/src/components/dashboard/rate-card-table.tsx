@@ -803,6 +803,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 ruleAdjustedRate={unit.ruleAdjustedRate}
                                 appliedRuleName={unit.appliedRuleName}
                                 serviceLine={unit.serviceLine}
+                                locationId={unit.locationId}
                               >
                                 <button 
                                   className="cursor-pointer flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"

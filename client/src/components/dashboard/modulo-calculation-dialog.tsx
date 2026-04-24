@@ -5,8 +5,20 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight } from "lucide-react";
+import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+
+interface WeightsApiResponse {
+  weights: {
+    occupancy_pressure: number;
+    days_vacant_decay: number;
+    seasonality: number;
+    competitor_rates: number;
+    stock_market: number;
+    inquiry_tour_volume: number;
+    enable_weights: boolean;
+  };
+}
 
 interface ModuloCalculationDialogProps {
   roomType: string;
@@ -17,6 +29,7 @@ interface ModuloCalculationDialogProps {
   ruleAdjustedRate?: number | null; // Rate after manual rules are applied
   appliedRuleName?: string | null; // Name of the applied rule
   serviceLine?: string | null; // Service line for rate formatting
+  locationId?: string | null; // Location ID for fetching current weights
 }
 
 export default function ModuloCalculationDialog({ 
@@ -27,7 +40,8 @@ export default function ModuloCalculationDialog({
   calculationDetails,
   ruleAdjustedRate,
   appliedRuleName,
-  serviceLine
+  serviceLine,
+  locationId
 }: ModuloCalculationDialogProps) {
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<any>(null);
@@ -52,8 +66,53 @@ export default function ModuloCalculationDialog({
     enabled: open && !calculationDetails && !!unitId,
   });
 
+  // Fetch current weights to detect staleness — uses query params so service
+  // lines containing '/' (e.g. AL/MC) are encoded correctly.
+  const weightsUrl = (() => {
+    const params = new URLSearchParams();
+    if (locationId) params.set('locationId', locationId);
+    if (serviceLine) params.set('serviceLine', serviceLine);
+    const qs = params.toString();
+    return qs ? `/api/weights?${qs}` : '/api/weights';
+  })();
+
+  const { data: currentWeightsResponse } = useQuery<WeightsApiResponse>({
+    queryKey: ['/api/weights', locationId ?? null, serviceLine ?? null],
+    queryFn: async () => {
+      const res = await fetch(weightsUrl, { credentials: 'include' });
+      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+      return res.json() as Promise<WeightsApiResponse>;
+    },
+    enabled: open,
+  });
+
   // Use provided details or API details
   const calcDetails = details || apiDetails;
+
+  // Determine if stored weights differ from current weights
+  const hasStaleWeights = (() => {
+    if (!calcDetails?.weights || !currentWeightsResponse) return false;
+    const stored = calcDetails.weights;
+    const current = currentWeightsResponse.weights;
+    if (!current) return false;
+    const numericFields: Array<{ stored: string; current: keyof WeightsApiResponse['weights'] }> = [
+      { stored: 'occupancyPressure', current: 'occupancy_pressure' },
+      { stored: 'daysVacantDecay', current: 'days_vacant_decay' },
+      { stored: 'seasonality', current: 'seasonality' },
+      { stored: 'competitorRates', current: 'competitor_rates' },
+      { stored: 'stockMarket', current: 'stock_market' },
+      { stored: 'inquiryTourVolume', current: 'inquiry_tour_volume' },
+    ];
+    const numericDiffers = numericFields.some(({ stored: sk, current: ck }) => {
+      const storedVal = (stored[sk] as number) ?? 0;
+      const currentVal = (current[ck] as number) ?? 0;
+      return storedVal !== currentVal;
+    });
+    // Also check enable_weights flag so toggling the algorithm on/off surfaces the banner
+    const storedEnable = stored.enableWeights !== false;
+    const currentEnable = current.enable_weights !== false;
+    return numericDiffers || storedEnable !== currentEnable;
+  })();
 
   // Effective (post-guardrail) adjustment = actual applied change from street rate to final rate.
   // This matches the % shown in the rate card table and is arithmetically correct.
@@ -165,6 +224,25 @@ export default function ModuloCalculationDialog({
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Stale Weights Notice */}
+              {hasStaleWeights && (
+                <Card className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <RefreshCw className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-1">
+                          Rates calculated with older weights
+                        </h4>
+                        <p className="text-xs text-amber-800 dark:text-amber-200">
+                          The pricing weights have been updated since these rates were last generated. Regenerate Modulo pricing to apply your latest settings.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Weights Disabled Message */}
               {calcDetails.weightsDisabled && (
