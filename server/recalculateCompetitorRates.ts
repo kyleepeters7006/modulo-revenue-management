@@ -86,17 +86,5 @@ async function recalculateAllCompetitorRates() {
   }
 }
 
-// Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  recalculateAllCompetitorRates()
-    .then(result => {
-      console.log('Script completed:', result);
-      process.exit(result.success ? 0 : 1);
-    })
-    .catch(err => {
-      console.error('Script failed:', err);
-      process.exit(1);
-    });
-}
 
 export { recalculateAllCompetitorRates };

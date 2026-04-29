@@ -177,22 +177,3 @@ export async function analyzeRoomTypes() {
   }
 }
 
-// Allow running this script directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  // Parse command line arguments
-  const args = process.argv.slice(2);
-  const command = args[0];
-  
-  if (command === 'analyze') {
-    analyzeRoomTypes()
-      .then(() => process.exit(0))
-      .catch(() => process.exit(1));
-  } else {
-    // Default to running the backfill
-    backfillRoomTypes()
-      .then(result => {
-        process.exit(result.success ? 0 : 1);
-      })
-      .catch(() => process.exit(1));
-  }
-}

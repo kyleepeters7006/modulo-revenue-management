@@ -223,8 +223,4 @@ export async function processDemoData() {
   }
 }
 
-// Run the function when script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  processDemoData().catch(console.error);
-}
 

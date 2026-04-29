@@ -138,15 +138,3 @@ export async function fixCompetitorRates(clientId?: string) {
   }
 }
 
-// Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  fixCompetitorRates()
-    .then(result => {
-      console.log('Script completed successfully:', result);
-      process.exit(0);
-    })
-    .catch(error => {
-      console.error('Script failed:', error);
-      process.exit(1);
-    });
-}
