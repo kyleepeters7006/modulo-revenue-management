@@ -7,7 +7,7 @@ channel = "stable-24_05"
 packages = ["geos", "glibcLocales", "libGL", "libGLU", "jq"]
 
 [deployment]
-deploymentTarget = "autoscale"
+deploymentTarget = "gce"
 build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
 
