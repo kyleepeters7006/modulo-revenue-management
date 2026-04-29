@@ -6,10 +6,12 @@
 
 import { db } from "./db";
 import { competitiveSurveyData, rentRollData } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 
-export async function fixCompetitorRates() {
-  console.log('🔧 Starting competitor rate fix...');
+export async function fixCompetitorRates(clientId?: string) {
+  const tenantLabel = clientId ? `clientId=${clientId}` : 'all tenants';
+  console.log(`🔧 Starting competitor rate fix (${tenantLabel})...`);
+  const clientFilter = clientId ? sql` AND client_id = ${clientId}` : sql``;
   
   try {
     // Step 1: Fix AL/SL/VIL rates in competitive_survey_data that are clearly daily (< $500)
@@ -28,6 +30,7 @@ export async function fixCompetitorRates() {
         competitor_type IN ('AL', 'SL', 'VIL', 'IL') 
         AND monthly_rate_avg > 0 
         AND monthly_rate_avg < 500
+        ${clientFilter}
     `);
     
     console.log(`Found ${dailyALRates.rows.length} AL/SL/VIL/IL rates that are likely daily rates`);
@@ -72,6 +75,7 @@ export async function fixCompetitorRates() {
         competitor_type IN ('HC', 'SMC') 
         AND monthly_rate_avg > 0 
         AND monthly_rate_avg < 1000
+        ${clientFilter}
     `);
     
     console.log(`Found ${dailyHCRates.rows.length} HC/SMC rates that are likely daily rates`);
@@ -100,6 +104,7 @@ export async function fixCompetitorRates() {
     // Step 3: Clear competitor rates in rent_roll_data to force recalculation with fixed data
     console.log('\n📊 Step 3: Clearing rent_roll_data competitor rates to force recalculation...');
     
+    const clearWhere = clientId ? eq(rentRollData.clientId, clientId) : sql`1=1`;
     await db.update(rentRollData)
       .set({
         competitorRate: null,
@@ -107,9 +112,9 @@ export async function fixCompetitorRates() {
         competitorName: null,
         competitorBaseRate: null
       })
-      .where(sql`1=1`);
+      .where(clearWhere);
     
-    console.log('✅ Cleared all competitor rates in rent_roll_data');
+    console.log(`✅ Cleared competitor rates in rent_roll_data (${tenantLabel})`);
     
     // Summary
     console.log('\n✅ Fix complete!');

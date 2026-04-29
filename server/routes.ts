@@ -556,18 +556,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint to fix competitor rates in the database directly
   app.post('/api/admin/fix-competitor-rates', async (req: any, res) => {
     try {
-      const clientId = req.clientId || 'demo';
-      console.log('🔧 Fixing competitor rates in database...');
+      const { clientId: bodyClientId, month: bodyMonth } = req.body || {};
+
+      // If caller supplies a cross-tenant clientId override, verify they are an admin
+      let clientId = req.clientId || 'demo';
+      if (bodyClientId && bodyClientId !== clientId) {
+        const session = req.session as any;
+        if (!session?.userId) {
+          return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
+        }
+        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+          return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
+        }
+        clientId = bodyClientId;
+      }
+
+      // Determine the target month: body param → original hardcoded default fallback
+      if (bodyMonth && !/^\d{4}-\d{2}$/.test(bodyMonth)) {
+        return res.status(400).json({ error: 'Invalid month format; expected YYYY-MM' });
+      }
+      const latestMonth = bodyMonth || '2025-11';
+
+      console.log(`🔧 Fixing competitor rates in database for clientId=${clientId}, month=${latestMonth}...`);
       
       const { fixCompetitorRates } = await import('./fixCompetitorRates');
-      const result = await fixCompetitorRates();
+      const result = await fixCompetitorRates(clientId);
       
       // After fixing the database, trigger recalculation
       console.log('📊 Now recalculating competitor rates for rent roll...');
       const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
       
-      // Process only the latest month for efficiency
-      const latestMonth = '2025-11';
       const matchingStats = await processAllUnitsForCompetitorRates(latestMonth, clientId);
       
       res.json({
