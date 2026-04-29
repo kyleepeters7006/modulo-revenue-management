@@ -10144,13 +10144,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           .where(and(eq(rentRollData.clientId, clientId), eq(rentRollData.location, location)))
           .limit(limit);
       } else {
-        // Test with locations that have competitors
-        const locationsWithCompetitors = ['Batesville - 120', 'Columbus - 107', 'Cynthiana - 114'];
+        // Dynamically fetch a sample of units across the tenant's own locations
         units = await db.select().from(rentRollData)
-          .where(and(
-            eq(rentRollData.clientId, clientId),
-            sql`${rentRollData.location} IN (${sql.join(locationsWithCompetitors.map(l => sql`${l}`), sql`,`)})`
-          ))
+          .where(eq(rentRollData.clientId, clientId))
           .limit(limit);
       }
       
