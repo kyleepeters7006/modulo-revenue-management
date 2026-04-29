@@ -596,8 +596,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('🔄 Starting competitor rate recalculation with fixed conversion logic...');
       
       // Get optional filters from request
-      const { location, serviceLine, uploadMonth } = req.body;
-      const clientId = req.clientId || 'demo';
+      const { location, serviceLine, uploadMonth, clientId: bodyClientId } = req.body;
+
+      // If caller supplies a cross-tenant clientId override, verify they are an admin
+      let clientId = req.clientId || 'demo';
+      if (bodyClientId && bodyClientId !== clientId) {
+        const session = req.session as any;
+        if (!session?.userId) {
+          return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
+        }
+        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+          return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
+        }
+        clientId = bodyClientId;
+      }
+      console.log(`🏢 Scoping recalculation to clientId: ${clientId}${bodyClientId && bodyClientId !== (req.clientId || 'demo') ? ' (admin override from request body)' : ' (from session)'}`);
       
       // Import the processing function
       const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
@@ -681,7 +695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           VIL: 'Rates < $500 converted from daily to monthly (×30.44)'
         },
         sampleUpdates: changedUnits.slice(0, 10),
-        filters: { location, serviceLine, uploadMonth }
+        filters: { clientId, location, serviceLine, uploadMonth }
       });
       
     } catch (error) {
@@ -7574,8 +7588,22 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
   // Original Modulo endpoint (kept for reference, but not used)
   app.post("/api/pricing/generate-modulo-legacy", async (req: any, res) => {
     try {
-      const clientId = req.clientId || 'demo';
-      const { month, serviceLine, regions, divisions, locations } = req.body;
+      const { month, serviceLine, regions, divisions, locations, clientId: bodyClientId } = req.body;
+
+      // If caller supplies a cross-tenant clientId override, verify they are an admin
+      let clientId = req.clientId || 'demo';
+      if (bodyClientId && bodyClientId !== clientId) {
+        const session = req.session as any;
+        if (!session?.userId) {
+          return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
+        }
+        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+          return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
+        }
+        clientId = bodyClientId;
+        console.log(`🏢 generate-modulo-legacy: admin override — scoping to clientId: ${clientId}`);
+      }
       // Default to November 2025 which has the latest data
       const targetMonth = month || '2025-11';
       
