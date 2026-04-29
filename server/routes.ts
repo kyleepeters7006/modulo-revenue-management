@@ -78,7 +78,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable } from "@shared/schema";
 import { sql, and, eq, gte, lt, or, desc, inArray, isNull } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
@@ -314,7 +314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const connectPg = (await import('connect-pg-simple')).default;
     const pgStore = connectPg(sessionLib.default);
     const sessionStore = new pgStore({
-      conString: process.env.DATABASE_URL,
+      pool,
       createTableIfMissing: true,
       ttl: 7 * 24 * 60 * 60,
       tableName: 'sessions',

@@ -7,6 +7,16 @@ import { db } from "./db";
 import { rentRollData } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 
+// Prevent unhandled promise rejections / exceptions from crashing the process.
+// Neon serverless drops idle connections (code 57P01) which can surface as
+// unhandled rejections if not caught at the call site.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process] Unhandled rejection (non-fatal):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught exception (non-fatal):', err.message);
+});
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));

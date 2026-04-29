@@ -12,4 +12,11 @@ if (!process.env.DATABASE_URL) {
 }
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Without this handler, any idle-connection drop from Neon (code 57P01)
+// becomes an unhandled 'error' event and crashes the Node process.
+pool.on('error', (err) => {
+  console.error('[DB Pool] Idle client error (non-fatal):', err.message);
+});
+
 export const db = drizzle({ client: pool, schema });
