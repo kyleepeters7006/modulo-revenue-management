@@ -7373,7 +7373,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         locations: Array.isArray(locationParam) ? locationParam : (locationParam ? [locationParam] : []),
         offset: (pageNum - 1) * pageLimit,
         limit: pageLimit,
-        clientId
       });
       
       // NOTE: Removed legacy competitor fetching and calculation code

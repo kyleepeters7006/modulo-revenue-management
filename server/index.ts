@@ -95,31 +95,7 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Ensure demo rent-roll data is present before accepting traffic.
-  // On first cold start the seed takes ~15 s; on subsequent restarts the
-  // COUNT query short-circuits in <100 ms so startup is not meaningfully delayed.
-  try {
-    const countResult = await db
-      .select({ count: sql<number>`COUNT(*)::int` })
-      .from(rentRollData)
-      .where(eq(rentRollData.clientId, 'demo'));
-    const demoCount = countResult[0]?.count ?? 0;
-    if (demoCount === 0) {
-      log("[demo] No rent roll data for demo client — seeding now (this only happens once)...");
-      const { generateDemoData } = await import('./seedDemoData');
-      const seedResult = await generateDemoData();
-      log(`[demo] Seeded: ${seedResult.locations} locations, ${seedResult.rentRoll} rent roll, ${seedResult.competitive} competitive, ${seedResult.inquiry} inquiry records`);
-    } else {
-      log(`[demo] Demo rent roll data present (${demoCount} rows) — skipping seed`);
-    }
-  } catch (seedError) {
-    log(`[demo] Auto-seed error (non-fatal): ${seedError instanceof Error ? seedError.message : String(seedError)}`);
-  }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
+  // Start listening immediately so health checks pass before background work runs.
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
     port,
@@ -128,4 +104,27 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
   });
+
+  // Seed demo data in the background after the server is already accepting requests.
+  // On first cold start the seed takes ~15 s; on subsequent restarts the
+  // COUNT query short-circuits in <100 ms. Either way it must not block server startup.
+  setTimeout(async () => {
+    try {
+      const countResult = await db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, 'demo'));
+      const demoCount = countResult[0]?.count ?? 0;
+      if (demoCount === 0) {
+        log("[demo] No rent roll data for demo client — seeding now (this only happens once)...");
+        const { generateDemoData } = await import('./seedDemoData');
+        const seedResult = await generateDemoData();
+        log(`[demo] Seeded: ${seedResult.locations} locations, ${seedResult.rentRoll} rent roll, ${seedResult.competitive} competitive, ${seedResult.inquiry} inquiry records`);
+      } else {
+        log(`[demo] Demo rent roll data present (${demoCount} rows) — skipping seed`);
+      }
+    } catch (seedError) {
+      log(`[demo] Auto-seed error (non-fatal): ${seedError instanceof Error ? seedError.message : String(seedError)}`);
+    }
+  }, 1000); // 1-second grace period after server starts listening
 })();
