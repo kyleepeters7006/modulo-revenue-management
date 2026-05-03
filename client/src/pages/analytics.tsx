@@ -1199,9 +1199,11 @@ export function Analytics() {
                     dataKey="pricePosition" 
                     name="Price Position"
                     label={{ value: 'Price Differential from Market (%)', angle: -90, position: 'center', dx: -35 }}
-                    domain={[-100, 200]}
+                    domain={([dataMin, dataMax]) => [
+                      Math.floor((Number(dataMin) - 10) / 10) * 10,
+                      Math.ceil((Number(dataMax) + 10) / 10) * 10,
+                    ]}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(0)}%`}
-                    ticks={[-100, -50, 0, 50, 100, 150, 200]}
                   />
                   <ZAxis type="number" range={[100, 400]} dataKey="size" />
                   <Tooltip 

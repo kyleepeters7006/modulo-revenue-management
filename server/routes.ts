@@ -3767,9 +3767,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(cached);
       }
       
-      // Get all required data - use most recent month (2025-11)
-      const currentMonth = '2025-11';  // Fixed to November 2025 which has data
-      const [rentRollData, campusData, competitors, pricingWeights, surveyData] = await Promise.all([
+      // Dynamically resolve the most recent month that has data for this client
+      const mostRecentMonthRow = await db
+        .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
+      const currentMonth = mostRecentMonthRow[0]?.month || (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      })();
+      const [campusRentRoll, campusData, competitors, pricingWeights, surveyData] = await Promise.all([
         storage.getRentRollDataByMonth(currentMonth, clientId),  // Only get current month data
         storage.getAllCampuses(clientId),
         storage.getCompetitors(clientId),
@@ -3802,7 +3809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'SL': 'IL_IL', 'VIL': 'IL_Villa',
       };
       
-      console.log(`Analytics: Processing ${rentRollData.length} units for ${currentMonth}`);
+      console.log(`Analytics: Processing ${campusRentRoll.length} units for ${currentMonth}`);
 
       // Create a map of campus data for O(1) lookups instead of O(n) searches
       const campusDataMap = new Map();
@@ -3811,9 +3818,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Filter rent roll data by service line first if needed
-      let filteredRentRollData = rentRollData;
+      let filteredRentRollData = campusRentRoll;
       if (serviceLine && serviceLine !== 'all') {
-        filteredRentRollData = rentRollData.filter((unit: any) => unit.serviceLine === serviceLine);
+        filteredRentRollData = campusRentRoll.filter((unit: any) => unit.serviceLine === serviceLine);
       }
 
       // Group rent roll data by campus
@@ -3874,7 +3881,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const portfolioMediansByRoomType = new Map<string, number>();
       const ratesByRoomType = new Map<string, number[]>();
       
-      rentRollData.forEach((unit: any) => {
+      campusRentRoll.forEach((unit: any) => {
         let roomType = unit.roomType || 'Unknown';
         // Normalize to competitor format
         if (roomType === 'One Bedroom') roomType = '1BR';

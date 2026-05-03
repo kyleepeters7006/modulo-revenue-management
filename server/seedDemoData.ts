@@ -219,7 +219,7 @@ function pickPayorType(r: () => number, sl: string): string {
 }
 
 function pastDate(r: () => number, minMonthsAgo: number, maxMonthsAgo: number): string {
-  const now = new Date('2025-11-15');
+  const now = new Date();
   const daysAgo = Math.round(randBetween(r, minMonthsAgo * 30, maxMonthsAgo * 30));
   const d = new Date(now.getTime() - daysAgo * 86400000);
   return d.toISOString().slice(0, 10);
@@ -269,7 +269,8 @@ export async function generateDemoData(): Promise<{
   // We generate competitor data first so we can use it when building rent roll records,
   // pre-populating competitorFinalRate for a complete demo experience.
   console.log('[demo] Generating competitive survey data...');
-  const surveyMonth = '2025-11';
+  const _seedNow = new Date();
+  const surveyMonth = `${_seedNow.getFullYear()}-${String(_seedNow.getMonth() + 1).padStart(2, '0')}`;
 
   const COMP_ROOM_SIZES: Record<string, string[]> = {
     HC:       ['Studio', 'Companion'],
@@ -390,7 +391,13 @@ export async function generateDemoData(): Promise<{
 
   // ── 3. Rent Roll Data ──────────────────────────────────────────────────────
   console.log('[demo] Generating rent roll data...');
-  const months = ['2025-09', '2025-10', '2025-11'];
+  // Use the most recent 3 months so the RRA endpoint (which queries T3 from today) finds data
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
   const rentRollBatch: any[] = [];
 
   for (const loc of insertedLocations) {
@@ -436,6 +443,11 @@ export async function generateDemoData(): Promise<{
           const moduloFactor = rawModuloFactor * monthModuloVariance;
           const moduloSuggestedRate = Math.round(streetRate * moduloFactor);
 
+          // Per-unit seed so RRA decisions are stable across months for the same unit
+          const unitRraSeed = seededRand(
+            loc.name.charCodeAt(0) * 53 + sl.charCodeAt(0) * 37 + roomSize.charCodeAt(0) * 19
+          );
+
           for (let i = 0; i < unitCount; i++) {
             const isOccupied = i < occupiedCount;
             const unitNum = 100 + Math.floor(i / 2) * 10 + (i % 2);
@@ -444,6 +456,13 @@ export async function generateDemoData(): Promise<{
             const daysVacant = isOccupied ? 0 : randInt(locSeed, 1, 180);
             const moveInDate = isOccupied ? pastDate(locSeed, 6, 36) : null;
             const payorType = isOccupied ? pickPayorType(locSeed, sl) : null;
+
+            // ~18% of occupied AL/SL/VIL units carry a promotional allowance (RRA discount)
+            const rraSl = ['AL', 'AL/MC', 'SL', 'VIL'].includes(sl);
+            const hasRra = isOccupied && rraSl && unitRraSeed() < 0.18;
+            const promotionAllowance = hasRra
+              ? -Math.round(randBetween(unitRraSeed, 50, 350))
+              : 0;
 
             rentRollBatch.push({
               uploadMonth: month,
@@ -459,7 +478,7 @@ export async function generateDemoData(): Promise<{
               streetRate,
               inHouseRate,
               discountToStreetRate: isOccupied ? streetRate - inHouseRate : 0,
-              promotionAllowance: 0,
+              promotionAllowance,
               payorType,
               moveInDate,
               clientId: 'demo',
@@ -490,7 +509,7 @@ export async function generateDemoData(): Promise<{
 
   // ── 5. Inquiry Metrics ────────────────────────────────────────────────────
   console.log('[demo] Generating inquiry metrics...');
-  const inquiryMonths = ['2025-09', '2025-10', '2025-11'];
+  const inquiryMonths = months; // reuse the same T3 months computed for rent roll
   const leadSources = ['Website', 'Referral', 'A Place for Mom', 'Phone', 'Walk-in'];
   const inquiryBatch: any[] = [];
 
