@@ -1301,7 +1301,10 @@ export function Analytics() {
                       dataKey="campusOccupancy" 
                       name="Campus Occupancy"
                       label={{ value: 'Campus Occupancy (%)', position: 'insideBottom', offset: -10 }}
-                      domain={[0, 100]}
+                      domain={([dataMin, dataMax]) => [
+                        Math.max(0, Math.floor((Number(dataMin) - 3) / 5) * 5),
+                        Math.min(100, Math.ceil((Number(dataMax) + 3) / 5) * 5),
+                      ]}
                       tickFormatter={(value) => `${value}%`}
                     />
                     <YAxis 
@@ -1309,7 +1312,7 @@ export function Analytics() {
                       dataKey="daysVacant" 
                       name="Days Vacant"
                       label={{ value: 'Days Vacant', angle: -90, position: 'center', dx: -20 }}
-                      domain={[0, 'dataMax + 10']}
+                      domain={([, dataMax]) => [0, Math.ceil((Number(dataMax) + 10) / 10) * 10]}
                     />
                     <ZAxis type="number" range={[50, 150]} />
                     <Tooltip 
