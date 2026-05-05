@@ -282,7 +282,7 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       return res.json();
     },
     onSuccess: (data: { ok: boolean; locationCount?: number; count?: number; weights?: Record<string, unknown> }) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/weights'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/weights'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });

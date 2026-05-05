@@ -308,7 +308,7 @@ export default function PricingControls() {
       queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-ranges"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/weights"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/weights"], exact: false });
       
       const appliedItems: string[] = [];
       if (data.weightsUpdated > 0) appliedItems.push(`${data.weightsUpdated} weights`);
