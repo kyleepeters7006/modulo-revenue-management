@@ -13,6 +13,7 @@ interface PricingContext {
   // Weights caches
   weightsCache: Map<string, PricingWeights>;
   locationWeightsCache: Map<string, PricingWeights>;
+  locationNameToIdMap: Map<string, string>;
   globalWeights: PricingWeights;
   
   // Competitor data caches
@@ -136,18 +137,30 @@ class PricingJobManager {
   
   // Helper to get weights from cache with O(1) lookup
   private getWeightsFromCache(unit: RentRollData, context: PricingContext): PricingWeights {
-    if (!unit.locationId) return context.globalWeights;
-    
-    const key = unit.serviceLine ? `${unit.locationId}|${unit.serviceLine}` : null;
-    
+    let resolvedLocationId: string | null | undefined = unit.locationId;
+
+    if (!resolvedLocationId) {
+      // Attempt name-based lookup when locationId is null
+      if (unit.location && context.locationNameToIdMap) {
+        resolvedLocationId = context.locationNameToIdMap.get(unit.location.toLowerCase());
+      }
+      if (!resolvedLocationId) {
+        console.warn(`[PricingJob] Unit ${unit.id} (${unit.location || 'no location'}) has no locationId and no name match — using global weights`);
+        return context.globalWeights;
+      }
+    }
+
+    const key = unit.serviceLine ? `${resolvedLocationId}|${unit.serviceLine}` : null;
+
     if (key && context.weightsCache.has(key)) {
       return context.weightsCache.get(key)!;
     }
-    
-    if (context.locationWeightsCache.has(unit.locationId)) {
-      return context.locationWeightsCache.get(unit.locationId)!;
+
+    if (context.locationWeightsCache.has(resolvedLocationId)) {
+      return context.locationWeightsCache.get(resolvedLocationId)!;
     }
-    
+
+    console.warn(`[PricingJob] No specific or location-level weights for locationId ${resolvedLocationId} — using global weights`);
     return context.globalWeights;
   }
   
@@ -185,14 +198,31 @@ class PricingJobManager {
     console.log(`[PricingJob ${jobId}] Pre-fetching all weights...`);
     const weightsCache = new Map<string, PricingWeights>();
     const locationWeightsCache = new Map<string, PricingWeights>();
+    const locationNameToIdMap = new Map<string, string>();
     const uniqueLocations = new Set<string>();
     const uniqueCombinations = new Set<string>();
-    
+
+    // Build name→locationId map: seed from authoritative locations table first,
+    // then supplement/override with units that already have locationId
+    const allDbLocations = await storage.getLocations();
+    allDbLocations.forEach(loc => {
+      locationNameToIdMap.set(loc.name.toLowerCase(), loc.id);
+    });
     units.forEach(unit => {
-      if (unit.locationId) {
-        uniqueLocations.add(unit.locationId);
+      if (unit.locationId && unit.location) {
+        locationNameToIdMap.set((unit.location as string).toLowerCase(), unit.locationId);
+      }
+    });
+
+    units.forEach(unit => {
+      let resolvedId: string | null | undefined = unit.locationId;
+      if (!resolvedId && unit.location) {
+        resolvedId = locationNameToIdMap.get((unit.location as string).toLowerCase());
+      }
+      if (resolvedId) {
+        uniqueLocations.add(resolvedId);
         if (unit.serviceLine) {
-          const key = `${unit.locationId}|${unit.serviceLine}`;
+          const key = `${resolvedId}|${unit.serviceLine}`;
           uniqueCombinations.add(key);
         }
       }
@@ -361,6 +391,7 @@ class PricingJobManager {
     return {
       weightsCache,
       locationWeightsCache,
+      locationNameToIdMap,
       globalWeights,
       competitorsByLocationService,
       trilogyCareLevel2Cache,

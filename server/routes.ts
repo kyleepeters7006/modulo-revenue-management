@@ -2138,13 +2138,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const serviceLine = req.query.serviceLine as string | undefined;
       
       let weights;
-      if (locationId || serviceLine) {
+      if (locationId && serviceLine) {
+        // 3-tier fallback: specific → location-only → global
         weights = await storage.getWeightsByFilter(locationId, serviceLine);
+        if (!weights) {
+          console.warn(`[Weights GET] No specific weights for ${locationId}|${serviceLine} — falling back to location-only`);
+          weights = await storage.getWeightsByFilter(locationId, null);
+        }
+        if (!weights) {
+          console.warn(`[Weights GET] No location-level weights for ${locationId} — falling back to global`);
+          weights = await storage.getPricingWeights();
+        }
+      } else if (locationId) {
+        // location-only → global fallback
+        weights = await storage.getWeightsByFilter(locationId, null);
+        if (!weights) {
+          console.warn(`[Weights GET] No location-level weights for ${locationId} — falling back to global`);
+          weights = await storage.getPricingWeights();
+        }
       } else {
-        weights = await storage.getPricingWeights();
-      }
-      
-      if (!weights) {
         weights = await storage.getPricingWeights();
       }
       
@@ -2213,7 +2225,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ 
           ok: true, 
           message: `Weights applied to all ${allLocations.length} locations`,
-          locationCount: allLocations.length
+          locationCount: allLocations.length,
+          count: allLocations.length
         });
       }
       

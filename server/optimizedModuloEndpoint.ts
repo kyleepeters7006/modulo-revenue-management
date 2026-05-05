@@ -60,7 +60,8 @@ async function processUnitBatch(
   locationWeightsCache: Map<string, any>,
   globalWeights: any,
   guardrailsData: any,
-  targetMonth: string
+  targetMonth: string,
+  locationNameToIdMap?: Map<string, string>
 ): Promise<UnitRawResult[]> {
   const results = await Promise.allSettled(
     units.map(async (unit) => {
@@ -71,7 +72,8 @@ async function processUnitBatch(
           unit, 
           weightsCache, 
           locationWeightsCache, 
-          globalWeights
+          globalWeights,
+          locationNameToIdMap
         );
         
         if (!unitWeights || unitWeights.enableWeights === false) {
@@ -272,22 +274,35 @@ function getWeightsForUnit(
   unit: any,
   weightsCache: Map<string, any>,
   locationWeightsCache: Map<string, any>,
-  globalWeights: any
+  globalWeights: any,
+  locationNameToIdMap?: Map<string, string>
 ) {
-  if (!unit.locationId) return globalWeights;
-  
+  let resolvedLocationId = unit.locationId;
+
+  if (!resolvedLocationId) {
+    // Attempt name-based lookup when locationId is null
+    if (unit.location && locationNameToIdMap) {
+      resolvedLocationId = locationNameToIdMap.get(unit.location.toLowerCase());
+    }
+    if (!resolvedLocationId) {
+      console.warn(`[Weights] Unit ${unit.unitId || 'unknown'} (${unit.location || 'no location'}) has no locationId and no name match — using global weights`);
+      return globalWeights;
+    }
+  }
+
   // Try location+serviceLine specific first
   if (unit.serviceLine) {
-    const specificKey = `${unit.locationId}|${unit.serviceLine}`;
+    const specificKey = `${resolvedLocationId}|${unit.serviceLine}`;
     const specificWeights = weightsCache.get(specificKey);
     if (specificWeights) return specificWeights;
   }
-  
+
   // Fallback to location-level weights
-  const locationWeights = locationWeightsCache.get(unit.locationId);
+  const locationWeights = locationWeightsCache.get(resolvedLocationId);
   if (locationWeights) return locationWeights;
-  
+
   // Final fallback to global
+  console.warn(`[Weights] No specific or location-level weights for locationId ${resolvedLocationId} — using global weights`);
   return globalWeights;
 }
 
@@ -436,12 +451,30 @@ export async function generateModuloOptimized(req: any, res: any) {
     // Precompute weights cache
     const uniqueCombinations = new Set<string>();
     const uniqueLocations = new Set<string>();
-    
+
+    // Build a name→locationId map: first seed from the authoritative locations table,
+    // then fill in from units that already have locationId (overrides if names match)
+    const locationNameToIdMap = new Map<string, string>();
+    const clientId = req.clientId || 'demo';
+    const allLocations = await storage.getLocations(clientId);
+    allLocations.forEach(loc => {
+      locationNameToIdMap.set(loc.name.toLowerCase(), loc.id);
+    });
     units.forEach(unit => {
-      if (unit.locationId) {
-        uniqueLocations.add(unit.locationId);
+      if (unit.locationId && unit.location) {
+        locationNameToIdMap.set(unit.location.toLowerCase(), unit.locationId);
+      }
+    });
+
+    units.forEach(unit => {
+      let resolvedId = unit.locationId;
+      if (!resolvedId && unit.location) {
+        resolvedId = locationNameToIdMap.get(unit.location.toLowerCase());
+      }
+      if (resolvedId) {
+        uniqueLocations.add(resolvedId);
         if (unit.serviceLine) {
-          uniqueCombinations.add(`${unit.locationId}|${unit.serviceLine}`);
+          uniqueCombinations.add(`${resolvedId}|${unit.serviceLine}`);
         }
       }
     });
@@ -599,7 +632,8 @@ export async function generateModuloOptimized(req: any, res: any) {
               locationWeightsCache,
               globalWeights,
               guardrailsData,
-              targetMonth
+              targetMonth,
+              locationNameToIdMap
             )
           );
         }

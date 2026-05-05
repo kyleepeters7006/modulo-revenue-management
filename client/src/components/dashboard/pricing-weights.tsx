@@ -289,8 +289,9 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       setIsSaving(false);
 
       let description = "Weights saved. Regenerate Modulo pricing to apply the new settings.";
-      if (isPortfolioScope && applyToAllLocations && data?.locationCount) {
-        description = `Weights applied to all ${data.locationCount} locations. Regenerate Modulo pricing to apply the new settings.`;
+      if (isPortfolioScope && applyToAllLocations && (data?.locationCount || data?.count)) {
+        const locationCount = data?.locationCount ?? data?.count;
+        description = `Weights applied to all ${locationCount} locations. Regenerate Modulo pricing to apply the new settings.`;
       } else if (applyToAllServiceLines && locationId && !serviceLine) {
         description = "Weights have been applied to all service lines for this location. Regenerate Modulo pricing to apply the new settings.";
       }
