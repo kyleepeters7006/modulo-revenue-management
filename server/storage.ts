@@ -1010,7 +1010,11 @@ export class DatabaseStorage implements IStorage {
 
   // Pricing weights
   async getPricingWeights(): Promise<PricingWeights | undefined> {
-    const [weights] = await db.select().from(pricingWeights).limit(1);
+    const [weights] = await db
+      .select()
+      .from(pricingWeights)
+      .where(and(isNull(pricingWeights.locationId), isNull(pricingWeights.serviceLine)))
+      .limit(1);
     return weights;
   }
 

@@ -178,9 +178,11 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
   if (locationId) queryParams.append('locationId', locationId);
   if (serviceLine) queryParams.append('serviceLine', serviceLine);
   const queryString = queryParams.toString();
+  const weightsUrl = queryString ? `/api/weights?${queryString}` : '/api/weights';
 
   const { data: weightsResponse } = useQuery({
-    queryKey: ["/api/weights", locationId, serviceLine],
+    queryKey: ["/api/weights", locationId ?? null, serviceLine ?? null],
+    queryFn: () => fetch(weightsUrl).then(r => { if (!r.ok) throw new Error(`Failed to fetch weights: ${r.status}`); return r.json(); }),
     enabled: true,
   });
 
