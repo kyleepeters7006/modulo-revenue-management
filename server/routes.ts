@@ -4765,13 +4765,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       });
       
       // Set default weights (convert to integers - percentages)
-      await storage.createOrUpdateWeights({
+      await storage.createOrUpdateWeightsByFilter({
         occupancyPressure: 25, // 25%
         daysVacantDecay: 20,   // 20%
         seasonality: 10,       // 10%
         competitorRates: 20,   // 20%
         stockMarket: 10        // 10%
-      });
+      }, null, null);
       
       // Add guardrails
       await storage.createOrUpdateGuardrails({
@@ -11337,13 +11337,13 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       // If no weights exist, create default weights
       if (!weights) {
-        weights = await storage.createOrUpdateWeights({
+        weights = await storage.createOrUpdateWeightsByFilter({
           occupancyPressure: 25,
           daysVacantDecay: 20,
           seasonality: 15,
           competitorRates: 10,
           stockMarket: 10
-        });
+        }, null, null);
       }
       
       // If no ranges exist, create default ranges

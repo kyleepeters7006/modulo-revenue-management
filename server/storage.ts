@@ -1019,8 +1019,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePricingWeights(data: any): Promise<void> {
-    await db.delete(pricingWeights);
-    await db.insert(pricingWeights).values(data);
+    await this.createOrUpdateWeightsByFilter(data, null, null);
   }
 
   async getCurrentWeights(): Promise<PricingWeights | undefined> {
@@ -1033,9 +1032,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOrUpdateWeights(data: InsertPricingWeights): Promise<PricingWeights> {
-    await db.delete(pricingWeights);
-    const [weights] = await db.insert(pricingWeights).values(data).returning();
-    return weights;
+    return this.createOrUpdateWeightsByFilter(data, null, null);
   }
 
   async getWeightsByFilter(locationId?: string | null, serviceLine?: string | null): Promise<PricingWeights | undefined> {
