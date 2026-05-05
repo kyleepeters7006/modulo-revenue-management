@@ -2164,6 +2164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const locationId = req.body.location_id || req.query.locationId as string | undefined;
       const serviceLine = req.body.service_line || req.query.serviceLine as string | undefined;
       const applyToAllServiceLines = req.body.apply_to_all_service_lines === true;
+      const applyToAllLocations = req.body.apply_to_all_locations === true;
       
       const transformedData = {
         enableWeights: req.body.enable_weights !== undefined ? req.body.enable_weights : true,
@@ -2185,6 +2186,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const validatedData = insertPricingWeightsSchema.parse(transformedData);
+      
+      // Apply weights to all locations in the client's portfolio
+      if (applyToAllLocations && !locationId) {
+        const clientId = req.clientId || 'demo';
+        const allLocations = await storage.getLocations(clientId);
+        
+        const serviceLines = ['AL', 'HC', 'AL/MC', 'HC/MC', 'SL', 'VIL'];
+        const weightsList: Array<typeof validatedData & { locationId?: string | null; serviceLine?: string | null }> = [];
+        
+        for (const loc of allLocations) {
+          if (applyToAllServiceLines) {
+            for (const sl of serviceLines) {
+              weightsList.push({ ...validatedData, locationId: loc.id, serviceLine: sl });
+            }
+          } else {
+            weightsList.push({ ...validatedData, locationId: loc.id, serviceLine: serviceLine || null });
+          }
+        }
+        
+        // Also write the global default (no locationId)
+        weightsList.push({ ...validatedData, locationId: null, serviceLine: null });
+        
+        await storage.bulkCreateOrUpdateWeights(weightsList);
+        
+        return res.json({ 
+          ok: true, 
+          message: `Weights applied to all ${allLocations.length} locations`,
+          locationCount: allLocations.length
+        });
+      }
       
       if (applyToAllServiceLines && locationId) {
         const serviceLines = ['AL', 'HC', 'AL/MC', 'HC/MC', 'SL', 'VIL'];

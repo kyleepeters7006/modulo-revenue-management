@@ -170,6 +170,7 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [applyToAllServiceLines, setApplyToAllServiceLines] = useState(false);
+  const [applyToAllLocations, setApplyToAllLocations] = useState(true);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -187,9 +188,11 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0);
   const isValid = totalWeight === 100;
 
-  // Auto-save with debounce
+  // Auto-save with debounce (disabled when apply-to-all-locations is active to avoid unintended bulk writes)
+  const isPortfolioScope = !locationId;
   useEffect(() => {
     if (!hasChanges || !isValid) return;
+    if (isPortfolioScope && applyToAllLocations) return;
     
     const timeoutId = setTimeout(() => {
       setIsSaving(true);
@@ -197,7 +200,7 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
     }, 2000); // 2 second debounce
 
     return () => clearTimeout(timeoutId);
-  }, [weights, hasChanges, isValid]);
+  }, [weights, hasChanges, isValid, isPortfolioScope, applyToAllLocations]);
   
   // Handle enableWeights changes
   const handleEnableWeightsChange = (checked: boolean) => {
@@ -266,10 +269,17 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       if (applyToAllServiceLines && locationId && !serviceLine) {
         payload.apply_to_all_service_lines = true;
       }
+      if (isPortfolioScope && applyToAllLocations) {
+        payload.apply_to_all_locations = true;
+        if (applyToAllServiceLines) {
+          payload.apply_to_all_service_lines = true;
+        }
+      }
       
-      return apiRequest('/api/weights', 'POST', payload);
+      const res = await apiRequest('/api/weights', 'POST', payload);
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { ok: boolean; locationCount?: number; count?: number; weights?: Record<string, unknown> }) => {
       queryClient.invalidateQueries({ queryKey: ['/api/weights'] });
       queryClient.invalidateQueries({ queryKey: ['/api/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
@@ -277,11 +287,17 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       setHasChanges(false);
       setIsSaving(false);
+
+      let description = "Weights saved. Regenerate Modulo pricing to apply the new settings.";
+      if (isPortfolioScope && applyToAllLocations && data?.locationCount) {
+        description = `Weights applied to all ${data.locationCount} locations. Regenerate Modulo pricing to apply the new settings.`;
+      } else if (applyToAllServiceLines && locationId && !serviceLine) {
+        description = "Weights have been applied to all service lines for this location. Regenerate Modulo pricing to apply the new settings.";
+      }
+
       toast({
         title: "Weights Saved",
-        description: applyToAllServiceLines && locationId && !serviceLine 
-          ? "Weights have been applied to all service lines for this location. Regenerate Modulo pricing to apply the new settings." 
-          : "Weights saved. Regenerate Modulo pricing to apply the new settings.",
+        description,
       });
     },
     onError: (error) => {
@@ -424,14 +440,35 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
         </div>
       </div>
       
-      {locationId && !serviceLine && (
+      {!locationId && (
+        <div className="flex items-center justify-between p-4 mb-4 bg-[var(--dashboard-surface)] rounded-lg border border-[var(--dashboard-border)]">
+          <div className="flex-1">
+            <h4 className="text-sm font-medium text-[var(--dashboard-text)] mb-1">
+              Apply to All Locations
+            </h4>
+            <p className="text-xs text-[var(--dashboard-muted)]">
+              Push these weights to every location in your portfolio, overwriting any location-specific settings
+            </p>
+          </div>
+          <Switch
+            id="apply-all-locations"
+            checked={applyToAllLocations}
+            onCheckedChange={setApplyToAllLocations}
+            data-testid="switch-apply-all-locations"
+          />
+        </div>
+      )}
+
+      {(!locationId || (locationId && !serviceLine)) && (
         <div className="flex items-center justify-between p-4 mb-4 bg-[var(--dashboard-surface)] rounded-lg border border-[var(--dashboard-border)]">
           <div className="flex-1">
             <h4 className="text-sm font-medium text-[var(--dashboard-text)] mb-1">
               Apply to All Service Lines
             </h4>
             <p className="text-xs text-[var(--dashboard-muted)]">
-              Save these weights to all service lines (AL, HC, IL, AL/MC, HC/MC, SL) at this location
+              {locationId
+                ? "Save these weights to all service lines (AL, HC, VIL, AL/MC, HC/MC, SL) at this location"
+                : "Save these weights to all service lines (AL, HC, VIL, AL/MC, HC/MC, SL) at every location"}
             </p>
           </div>
           <Switch
