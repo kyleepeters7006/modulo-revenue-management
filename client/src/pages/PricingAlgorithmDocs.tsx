@@ -20,7 +20,8 @@ import {
   SlidersHorizontal,
   CalendarClock,
   Zap,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Layers
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -51,6 +52,15 @@ export default function PricingAlgorithmDocs() {
           </p>
         </div>
 
+        <div className="text-center -mt-6 mb-8 text-sm text-[var(--trilogy-grey)]/70">
+          Jump to:{" "}
+          <a href="#stage1" className="text-[var(--trilogy-teal)] hover:underline">Modulo</a> ·{" "}
+          <a href="#stage2" className="text-[var(--trilogy-teal)] hover:underline">AI Engine</a> ·{" "}
+          <a href="#stage3" className="text-[var(--trilogy-teal)] hover:underline">Strategy Layer</a> ·{" "}
+          <a href="#stage4" className="text-[var(--trilogy-teal)] hover:underline">Revenue Targets</a> ·{" "}
+          <a href="#guardrails" className="text-[var(--trilogy-teal)] hover:underline">Rules &amp; Guardrails</a>
+        </div>
+
         <div className="space-y-8">
           <Card className="bg-gradient-to-r from-[var(--trilogy-teal)]/10 to-[var(--trilogy-dark-blue)]/10 border-[var(--trilogy-grey)]/20">
             <CardHeader>
@@ -61,28 +71,41 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="text-[var(--trilogy-grey)]">
               <p className="mb-4">
-                Modulo uses a three-stage pricing workflow to generate and continuously improve rate recommendations:
+                Modulo uses a four-stage pricing pipeline to generate rate recommendations for vacant units. Each stage builds on the previous, and guardrails are applied at the end to enforce business boundaries.
               </p>
-              <div className="flex flex-col md:flex-row gap-4 items-center justify-center">
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-teal)]/30">
-                  <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                  <span className="font-medium">Modulo Algorithm</span>
+              <div className="flex flex-col md:flex-row gap-2 items-center justify-center flex-wrap">
+                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-teal)]/30 text-sm">
+                  <Calculator className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                  <span className="font-medium">1. Modulo Algorithm</span>
                 </div>
-                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block" />
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30">
-                  <Brain className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                  <span className="font-medium">AI Pricing Engine</span>
+                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
+                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30 text-sm">
+                  <Brain className="h-4 w-4 text-[var(--trilogy-dark-blue)]" />
+                  <span className="font-medium">2. AI Pricing Engine</span>
                 </div>
-                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block" />
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-orange)]/30">
-                  <Target className="h-5 w-5 text-[var(--trilogy-orange)]" />
-                  <span className="font-medium">Revenue Target Integration</span>
+                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
+                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border-2 border-[var(--trilogy-teal)] text-sm">
+                  <Layers className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                  <span className="font-medium text-[var(--trilogy-teal)]">3. Strategy Layer</span>
+                </div>
+                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
+                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-orange)]/30 text-sm">
+                  <Target className="h-4 w-4 text-[var(--trilogy-orange)]" />
+                  <span className="font-medium">4. Revenue Targets</span>
+                </div>
+                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
+                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-gray-300 text-sm">
+                  <Shield className="h-4 w-4 text-[var(--trilogy-grey)]" />
+                  <span className="font-medium text-[var(--trilogy-grey)]">Guardrails</span>
                 </div>
               </div>
+              <p className="text-xs text-center mt-4 text-[var(--trilogy-grey)]/60">
+                The Strategy Layer (step 3) only applies to vacant units. Occupied units skip directly from the AI Rate to guardrails.
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          <Card id="stage1" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
                 <Calculator className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
@@ -261,7 +284,7 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          <Card id="stage2" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
                 <Brain className="mr-3 h-6 w-6 text-[var(--trilogy-dark-blue)]" />
@@ -342,11 +365,182 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          {/* ── Stage 3: Revenue Target Strategy Layer ─────────────────────── */}
+          <Card id="stage3" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
+            <CardHeader>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
+                <Layers className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
+                Stage 3: Revenue Target Strategy Layer
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+              <p>
+                After the AI Rate is calculated, and before guardrails are applied, every <strong>vacant</strong> unit
+                passes through the Revenue Target Strategy Layer. This stage classifies each unit, generates a set of
+                candidate rates, estimates the expected revenue each would produce by year-end, and selects the best
+                one. Occupied units are never touched.
+              </p>
+
+              {/* Pipeline diagram */}
+              <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 border border-[var(--trilogy-teal)]/20">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 text-sm uppercase tracking-wide">
+                  Per-Vacant-Unit Pipeline
+                </h4>
+                <div className="flex flex-col md:flex-row gap-2 items-center text-sm">
+                  {[
+                    { label: "Compute Urgency", sub: "gap × months remaining" },
+                    { label: "Classify Unit", sub: "Volume / Premium / Neutral" },
+                    { label: "Generate Candidates", sub: "discount, premium, or ±1%" },
+                    { label: "Score Each Candidate", sub: "expected revenue by Dec 31" },
+                    { label: "Select Best Rate", sub: "highest score wins" },
+                  ].map((step, i, arr) => (
+                    <div key={i} className="flex items-center gap-2 flex-shrink-0">
+                      <div className="bg-white rounded-lg border border-[var(--trilogy-teal)]/30 px-3 py-2 text-center">
+                        <div className="font-medium text-[var(--trilogy-dark-blue)] whitespace-nowrap">{step.label}</div>
+                        <div className="text-[var(--trilogy-grey)]/70 text-xs mt-0.5 whitespace-nowrap">{step.sub}</div>
+                      </div>
+                      {i < arr.length - 1 && (
+                        <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] hidden md:block flex-shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Step 1: Urgency */}
+              <div>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 1 — Urgency Score</h4>
+                <p className="text-sm mb-3">
+                  An urgency score between 0 and 1 is computed from two inputs: how far behind the revenue growth
+                  target the campus is, and how many months remain in the calendar year.
+                </p>
+                <div className="font-mono text-sm bg-gray-50 border border-gray-200 rounded p-3">
+                  Urgency = clamp( |growth gap %| ÷ (months remaining × urgencyDivisor), 0, 1 )
+                </div>
+                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
+                  A campus 8 percentage points behind target with 4 months remaining scores 1.0 (maximum urgency).
+                  A campus ahead of target has urgency = 0. Default urgencyDivisor = 2.0.
+                </p>
+              </div>
+
+              {/* Step 2: Segmentation */}
+              <div>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 2 — Unit Classification</h4>
+                <p className="text-sm mb-3">
+                  Each vacant unit is scored across five criteria. The side with the higher cumulative score wins.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="rounded-lg border-2 border-[var(--trilogy-orange)]/40 bg-[var(--trilogy-orange)]/5 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingUp className="h-5 w-5 text-[var(--trilogy-orange)]" />
+                      <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Volume Driver</h5>
+                    </div>
+                    <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
+                      High urgency · unit vacant longer than peers · AI Rate above competitor average ·
+                      low occupancy · below-average unit attributes
+                    </p>
+                    <p className="text-xs font-medium text-[var(--trilogy-orange)] mt-2">Action: 3–8% discount</p>
+                  </div>
+                  <div className="rounded-lg border-2 border-[var(--trilogy-teal)]/40 bg-[var(--trilogy-teal)]/5 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Premium Driver</h5>
+                    </div>
+                    <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
+                      Strong leasing velocity · unit filling faster than peers · AI Rate below competitor average ·
+                      high occupancy · premium unit attributes
+                    </p>
+                    <p className="text-xs font-medium text-[var(--trilogy-teal)] mt-2">Action: 2–10% increase</p>
+                  </div>
+                  <div className="rounded-lg border-2 border-gray-200 bg-gray-50 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Activity className="h-5 w-5 text-[var(--trilogy-grey)]" />
+                      <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Neutral</h5>
+                    </div>
+                    <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
+                      Balanced signals or low confidence — neither volume nor premium case is clearly supported
+                    </p>
+                    <p className="text-xs font-medium text-[var(--trilogy-grey)] mt-2">Action: ±1% only</p>
+                  </div>
+                </div>
+                <div className="mt-3 bg-gray-50 rounded-lg p-3 text-xs text-[var(--trilogy-grey)]">
+                  <strong>Scoring criteria and weights:</strong> Urgency 20% · Sales velocity vs pace 20% ·
+                  Days vacant vs unit-type average 15% · Competitor gap 20% · Unit attribute quality 25%.
+                  Confidence score = |volumeScore − premiumScore| ÷ totalScore.
+                </div>
+              </div>
+
+              {/* Step 3: Sale probability */}
+              <div>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 3 — Sale Probability Model</h4>
+                <p className="text-sm mb-3">
+                  For each candidate rate, an adjusted weekly sale probability is estimated and used to project
+                  expected revenue by December 31.
+                </p>
+                <div className="space-y-2 font-mono text-xs bg-gray-50 border border-gray-200 rounded p-3">
+                  <div>adjustedWeeklyProb = baseProb × elasticityMult × daysVacantFactor × occupancyFactor × competitorFactor × attributeFactor</div>
+                  <div>expectedSaleProb = 1 − exp(−adjustedWeeklyProb × weeksRemaining)</div>
+                  <div>expectedRevenue = expectedSaleProb × candidateRate × revenueMonthsRemaining</div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-sm">
+                  <div className="bg-white rounded border border-gray-200 p-3">
+                    <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Sales velocity source</h6>
+                    <p className="text-xs text-[var(--trilogy-grey)]">
+                      Base probability is drawn from a velocity cache built at run-time from recent move-in dates
+                      in the current rent roll. Fallback chain: room type → service line → campus → 10%/week default.
+                    </p>
+                  </div>
+                  <div className="bg-white rounded border border-gray-200 p-3">
+                    <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Price elasticity</h6>
+                    <p className="text-xs text-[var(--trilogy-grey)]">
+                      Each 1% discount multiplies weekly sale probability by (1 + 0.8×discount). Each 1% premium
+                      reduces it by (1 − 0.8×increase). Stale vacant units are more responsive to discounts.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4: Selection rule */}
+              <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4 border border-[var(--trilogy-dark-blue)]/20">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Step 4 — Best Candidate Selection Rules</h4>
+                <ul className="text-sm space-y-1 list-disc list-inside">
+                  <li><strong>Volume Driver:</strong> Discount selected only if expected revenue improves by ≥ 0.5%</li>
+                  <li><strong>Premium Driver:</strong> Increase selected if revenue improves, or if the exit-rate value rises and sale probability drops by less than 15 percentage points</li>
+                  <li><strong>Neutral:</strong> Only applied if revenue improvement exceeds the 0.5% minimum threshold</li>
+                  <li><strong>No improvement:</strong> If no candidate clears the threshold, the existing AI Rate is preserved unchanged</li>
+                  <li><strong>No target set:</strong> If no revenue growth target exists for the location / service line, the existing AI Rate passes through untouched</li>
+                </ul>
+              </div>
+
+              {/* What gets stored */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">What Gets Stored</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  {[
+                    { field: "targetAwareAiRate", desc: "Rate chosen by strategy layer" },
+                    { field: "unitStrategySegment", desc: "volume_driver / premium_driver / neutral" },
+                    { field: "urgencyScore", desc: "0–1 urgency from gap × time" },
+                    { field: "expectedRevenueExistingAi", desc: "Projected revenue at existing rate" },
+                    { field: "expectedRevenueTargetAware", desc: "Projected revenue at new rate" },
+                    { field: "incrementalExpectedRevenue", desc: "Difference between the two" },
+                    { field: "strategyLayerDetails", desc: "Full audit trail (JSON)" },
+                    { field: "strategyLayerProjection", desc: "Portfolio summary in API response" },
+                  ].map(({ field, desc }) => (
+                    <div key={field} className="bg-white rounded border border-gray-200 p-2">
+                      <div className="font-mono text-[var(--trilogy-teal)] mb-0.5">{field}</div>
+                      <div className="text-[var(--trilogy-grey)]/80">{desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card id="stage4" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
                 <Target className="mr-3 h-6 w-6 text-[var(--trilogy-orange)]" />
-                Stage 3: Revenue Growth Target Integration
+                Stage 4: Revenue Growth Target Integration
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
@@ -431,7 +625,7 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
+          <Card id="guardrails" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
             <CardHeader className="pb-2">
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
                 <Shield className="mr-1 h-6 w-6 text-[var(--trilogy-teal)]" />
@@ -547,24 +741,40 @@ export default function PricingAlgorithmDocs() {
             <CardContent className="text-[var(--trilogy-grey)]">
               <ol className="space-y-3 list-decimal list-inside">
                 <li className="pl-2">
-                  <strong>Base Rate Calculation:</strong> Modulo algorithm calculates initial recommendation 
-                  using 7 weighted factors (occupancy, vacancy, attributes, seasonality, competitors, market, demand)
+                  <strong>Base Rate Calculation:</strong> Modulo algorithm calculates an initial recommendation
+                  using 7 weighted factors — occupancy, vacancy decay, room attributes, seasonality, competitor
+                  positioning, market conditions, and demand signals.
                 </li>
                 <li className="pl-2">
-                  <strong>AI Optimization:</strong> Machine learning adjusts weights based on historical outcomes 
-                  (adoptions and sales), continuously improving recommendations
+                  <strong>AI Optimization:</strong> Machine learning adjusts weights based on historical outcomes
+                  (adoptions and sales within 30 days), continuously improving recommendations through a daily
+                  learning loop.
                 </li>
                 <li className="pl-2">
-                  <strong>Revenue Target Overlay:</strong> For AI pricing, revenue growth gaps add strategic 
-                  pressure to help meet annual targets
+                  <strong>Revenue Target Strategy Layer</strong>{" "}
+                  <span className="inline-flex items-center gap-1 text-xs bg-[var(--trilogy-teal)]/15 text-[var(--trilogy-teal)] rounded px-1.5 py-0.5 font-medium align-middle">
+                    <Layers className="h-3 w-3" /> New
+                  </span>
+                  <span className="block mt-0.5">
+                    For each <em>vacant</em> unit: computes urgency from the revenue gap and months remaining,
+                    classifies the unit as Volume Driver, Premium Driver, or Neutral, generates candidate rates
+                    within the segment's range, and selects the candidate with the highest expected revenue by
+                    December 31 using a Poisson sale-probability model. Occupied units are skipped.
+                  </span>
                 </li>
                 <li className="pl-2">
-                  <strong>Guardrail Enforcement:</strong> Final prices are clamped to configured min/max limits 
-                  to ensure business boundaries are respected
+                  <strong>Revenue Target Integration:</strong> High-level strategic overlay — tracks actual
+                  YOY growth vs. target and surfaces "Attention Needed" signals when a campus is falling behind.
+                  Applies a modest premium allowance (up to +2%) when a campus is ahead of target.
                 </li>
                 <li className="pl-2">
-                  <strong>Continuous Improvement:</strong> Daily automated calculations and learning loops 
-                  ensure pricing stays optimized as market conditions evolve
+                  <strong>Guardrail Enforcement:</strong> Final rates are clamped to configured min/max limits
+                  (absolute floors, ceilings, and max change fractions) to ensure business boundaries are
+                  respected regardless of algorithmic output.
+                </li>
+                <li className="pl-2">
+                  <strong>Continuous Improvement:</strong> Daily automated calculations and ML learning loops
+                  keep pricing optimised as occupancy, competitor rates, and market conditions evolve.
                 </li>
               </ol>
             </CardContent>
