@@ -1,0 +1,533 @@
+Update Modulo by adding a Revenue Target Strategy Layer as an add-on to the existing AI Rate calculation.
+
+This should NOT replace the existing Modulo Rate or the existing AI Rate logic.
+
+The goal is to preserve the current pricing algorithm and enhance it with an additional target-aware strategy layer that helps determine whether vacant units should be priced for volume, premium revenue capture, or held neutral based on revenue growth targets, sales velocity, time remaining in the year, and expected revenue impact.
+
+Important architecture:
+
+Street Rate
+→ Existing Modulo Rate
+→ Existing AI Rate
+→ NEW Revenue Target Strategy Layer
+→ Final Target-Aware AI Rate
+→ Existing Guardrails
+→ Stored AI Rate Outcome
+
+Do not delete or overwrite the existing AI Rate logic. Add this as a supplemental module/function that runs after the existing AI Rate is calculated and before the final guardrails are applied.
+
+Name the new layer something like:
+
+calculateRevenueTargetStrategyAdjustment()
+calculateTargetAwareAIRate()
+or
+applyRevenueGrowthStrategyLayer()
+
+The existing AI Rate should remain the starting point. The new layer should calculate a strategic adjustment on top of the existing AI Rate.
+
+Core objective:
+
+The new layer should not blindly increase prices when a campus is behind target. It should determine whether the best strategy is:
+
+1. Volume Driver
+   Use lower pricing to accelerate leasing when faster move-ins are likely to create more total revenue.
+
+2. Premium Driver
+   Use premium pricing when a unit has strong demand, premium attributes, scarcity, or competitor support, and a higher price does not materially reduce sale probability.
+
+3. Neutral
+   Keep the existing AI Rate mostly unchanged when the current rate is already close to optimal.
+
+The new logic should optimize expected revenue, not just price.
+
+A lower price can be correct if it increases the probability and speed of sale enough to improve expected revenue before year-end.
+
+A higher price can be correct if the unit is premium, scarce, or in demand, and the increased rate more than offsets any reduced sale probability.
+
+Step 1: Read revenue target data
+
+Use the existing data structures where available. Read target revenue growth percentage and actual YTD revenue growth by location and service line from:
+
+- revenue_growth_targets
+- rent_roll_data
+- existing revenue performance services if available
+
+Calculate the following:
+
+Target Growth %
+Actual YTD Growth %
+Growth Gap % = Target Growth % - Actual YTD Growth %
+
+Projected Year-End Revenue at Current Run Rate
+Target Year-End Revenue
+Revenue Gap Dollars = Target Year-End Revenue - Projected Year-End Revenue
+
+Months Remaining = number of months remaining in the calendar year
+Weeks Remaining = number of weeks remaining in the calendar year
+
+Urgency Score should be a value from 0 to 1.
+
+Suggested formula:
+
+Urgency Score =
+clamp(
+  (Growth Gap % / max(Months Remaining, 1)) / urgency_divisor,
+  0,
+  1
+)
+
+The urgency divisor should be configurable.
+
+Urgency Score should increase the willingness to take action, but it should not automatically increase prices or automatically discount units.
+
+Step 2: Calculate sales velocity
+
+Calculate sales velocity by:
+
+- location
+- service line
+- unit type
+- room type if available
+- care level if available
+
+Use the last 90 days of rent roll history.
+
+Calculate:
+
+- leases per month
+- average days to lease
+- median days to lease
+- average days vacant before lease
+- current vacant inventory
+- average days vacant for currently vacant units
+- estimated base weekly sale probability
+
+Suggested calculation:
+
+Base Weekly Sale Probability =
+leases in last 90 days / available unit weeks
+
+If available unit weeks are not reliable, use:
+
+Base Weekly Sale Probability =
+1 / average days to lease × 7
+
+Make sure the function handles missing or limited data gracefully.
+
+If there is not enough unit-type history, fall back to service-line history.
+If there is not enough service-line history, fall back to campus history.
+If there is not enough campus history, use a conservative default.
+
+Step 3: Segment vacant units
+
+For each vacant unit, classify it as:
+
+- Volume Driver
+- Premium Driver
+- Neutral
+
+Use the following inputs:
+
+- existing AI Rate
+- base Modulo Rate
+- current street rate
+- competitor average rate
+- competitor rate gap
+- unit days vacant
+- average days vacant for similar units
+- sales velocity for that unit type
+- premium unit type flag
+- room attribute score
+- occupancy by service line
+- revenue gap
+- urgency score
+- floor and ceiling rate limits
+- lead or tour activity if available
+
+Volume Driver criteria:
+
+A vacant unit should be considered a Volume Driver when several of the following are true:
+
+- campus or service line is behind revenue target
+- urgency score is moderate or high
+- unit has been vacant longer than similar units
+- current AI Rate is above competitor average or above market target
+- unit has weak or normal attributes
+- service line occupancy is below target
+- sales velocity is below the pace needed to close the revenue gap
+- discounting is likely to improve expected revenue by accelerating lease-up
+
+Premium Driver criteria:
+
+A vacant unit should be considered a Premium Driver when several of the following are true:
+
+- unit has premium attributes
+- unit type is scarce
+- unit type has strong historical sales velocity
+- unit has not been vacant long
+- current AI Rate is below competitor average or market-supported pricing
+- campus occupancy is healthy
+- service line needs rate lift
+- higher pricing is likely to improve expected revenue without materially reducing sale probability
+
+Neutral criteria:
+
+A vacant unit should be considered Neutral when:
+
+- current AI Rate is close to optimal
+- unit days vacant are normal
+- price is close to competitor average
+- urgency score is low
+- discounting does not improve expected revenue
+- premium pricing does not improve expected revenue
+- there is not enough confidence to justify a strategic adjustment
+
+Step 4: Test candidate adjustment scenarios
+
+This layer should not apply a single hardcoded adjustment.
+
+Instead, it should generate candidate rates around the existing AI Rate.
+
+For Volume Driver units, test discount scenarios such as:
+
+-3%, -4%, -5%, -6%, -7%, -8%
+
+For Premium Driver units, test premium scenarios such as:
+
++2%, +3%, +4%, +5%, +6%, +7%, +8%, +9%, +10%
+
+For Neutral units, test:
+
+0%, +1%, -1%, or no change
+
+These ranges must be configurable, not hardcoded.
+
+Create configuration settings for:
+
+volume_discount_min
+volume_discount_max
+premium_increase_min
+premium_increase_max
+neutral_adjustment_limit
+urgency_weight
+sales_velocity_weight
+competitor_gap_weight
+vacancy_weight
+premium_attribute_weight
+elasticity_factor
+max_sale_probability_reduction_for_premium
+minimum_expected_revenue_lift
+exit_rate_weight
+
+Step 5: Estimate sale probability for each candidate rate
+
+For each candidate rate:
+
+Price Change % =
+Candidate Rate / Existing AI Rate - 1
+
+Sales Velocity Multiplier =
+1 - elasticity_factor × Price Change %
+
+Clamp the Sales Velocity Multiplier to reasonable bounds so it cannot go negative or create extreme results.
+
+Example:
+
+Sales Velocity Multiplier =
+clamp(Sales Velocity Multiplier, 0.50, 1.50)
+
+Then calculate:
+
+Adjusted Weekly Sale Probability =
+Base Weekly Sale Probability
+× Sales Velocity Multiplier
+× Days Vacant Factor
+× Occupancy Factor
+× Competitor Position Factor
+× Unit Attribute Factor
+× Lead Activity Factor if available
+
+Suggested factors:
+
+Days Vacant Factor:
+Increase probability impact for stale units when price is reduced.
+Decrease confidence in premium increases for stale units.
+
+Occupancy Factor:
+If occupancy is low, favor strategies that improve sale probability.
+If occupancy is high, allow more premium pricing.
+
+Competitor Position Factor:
+If candidate rate is above competitor average, reduce sale probability.
+If candidate rate is below competitor average, increase sale probability.
+
+Unit Attribute Factor:
+Premium units can support higher rates better than standard units.
+
+Lead Activity Factor:
+If lead or tour volume is strong, premium pricing is more acceptable.
+If lead or tour volume is weak, volume pricing may be more appropriate.
+
+Expected Sale Probability by Year-End =
+1 - EXP(-Adjusted Weekly Sale Probability × Weeks Remaining)
+
+Expected Weeks to Lease =
+1 / Adjusted Weekly Sale Probability
+
+Expected Move-In Date =
+Today + Expected Weeks to Lease + average move-in lag
+
+Revenue Months Remaining =
+months between Expected Move-In Date and year-end
+
+Expected Revenue =
+Expected Sale Probability by Year-End
+× Candidate Monthly Rate
+× Revenue Months Remaining
+
+Also calculate exit-rate value:
+
+Expected Exit Rate Revenue =
+Expected Sale Probability by Year-End
+× Candidate Monthly Rate
+
+Step 6: Select the best candidate rate
+
+For each unit, compare the candidate rates against the existing AI Rate.
+
+Existing AI Rate Expected Revenue =
+Expected revenue using the existing AI Rate before this new layer
+
+Candidate Incremental Expected Revenue =
+Candidate Expected Revenue - Existing AI Rate Expected Revenue
+
+The selected target-aware AI rate should generally be the candidate with the highest total score:
+
+Candidate Score =
+Expected Revenue
++ exit_rate_weight × Expected Exit Rate Revenue
++ Target Urgency Bonus
++ Occupancy Health Bonus
+- Discount Penalty
+- Premium Risk Penalty
+- Rate Volatility Penalty
+- Low Confidence Penalty
+
+Important rules:
+
+1. A Volume Driver discount should only be recommended if:
+   - expected revenue improves versus the existing AI Rate, or
+   - occupancy risk is meaningfully reduced and the revenue loss is small and explainable.
+
+2. A Premium Driver increase should only be recommended if:
+   - expected revenue improves versus the existing AI Rate, or
+   - exit-rate revenue improves without materially reducing sale probability.
+
+3. Neutral units should stay close to the existing AI Rate.
+
+4. Do not allow urgency score by itself to force a discount or price increase.
+
+5. If the best candidate rate is not meaningfully better than the existing AI Rate, keep the existing AI Rate.
+
+Step 7: Apply existing guardrails
+
+After the Revenue Target Strategy Layer recommends a target-aware AI rate, apply the existing guardrails.
+
+All final rates must respect:
+
+- floor rates
+- ceiling rates
+- approved minimum rates
+- approved maximum rates
+- maximum weekly increase
+- maximum weekly decrease
+- existing rate bands
+- any manual override rules
+
+If a guardrail changes the recommended rate, store that a guardrail was applied.
+
+Step 8: Portfolio-level projection
+
+After calculating target-aware AI rates for all vacant units, produce a portfolio-level projection by location and service line.
+
+Calculate:
+
+Projected Revenue With Existing AI Rates
+Projected Revenue With Target-Aware AI Rates
+Incremental Revenue from Strategy Layer
+Revenue Gap Dollars
+Gap Closure Dollars
+Gap Closure %
+Remaining Gap After Strategy
+
+Formula:
+
+Gap Closure Dollars =
+Projected Revenue With Target-Aware AI Rates
+- Projected Revenue With Existing AI Rates
+
+Gap Closure % =
+Gap Closure Dollars / Revenue Gap Dollars
+
+Also summarize strategy mix:
+
+Number of Volume Drivers
+Number of Premium Drivers
+Number of Neutral Units
+
+Surface a message like:
+
+"Target-aware AI pricing is projected to close 42% of the remaining revenue gap. Strategy includes 4 Volume Drivers, 3 Premium Drivers, and 8 Neutral units."
+
+If the strategy does not close the gap, show:
+
+"Pricing alone is unlikely to close the remaining revenue gap. Additional actions may be needed, including sales incentives, referral conversion focus, marketing, care rate review, or manual leadership override."
+
+Step 9: Store new fields in ai_rate_outcomes
+
+Do not remove existing fields.
+
+Add fields as needed to store the new layer’s outputs.
+
+Suggested new fields:
+
+existing_ai_rate
+target_aware_ai_rate
+final_guardrailed_ai_rate
+revenue_target_growth_pct
+actual_ytd_growth_pct
+growth_gap_pct
+revenue_gap_dollars
+projected_year_end_revenue
+target_year_end_revenue
+months_remaining
+weeks_remaining
+urgency_score
+sales_velocity_units_per_month
+avg_days_to_lease
+median_days_to_lease
+base_weekly_sale_probability
+unit_strategy_segment
+segment_confidence
+segment_reason
+competitor_average_rate
+competitor_gap_pct
+days_vacant
+avg_days_vacant_for_unit_type
+expected_sale_probability_existing_ai_rate
+expected_sale_probability_target_aware_rate
+expected_revenue_existing_ai_rate
+expected_revenue_target_aware_rate
+incremental_expected_revenue
+gap_closure_contribution
+guardrail_applied
+guardrail_reason
+reason_codes
+
+Reason code examples:
+
+- Existing AI Rate preserved because target-aware adjustment did not improve expected revenue.
+- Campus is 5.0 percentage points behind revenue growth target with 4 months remaining.
+- Urgency score is high due to revenue gap and limited time remaining.
+- Unit has been vacant 72 days versus unit-type average of 38 days.
+- Current AI Rate is 6% above competitor average.
+- Unit classified as Volume Driver because discounting improves expected sale probability and expected revenue.
+- Unit classified as Premium Driver because premium attributes and strong demand support higher pricing.
+- Premium increase selected because expected revenue improves while sale probability remains acceptable.
+- Discount selected because faster expected lease-up improves projected year-end revenue.
+- Neutral classification selected because current AI Rate is already close to optimal.
+- Pricing alone is unlikely to fully close the remaining revenue gap.
+
+Step 10: Update the UI
+
+Where AI Rate outcomes are displayed, add visibility into the new layer.
+
+Show:
+
+- Existing AI Rate
+- Target-Aware AI Rate
+- Final Guardrailed AI Rate
+- Unit Strategy Segment
+- Urgency Score
+- Expected Revenue Impact
+- Sale Probability Change
+- Reason Codes
+
+Use simple labels:
+
+Existing AI Rate:
+The rate produced by Modulo’s current AI pricing logic before revenue target strategy.
+
+Target-Aware AI Rate:
+The existing AI Rate adjusted for revenue growth targets, sales velocity, urgency, and unit-level strategy.
+
+Final AI Rate:
+The target-aware AI Rate after approved floor, ceiling, and rate-change guardrails.
+
+Step 11: Update the About Us page description
+
+Update the About Us page to explain the enhanced AI Rate logic.
+
+Add or revise the description to say something like:
+
+"Modulo is an AI-powered revenue management platform built for senior housing operators. The platform combines occupancy, days vacant, unit attributes, competitive pricing, seasonality, market trends, and demand signals to recommend optimized rates.
+
+Modulo’s AI Rate engine now includes a target-aware strategy layer that connects pricing decisions to revenue growth goals. Instead of simply raising prices when a community is behind target, Modulo evaluates sales velocity, time remaining in the year, unit-level demand, competitor pricing, and expected revenue impact. Each vacant unit can be classified as a Volume Driver, Premium Driver, or Neutral unit, allowing operators to balance faster lease-up with premium revenue capture.
+
+The result is a more strategic pricing recommendation: some units may be discounted to accelerate occupancy, while scarce or high-demand units may receive premium pricing to improve revenue growth. All recommendations remain subject to approved pricing guardrails, including floor rates, ceiling rates, and maximum rate-change limits."
+
+Also add a concise product positioning statement if there is a hero section or summary card:
+
+"Modulo does not just calculate what a unit is worth. It helps determine the best pricing strategy to hit revenue goals."
+
+If there is a feature list, add:
+
+- Target-aware AI Rate recommendations
+- Revenue growth gap analysis
+- Sales velocity by unit type
+- Volume, Premium, and Neutral unit segmentation
+- Expected revenue impact by rate scenario
+- Portfolio-level gap closure projection
+- Guardrailed pricing recommendations
+
+Testing requirements:
+
+1. Existing Modulo Rate calculation should still work exactly as before.
+2. Existing AI Rate calculation should still work if the Revenue Target Strategy Layer is disabled.
+3. Add a configuration flag:
+
+enableRevenueTargetStrategyLayer
+
+When false:
+- system should use the existing AI Rate flow only.
+
+When true:
+- system should run the new add-on layer after the existing AI Rate.
+
+4. Add test cases for:
+
+- campus ahead of target
+- campus slightly behind target
+- campus significantly behind target
+- high urgency with stale vacant units
+- high urgency with premium units
+- low urgency with neutral units
+- missing revenue target data
+- missing sales velocity data
+- competitor average unavailable
+- guardrail floor applied
+- guardrail ceiling applied
+
+5. Confirm no existing AI Rate fields or functions are removed unless clearly obsolete and unused.
+
+Final product logic:
+
+The Revenue Target Strategy Layer should be an enhancement to the existing AI Rate, not a replacement.
+
+The existing AI Rate answers:
+"What is the best rate based on the current pricing algorithm?"
+
+The new target-aware strategy layer answers:
+"Given our revenue goal, time remaining, sales velocity, and vacant unit mix, should we adjust the AI Rate for volume, premium revenue capture, or leave it neutral?"
+
+The final AI Rate should preserve the current algorithm while adding a smarter revenue-growth strategy on top.

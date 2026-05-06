@@ -892,6 +892,14 @@ export const aiRateOutcomes = pgTable("ai_rate_outcomes", {
   weightsSnapshot: jsonb("weights_snapshot"), // JSON of the 6 factor weights used
   calculationRunId: varchar("calculation_run_id").references(() => calculationHistory.id),
   outcomeScore: real("outcome_score").default(0), // +2 if adopted+sold<30d, +1 if adopted only, 0 otherwise
+  // Revenue Target Strategy Layer fields (added in strategy layer enhancement)
+  targetAwareAiRate: real("target_aware_ai_rate"),        // Rate after strategy layer, before guardrails
+  unitStrategySegment: text("unit_strategy_segment"),      // 'volume_driver' | 'premium_driver' | 'neutral'
+  urgencyScore: real("urgency_score"),                     // 0-1 urgency driven by gap and months remaining
+  expectedRevenueExistingAi: real("expected_revenue_existing_ai"),   // Expected revenue using existing AI rate
+  expectedRevenueTargetAware: real("expected_revenue_target_aware"), // Expected revenue using target-aware rate
+  incrementalExpectedRevenue: real("incremental_expected_revenue"),  // Difference: target-aware minus existing
+  strategyLayerDetails: jsonb("strategy_layer_details"),  // Full calculation details for UI and audit
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

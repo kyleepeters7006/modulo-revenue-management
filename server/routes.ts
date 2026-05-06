@@ -108,6 +108,19 @@ import {
 } from "@shared/schema";
 import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
 import { calculateModuloPrice } from "./moduloPricingAlgorithm";
+import {
+  applyRevenueTargetStrategyLayer,
+  buildSalesVelocityCache,
+  calculatePortfolioProjection,
+  calculateUrgencyScore,
+  getMonthsRemainingInYear,
+  getWeeksRemainingInYear,
+  toMonthlyRate,
+  fromMonthlyRate,
+  defaultStrategyConfig,
+  type UnitStrategyContext,
+  type UnitProjectionInput,
+} from "./revenueTargetStrategyLayer";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
@@ -8392,6 +8405,16 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       
       await Promise.all(competitorPromises);
       console.log(`[AI Pricing] Pre-cached competitor data for ${competitorCache.size} campus/serviceLine combinations`);
+
+      // Revenue Target Strategy Layer — build sales velocity cache once before unit loop
+      const today = new Date();
+      const monthsRemaining = getMonthsRemainingInYear(today);
+      const weeksRemaining = getWeeksRemainingInYear(today);
+      const velocityCache = buildSalesVelocityCache(units, defaultStrategyConfig);
+      console.log(`[AI Pricing] Built velocity cache: ${velocityCache.size} location/SL/roomType buckets, ${monthsRemaining.toFixed(1)} months remaining in year`);
+
+      // Collect per-unit strategy layer outputs for portfolio projection
+      const unitProjections: UnitProjectionInput[] = [];
       
       // OPTIMIZATION 4: Process units in parallel batches (like the Modulo endpoint)
       const BATCH_SIZE = 500;
@@ -8409,6 +8432,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         let competitorPrices: number[];
         const competitorKey = `${unit.campus}|${unit.serviceLine}`;
         const cachedCompetitor = competitorCache.get(competitorKey);
+        let competitorAverageRateRaw: number | undefined;
         
         if (cachedCompetitor?.competitor?.streetRate) {
           const adjustmentResult = calculateAdjustedCompetitorRate({
@@ -8418,8 +8442,10 @@ Ensure all weights are positive integers and sum to exactly 100.`;
             trilogyCareLevel2Rate: cachedCompetitor.trilogyCareLevel2Rate || 0
           });
           competitorPrices = [adjustmentResult.adjustedRate];
+          competitorAverageRateRaw = adjustmentResult.adjustedRate;
         } else if (unit.competitorRate && unit.competitorRate > 0) {
           competitorPrices = [unit.competitorRate];
+          competitorAverageRateRaw = unit.competitorRate;
         } else {
           competitorPrices = [unit.streetRate * 0.95, unit.streetRate * 1.05];
         }
@@ -8445,7 +8471,101 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         };
         
         const orchestratorResult = await calculateAttributedPrice(unit, pricingWeights, pricingInputs, guardrailsData || undefined);
-        
+
+        // ── Revenue Target Strategy Layer ────────────────────────────────────
+        // Only applied to vacant units; occupied units keep the existing AI rate.
+        let finalAiRate = orchestratorResult.finalPrice;
+        let strategyLayerOutput: ReturnType<typeof applyRevenueTargetStrategyLayer> | null = null;
+
+        if (!unit.occupiedYN && defaultStrategyConfig.enableRevenueTargetStrategyLayer) {
+          const sl = unit.serviceLine || '';
+          const existingAiRateMonthly = toMonthlyRate(orchestratorResult.finalPrice, sl);
+          const competitorMonthly = competitorAverageRateRaw !== undefined
+            ? toMonthlyRate(competitorAverageRateRaw, sl)
+            : undefined;
+
+          // Derive attribute quality flags from unit data
+          const isPremiumUnit = !!(
+            unit.renovated ||
+            unit.view === 'A' || unit.viewRating === 'A' ||
+            unit.locationRating === 'A' ||
+            unit.otherPremiumFeature
+          );
+          const ratingScore = (
+            (unit.locationRating === 'A' ? 1 : unit.locationRating === 'B' ? 0 : -1) +
+            (unit.sizeRating === 'A' ? 1 : unit.sizeRating === 'B' ? 0 : -1) +
+            (unit.viewRating === 'A' ? 1 : unit.viewRating === 'B' ? 0 : -1) +
+            (unit.renovationRating === 'A' ? 1 : unit.renovationRating === 'B' ? 0 : -1)
+          ) / 4; // -1 to +1
+
+          const urgency = calculateUrgencyScore(revenueGapData.gap, monthsRemaining, defaultStrategyConfig.urgencyDivisor);
+
+          const strategyCtx: UnitStrategyContext = {
+            location: unit.location || '',
+            serviceLine: sl,
+            roomType: unit.roomType || '',
+            roomNumber: unit.roomNumber || '',
+            daysVacant: unit.daysVacant || 0,
+            existingAiRateMonthly,
+            streetRateMonthly: toMonthlyRate(unit.streetRate || 0, sl),
+            competitorAverageRateMonthly: competitorMonthly,
+            serviceLineOccupancy: serviceLineOcc,
+            growthGapPct: revenueGapData.gap,
+            targetGrowthPct: revenueGapData.target,
+            actualYtdGrowthPct: revenueGapData.actualYOY,
+            revenueGapDollars: undefined,
+            urgencyScore: urgency,
+            monthsRemaining,
+            weeksRemaining,
+            isPremiumUnit,
+            attributeScore: ratingScore,
+            velocity: velocityCache.get(`${unit.location}|${sl}|${unit.roomType}`) ||
+                      velocityCache.get(`${unit.location}|${sl}|*`) ||
+                      velocityCache.get(`${unit.location}|*|*`) || {
+                        leasesPerMonth: 0,
+                        avgDaysToLease: 7 / defaultStrategyConfig.defaultBaseSaleWeeklyProb,
+                        medianDaysToLease: 7 / defaultStrategyConfig.defaultBaseSaleWeeklyProb * 0.85,
+                        baseSaleWeeklyProb: defaultStrategyConfig.defaultBaseSaleWeeklyProb,
+                        avgDaysVacantForUnitType: 30,
+                        sampleSize: 0,
+                        fallbackLevel: 'default',
+                      },
+            guardrailFloorMonthly: undefined,
+            guardrailCeilingMonthly: undefined,
+            guardrailMaxIncreaseFraction: guardrailsData?.maxRateIncrease ?? 0.15,
+            guardrailMaxDecreaseFraction: guardrailsData?.minRateDecrease ?? 0.05,
+          };
+
+          strategyLayerOutput = applyRevenueTargetStrategyLayer(strategyCtx, defaultStrategyConfig);
+
+          // Convert back to original storage unit (daily for HC/HC-MC, monthly for rest)
+          finalAiRate = fromMonthlyRate(strategyLayerOutput.finalGuardrailedRateMonthly, sl);
+
+          // Collect for portfolio projection
+          unitProjections.push({
+            isVacant: true,
+            hasTarget: revenueGapData.gap !== undefined,
+            existingAiRateMonthly,
+            targetAwareRateMonthly: strategyLayerOutput.targetAwareRateMonthly,
+            expectedRevenueExistingAi: strategyLayerOutput.expectedRevenueExistingAi,
+            expectedRevenueTargetAware: strategyLayerOutput.expectedRevenueTargetAware,
+            segment: strategyLayerOutput.segment,
+            revenueGapDollarsContribution: 0,
+          });
+        } else if (unit.occupiedYN) {
+          unitProjections.push({
+            isVacant: false,
+            hasTarget: false,
+            existingAiRateMonthly: 0,
+            targetAwareRateMonthly: 0,
+            expectedRevenueExistingAi: 0,
+            expectedRevenueTargetAware: 0,
+            segment: 'neutral',
+            revenueGapDollarsContribution: 0,
+          });
+        }
+        // ── End Revenue Target Strategy Layer ────────────────────────────────
+
         const aiCalculationDetails = {
           baseRate: orchestratorResult.baseRate,
           baseRateSource: orchestratorResult.baseRateSource,
@@ -8467,7 +8587,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
           guardrailsApplied: orchestratorResult.guardrailsApplied,
           poweredByGPT5: true,
-          // Revenue Target Strategy - shows how targets influence pricing
+          // Revenue Target Strategy - shows how targets influence pricing (original layer)
           revenueTarget: {
             targetGrowthPercent: revenueGapData.target,
             actualYOYGrowth: revenueGapData.actualYOY,
@@ -8476,12 +8596,37 @@ Ensure all weights are positive integers and sum to exactly 100.`;
             status: revenueGapData.gap !== undefined 
               ? (revenueGapData.gap >= 0 ? 'exceeding' : (revenueGapData.gap >= -2 ? 'on_target' : (revenueGapData.gap >= -5 ? 'slightly_behind' : 'significantly_behind')))
               : 'no_target'
-          }
+          },
+          // Revenue Target Strategy Layer (new enhanced layer)
+          ...(strategyLayerOutput ? {
+            strategyLayer: {
+              existingAiRate: orchestratorResult.finalPrice,
+              targetAwareAiRate: fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, unit.serviceLine || ''),
+              finalGuardrailedAiRate: finalAiRate,
+              unitStrategySegment: strategyLayerOutput.segment,
+              segmentConfidence: strategyLayerOutput.segmentConfidence,
+              segmentReason: strategyLayerOutput.segmentReason,
+              urgencyScore: strategyLayerOutput.urgencyScore,
+              baseSaleWeeklyProb: strategyLayerOutput.baseSaleWeeklyProb,
+              expectedSaleProbExistingAi: strategyLayerOutput.expectedSaleProbExistingAi,
+              expectedSaleProbTargetAware: strategyLayerOutput.expectedSaleProbTargetAware,
+              expectedRevenueExistingAi: strategyLayerOutput.expectedRevenueExistingAi,
+              expectedRevenueTargetAware: strategyLayerOutput.expectedRevenueTargetAware,
+              incrementalExpectedRevenue: strategyLayerOutput.incrementalExpectedRevenue,
+              competitorAverageRate: strategyLayerOutput.competitorAverageRate,
+              competitorGapPct: strategyLayerOutput.competitorGapPct,
+              avgDaysVacantForUnitType: strategyLayerOutput.avgDaysVacantForUnitType,
+              guardrailApplied: strategyLayerOutput.guardrailApplied,
+              guardrailReason: strategyLayerOutput.guardrailReason,
+              reasonCodes: strategyLayerOutput.reasonCodes,
+              noImprovementFound: strategyLayerOutput.noImprovementFound,
+            }
+          } : {})
         };
         
         return {
           id: unit.id,
-          aiSuggestedRate: Math.round(orchestratorResult.finalPrice),
+          aiSuggestedRate: Math.round(finalAiRate),
           aiCalculationDetails: JSON.stringify(aiCalculationDetails)
         };
       };
@@ -8529,13 +8674,18 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       
       const elapsed = Date.now() - startTime;
       console.log(`[AI Pricing] Generation complete for ${allUpdates.length} units in ${elapsed}ms`);
+
+      // Build portfolio projection from strategy layer outputs
+      const portfolioProjection = calculatePortfolioProjection(unitProjections);
+      console.log(`[AI Pricing] Strategy Layer portfolio summary: ${portfolioProjection.summaryMessage}`);
       
       res.json({ 
         success: true, 
         unitsProcessed: allUpdates.length,
         aiWeights: aiSuggestedWeights,
         aiReasoning: aiReasoning,
-        processingTimeMs: elapsed
+        processingTimeMs: elapsed,
+        strategyLayerProjection: portfolioProjection,
       });
     } catch (error) {
       console.error('AI generation error:', error);
