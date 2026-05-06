@@ -56,8 +56,7 @@ export default function PricingAlgorithmDocs() {
           Jump to:{" "}
           <a href="#stage1" className="text-[var(--trilogy-teal)] hover:underline">Modulo</a> ·{" "}
           <a href="#stage2" className="text-[var(--trilogy-teal)] hover:underline">AI Engine</a> ·{" "}
-          <a href="#stage3" className="text-[var(--trilogy-teal)] hover:underline">Strategy Layer</a> ·{" "}
-          <a href="#stage4" className="text-[var(--trilogy-teal)] hover:underline">Revenue Targets</a> ·{" "}
+          <a href="#stage3" className="text-[var(--trilogy-teal)] hover:underline">AI Rate &amp; Revenue Target Strategy</a> ·{" "}
           <a href="#guardrails" className="text-[var(--trilogy-teal)] hover:underline">Rules &amp; Guardrails</a>
         </div>
 
@@ -71,7 +70,7 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="text-[var(--trilogy-grey)]">
               <p className="mb-4">
-                Modulo uses a four-stage pricing pipeline to generate rate recommendations for vacant units. Each stage builds on the previous, and guardrails are applied at the end to enforce business boundaries.
+                Modulo uses a three-stage pricing pipeline to generate rate recommendations. Each stage builds on the previous, and guardrails are applied at the end to enforce business boundaries.
               </p>
               <div className="flex flex-col md:flex-row gap-2 items-center justify-center flex-wrap">
                 <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-teal)]/30 text-sm">
@@ -84,14 +83,9 @@ export default function PricingAlgorithmDocs() {
                   <span className="font-medium">2. AI Pricing Engine</span>
                 </div>
                 <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border-2 border-[var(--trilogy-teal)] text-sm">
-                  <Layers className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                  <span className="font-medium text-[var(--trilogy-teal)]">3. Strategy Layer</span>
-                </div>
-                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
                 <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-orange)]/30 text-sm">
                   <Target className="h-4 w-4 text-[var(--trilogy-orange)]" />
-                  <span className="font-medium">4. Revenue Targets</span>
+                  <span className="font-medium">3. AI Rate &amp; Revenue Target Strategy</span>
                 </div>
                 <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
                 <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-gray-300 text-sm">
@@ -100,7 +94,7 @@ export default function PricingAlgorithmDocs() {
                 </div>
               </div>
               <p className="text-xs text-center mt-4 text-[var(--trilogy-grey)]/60">
-                The Strategy Layer (step 3) only applies to vacant units. Occupied units skip directly from the AI Rate to guardrails.
+                The Revenue Target Strategy layer within Stage 3 only applies to vacant units. Occupied units pass through directly to guardrails.
               </p>
             </CardContent>
           </Card>
@@ -365,12 +359,12 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
-          {/* ── Stage 3: Revenue Target Strategy Layer ─────────────────────── */}
-          <Card id="stage3" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
+          {/* ── Stage 3: AI Rate & Revenue Target Strategy ──────────────────── */}
+          <Card id="stage3" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <Layers className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
-                Stage 3: Revenue Target Strategy Layer
+                <Target className="mr-3 h-6 w-6 text-[var(--trilogy-orange)]" />
+                Stage 3: AI Rate &amp; Revenue Target Strategy
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
@@ -536,95 +530,6 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
-          <Card id="stage4" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
-            <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <Target className="mr-3 h-6 w-6 text-[var(--trilogy-orange)]" />
-                Stage 4: Revenue Growth Target Integration
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
-              <p>
-                Revenue Growth Targets provide a strategic overlay that adjusts AI pricing based on performance 
-                against defined annual revenue goals. This integration applies to AI pricing only (not Modulo) 
-                and helps automatically adjust pricing to meet or exceed revenue targets.
-              </p>
-
-              <div className="bg-[var(--trilogy-orange)]/5 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">How Revenue Targets Work</h4>
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[var(--trilogy-success)]/20 flex items-center justify-center flex-shrink-0">
-                      <TrendingUp className="h-4 w-4 text-[var(--trilogy-success)]" />
-                    </div>
-                    <div>
-                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Ahead of Target</h5>
-                      <p className="text-sm">
-                        When actual YOY growth exceeds the target, the system allows premium pricing opportunities. 
-                        A slight positive adjustment (up to +2%) enables capturing additional revenue when demand is strong.
-                        Display shows "Premium Allowance" in blue.
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[var(--trilogy-orange)]/20 flex items-center justify-center flex-shrink-0">
-                      <Activity className="h-4 w-4 text-[var(--trilogy-orange)]" />
-                    </div>
-                    <div>
-                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Behind Target</h5>
-                      <p className="text-sm">
-                        When actual YOY growth falls short of the target, the system <strong>signals attention needed</strong> rather 
-                        than blindly pushing rates higher (which could slow sales). The amber "Attention Needed" indicator 
-                        alerts operators to review the location's strategy. The algorithm's occupancy and vacancy decay 
-                        factors continue to appropriately price hard-to-fill units to drive sales velocity.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Revenue Gap Formula</h4>
-                <div className="font-mono text-sm bg-white p-3 rounded border border-gray-200 mb-3">
-                  Revenue Gap = Actual YOY Growth % - Target Growth %
-                </div>
-                <div className="text-sm space-y-2">
-                  <p><strong>If Gap ≥ 0 (ahead of target):</strong> Allow modest premium (up to +2%)</p>
-                  <p><strong>If Gap &lt; 0 (behind target):</strong> Signal for operator review - no automatic price increase</p>
-                </div>
-                <p className="text-sm mt-3 text-[var(--trilogy-grey)]/80 italic">
-                  Note: When behind target, the algorithm relies on occupancy pressure and vacancy decay factors 
-                  (which naturally reduce rates for hard-to-fill units) to drive sales velocity rather than 
-                  counterproductively raising prices.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Setting Targets</h5>
-                  <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Navigate to Pricing Controls page</li>
-                    <li>Set target growth % by location and service line</li>
-                    <li>Use "Save Targets" to persist settings</li>
-                    <li>AI generates optimal weights and guardrails</li>
-                  </ul>
-                </div>
-
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">AI Analysis Inputs</h5>
-                  <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Current occupancy levels</li>
-                    <li>Vacancy patterns and trends</li>
-                    <li>Sales velocity metrics</li>
-                    <li>Competitor rate landscape</li>
-                    <li>Service line performance breakdown</li>
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           <Card id="guardrails" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
             <CardHeader className="pb-2">
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -751,21 +656,14 @@ export default function PricingAlgorithmDocs() {
                   learning loop.
                 </li>
                 <li className="pl-2">
-                  <strong>Revenue Target Strategy Layer</strong>{" "}
-                  <span className="inline-flex items-center gap-1 text-xs bg-[var(--trilogy-teal)]/15 text-[var(--trilogy-teal)] rounded px-1.5 py-0.5 font-medium align-middle">
-                    <Layers className="h-3 w-3" /> New
-                  </span>
-                  <span className="block mt-0.5">
-                    For each <em>vacant</em> unit: computes urgency from the revenue gap and months remaining,
-                    classifies the unit as Volume Driver, Premium Driver, or Neutral, generates candidate rates
-                    within the segment's range, and selects the candidate with the highest expected revenue by
-                    December 31 using a Poisson sale-probability model. Occupied units are skipped.
-                  </span>
-                </li>
-                <li className="pl-2">
-                  <strong>Revenue Target Integration:</strong> High-level strategic overlay — tracks actual
-                  YOY growth vs. target and surfaces "Attention Needed" signals when a campus is falling behind.
-                  Applies a modest premium allowance (up to +2%) when a campus is ahead of target.
+                  <strong>AI Rate &amp; Revenue Target Strategy:</strong> The AI Rate incorporates revenue
+                  growth targets in two complementary ways. A high-level overlay tracks actual YOY growth
+                  vs. target and surfaces "Attention Needed" signals when a campus falls behind (or allows
+                  a modest premium of up to +2% when ahead). For each <em>vacant</em> unit, the Revenue Target
+                  Strategy layer then classifies it as a Volume Driver, Premium Driver, or Neutral, generates
+                  candidate rates within each segment's range, and selects the candidate with the highest
+                  expected revenue by year-end using a Poisson sale-probability model. Occupied units are
+                  passed through unchanged.
                 </li>
                 <li className="pl-2">
                   <strong>Guardrail Enforcement:</strong> Final rates are clamped to configured min/max limits

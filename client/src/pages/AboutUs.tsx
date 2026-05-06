@@ -111,43 +111,6 @@ export default function AboutUs() {
           </Card>
         </button>
 
-        {/* Revenue Target Strategy Layer highlight */}
-        <div className="mb-8">
-          <Card className="border border-[var(--trilogy-teal)]/30 bg-[var(--trilogy-teal)]/5">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-full bg-[var(--trilogy-teal)]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[var(--trilogy-teal)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-[var(--trilogy-teal)] mb-1">Enhanced AI Rate Engine</p>
-                  <h3 className="text-lg font-semibold text-[var(--trilogy-dark-blue)] mb-2">Revenue Target Strategy Layer</h3>
-                  <p className="text-sm text-[var(--trilogy-grey)] leading-relaxed mb-3">
-                    Modulo's AI Rate engine now includes a Revenue Target Strategy Layer that runs after the standard AI Rate 
-                    calculation and before guardrails are applied. For each vacant unit, the layer analyses sales velocity, 
-                    competitor positioning, days vacant, occupancy, and unit attributes to classify it as a{' '}
-                    <span className="font-medium text-[var(--trilogy-dark-blue)]">Volume Driver</span>,{' '}
-                    <span className="font-medium text-[var(--trilogy-dark-blue)]">Premium Driver</span>, or{' '}
-                    <span className="font-medium text-[var(--trilogy-dark-blue)]">Neutral</span> unit.
-                  </p>
-                  <p className="text-sm text-[var(--trilogy-grey)] leading-relaxed mb-3">
-                    Candidate rates are then generated for each segment — discounts for Volume Drivers to accelerate 
-                    lease-up, premiums for Premium Drivers to maximise rate capture — and evaluated using a 
-                    probabilistic model that estimates expected revenue by year-end. The candidate with the highest 
-                    expected revenue is selected as the Target-Aware AI Rate, which is then passed through guardrails 
-                    before being stored.
-                  </p>
-                  <p className="text-sm text-[var(--trilogy-grey)] leading-relaxed">
-                    Occupied units are never touched by this layer. If no revenue growth target has been set for a 
-                    location and service line, or if no candidate meaningfully improves on the existing AI Rate, 
-                    the original AI Rate is preserved unchanged.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Leadership Team */}
         <div className="mb-8">
           <h2 className="text-3xl font-light text-[var(--trilogy-dark-blue)] mb-6 text-center">
