@@ -440,8 +440,8 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                     type: 'AL/MC',
                     flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
                     roomTypes: [
-                      { name: 'Studio', rate: row['AL/MC_PrivateRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
-                      { name: 'Companion', rate: row['AL/MC_CompanionRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                      { name: 'Studio', rate: row['AL/MC_PrivateRate'] || row['AL/MC_StudioRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['AL/MC_CompanionRate'] || row['MC_ALCompanionRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                     ],
                     occupancy: null,
                     totalUnits: null,
@@ -450,8 +450,8 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                     type: 'HC/MC',
                     flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
                     roomTypes: [
-                      { name: 'Studio', rate: row['HC/MC_PrivateRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
-                      { name: 'Companion', rate: row['HC/MC_CompanionRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                      { name: 'Studio', rate: row['HC/MC_PrivateRate'] || row['SMC_PrivateRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['HC/MC_CompanionRate'] || row['SMC_CompanionRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
                     ],
                     occupancy: null,
                     totalUnits: null,
@@ -742,8 +742,8 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && 
                     (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               roomTypes: [
-                { name: 'Studio', rate: row['AL/MC_StudioRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
-                { name: 'Companion', rate: row['AL/MC_CompanionRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                { name: 'Studio', rate: row['AL/MC_StudioRate'] || row['AL/MC_PrivateRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                { name: 'Companion', rate: row['AL/MC_CompanionRate'] || row['MC_ALCompanionRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
               ],
               occupancy: null,
               totalUnits: null,
@@ -753,8 +753,8 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && 
                     (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               roomTypes: [
-                { name: 'Studio', rate: row['HC/MC_PrivateRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
-                { name: 'Companion', rate: row['HC/MC_CompanionRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                { name: 'Studio', rate: row['HC/MC_PrivateRate'] || row['SMC_PrivateRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                { name: 'Companion', rate: row['HC/MC_CompanionRate'] || row['SMC_CompanionRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
               ],
               occupancy: null,
               totalUnits: null,

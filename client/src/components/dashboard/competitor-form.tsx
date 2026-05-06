@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Plus, Edit2, MapPin } from "lucide-react";
+import { Trash2, Plus, Edit2, MapPin, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -499,6 +499,15 @@ export default function CompetitorForm({
         {/* Competitor List */}
         <div className="space-y-3">
           <h3 className="text-lg font-medium text-[var(--dashboard-text)]">Current Competitors</h3>
+
+          {/* Distance fallback notice */}
+          {(competitors as any)?.usingDistanceFallback && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" data-testid="notice-distance-fallback">
+              <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>No weighted competitors found for the selected service line — showing the 5 nearest competitors by distance instead.</span>
+            </div>
+          )}
+
           {(competitors as any)?.items?.length > 0 ? (
             <div className="grid gap-4">
               {(competitors as any).items.map((competitor: any) => (
@@ -506,7 +515,14 @@ export default function CompetitorForm({
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 space-y-3 min-w-0">
-                        <h4 className="font-medium text-[var(--dashboard-text)]">{competitor.name}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-medium text-[var(--dashboard-text)]">{competitor.name}</h4>
+                          {competitor.weight != null && competitor.weight > 0 && (
+                            <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              Weight: {Math.round(competitor.weight * 100)}%
+                            </Badge>
+                          )}
+                        </div>
                         
                         {competitor.address && (
                           <div className="flex items-center gap-1 text-sm text-[var(--dashboard-muted)]">

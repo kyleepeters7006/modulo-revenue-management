@@ -173,7 +173,7 @@ export interface IStorage {
     locations?: string[];
     serviceLines?: string[];
     clientId?: string;
-  }): Promise<Competitor[]>;
+  }): Promise<{ competitors: Competitor[]; usingDistanceFallback: boolean }>;
   createCompetitor(data: InsertCompetitor): Promise<Competitor>;
   updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor>;
   deleteCompetitor(id: string): Promise<void>;
@@ -1245,7 +1245,7 @@ export class DatabaseStorage implements IStorage {
     locations?: string[];
     serviceLines?: string[];
     clientId?: string;
-  }): Promise<Competitor[]> {
+  }): Promise<{ competitors: Competitor[]; usingDistanceFallback: boolean }> {
     // Build query for competitive survey data
     let query = db.select().from(competitiveSurveyData);
     const conditions: any[] = [];
@@ -1308,12 +1308,81 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
-    
+
+    // Helper to parse weight from notes JSON
+    const parseRecordWeight = (record: any): number => {
+      try {
+        const notes = typeof record.notes === 'string' ? JSON.parse(record.notes) : (record.notes || {});
+        return parseFloat(String(notes?.weight ?? '0')) || 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    // Map service line filter values to competitor types stored in the DB
+    const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
+      'HC': 'HC',
+      'HC/MC': 'HC/MC',
+      'AL': 'AL',
+      'AL/MC': 'AL/MC',
+      'SL': 'IL_IL',
+      'VIL': 'IL_Villa'
+    };
+
+    // Apply service line filter and weight-based filtering BEFORE aggregation
+    let workingData = surveyData;
+    let usingDistanceFallback = false;
+
+    if (filters.serviceLines && filters.serviceLines.length > 0) {
+      const competitorTypes = filters.serviceLines
+        .map(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl] || sl)
+        .filter(Boolean);
+
+      // Filter to matching service line types
+      workingData = surveyData.filter(record =>
+        record.competitorType && competitorTypes.includes(record.competitorType)
+      );
+
+      // Apply weight filter per location
+      const byLocation = new Map<string, typeof workingData>();
+      for (const record of workingData) {
+        const loc = record.keyStatsLocation || 'unknown';
+        if (!byLocation.has(loc)) byLocation.set(loc, []);
+        byLocation.get(loc)!.push(record);
+      }
+
+      const finalData: typeof workingData = [];
+
+      for (const [, records] of byLocation) {
+        const weighted = records.filter(r => parseRecordWeight(r) > 0);
+
+        if (weighted.length > 0) {
+          finalData.push(...weighted);
+        } else if (records.length > 0) {
+          // Fall back to top-5 closest unique competitors
+          usingDistanceFallback = true;
+          const sorted = [...records].sort((a, b) => (a.distanceMiles || 999) - (b.distanceMiles || 999));
+          const top5Names = new Set<string>();
+          for (const r of sorted) {
+            const name = r.competitorName || '';
+            if (!top5Names.has(name)) {
+              top5Names.add(name);
+              if (top5Names.size >= 5) break;
+            }
+          }
+          finalData.push(...records.filter(r => top5Names.has(r.competitorName || '')));
+        }
+      }
+
+      workingData = finalData;
+    }
+
     // Group by competitor and location to aggregate room types
     const competitorMap = new Map<string, any>();
     
-    for (const record of surveyData) {
+    for (const record of workingData) {
       const key = `${record.keyStatsLocation}|${record.competitorName}`;
+      const recordWeight = parseRecordWeight(record);
       
       if (!competitorMap.has(key)) {
         // Geocode address with location context if available
@@ -1347,7 +1416,7 @@ export class DatabaseStorage implements IStorage {
           streetRate: record.monthlyRateAvg,
           avgCareRate: record.careFeesAvg,
           rating: null,
-          weight: null,
+          weight: recordWeight > 0 ? recordWeight : null,
           rank: null,
           roomType: record.roomType,
           serviceLines: record.competitorType ? [record.competitorType] : [],
@@ -1366,6 +1435,9 @@ export class DatabaseStorage implements IStorage {
         if (!existing.avgCareRate && record.careFeesAvg) {
           existing.avgCareRate = record.careFeesAvg;
         }
+        if (recordWeight > 0 && !existing.weight) {
+          existing.weight = recordWeight;
+        }
         // Collect unique service lines
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
@@ -1373,35 +1445,9 @@ export class DatabaseStorage implements IStorage {
       }
     }
     
-    let results = Array.from(competitorMap.values());
+    const results = Array.from(competitorMap.values());
     
-    // If service lines are specified, filter in-memory using OR/ANY logic
-    if (filters.serviceLines && filters.serviceLines.length > 0) {
-      // Map service lines to competitor types for matching
-      const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
-        'HC': 'HC',
-        'HC/MC': 'SMC',
-        'AL': 'AL',
-        'AL/MC': 'AL',
-        'SL': 'IL_IL',
-        'VIL': 'IL_Villa'
-      };
-      
-      // Convert filter service lines to competitor types
-      const competitorTypes = filters.serviceLines.map(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl] || sl);
-      
-      results = results.filter((competitor: any) => {
-        if (!competitor.serviceLines || competitor.serviceLines.length === 0) {
-          return false; // Exclude competitors without service lines when filter is active
-        }
-        // Check if the competitor has ANY of the mapped competitor types
-        return competitor.serviceLines.some((line: string) => 
-          competitorTypes.includes(line)
-        );
-      });
-    }
-    
-    return results;
+    return { competitors: results, usingDistanceFallback };
   }
 
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {

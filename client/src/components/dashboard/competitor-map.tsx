@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Maximize2 } from "lucide-react";
+import { MapPin, Maximize2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 declare global {
@@ -577,6 +577,13 @@ export function CompetitorMap({
         </div>
       </div>
       
+      {(competitors as any)?.usingDistanceFallback && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-3" data-testid="map-notice-distance-fallback">
+          <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <span>No weighted competitors found for the selected service line — showing the 5 nearest competitors by distance instead.</span>
+        </div>
+      )}
+
       <div 
         ref={mapRef}
         className="h-96 w-full bg-[var(--dashboard-bg)] border border-[var(--dashboard-border)] rounded-lg relative"

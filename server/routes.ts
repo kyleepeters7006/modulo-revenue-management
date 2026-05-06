@@ -2801,9 +2801,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
                            filters.locations?.length || filters.serviceLines?.length);
       
       filters.clientId = clientId;
-      let allCompetitors = hasFilters 
-        ? await storage.getCompetitorsWithFilters(filters)
-        : await storage.getCompetitors(clientId);
+      let allCompetitors: any[];
+      let usingDistanceFallback = false;
+      if (hasFilters) {
+        const result = await storage.getCompetitorsWithFilters(filters);
+        allCompetitors = result.competitors;
+        usingDistanceFallback = result.usingDistanceFallback;
+      } else {
+        allCompetitors = await storage.getCompetitors(clientId);
+      }
       
       // Get locations for metadata
       const locationData = await storage.getLocations(clientId);
@@ -2876,7 +2882,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         items: topCompetitors,
         currentLocation,
         totalLocations: competitorsByLocation.size,
-        totalCompetitors: allCompetitors.length
+        totalCompetitors: allCompetitors.length,
+        usingDistanceFallback
       });
     } catch (error) {
       console.error('Error fetching competitors:', error);
@@ -9389,9 +9396,10 @@ IMPORTANT:
       if (filters?.serviceLine && filters.serviceLine !== 'All') {
         competitorFilters.serviceLines = [filters.serviceLine];
       }
-      const competitors = Object.keys(competitorFilters).length > 0 
+      const competitorResult = Object.keys(competitorFilters).length > 0 
         ? await storage.getCompetitorsWithFilters(competitorFilters)
-        : allCompetitors;
+        : null;
+      const competitors = competitorResult ? competitorResult.competitors : allCompetitors;
       
       // Calculate average competitor rate - use finalRate if available, otherwise baseRate
       const validCompetitorRates = competitors
@@ -10112,9 +10120,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       // Map service lines to competitor types
       const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
         'HC': 'HC',
-        'HC/MC': 'SMC',
+        'HC/MC': 'HC/MC',
         'AL': 'AL',
-        'AL/MC': 'AL',  // AL/MC uses AL competitor data
+        'AL/MC': 'AL/MC',
         'SL': 'IL_IL',
         'VIL': 'IL_Villa'
       };
@@ -10172,11 +10180,38 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         }
       }
       
+      // Apply weight-based filtering to the survey data
+      const parseNoteWeight = (notes: string | null): number => {
+        if (!notes) return 0;
+        try {
+          const parsed = typeof notes === 'string' ? JSON.parse(notes) : notes;
+          return parseFloat(String(parsed?.weight ?? '0')) || 0;
+        } catch { return 0; }
+      };
+
+      const weightedSurveyData = surveyData.filter(r => parseNoteWeight(r.notes) > 0);
+      let filteredSurveyData = weightedSurveyData;
+      let rateComparisonFallback = false;
+
+      if (weightedSurveyData.length === 0 && surveyData.length > 0) {
+        // Fall back to top-5 closest unique competitors
+        rateComparisonFallback = true;
+        const sorted = [...surveyData].sort((a, b) => (a.distanceMiles || 999) - (b.distanceMiles || 999));
+        const top5Names = new Set<string>();
+        for (const r of sorted) {
+          top5Names.add(r.competitorName || '');
+          if (top5Names.size >= 5) break;
+        }
+        filteredSurveyData = surveyData.filter(r => top5Names.has(r.competitorName || ''));
+      }
+
       // Transform survey data with market position calculations
       const COMPETITOR_TYPE_TO_SERVICE_LINE: Record<string, string> = {
         'HC': 'HC',
         'SMC': 'HC/MC',
-        'AL': 'AL',  // Note: AL serves both AL and AL/MC
+        'HC/MC': 'HC/MC',
+        'AL': 'AL',
+        'AL/MC': 'AL/MC',
         'IL_IL': 'SL',
         'IL_Villa': 'VIL'
       };
@@ -10184,14 +10219,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       // Convert daily rates to monthly for HC/SMC
       const DAYS_PER_MONTH = 30.44;
       
-      const transformedData = surveyData.map(record => {
+      const transformedData = filteredSurveyData.map(record => {
         const serviceLine = COMPETITOR_TYPE_TO_SERVICE_LINE[record.competitorType || ''] || record.competitorType;
         let baseRate = record.monthlyRateAvg || 0;
         let careLevel2 = record.careLevel2Rate || 0;
         let medMgmt = record.medicationManagementFee || 0;
         
-        // Convert HC/SMC daily rates to monthly if they appear to be daily (< $1000)
-        if ((record.competitorType === 'HC' || record.competitorType === 'SMC') && baseRate > 0 && baseRate < 1000) {
+        // Convert HC/SMC/HC/MC daily rates to monthly if they appear to be daily (< $1000)
+        const isHCType = record.competitorType === 'HC' || record.competitorType === 'SMC' || record.competitorType === 'HC/MC';
+        if (isHCType && baseRate > 0 && baseRate < 1000) {
           baseRate = baseRate * DAYS_PER_MONTH;
           if (careLevel2 > 0 && careLevel2 < 500) careLevel2 = careLevel2 * DAYS_PER_MONTH;
           if (medMgmt > 0 && medMgmt < 100) medMgmt = medMgmt * DAYS_PER_MONTH;
@@ -10227,7 +10263,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       res.json({
         data: transformedData,
         trilogyRates,
-        location: locationName
+        location: locationName,
+        usingDistanceFallback: rateComparisonFallback
       });
     } catch (error) {
       console.error('Error fetching competitor rate comparison:', error);
