@@ -14,117 +14,111 @@ export interface RuleApplication {
 }
 
 /**
- * Apply adjustment rules to a unit's rate
+ * Evaluate whether a single rule's trigger matches the given unit.
+ */
+function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
+  const trigger = rule.trigger as any;
+
+  // Special-case legacy rule identified by name/description
+  if (
+    rule.name === "Increase 5% - AL" ||
+    rule.description?.includes("increase all vacant units by 5%")
+  ) {
+    return unit.serviceLine === "AL" && !unit.occupiedYN;
+  }
+
+  if (trigger.type === "immediate" || trigger.immediate === true) {
+    return true;
+  }
+
+  if (trigger.type === "condition") {
+    const conditions = trigger.conditions || {};
+    let matches = true;
+
+    // Occupancy status condition
+    if (conditions.occupancyStatus === "vacant") {
+      matches = matches && !unit.occupiedYN;
+    } else if (conditions.occupancyStatus === "occupied") {
+      matches = matches && Boolean(unit.occupiedYN);
+    }
+
+    // Vacancy duration condition
+    if (conditions.vacancyDuration && unit.daysVacant !== undefined) {
+      const { operator, days } = conditions.vacancyDuration;
+      if (operator === ">=") matches = matches && unit.daysVacant >= days;
+      else if (operator === ">") matches = matches && unit.daysVacant > days;
+      else if (operator === "<") matches = matches && unit.daysVacant < days;
+      else if (operator === "<=") matches = matches && unit.daysVacant <= days;
+      else if (operator === "===") matches = matches && unit.daysVacant === days;
+    }
+
+    // Service line condition (inside trigger conditions)
+    if (conditions.serviceLine && conditions.serviceLine !== unit.serviceLine) {
+      matches = false;
+    }
+
+    return matches;
+  }
+
+  return false;
+}
+
+/**
+ * Apply all matching adjustment rules to a unit's rate, in priority order.
+ * Each rule receives the rate produced by the previous rule (stacking).
+ *
  * @param unit - The unit to apply rules to
  * @param baseRate - The base rate to adjust (usually Modulo suggested rate)
- * @param activeRules - Array of active adjustment rules
- * @returns The adjusted rate and applied rule name
+ * @param activeRules - Array of active adjustment rules sorted by priority descending
+ * @returns The final adjusted rate and a '+'-joined list of applied rule names
  */
 export function applyAdjustmentRulesToUnit(
   unit: any,
   baseRate: number,
   activeRules: AdjustmentRules[]
 ): UnitAdjustmentResult {
-  // Start with no adjustment
-  let adjustedRate: number | null = null;
-  let appliedRuleName: string | null = null;
-
   // Sort rules by priority (higher priority first)
-  const sortedRules = activeRules.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  const sortedRules = [...activeRules].sort(
+    (a, b) => (b.priority || 0) - (a.priority || 0)
+  );
+
+  let currentRate = baseRate;
+  const appliedRuleNames: string[] = [];
 
   for (const rule of sortedRules) {
-    // Check if rule applies to this unit's location and service line
-    if (rule.locationId && rule.locationId !== unit.locationId) {
-      continue;
-    }
-    if (rule.serviceLine && rule.serviceLine !== unit.serviceLine) {
-      continue;
-    }
+    // Check scope — skip if rule is scoped to a different location or service line
+    if (rule.locationId && rule.locationId !== unit.locationId) continue;
+    if (rule.serviceLine && rule.serviceLine !== unit.serviceLine) continue;
 
-    // Parse the trigger and action
-    const trigger = rule.trigger as any;
+    if (!evaluateTrigger(rule, unit)) continue;
+
     const action = rule.action as any;
+    if (action.type !== "adjust_rate") continue;
 
-    // Check trigger conditions
-    let triggerMatches = false;
+    const adjustmentType = action.adjustmentType || "percentage";
+    const adjustmentValue = action.adjustmentValue ?? action.percentage ?? 0;
 
-    if (trigger.type === 'immediate' || trigger.immediate === true) {
-      // Immediate trigger always applies
-      triggerMatches = true;
-    } else if (trigger.type === 'condition') {
-      // Check specific conditions
-      const conditions = trigger.conditions || {};
-      
-      // Check vacancy condition
-      if (conditions.occupancyStatus === 'vacant' && !unit.occupiedYN) {
-        triggerMatches = true;
-      } else if (conditions.occupancyStatus === 'occupied' && unit.occupiedYN) {
-        triggerMatches = true;
-      }
-
-      // Check vacancy duration
-      if (conditions.vacancyDuration && unit.daysVacant !== undefined) {
-        const { operator, days } = conditions.vacancyDuration;
-        if (operator === '>=' && unit.daysVacant >= days) {
-          triggerMatches = true;
-        } else if (operator === '>' && unit.daysVacant > days) {
-          triggerMatches = true;
-        } else if (operator === '<' && unit.daysVacant < days) {
-          triggerMatches = true;
-        } else {
-          triggerMatches = false;
-        }
-      }
-
-      // Check service line condition
-      if (conditions.serviceLine && conditions.serviceLine !== unit.serviceLine) {
-        triggerMatches = false;
-      }
+    if (adjustmentType === "percentage") {
+      currentRate = Math.round(currentRate * (1 + adjustmentValue / 100));
+    } else if (adjustmentType === "fixed") {
+      currentRate = Math.round(currentRate + adjustmentValue);
     }
 
-    // Special handling for the 5% AL increase rule
-    if (rule.name === "Increase 5% - AL" || rule.description?.includes("increase all vacant units by 5%")) {
-      // Check if unit is AL service line and vacant
-      if (unit.serviceLine === "AL" && !unit.occupiedYN) {
-        triggerMatches = true;
-      } else {
-        triggerMatches = false;
-      }
-    }
+    appliedRuleNames.push(rule.name);
+  }
 
-    // Apply action if trigger matches
-    if (triggerMatches) {
-      if (action.type === 'adjust_rate') {
-        const adjustmentType = action.adjustmentType || 'percentage';
-        const adjustmentValue = action.adjustmentValue || action.percentage || 0;
-        
-        if (adjustmentType === 'percentage') {
-          // Apply percentage adjustment
-          adjustedRate = Math.round(baseRate * (1 + adjustmentValue / 100));
-        } else if (adjustmentType === 'fixed') {
-          // Apply fixed dollar adjustment
-          adjustedRate = Math.round(baseRate + adjustmentValue);
-        }
-        
-        appliedRuleName = rule.name;
-        
-        // Only apply first matching rule (highest priority)
-        break;
-      }
-    }
+  if (appliedRuleNames.length === 0) {
+    return { ruleAdjustedRate: null, appliedRuleName: null };
   }
 
   return {
-    ruleAdjustedRate: adjustedRate,
-    appliedRuleName: appliedRuleName
+    ruleAdjustedRate: currentRate,
+    appliedRuleName: appliedRuleNames.join(" + "),
   };
 }
 
 /**
- * Apply adjustment rules to multiple units
- * @param units - Array of units with their Modulo rates
- * @param activeRules - Array of active adjustment rules
- * @returns Array of units with rule adjustments applied
+ * Apply adjustment rules to multiple units.
  */
 export function applyAdjustmentRulesToBatch(
   units: Array<{ id: string; unit: any; moduloSuggestedRate: number; [key: string]: any }>,
@@ -135,51 +129,42 @@ export function applyAdjustmentRulesToBatch(
     return {
       id,
       ruleAdjustedRate: adjustment.ruleAdjustedRate,
-      appliedRuleName: adjustment.appliedRuleName
+      appliedRuleName: adjustment.appliedRuleName,
     };
   });
 }
 
 /**
- * Fetch and apply active adjustment rules to units
- * @param units - Array of units with their Modulo rates
- * @returns Array of units with rule adjustments applied
+ * Fetch active rules from DB and apply them to a batch of units.
  */
 export async function fetchAndApplyAdjustmentRules(
   units: Array<{ id: string; unit: any; moduloSuggestedRate: number; [key: string]: any }>
 ): Promise<Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }>> {
   try {
-    // Fetch active adjustment rules
     const activeRules = await storage.getActiveAdjustmentRules();
-    
+
     if (activeRules.length === 0) {
-      // No active rules, return null adjustments
       return units.map(({ id }) => ({
         id,
         ruleAdjustedRate: null,
-        appliedRuleName: null
+        appliedRuleName: null,
       }));
     }
 
     console.log(`Found ${activeRules.length} active adjustment rules`);
-
-    // Apply rules to units
     return applyAdjustmentRulesToBatch(units, activeRules);
   } catch (error) {
-    console.error('Error fetching or applying adjustment rules:', error);
-    // Return null adjustments on error
+    console.error("Error fetching or applying adjustment rules:", error);
     return units.map(({ id }) => ({
       id,
       ruleAdjustedRate: null,
-      appliedRuleName: null
+      appliedRuleName: null,
     }));
   }
 }
 
 /**
- * Calculate the revenue impact of applying adjustment rules
- * @param applications - Array of rule applications
- * @returns The monthly and annual impact
+ * Calculate the revenue impact of applying adjustment rules.
  */
 export function calculateRuleImpact(applications: RuleApplication[]): {
   monthlyImpact: number;
@@ -189,16 +174,11 @@ export function calculateRuleImpact(applications: RuleApplication[]): {
   let monthlyImpact = 0;
 
   for (const app of applications) {
-    const difference = app.adjustedRate - app.originalRate;
-    monthlyImpact += difference;
+    monthlyImpact += app.adjustedRate - app.originalRate;
   }
 
   const annualImpact = monthlyImpact * 12;
-  const volumeAdjustedAnnualImpact = annualImpact * 1.05; // 5% volume increase
+  const volumeAdjustedAnnualImpact = annualImpact * 1.05;
 
-  return {
-    monthlyImpact,
-    annualImpact,
-    volumeAdjustedAnnualImpact
-  };
+  return { monthlyImpact, annualImpact, volumeAdjustedAnnualImpact };
 }

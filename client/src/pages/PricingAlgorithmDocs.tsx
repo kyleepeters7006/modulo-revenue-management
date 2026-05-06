@@ -57,6 +57,7 @@ export default function PricingAlgorithmDocs() {
           <a href="#stage1" className="text-[var(--trilogy-teal)] hover:underline">Modulo</a> ·{" "}
           <a href="#stage2" className="text-[var(--trilogy-teal)] hover:underline">AI Engine</a> ·{" "}
           <a href="#stage3" className="text-[var(--trilogy-teal)] hover:underline">AI Rate &amp; Revenue Target Strategy</a> ·{" "}
+          <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Smart Adjustment Rules</a> ·{" "}
           <a href="#guardrails" className="text-[var(--trilogy-teal)] hover:underline">Rules &amp; Guardrails</a>
         </div>
 
@@ -637,6 +638,112 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
+          {/* ── Smart Adjustment Rules ──────────────────────────────────────── */}
+          <Card id="smart-rules" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+            <CardHeader>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
+                <Sparkles className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
+                Smart Adjustment Rules
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+              <p>
+                Smart Adjustment Rules are operator-defined pricing rules that sit between the Modulo calculation
+                and the Guardrails layer. They are written in plain English (e.g. <em>"Reduce vacant AL rates by $100
+                after 30 days vacant"</em>), parsed by AI into structured conditions, and stored in the database so
+                they run automatically on every Modulo calculation cycle. Multiple active rules are applied in
+                priority order, each building on the rate produced by the previous rule — i.e. they stack.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                    Trigger Types
+                  </h4>
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Immediate</p>
+                      <p>Applies to every unit in scope on every calculation run, regardless of occupancy or vacancy status.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Condition — Occupancy Status</p>
+                      <p>Triggers only for <em>vacant</em> or only for <em>occupied</em> units.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Condition — Vacancy Duration</p>
+                      <p>Triggers when a unit has been vacant for a configurable number of days (e.g. ≥ 30 days, &gt; 60 days).</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Condition — Service Line</p>
+                      <p>Combines with other conditions to restrict a trigger to a specific service line (AL, MC, IL, etc.).</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4 text-[var(--trilogy-dark-blue)]" />
+                    Action Types &amp; Scoping
+                  </h4>
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Percentage Adjustment</p>
+                      <p>Multiplies the current rate by <code className="bg-white rounded px-1 border border-gray-200">1 + value/100</code>. E.g. +5% or −3%.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Fixed Dollar Adjustment</p>
+                      <p>Adds or subtracts a flat dollar amount from the current rate. E.g. −$100 or +$50.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Scope</p>
+                      <ul className="list-disc list-inside space-y-0.5 mt-1">
+                        <li>Portfolio-wide (no location or service line filter)</li>
+                        <li>Location-specific (one campus)</li>
+                        <li>Service-line-specific (e.g. all AL across portfolio)</li>
+                        <li>Location + service line combination</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Rule Stacking — How Multiple Rules Combine</h4>
+                <p className="text-sm mb-3">
+                  All active rules that match a unit's scope <em>and</em> trigger are applied in descending priority order.
+                  Each rule receives the rate produced by the previous rule — not the original base rate — so adjustments
+                  compound rather than conflict. The final stored rate reflects the cumulative effect of every matching rule.
+                </p>
+                <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
+                  <p>Base Modulo rate: $4,500</p>
+                  <p>Rule 1 (priority 10) — +5% AL all vacant → $4,500 × 1.05 = <strong>$4,725</strong></p>
+                  <p>Rule 2 (priority 5)  — −$100 after 30 days vacant → $4,725 − $100 = <strong>$4,625</strong></p>
+                  <p className="text-[var(--trilogy-teal)] mt-1">Rule-Adjusted Rate stored: $4,625 (applied: "Rule 1 + Rule 2")</p>
+                </div>
+                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
+                  The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records
+                  each rule that fired, joined by " + ", so operators can audit exactly which rules affected each unit.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Where in the pipeline</h5>
+                  <p className="text-sm">Applied <strong>after</strong> Modulo calculates the base rate and <strong>before</strong> guardrails clamp the result. The rule-adjusted rate is what enters the guardrail check.</p>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">When they run</h5>
+                  <p className="text-sm">Automatically on every Modulo calculation — daily automated runs and manual triggers. Can also be executed on-demand via the Smart Adjustments panel.</p>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">How to configure</h5>
+                  <p className="text-sm">Navigate to <strong>Pricing Controls → Smart Adjustments</strong>. Type a rule in plain English, preview its impact, then activate it. Rules can be toggled on/off without deletion.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="bg-gradient-to-r from-[var(--trilogy-dark-blue)]/10 to-[var(--trilogy-teal)]/10 border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
@@ -660,10 +767,15 @@ export default function PricingAlgorithmDocs() {
                   growth targets in two complementary ways. A high-level overlay tracks actual YOY growth
                   vs. target and surfaces "Attention Needed" signals when a campus falls behind (or allows
                   a modest premium of up to +2% when ahead). For each <em>vacant</em> unit, the Revenue Target
-                  Strategy layer then classifies it as a Volume Driver, Premium Driver, or Neutral, generates
-                  candidate rates within each segment's range, and selects the candidate with the highest
-                  expected revenue by year-end using a Poisson sale-probability model. Occupied units are
-                  passed through unchanged.
+                  Strategy layer classifies it as Volume Driver, Premium Driver, or Neutral, generates candidate
+                  rates, and selects the one with the highest expected revenue by year-end. Occupied units pass
+                  through unchanged.
+                </li>
+                <li className="pl-2">
+                  <strong>Smart Adjustment Rules:</strong> All active operator-defined rules that match a unit's
+                  scope and trigger conditions are applied in priority order, stacking on top of each other.
+                  Each rule operates on the rate produced by the previous rule, compounding percentage and
+                  fixed-dollar adjustments before the result reaches guardrails.
                 </li>
                 <li className="pl-2">
                   <strong>Guardrail Enforcement:</strong> Final rates are clamped to configured min/max limits
