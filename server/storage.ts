@@ -1319,14 +1319,15 @@ export class DatabaseStorage implements IStorage {
       }
     };
 
-    // Map service line filter values to competitor types stored in the DB
-    const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
-      'HC': 'HC',
-      'HC/MC': 'HC/MC',
-      'AL': 'AL',
-      'AL/MC': 'AL/MC',
-      'SL': 'IL_IL',
-      'VIL': 'IL_Villa'
+    // Map service line filter values to competitor types stored in the DB.
+    // HC/MC includes legacy 'SMC' records imported before the rename.
+    const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string[]> = {
+      'HC': ['HC'],
+      'HC/MC': ['HC/MC', 'SMC'],
+      'AL': ['AL'],
+      'AL/MC': ['AL/MC'],
+      'SL': ['IL_IL'],
+      'VIL': ['IL_Villa']
     };
 
     // Apply service line filter and weight-based filtering BEFORE aggregation
@@ -1335,10 +1336,10 @@ export class DatabaseStorage implements IStorage {
 
     if (filters.serviceLines && filters.serviceLines.length > 0) {
       const competitorTypes = filters.serviceLines
-        .map(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl] || sl)
+        .flatMap(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl] || [sl])
         .filter(Boolean);
 
-      // Filter to matching service line types
+      // Filter to matching service line types (includes SMC for HC/MC)
       workingData = surveyData.filter(record =>
         record.competitorType && competitorTypes.includes(record.competitorType)
       );

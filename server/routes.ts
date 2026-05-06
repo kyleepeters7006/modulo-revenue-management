@@ -10117,22 +10117,23 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const locationName = location as string;
       const serviceLineFilter = serviceLines ? (Array.isArray(serviceLines) ? serviceLines : [serviceLines]) : [];
       
-      // Map service lines to competitor types
-      const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
-        'HC': 'HC',
-        'HC/MC': 'HC/MC',
-        'AL': 'AL',
-        'AL/MC': 'AL/MC',
-        'SL': 'IL_IL',
-        'VIL': 'IL_Villa'
+      // Map service lines to competitor types stored in the DB.
+      // HC/MC includes legacy 'SMC' records imported before the rename.
+      const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string[]> = {
+        'HC': ['HC'],
+        'HC/MC': ['HC/MC', 'SMC'],
+        'AL': ['AL'],
+        'AL/MC': ['AL/MC'],
+        'SL': ['IL_IL'],
+        'VIL': ['IL_Villa']
       };
       
       // Get competitor types to query
       let competitorTypes: string[] = [];
       if (serviceLineFilter.length > 0) {
-        competitorTypes = serviceLineFilter.map(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl as string]).filter(Boolean);
+        competitorTypes = serviceLineFilter.flatMap(sl => SERVICE_LINE_TO_COMPETITOR_TYPE[sl as string] || [sl]).filter(Boolean);
       } else {
-        competitorTypes = Object.values(SERVICE_LINE_TO_COMPETITOR_TYPE);
+        competitorTypes = Object.values(SERVICE_LINE_TO_COMPETITOR_TYPE).flat();
       }
       
       // Remove duplicates
