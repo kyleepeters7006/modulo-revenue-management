@@ -412,16 +412,23 @@ export function CompetitorMap({
             
             <!-- Main content with key metrics -->
             <div style="padding: 20px;">
-              <!-- Service Line Badge -->
-              ${isHC ? `
-              <div style="display: inline-block; background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px;">
-                HC - Daily Rates
+              <!-- Service Line Badge + Weight Badge -->
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+                ${isHC ? `
+                <div style="display: inline-block; background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                  HC - Daily Rates
+                </div>
+                ` : `
+                <div style="display: inline-block; background: #dbeafe; border: 1px solid #60a5fa; color: #1e3a8a; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                  ${competitor.serviceLine || 'AL'} - Monthly Rates
+                </div>
+                `}
+                ${competitor.weight != null && competitor.weight > 0 ? `
+                <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
+                  ⚖ ${Math.round(competitor.weight * 100)}% weight
+                </div>
+                ` : ''}
               </div>
-              ` : `
-              <div style="display: inline-block; background: #dbeafe; border: 1px solid #60a5fa; color: #1e3a8a; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px;">
-                ${competitor.serviceLine || 'AL'} - Monthly Rates
-              </div>
-              `}
               
               <!-- Rate Section -->
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
