@@ -979,6 +979,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/admin/backfill-occupancy-history-location-ids
+  // One-time backfill: matches room_type_occupancy_history rows that have a non-null
+  // location_name but a null location_id against the locations table by (clientId, locationName)
+  // and populates location_id. Safe to run repeatedly (idempotent).
+  app.post('/api/admin/backfill-occupancy-history-location-ids', async (req: any, res) => {
+    const session = req.session as any;
+    if (!session?.userId || !session?.clientId) {
+      return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
+    }
+    try {
+      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
+
+    const clientId = session.clientId as string;
+
+    try {
+      console.log(`Running location_id backfill for room_type_occupancy_history (client: ${clientId})...`);
+
+      const preCheckResult = await db.execute(sql`
+        SELECT count(*)::int AS null_pre
+        FROM room_type_occupancy_history
+        WHERE client_id = ${clientId}
+          AND location_id IS NULL
+          AND location_name IS NOT NULL
+          AND trim(location_name) != ''
+      `);
+      const nullBefore = (preCheckResult.rows[0] as any)?.null_pre ?? 0;
+      console.log(`Pre-backfill nulls: ${nullBefore}`);
+
+      const updateResult = await db.execute(sql`
+        WITH updated AS (
+          UPDATE room_type_occupancy_history roh
+          SET location_id = loc.id
+          FROM locations loc
+          WHERE roh.client_id = ${clientId}
+            AND roh.location_id IS NULL
+            AND roh.location_name IS NOT NULL
+            AND trim(roh.location_name) != ''
+            AND lower(trim(roh.location_name)) = lower(trim(loc.name))
+            AND loc.client_id = ${clientId}
+          RETURNING roh.id
+        )
+        SELECT count(*)::int AS rows_updated FROM updated
+      `);
+      const rowsUpdated = (updateResult.rows[0] as any)?.rows_updated ?? 0;
+      console.log(`Backfill updated ${rowsUpdated} room_type_occupancy_history rows.`);
+
+      const postCheckResult = await db.execute(sql`
+        SELECT count(*)::int AS null_post
+        FROM room_type_occupancy_history
+        WHERE client_id = ${clientId}
+          AND location_id IS NULL
+          AND location_name IS NOT NULL
+          AND trim(location_name) != ''
+      `);
+      const nullAfter = (postCheckResult.rows[0] as any)?.null_post ?? 0;
+      console.log(`Post-backfill nulls: ${nullAfter}`);
+
+      res.json({
+        success: true,
+        rowsUpdated,
+        nullLocationIdBefore: nullBefore,
+        nullLocationIdAfter: nullAfter,
+        message: `Backfill complete. Updated ${rowsUpdated} room_type_occupancy_history rows for client '${clientId}' (${nullBefore} had null locationId before, ${nullAfter} remain after).`,
+      });
+    } catch (error) {
+      console.error('Error running occupancy history location_id backfill:', error);
+      res.status(500).json({ error: 'Failed to run occupancy history location_id backfill' });
+    }
+  });
+
   // Cleanup orphaned location rows that have zero references across all FK-referencing tables.
   // Tenant-scoped to the authenticated admin's client — does NOT touch other tenants.
   // Requires a logged-in _admin user. Safe to run repeatedly (idempotent).
