@@ -385,7 +385,8 @@ class PricingJobManager {
       serviceLineOccupancy.set(serviceLine, total > 0 ? occupied / total : 0);
     }
 
-    // 8. Build T3M room type occupancy map (weighted avg per locationId|serviceLine|normalizedRoomType)
+    // 8. Build T3M room type occupancy map (weighted avg per locationName|serviceLine|normalizedRoomType)
+    // Keyed by locationName (always present) since locationId is nullable on room_type_occupancy_history.
     // Use the 3 most recent distinct uploaded months from room_type_occupancy_history (not calendar months)
     console.log(`[PricingJob ${jobId}] Building T3M room type occupancy map...`);
     const t3mOccupancyMap = new Map<string, number>();
@@ -407,8 +408,7 @@ class PricingJobManager {
         // Accumulate occ_units and available_units for weighted average
         const rtAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
         for (const row of rtOccRows) {
-          if (!row.locationId) continue;
-          const key = `${row.locationId}|${row.serviceLine}|${row.normalizedRoomType}`;
+          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
           if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
           const entry = rtAccumulator.get(key)!;
           entry.occUnits += row.occUnits ?? 0;
@@ -716,7 +716,7 @@ class PricingJobManager {
 
         // Look up T3M room type occupancy — use weighted avg if available, else fall back to spot
         const normalizedRT = normalizeRoomType(unit.roomType || '');
-        const t3mKey = `${unit.locationId}|${unit.serviceLine}|${normalizedRT}`;
+        const t3mKey = `${unit.location}|${unit.serviceLine}|${normalizedRT}`;
         const t3mOcc = context.t3mOccupancyMap.get(t3mKey);
         const occupancy = t3mOcc !== undefined ? t3mOcc : serviceLineOcc;
         const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';

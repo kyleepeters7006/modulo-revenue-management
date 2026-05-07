@@ -110,7 +110,7 @@ async function processUnitBatch(
 
         // T3M room-type occupancy takes priority when history data is available
         const normalizedRT = normalizeRoomType(unit.roomType || '');
-        const t3mKey = `${unit.locationId}|${unit.serviceLine}|${normalizedRT}`;
+        const t3mKey = `${unit.location}|${unit.serviceLine}|${normalizedRT}`;
         const t3mOcc = precomputedSignals.t3mOccupancyMap.get(t3mKey);
 
         const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';
@@ -584,7 +584,8 @@ export async function generateModuloOptimized(req: any, res: any) {
     await Promise.all(competitorPromises);
     console.log(`Competitor data cache: ${competitorCache.size} campus+service combinations pre-fetched`);
 
-    // Build T3M room type occupancy map (weighted avg per locationId|serviceLine|normalizedRoomType)
+    // Build T3M room type occupancy map (weighted avg per locationName|serviceLine|normalizedRoomType)
+    // Keyed by locationName (always present) since locationId is nullable on room_type_occupancy_history.
     // Mirrors the logic in pricingJobManager.ts buildPricingContext step 8
     const t3mOccupancyMap = new Map<string, number>();
     try {
@@ -604,8 +605,7 @@ export async function generateModuloOptimized(req: any, res: any) {
 
         const rtAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
         for (const row of rtOccRows) {
-          if (!row.locationId) continue;
-          const key = `${row.locationId}|${row.serviceLine}|${row.normalizedRoomType}`;
+          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
           if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
           const entry = rtAccumulator.get(key)!;
           entry.occUnits += row.occUnits ?? 0;
