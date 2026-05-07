@@ -5841,12 +5841,46 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: `No valid records found. ${skipped} rows were skipped (missing Month or Campus or Room Type).` });
       }
 
+      // Merge rows that share the same normalized conflict key to avoid the
+      // "ON CONFLICT DO UPDATE command cannot affect row a second time" error.
+      // This happens when multiple raw room types (e.g. "Studio Standard",
+      // "Studio Classic") normalize to the same standard type.
+      const mergeMap = new Map<string, typeof records[0]>();
+      for (const rec of records) {
+        const key = `${rec.clientId}|${rec.locationName}|${rec.serviceLine}|${rec.normalizedRoomType}|${rec.month}|${rec.year}`;
+        if (mergeMap.has(key)) {
+          const existing = mergeMap.get(key)!;
+          // Concatenate raw room type names (deduplicated)
+          const existingTypes = existing.rawRoomType.split(', ');
+          if (!existingTypes.includes(rec.rawRoomType)) {
+            existing.rawRoomType = `${existing.rawRoomType}, ${rec.rawRoomType}`;
+          }
+          // Sum occupancy units
+          if (rec.occUnits !== null) {
+            existing.occUnits = (existing.occUnits ?? 0) + rec.occUnits;
+          }
+          // Sum available units
+          if (rec.availableUnits !== null) {
+            existing.availableUnits = (existing.availableUnits ?? 0) + rec.availableUnits;
+          }
+          // Recalculate occ percent from merged totals
+          if (existing.availableUnits !== null && existing.availableUnits > 0 && existing.occUnits !== null) {
+            existing.occPercent = (existing.occUnits / existing.availableUnits) * 100;
+          } else {
+            existing.occPercent = null;
+          }
+        } else {
+          mergeMap.set(key, { ...rec });
+        }
+      }
+      const mergedRecords = Array.from(mergeMap.values());
+
       // Batch upsert in chunks of 500 inside a transaction to avoid PostgreSQL's
       // 65,535 bind-parameter limit while preserving all-or-nothing semantics.
       const CHUNK_SIZE = 500;
       await db.transaction(async (tx) => {
-        for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-          const chunk = records.slice(i, i + CHUNK_SIZE);
+        for (let i = 0; i < mergedRecords.length; i += CHUNK_SIZE) {
+          const chunk = mergedRecords.slice(i, i + CHUNK_SIZE);
           await tx.insert(roomTypeOccupancyHistory)
             .values(chunk)
             .onConflictDoUpdate({
@@ -5873,7 +5907,7 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
 
       res.json({
         message: 'Upload successful',
-        recordsProcessed: records.length,
+        recordsProcessed: mergedRecords.length,
         skipped,
         total: jsonData.length,
       });
