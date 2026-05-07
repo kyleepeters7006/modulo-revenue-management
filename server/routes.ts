@@ -1596,6 +1596,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Available Units/Beds': 4,
           'OCC%': '100%',
         },
+        {
+          'Month': '1/31/2026',
+          'Division': 'Ohio',
+          'Campus': 'Beavercreek - 205',
+          'Service Line': 'HC',
+          'Room Type': '1BR;B Vw;A Loc;A Sz',
+          'Occ Units': 8,
+          'Available Units/Beds': 10,
+          'OCC%': '80%',
+        },
         {},
         {
           'Month': 'FREQUENCY: Upload monthly. Rows are matched by Campus + Service Line + Normalized Room Type + Month/Year and upserted.',
@@ -5728,12 +5738,13 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       const clientId = req.clientId || 'demo';
       const buffer = req.file.buffer;
       let jsonData: any[] = [];
+      const lowerName = req.file.originalname.toLowerCase();
 
-      if (req.file.originalname.endsWith('.csv')) {
+      if (lowerName.endsWith('.csv')) {
         const csvText = buffer.toString();
         const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
         jsonData = parsed.data as any[];
-      } else if (req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
+      } else if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
         const workbook = xlsx.read(buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
@@ -5830,46 +5841,32 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: `No valid records found. ${skipped} rows were skipped (missing Month or Campus or Room Type).` });
       }
 
-      // Upsert all records
-      let inserted = 0;
-      let updated = 0;
-
-      for (const record of records) {
-        const existing = await db.select({ id: roomTypeOccupancyHistory.id })
-          .from(roomTypeOccupancyHistory)
-          .where(drizzleSql`
-            ${roomTypeOccupancyHistory.clientId} = ${record.clientId}
-            AND ${roomTypeOccupancyHistory.locationName} = ${record.locationName}
-            AND ${roomTypeOccupancyHistory.serviceLine} = ${record.serviceLine}
-            AND ${roomTypeOccupancyHistory.normalizedRoomType} = ${record.normalizedRoomType}
-            AND ${roomTypeOccupancyHistory.month} = ${record.month}
-            AND ${roomTypeOccupancyHistory.year} = ${record.year}
-          `)
-          .limit(1);
-
-        if (existing.length > 0) {
-          await db.update(roomTypeOccupancyHistory)
-            .set({
-              rawRoomType: record.rawRoomType,
-              division: record.division,
-              locationId: record.locationId,
-              occUnits: record.occUnits,
-              availableUnits: record.availableUnits,
-              occPercent: record.occPercent,
-            })
-            .where(drizzleSql`${roomTypeOccupancyHistory.id} = ${existing[0].id}`);
-          updated++;
-        } else {
-          await db.insert(roomTypeOccupancyHistory).values(record);
-          inserted++;
-        }
-      }
+      // Batch upsert using ON CONFLICT DO UPDATE
+      await db.insert(roomTypeOccupancyHistory)
+        .values(records)
+        .onConflictDoUpdate({
+          target: [
+            roomTypeOccupancyHistory.clientId,
+            roomTypeOccupancyHistory.locationName,
+            roomTypeOccupancyHistory.serviceLine,
+            roomTypeOccupancyHistory.normalizedRoomType,
+            roomTypeOccupancyHistory.month,
+            roomTypeOccupancyHistory.year,
+          ],
+          set: {
+            rawRoomType: drizzleSql`excluded.raw_room_type`,
+            division: drizzleSql`excluded.division`,
+            locationId: drizzleSql`excluded.location_id`,
+            occUnits: drizzleSql`excluded.occ_units`,
+            availableUnits: drizzleSql`excluded.available_units`,
+            occPercent: drizzleSql`excluded.occ_percent`,
+            uploadedAt: drizzleSql`now()`,
+          },
+        });
 
       res.json({
         message: 'Upload successful',
         recordsProcessed: records.length,
-        inserted,
-        updated,
         skipped,
         total: jsonData.length,
       });

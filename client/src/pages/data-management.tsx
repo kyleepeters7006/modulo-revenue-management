@@ -493,7 +493,7 @@ export default function DataManagement() {
       updateUpload(uploadId, { status: 'success', message: `Processed ${data.recordsProcessed || 0} records` });
       toast({
         title: "Upload Successful",
-        description: `Processed ${data.recordsProcessed || 0} records (${data.inserted || 0} new, ${data.updated || 0} updated).`,
+        description: `Processed ${data.recordsProcessed || 0} records${data.skipped ? ` (${data.skipped} rows skipped)` : ''}.`,
       });
       setUploadHistory(prev => [{ ...data, type: 'room-type-occupancy', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
