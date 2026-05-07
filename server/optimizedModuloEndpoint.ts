@@ -109,8 +109,10 @@ async function processUnitBatch(
         const locServiceOccKey = `${unit.location}|${unit.serviceLine}`;
 
         // T3M room-type occupancy takes priority when history data is available
-        const normalizedRT = normalizeRoomType(unit.roomType || '');
-        const t3mKey = `${unit.location}|${unit.serviceLine}|${normalizedRT}`;
+        // Keys are stored lowercase+trimmed (both location and service line), so normalize
+        // the lookup key the same way to avoid silent misses from whitespace or casing.
+        const normalizedRT = normalizeRoomType(unit.roomType || '').trim().toLowerCase();
+        const t3mKey = `${(unit.location || '').trim().toLowerCase()}|${(unit.serviceLine || '').trim().toLowerCase()}|${normalizedRT}`;
         const t3mOcc = precomputedSignals.t3mOccupancyMap.get(t3mKey);
 
         const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';
@@ -605,11 +607,18 @@ export async function generateModuloOptimized(req: any, res: any) {
 
         const rtAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
         for (const row of rtOccRows) {
-          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
-          if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
-          const entry = rtAccumulator.get(key)!;
-          entry.occUnits += row.occUnits ?? 0;
-          entry.availableUnits += row.availableUnits ?? 0;
+          const locName = (row.locationName || '').trim().toLowerCase();
+          const normalizedRoomTypeKey = (row.normalizedRoomType || '').trim().toLowerCase();
+          // Split composite service lines (e.g. "AL, MC") into individual tokens so
+          // each token gets its own map entry and lookup by single service line succeeds.
+          const serviceLineTokens = (row.serviceLine || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+          for (const slToken of serviceLineTokens) {
+            const key = `${locName}|${slToken}|${normalizedRoomTypeKey}`;
+            if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
+            const entry = rtAccumulator.get(key)!;
+            entry.occUnits += row.occUnits ?? 0;
+            entry.availableUnits += row.availableUnits ?? 0;
+          }
         }
         for (const [key, { occUnits, availableUnits }] of rtAccumulator) {
           if (availableUnits > 0) {
