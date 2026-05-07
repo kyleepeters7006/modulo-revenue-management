@@ -1,6 +1,8 @@
 import Navigation from "@/components/navigation";
 import OverviewTiles from "@/components/dashboard/overview-tiles";
 import RevenueChart from "@/components/dashboard/revenue-chart";
+import { Link } from "wouter";
+import { BookOpen } from "lucide-react";
 
 export default function Overview() {
   return (
@@ -29,6 +31,14 @@ export default function Overview() {
           <p className="text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
             Real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
           </p>
+          <div className="mt-4">
+            <Link href="/pricing-algorithm">
+              <span className="inline-flex items-center gap-1.5 text-sm text-[var(--trilogy-teal)] hover:text-[var(--trilogy-teal)]/80 transition-colors cursor-pointer">
+                <BookOpen className="h-3.5 w-3.5" />
+                How the pricing algorithm works
+              </span>
+            </Link>
+          </div>
         </div>
 
         {/* Overview Tiles */}
