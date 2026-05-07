@@ -11,7 +11,9 @@ import {
   ResponsiveContainer,
   Legend,
   Cell,
-  ZAxis
+  ZAxis,
+  LineChart,
+  Line,
 } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -235,6 +237,28 @@ export function Analytics() {
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  // Room type occupancy trends filters
+  const [rtServiceLine, setRtServiceLine] = useState<string>('all');
+  const [rtLocation, setRtLocation] = useState<string>('all');
+
+  // Fetch room type occupancy history
+  const { data: rtOccData, isLoading: isLoadingRtOcc } = useQuery({
+    queryKey: ['/api/room-type-occupancy-history', rtServiceLine, rtLocation],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (rtServiceLine !== 'all') params.append('serviceLine', rtServiceLine);
+      if (rtLocation !== 'all') params.append('location', rtLocation);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const response = await fetch(`/api/room-type-occupancy-history${qs}`);
+      if (!response.ok) throw new Error('Failed to fetch room type occupancy history');
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   });
 
@@ -706,7 +730,7 @@ export function Analytics() {
 
       {/* Scatter Plots */}
       <Tabs defaultValue="rate-growth" className="space-y-4">
-        <TabsList className="grid grid-cols-4 lg:grid-cols-8 w-full">
+        <TabsList className="grid grid-cols-3 lg:grid-cols-9 w-full">
           <TabsTrigger value="rate-growth">Rate Growth</TabsTrigger>
           <TabsTrigger value="price-position">Price vs Market</TabsTrigger>
           <TabsTrigger value="occupancy-rate">Occupancy vs Rate</TabsTrigger>
@@ -715,6 +739,7 @@ export function Analytics() {
           <TabsTrigger value="market-share">Market Position</TabsTrigger>
           <TabsTrigger value="vacancy-analysis">Vacancy Analysis</TabsTrigger>
           <TabsTrigger value="rra-discounts">RRA Discounts</TabsTrigger>
+          <TabsTrigger value="room-type-trends">Room Type Trends</TabsTrigger>
         </TabsList>
 
         {/* Occupancy vs T6 Rate Growth */}
@@ -1541,6 +1566,109 @@ export function Analytics() {
               ) : (
                 <div className="h-[400px] flex items-center justify-center">
                   <span className="text-[var(--dashboard-muted)]">No RRA data available</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Room Type Occupancy Trends */}
+        <TabsContent value="room-type-trends" className="space-y-4">
+          <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
+            <CardHeader>
+              <CardTitle className="text-[var(--dashboard-text)]">Room Type Occupancy Trends</CardTitle>
+              <CardDescription className="text-[var(--dashboard-muted)]">
+                Monthly occupancy % by normalized room type. Identify which room types are declining or growing over time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Filters */}
+              <div className="flex gap-3 items-center flex-wrap mb-6">
+                <span className="text-sm font-medium text-[var(--dashboard-text)]">Filters:</span>
+                <Select value={rtServiceLine} onValueChange={(v) => { setRtServiceLine(v); setRtLocation('all'); }}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Service Line" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Service Lines</SelectItem>
+                    {(rtOccData?.serviceLines || []).map((sl: string) => (
+                      <SelectItem key={sl} value={sl}>{sl}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={rtLocation} onValueChange={setRtLocation}>
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue placeholder="Location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Locations</SelectItem>
+                    {(rtOccData?.locations || []).map((loc: string) => (
+                      <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {isLoadingRtOcc ? (
+                <div className="h-[400px] flex items-center justify-center">
+                  <span className="text-[var(--dashboard-muted)]">Loading room type trends...</span>
+                </div>
+              ) : rtOccData?.series && rtOccData.series.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={420}>
+                    <LineChart data={rtOccData.series} margin={{ top: 10, right: 30, bottom: 40, left: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--dashboard-border)" />
+                      <XAxis
+                        dataKey="month"
+                        label={{ value: 'Month', position: 'insideBottom', offset: -10 }}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis
+                        tickFormatter={(v) => `${v != null ? Number(v).toFixed(0) : ''}%`}
+                        label={{ value: 'Occupancy %', angle: -90, position: 'insideLeft', offset: 10 }}
+                        domain={[0, 100]}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <Tooltip
+                        formatter={(value: number | null, name: string) => [
+                          value != null ? `${Number(value).toFixed(1)}%` : 'N/A',
+                          name,
+                        ]}
+                        labelFormatter={(label) => `Month: ${label}`}
+                        contentStyle={{
+                          backgroundColor: 'var(--dashboard-surface)',
+                          border: '1px solid var(--dashboard-border)',
+                          borderRadius: '6px',
+                        }}
+                      />
+                      <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '12px' }} />
+                      {(rtOccData.roomTypes as string[]).map((rt, idx) => {
+                        const colors = ['#14B8A6', '#6B7280', '#1F2937', '#EA580C', '#1E40AF', '#065F46', '#DC2626', '#059669'];
+                        return (
+                          <Line
+                            key={rt}
+                            type="monotone"
+                            dataKey={rt}
+                            name={rt}
+                            stroke={colors[idx % colors.length]}
+                            strokeWidth={2}
+                            dot={false}
+                            connectNulls={false}
+                          />
+                        );
+                      })}
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <p className="text-xs text-[var(--dashboard-muted)] mt-2 text-center">
+                    Showing {rtOccData.series.length} months • {rtOccData.roomTypes.length} room types
+                    {rtLocation !== 'all' ? ` • ${rtLocation}` : ' • All Locations (averaged)'}
+                    {rtServiceLine !== 'all' ? ` • ${rtServiceLine}` : ''}
+                  </p>
+                </>
+              ) : (
+                <div className="h-[400px] flex flex-col items-center justify-center gap-3">
+                  <span className="text-[var(--dashboard-muted)]">No room type occupancy history available</span>
+                  <span className="text-xs text-[var(--dashboard-muted)]">Upload room type occupancy data via Data Management to populate this chart.</span>
                 </div>
               )}
             </CardContent>

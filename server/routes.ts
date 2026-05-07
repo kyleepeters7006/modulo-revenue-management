@@ -80,7 +80,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory } from "@shared/schema";
-import { sql, and, eq, gte, lt, or, desc, inArray, isNull } from "drizzle-orm";
+import { sql, and, eq, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
@@ -11515,6 +11515,93 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     } catch (error) {
       console.error("Error fetching RRA analytics:", error);
       res.status(500).json({ error: "Failed to fetch RRA analytics" });
+    }
+  });
+
+  // Room Type Occupancy History endpoint
+  app.get("/api/room-type-occupancy-history", async (req: Request & { clientId?: string }, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { serviceLine, location } = req.query;
+
+      const conditions: SQL<unknown>[] = [eq(roomTypeOccupancyHistory.clientId, clientId)];
+      if (serviceLine && serviceLine !== 'all') {
+        conditions.push(eq(roomTypeOccupancyHistory.serviceLine, serviceLine as string));
+      }
+      if (location && location !== 'all') {
+        conditions.push(eq(roomTypeOccupancyHistory.locationName, location as string));
+      }
+
+      // Aggregate directly in SQL: group by normalizedRoomType + month + year only.
+      // Weighted occ% = SUM(occUnits) / SUM(availableUnits) * 100 when unit counts are
+      // available; fall back to AVG(occPercent) when they are not.
+      const rows = await db
+        .select({
+          normalizedRoomType: roomTypeOccupancyHistory.normalizedRoomType,
+          month: roomTypeOccupancyHistory.month,
+          year: roomTypeOccupancyHistory.year,
+          totalOccUnits: sql<number>`SUM(${roomTypeOccupancyHistory.occUnits})`,
+          totalAvailableUnits: sql<number>`SUM(${roomTypeOccupancyHistory.availableUnits})`,
+          avgOccPercent: sql<number>`AVG(${roomTypeOccupancyHistory.occPercent})`,
+        })
+        .from(roomTypeOccupancyHistory)
+        .where(and(...conditions))
+        .groupBy(
+          roomTypeOccupancyHistory.normalizedRoomType,
+          roomTypeOccupancyHistory.month,
+          roomTypeOccupancyHistory.year,
+        )
+        .orderBy(
+          roomTypeOccupancyHistory.year,
+          roomTypeOccupancyHistory.month,
+        );
+
+      // Get distinct service lines and locations for filter dropdowns
+      const allRows = await db
+        .select({
+          serviceLine: roomTypeOccupancyHistory.serviceLine,
+          locationName: roomTypeOccupancyHistory.locationName,
+        })
+        .from(roomTypeOccupancyHistory)
+        .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+        .groupBy(roomTypeOccupancyHistory.serviceLine, roomTypeOccupancyHistory.locationName);
+
+      const serviceLines = [...new Set(allRows.map(r => r.serviceLine))].filter(Boolean).sort();
+      const locations = [...new Set(allRows.map(r => r.locationName))].filter(Boolean).sort();
+
+      // Build time-series: one entry per month label, one key per normalized room type.
+      // Each row already represents the full aggregation for that room type + month from SQL.
+      const monthMap: Record<string, Record<string, number | null>> = {};
+      const roomTypes = new Set<string>();
+
+      for (const row of rows) {
+        const label = `${row.year}-${String(row.month).padStart(2, '0')}`;
+        if (!monthMap[label]) monthMap[label] = {};
+        const rt = row.normalizedRoomType;
+        roomTypes.add(rt);
+        // Prefer weighted occ% from unit counts; fall back to avg of stored occ percents
+        let occPct: number | null = null;
+        if (row.totalAvailableUnits != null && Number(row.totalAvailableUnits) > 0) {
+          occPct = (Number(row.totalOccUnits) / Number(row.totalAvailableUnits)) * 100;
+        } else if (row.avgOccPercent != null) {
+          occPct = Number(row.avgOccPercent);
+        }
+        monthMap[label][rt] = occPct;
+      }
+
+      const sortedMonths = Object.keys(monthMap).sort();
+      const series = sortedMonths.map(month => {
+        const entry: Record<string, number | null | string> = { month };
+        for (const rt of roomTypes) {
+          entry[rt] = monthMap[month][rt] ?? null;
+        }
+        return entry;
+      });
+
+      res.json({ series, roomTypes: [...roomTypes].sort(), serviceLines, locations });
+    } catch (error) {
+      console.error("Error fetching room type occupancy history:", error);
+      res.status(500).json({ error: "Failed to fetch room type occupancy history" });
     }
   });
 
