@@ -8,6 +8,10 @@ import { getSentenceExplanation, generateOverallExplanation } from "./sentenceEx
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
 import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
+import { db } from './db';
+import { roomTypeOccupancyHistory } from '@shared/schema';
+import { eq, and, or, sql } from 'drizzle-orm';
+import { normalizeRoomType } from '@shared/roomTypes';
 
 interface DemandData {
   currentDemand: number;
@@ -24,6 +28,7 @@ interface PrecomputedSignals {
   serviceLineOccupancy: Map<string, number>;
   locationOccupancy: Map<string, number>;
   locationRoomTypeOccupancy: Map<string, number>;
+  t3mOccupancyMap: Map<string, number>;
   serviceLineMedians: Map<string, number>;
   monthIndex: number;
   demandCache: Map<string, DemandData>;
@@ -102,8 +107,16 @@ async function processUnitBatch(
         
         const locServiceRoomOccKey = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
         const locServiceOccKey = `${unit.locationId}|${unit.serviceLine}`;
-        const occupancy =
-          precomputedSignals.locationRoomTypeOccupancy.has(locServiceRoomOccKey)
+
+        // T3M room-type occupancy takes priority when history data is available
+        const normalizedRT = normalizeRoomType(unit.roomType || '');
+        const t3mKey = `${unit.locationId}|${unit.serviceLine}|${normalizedRT}`;
+        const t3mOcc = precomputedSignals.t3mOccupancyMap.get(t3mKey);
+
+        const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';
+        const occupancy = t3mOcc !== undefined
+          ? t3mOcc
+          : precomputedSignals.locationRoomTypeOccupancy.has(locServiceRoomOccKey)
             ? precomputedSignals.locationRoomTypeOccupancy.get(locServiceRoomOccKey)!
             : precomputedSignals.locationOccupancy.has(locServiceOccKey)
               ? precomputedSignals.locationOccupancy.get(locServiceOccKey)!
@@ -142,6 +155,7 @@ async function processUnitBatch(
         
         const pricingInputs: PricingInputs = {
           occupancy,
+          occupancySource,
           daysVacant: precomputedSignals.groupAvgDaysVacant.get(
             `${unit.locationId ?? unit.location ?? 'unknown'}|${unit.serviceLine}|${unit.roomType}`
           ) ?? 0,
@@ -185,6 +199,7 @@ async function processUnitBatch(
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
+          occupancySource,
           appliedRules: []
         };
         
@@ -568,6 +583,46 @@ export async function generateModuloOptimized(req: any, res: any) {
     
     await Promise.all(competitorPromises);
     console.log(`Competitor data cache: ${competitorCache.size} campus+service combinations pre-fetched`);
+
+    // Build T3M room type occupancy map (weighted avg per locationId|serviceLine|normalizedRoomType)
+    // Mirrors the logic in pricingJobManager.ts buildPricingContext step 8
+    const t3mOccupancyMap = new Map<string, number>();
+    try {
+      const distinctMonths = await db
+        .selectDistinct({ year: roomTypeOccupancyHistory.year, month: roomTypeOccupancyHistory.month })
+        .from(roomTypeOccupancyHistory)
+        .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+        .orderBy(sql`year DESC, month DESC`)
+        .limit(3);
+
+      if (distinctMonths.length > 0) {
+        const t3MonthConditions = distinctMonths.map(({ year, month }) =>
+          and(eq(roomTypeOccupancyHistory.year, year!), eq(roomTypeOccupancyHistory.month, month!))
+        );
+        const rtOccRows = await db.select().from(roomTypeOccupancyHistory)
+          .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...t3MonthConditions)));
+
+        const rtAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
+        for (const row of rtOccRows) {
+          if (!row.locationId) continue;
+          const key = `${row.locationId}|${row.serviceLine}|${row.normalizedRoomType}`;
+          if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
+          const entry = rtAccumulator.get(key)!;
+          entry.occUnits += row.occUnits ?? 0;
+          entry.availableUnits += row.availableUnits ?? 0;
+        }
+        for (const [key, { occUnits, availableUnits }] of rtAccumulator) {
+          if (availableUnits > 0) {
+            t3mOccupancyMap.set(key, occUnits / availableUnits);
+          }
+        }
+        console.log(`T3M occupancy map built: ${t3mOccupancyMap.size} room type segments (from months: ${distinctMonths.map(m => `${m.year}-${m.month}`).join(', ')})`);
+      } else {
+        console.log(`No room type occupancy history found for clientId=${clientId}, occupancy will use spot fallback`);
+      }
+    } catch (err) {
+      console.warn(`Failed to build T3M occupancy map, proceeding without it:`, err);
+    }
     
     // Compute average days vacant per locationId+serviceLine+roomType group
     // Only vacant units contribute (occupied units have daysVacant=0 which would skew downward)
@@ -591,6 +646,7 @@ export async function generateModuloOptimized(req: any, res: any) {
       serviceLineOccupancy,
       locationOccupancy,
       locationRoomTypeOccupancy,
+      t3mOccupancyMap,
       serviceLineMedians,
       monthIndex: new Date(targetMonth).getMonth() + 1,
       demandCache,
