@@ -5841,28 +5841,35 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         return res.status(400).json({ error: `No valid records found. ${skipped} rows were skipped (missing Month or Campus or Room Type).` });
       }
 
-      // Batch upsert using ON CONFLICT DO UPDATE
-      await db.insert(roomTypeOccupancyHistory)
-        .values(records)
-        .onConflictDoUpdate({
-          target: [
-            roomTypeOccupancyHistory.clientId,
-            roomTypeOccupancyHistory.locationName,
-            roomTypeOccupancyHistory.serviceLine,
-            roomTypeOccupancyHistory.normalizedRoomType,
-            roomTypeOccupancyHistory.month,
-            roomTypeOccupancyHistory.year,
-          ],
-          set: {
-            rawRoomType: drizzleSql`excluded.raw_room_type`,
-            division: drizzleSql`excluded.division`,
-            locationId: drizzleSql`excluded.location_id`,
-            occUnits: drizzleSql`excluded.occ_units`,
-            availableUnits: drizzleSql`excluded.available_units`,
-            occPercent: drizzleSql`excluded.occ_percent`,
-            uploadedAt: drizzleSql`now()`,
-          },
-        });
+      // Batch upsert in chunks of 500 inside a transaction to avoid PostgreSQL's
+      // 65,535 bind-parameter limit while preserving all-or-nothing semantics.
+      const CHUNK_SIZE = 500;
+      await db.transaction(async (tx) => {
+        for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+          const chunk = records.slice(i, i + CHUNK_SIZE);
+          await tx.insert(roomTypeOccupancyHistory)
+            .values(chunk)
+            .onConflictDoUpdate({
+              target: [
+                roomTypeOccupancyHistory.clientId,
+                roomTypeOccupancyHistory.locationName,
+                roomTypeOccupancyHistory.serviceLine,
+                roomTypeOccupancyHistory.normalizedRoomType,
+                roomTypeOccupancyHistory.month,
+                roomTypeOccupancyHistory.year,
+              ],
+              set: {
+                rawRoomType: drizzleSql`excluded.raw_room_type`,
+                division: drizzleSql`excluded.division`,
+                locationId: drizzleSql`excluded.location_id`,
+                occUnits: drizzleSql`excluded.occ_units`,
+                availableUnits: drizzleSql`excluded.available_units`,
+                occPercent: drizzleSql`excluded.occ_percent`,
+                uploadedAt: drizzleSql`now()`,
+              },
+            });
+        }
+      });
 
       res.json({
         message: 'Upload successful',
