@@ -391,13 +391,17 @@ export async function generateDemoData(): Promise<{
 
   // ── 3. Rent Roll Data ──────────────────────────────────────────────────────
   console.log('[demo] Generating rent roll data...');
-  // Use the most recent 3 months so the RRA endpoint (which queries T3 from today) finds data
+  // Generate 12 months of data so the Revenue Growth chart has a full trailing year.
+  // The most recent 3 months also satisfy the RRA endpoint (T3 from today).
   const now = new Date();
   const months: string[] = [];
-  for (let i = 2; i >= 0; i--) {
+  for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
+  // Revenue growth gradient: oldest month has rates ~8 % lower than current month.
+  // monthRateFactor[0] ≈ 0.92 (11 months ago), monthRateFactor[11] = 1.00 (now).
+  const monthRateFactor = months.map((_, idx) => 0.92 + (idx / (months.length - 1)) * 0.08);
   const rentRollBatch: any[] = [];
 
   for (const loc of insertedLocations) {
@@ -432,16 +436,22 @@ export async function generateDemoData(): Promise<{
         // Pre-compute competitor rate for this location/sl/roomType (same for all months)
         const competitorFinalRate = lookupCompetitorRate(loc.name, sl, roomSize);
 
-        for (const month of months) {
+        for (let mIdx = 0; mIdx < months.length; mIdx++) {
+          const month = months[mIdx];
+          const rateFactor = monthRateFactor[mIdx];
+
           const globalR = seededRand(month.charCodeAt(5) * 97 + loc.name.charCodeAt(0) * 13 + sl.charCodeAt(0) * 7);
           const monthOccVariance = (globalR() - 0.5) * 0.04;
           const occ = Math.max(0.3, Math.min(0.99, targetOcc + monthOccVariance));
           const occupiedCount = Math.round(unitCount * occ);
 
+          // Apply month-specific rate factor so older months have proportionally lower rates
+          const monthStreetRate = Math.round(streetRate * rateFactor);
+
           // Month-specific Modulo variance (±1.5%)
           const monthModuloVariance = 1.0 + (moduloVarianceSeed() - 0.5) * 0.015;
           const moduloFactor = rawModuloFactor * monthModuloVariance;
-          const moduloSuggestedRate = Math.round(streetRate * moduloFactor);
+          const moduloSuggestedRate = Math.round(monthStreetRate * moduloFactor);
 
           // Per-unit seed so RRA decisions are stable across months for the same unit
           const unitRraSeed = seededRand(
@@ -452,7 +462,7 @@ export async function generateDemoData(): Promise<{
             const isOccupied = i < occupiedCount;
             const unitNum = 100 + Math.floor(i / 2) * 10 + (i % 2);
             const roomNumber = `${sl.replace('/', '')}-${unitNum}`;
-            const inHouseRate = isOccupied ? Math.round(streetRate * randBetween(locSeed, 0.85, 0.98)) : 0;
+            const inHouseRate = isOccupied ? Math.round(monthStreetRate * randBetween(locSeed, 0.85, 0.98)) : 0;
             const daysVacant = isOccupied ? 0 : randInt(locSeed, 1, 180);
             const moveInDate = isOccupied ? pastDate(locSeed, 6, 36) : null;
             const payorType = isOccupied ? pickPayorType(locSeed, sl) : null;
@@ -475,13 +485,14 @@ export async function generateDemoData(): Promise<{
               serviceLine: sl,
               occupiedYN: isOccupied,
               daysVacant,
-              streetRate,
+              streetRate: monthStreetRate,
               inHouseRate,
-              discountToStreetRate: isOccupied ? streetRate - inHouseRate : 0,
+              discountToStreetRate: isOccupied ? monthStreetRate - inHouseRate : 0,
               promotionAllowance,
               payorType,
               moveInDate,
               clientId: 'demo',
+              sameStore: true,
               // Pre-computed competitor rate from survey data
               competitorFinalRate,
               competitorRate: competitorFinalRate,

@@ -2649,12 +2649,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const spySortedDates = Object.keys(spyData).sort();
       const useRealSP500Data = spySortedDates.length > months;
 
-      const INDUSTRY_BASKET = ['WELL', 'VTR', 'BKD', 'AMH', 'AGNG'];
+      // Senior-housing REIT basket — pure senior living operators/REITs only.
+      // BKD and AMH were removed: BKD delisted/volatile; AMH is an apartment REIT.
+      const INDUSTRY_BASKET = ['WELL', 'VTR', 'LTC', 'SBRA', 'OHI'];
       const basketSeriesMap: Record<string, Record<string, number>> = {};
+      // Demo client uses a synthetic NIC-style industry curve (real REIT stock prices
+      // reflect capital-markets volatility, not operational revenue growth).
+      // Always initialise each entry so downstream Object.keys() calls never throw.
       for (const symbol of INDUSTRY_BASKET) {
-        basketSeriesMap[symbol] = await fetchMonthlySeriesFromAlphaVantage(symbol);
+        basketSeriesMap[symbol] = (clientId !== 'demo')
+          ? await fetchMonthlySeriesFromAlphaVantage(symbol)
+          : {};
       }
-      const hasRealIndustryData = INDUSTRY_BASKET.some(s => Object.keys(basketSeriesMap[s]).length > months);
+      const hasRealIndustryData = clientId !== 'demo' &&
+        INDUSTRY_BASKET.some(s => Object.keys(basketSeriesMap[s]).length > months);
       
       const currentDate = new Date();
       const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -2728,6 +2736,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } else {
           industry.push(null);
+        }
+      }
+
+      // For demo: replace REIT-based industry with a synthetic NIC-style curve.
+      // Models ~8 % YOY senior-living revenue growth with gentle sinusoidal variation,
+      // so the demo portfolio (Same Store ~8–10 %) appears to slightly beat the industry.
+      if (clientId === 'demo') {
+        const targetYoY = 0.082; // 8.2 % annual target
+        for (let i = 0; i < months; i++) {
+          const progress = months > 1 ? i / (months - 1) : 0;
+          // Smooth S-curve with subtle seasonal noise (peaks mid-summer, dips winter)
+          const seasonal = Math.sin(progress * Math.PI * 1.5 - 0.4) * 0.008;
+          const indexVal = 100 * (1 + progress * targetYoY + seasonal);
+          industry[i] = Math.round(indexVal * 100) / 100;
         }
       }
 
