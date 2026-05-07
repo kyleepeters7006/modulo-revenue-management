@@ -75,6 +75,21 @@ export function getSentenceExplanation(factor: string, inputs: any, adjustment: 
         return `Current demand is within normal range compared to our historical patterns. Pricing adjustments based on demand remain minimal as activity levels are stable.`;
       }
 
+    case 'roomtypetrend':
+      if (inputs.roomTypeOccTrend === undefined || inputs.roomTypeOccTrend === null) {
+        return `No trailing 3-month room type occupancy data available. The room type demand trend factor was not applied.`;
+      }
+      const rtOccPct = Math.round(inputs.roomTypeOccTrend * 100);
+      const slOccPct = Math.round(inputs.occupancy * 100);
+      const divergencePts = rtOccPct - slOccPct;
+      if (divergencePts > 3) {
+        return `This room type has a trailing 3-month average occupancy of ${rtOccPct}%, which is ${divergencePts} percentage points above the ${slOccPct}% service-line average. Stronger demand for this room type supports a slight rate premium to capture additional revenue.`;
+      } else if (divergencePts < -3) {
+        return `This room type has a trailing 3-month average occupancy of ${rtOccPct}%, which is ${Math.abs(divergencePts)} percentage points below the ${slOccPct}% service-line average. Weaker relative demand for this room type warrants a modest rate reduction to improve competitiveness and fill velocity.`;
+      } else {
+        return `This room type has a trailing 3-month average occupancy of ${rtOccPct}%, closely tracking the ${slOccPct}% service-line average. No meaningful divergence is detected, so the room type trend applies minimal adjustment.`;
+      }
+
     default:
       return `Adjustment factor applied based on current market conditions and unit characteristics.`;
   }

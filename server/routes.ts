@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory } from "@shared/schema";
 import { sql, and, eq, gte, lt, or, desc, inArray, isNull } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -8097,6 +8097,37 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         groupAvgDaysVacant[key] = Math.round((vals as number[]).reduce((a, b) => a + b, 0) / (vals as number[]).length);
       }
 
+      // Build trailing 3-month room type occupancy lookup for demand signal enrichment
+      const rtT3OccMap = new Map<string, number>();
+      try {
+        const now = new Date();
+        const t3MonthConditions: ReturnType<typeof and>[] = [];
+        for (let i = 0; i < 3; i++) {
+          let m = now.getMonth() + 1 - i;
+          let y = now.getFullYear();
+          if (m <= 0) { m += 12; y -= 1; }
+          t3MonthConditions.push(and(eq(roomTypeOccupancyHistory.month, m), eq(roomTypeOccupancyHistory.year, y)));
+        }
+        const rtOccRows = await db.select().from(roomTypeOccupancyHistory)
+          .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...t3MonthConditions)));
+        const rtAccumulator = new Map<string, { total: number; count: number }>();
+        for (const row of rtOccRows) {
+          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
+          if (!rtAccumulator.has(key)) rtAccumulator.set(key, { total: 0, count: 0 });
+          const entry = rtAccumulator.get(key)!;
+          if (row.occPercent !== null && row.occPercent !== undefined) {
+            entry.total += row.occPercent;
+            entry.count += 1;
+          }
+        }
+        for (const [key, { total, count }] of rtAccumulator) {
+          if (count > 0) rtT3OccMap.set(key, (total / count) / 100); // stored as %, convert to 0-1
+        }
+        console.log(`[Modulo] Loaded room type T3 occupancy data for ${rtT3OccMap.size} room type segments`);
+      } catch (err) {
+        console.warn('[Modulo] Failed to load room type T3 occupancy data, proceeding without it:', err);
+      }
+
       // Collect all updates in memory first for bulk processing
       const updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }> = [];
       
@@ -8191,6 +8222,11 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const demandHistory = demandData.demandHistory.length > 0 ? demandData.demandHistory : [10, 12, 15, 13, 14, 11];
           const demandCurrent = demandData.currentDemand > 0 ? demandData.currentDemand : 12;
           
+          // Look up T3 room type occupancy trend for this unit
+          // Normalize roomType at lookup time to guarantee alignment with normalizedRoomType in history table
+          const rtKey = `${unit.location}|${unit.serviceLine}|${normalizeRoomType(unit.roomType || '')}`;
+          const roomTypeOccTrend = rtT3OccMap.get(rtKey);
+
           // Use the pricing orchestrator with attribute-based pricing
           const pricingInputs: PricingInputs = {
             occupancy: serviceLineOcc,
@@ -8200,7 +8236,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             marketReturn: stockMarketChange / 100,
             demandCurrent,
             demandHistory,
-            serviceLine: unit.serviceLine
+            serviceLine: unit.serviceLine,
+            roomTypeOccTrend
           };
           
           // Use the unitWeights already fetched from database (Issue 1 fix: no manual construction)
@@ -8429,6 +8466,37 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
         serviceLineOccupancy.set(sl, stats.total > 0 ? stats.occupied / stats.total : 0.87);
       }
       
+      // Build trailing 3-month room type occupancy lookup for the AI pricing engine
+      const aiRtT3OccMap = new Map<string, number>();
+      try {
+        const nowAi = new Date();
+        const aiT3Conditions: ReturnType<typeof and>[] = [];
+        for (let i = 0; i < 3; i++) {
+          let m = nowAi.getMonth() + 1 - i;
+          let y = nowAi.getFullYear();
+          if (m <= 0) { m += 12; y -= 1; }
+          aiT3Conditions.push(and(eq(roomTypeOccupancyHistory.month, m), eq(roomTypeOccupancyHistory.year, y)));
+        }
+        const aiRtOccRows = await db.select().from(roomTypeOccupancyHistory)
+          .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...aiT3Conditions)));
+        const aiRtAccumulator = new Map<string, { total: number; count: number }>();
+        for (const row of aiRtOccRows) {
+          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
+          if (!aiRtAccumulator.has(key)) aiRtAccumulator.set(key, { total: 0, count: 0 });
+          const entry = aiRtAccumulator.get(key)!;
+          if (row.occPercent !== null && row.occPercent !== undefined) {
+            entry.total += row.occPercent;
+            entry.count += 1;
+          }
+        }
+        for (const [key, { total, count }] of aiRtAccumulator) {
+          if (count > 0) aiRtT3OccMap.set(key, (total / count) / 100); // stored as %, convert to 0-1
+        }
+        console.log(`[AI Pricing] Loaded room type T3 occupancy data for ${aiRtT3OccMap.size} room type segments`);
+      } catch (err) {
+        console.warn('[AI Pricing] Failed to load room type T3 occupancy data, proceeding without it:', err);
+      }
+
       // Load all supporting data in parallel
       const [currentWeights, guardrailsData, revenueGrowthTargets, competitors] = await Promise.all([
         storage.getAiPricingWeights().then(w => w || {
@@ -8692,6 +8760,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           competitorPrices = [unit.streetRate * 0.95, unit.streetRate * 1.05];
         }
         
+        // Normalize roomType at lookup time to guarantee alignment with normalizedRoomType in history table
+        const aiRtKey = `${unit.location}|${unit.serviceLine}|${normalizeRoomType(unit.roomType || '')}`;
         const pricingInputs: PricingInputs = {
           occupancy: serviceLineOcc,
           daysVacant: unit.daysVacant || 0,
@@ -8702,7 +8772,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           demandHistory: [15, 20, 30, 18, 35, 22, 28, 16],
           serviceLine: unit.serviceLine,
           revenueGrowthGap: revenueGapData.gap,
-          targetRevenueGrowth: revenueGapData.target
+          targetRevenueGrowth: revenueGapData.target,
+          roomTypeOccTrend: aiRtT3OccMap.get(aiRtKey)
         };
         
         const pricingWeights = {

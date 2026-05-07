@@ -279,6 +279,25 @@ function signalDemand(current: number, history: number[], cfg: ModuloPricingConf
 }
 
 /**
+ * Room Type Occupancy Trend Signal
+ *
+ * This is an INFORMATIONAL OVERRIDE - not part of the normalized weighted signals.
+ * It applies a small pricing nudge based on whether the specific room type is filling
+ * faster or slower than the overall service-line average.
+ *
+ * divergence = roomTypeOcc - serviceLineOcc
+ * - Positive (room type filling faster) → upward pressure (more demand for this type)
+ * - Negative (room type lagging) → downward pressure (this type harder to fill)
+ *
+ * Capped at ±3% max effect.
+ */
+function signalRoomTypeOccTrend(roomTypeOcc: number, serviceLineOcc: number): number {
+  const divergence = roomTypeOcc - serviceLineOcc;
+  // Normalize: a 10-percentage-point divergence maps to full signal (±1.0)
+  return clamp(divergence / 0.10, -1.0, 1.0);
+}
+
+/**
  * Revenue Growth Target Signal
  * 
  * This is a STRATEGIC OVERRIDE - not part of the normalized weighted signals.
@@ -320,6 +339,7 @@ export interface PricingInputs {
   serviceLine?: string;        // Service line (AL, HC, SL, VIL, AL/MC, HC/MC) for market positioning
   revenueGrowthGap?: number;   // Gap between target and actual YOY growth (positive = ahead, negative = behind)
   targetRevenueGrowth?: number; // The target growth percentage for this service line
+  roomTypeOccTrend?: number;   // Trailing 3-month avg occupancy % for this specific room type (0-1 scale)
 }
 
 export interface PricingWeights {
@@ -395,10 +415,20 @@ export function calculateModuloPrice(
   // This applies additional pricing pressure based on revenue target gap
   const revenueGrowthSignal = signalRevenueGrowthTarget(inputs.revenueGrowthGap, cfg);
   const revenueGrowthAdjustment = revenueGrowthSignal * cfg.revenueGrowthSpan;
-  
-  // Add revenue growth adjustment on top of the blended adjustment
-  const totalAdjWithRevenue = totalAdj + revenueGrowthAdjustment;
-  const finalTotalAdj = clamp(totalAdjWithRevenue, cfg.minTotalAdj, cfg.maxTotalAdj);
+
+  // Room Type Occupancy Trend - Informational override (NOT part of normalized weights)
+  // Applies a small nudge when this room type fills faster/slower than the service-line average
+  const roomTypeOccSpan = 0.03; // ±3% max effect
+  let roomTypeOccSignal = 0;
+  let roomTypeOccAdjustment = 0;
+  if (inputs.roomTypeOccTrend !== undefined && inputs.roomTypeOccTrend !== null) {
+    roomTypeOccSignal = signalRoomTypeOccTrend(inputs.roomTypeOccTrend, inputs.occupancy);
+    roomTypeOccAdjustment = roomTypeOccSignal * roomTypeOccSpan;
+  }
+
+  // Add revenue growth and room type occ trend adjustments on top of the blended adjustment
+  const totalAdjWithOverrides = totalAdj + revenueGrowthAdjustment + roomTypeOccAdjustment;
+  const finalTotalAdj = clamp(totalAdjWithOverrides, cfg.minTotalAdj, cfg.maxTotalAdj);
   
   const finalPrice = basePrice * (1.0 + finalTotalAdj);
   
@@ -477,10 +507,40 @@ export function calculateModuloPrice(
     });
   }
   
+  // Room Type Occupancy Trend - add as informational adjustment entry if data is available
+  if (inputs.roomTypeOccTrend !== undefined && inputs.roomTypeOccTrend !== null) {
+    const rtOccPct = Math.round(inputs.roomTypeOccTrend * 100);
+    const slOccPct = Math.round(inputs.occupancy * 100);
+    const divergencePts = rtOccPct - slOccPct;
+    const direction = divergencePts > 0 ? 'above' : 'below';
+    const pressureWord = divergencePts > 0 ? 'upward' : 'downward';
+
+    adjustments.push({
+      factor: 'RoomTypeTrend',
+      adjustment: roomTypeOccAdjustment,
+      weight: 0,
+      weightedAdjustment: roomTypeOccAdjustment,
+      impact: basePrice * roomTypeOccAdjustment,
+      description: `Room type T3 occ: ${rtOccPct}% (${Math.abs(divergencePts)}pts ${direction} service-line avg of ${slOccPct}%)`,
+      calculation: `Room type T3 avg ${rtOccPct}% vs service-line ${slOccPct}% → ${divergencePts > 0 ? '+' : ''}${(roomTypeOccAdjustment * 100).toFixed(2)}% adjustment`,
+      signal: roomTypeOccSignal,
+      rawData: {
+        'Room Type T3 Avg Occ': `${rtOccPct}%`,
+        'Service-Line Avg Occ': `${slOccPct}%`,
+        'Divergence': `${divergencePts > 0 ? '+' : ''}${divergencePts}pp`,
+        'Pricing Pressure': `${pressureWord} (${Math.abs(divergencePts)}pp from avg)`,
+        'Max Effect': '±3%',
+        'Note': 'Informational override — room type demand signal, not part of weighted factors'
+      },
+      signalExplanation: `Room type occupancy trend: this specific room type has a trailing 3-month average occupancy of ${rtOccPct}%, which is ${Math.abs(divergencePts)} percentage points ${direction} the service-line average of ${slOccPct}%. This ${Math.abs(divergencePts)}pp divergence applies ${pressureWord} pricing pressure of ${(roomTypeOccAdjustment * 100).toFixed(2)}% (capped at ±3%) to reflect room-type-level demand.`
+    });
+  }
+
   // Include revenue growth signal in signals object for visibility
   const allSignals = {
     ...sigs,
-    revenueTarget: revenueGrowthSignal
+    revenueTarget: revenueGrowthSignal,
+    roomTypeTrend: roomTypeOccSignal
   };
   
   return {
