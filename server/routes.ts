@@ -8502,13 +8502,24 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         const orchestratorResult = await calculateAttributedPrice(unit, pricingWeights, pricingInputs, guardrailsData || undefined);
 
         // ── Revenue Target Strategy Layer ────────────────────────────────────
-        // Only applied to vacant units; occupied units keep the existing AI rate.
+        // Guardrail reference: use the unit's previously-stored AI rate when available
+        // so that month-over-month drift is bounded by the configured limits.
+        // Falls back to the current orchestrator output on first calculation.
         let finalAiRate = orchestratorResult.finalPrice;
         let strategyLayerOutput: ReturnType<typeof applyRevenueTargetStrategyLayer> | null = null;
 
+        // Resolve previously stored AI rate for guardrail drift protection
+        const storedAiRate = (unit.aiSuggestedRate && unit.aiSuggestedRate > 0)
+          ? unit.aiSuggestedRate
+          : null;
+
         if (!unit.occupiedYN && defaultStrategyConfig.enableRevenueTargetStrategyLayer) {
           const sl = unit.serviceLine || '';
-          const existingAiRateMonthly = toMonthlyRate(orchestratorResult.finalPrice, sl);
+          // Use stored rate as guardrail reference (prevents drift across recalculations).
+          // If no prior rate exists, fall back to the current orchestrator result.
+          const existingAiRateMonthly = storedAiRate
+            ? toMonthlyRate(storedAiRate, sl)
+            : toMonthlyRate(orchestratorResult.finalPrice, sl);
           const competitorMonthly = competitorAverageRateRaw !== undefined
             ? toMonthlyRate(competitorAverageRateRaw, sl)
             : undefined;
@@ -8582,6 +8593,19 @@ Ensure all weights are positive integers and sum to exactly 100.`;
             revenueGapDollarsContribution: 0,
           });
         } else if (unit.occupiedYN) {
+          // Occupied units skip the strategy layer but still need drift protection.
+          // Clamp the orchestrator result against the previously stored AI rate.
+          if (storedAiRate && guardrailsData) {
+            const maxIncreaseFrac = guardrailsData.maxRateIncrease ?? 0.15;
+            const maxDecreaseFrac = guardrailsData.minRateDecrease ?? 0.05;
+            const rateFloor = storedAiRate * (1 - maxDecreaseFrac);
+            const rateCeiling = storedAiRate * (1 + maxIncreaseFrac);
+            if (finalAiRate > rateCeiling) {
+              finalAiRate = Math.round(rateCeiling);
+            } else if (finalAiRate < rateFloor) {
+              finalAiRate = Math.round(rateFloor);
+            }
+          }
           unitProjections.push({
             isVacant: false,
             hasTarget: false,
@@ -8615,6 +8639,14 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
           guardrailsApplied: orchestratorResult.guardrailsApplied,
+          // Drift-protection guardrail: clamp relative to previously stored AI rate
+          driftGuardrail: storedAiRate ? {
+            referenceRate: storedAiRate,
+            maxIncreasePct: (guardrailsData?.maxRateIncrease ?? 0.15) * 100,
+            maxDecreasePct: (guardrailsData?.minRateDecrease ?? 0.05) * 100,
+            ceiling: Math.round(storedAiRate * (1 + (guardrailsData?.maxRateIncrease ?? 0.15))),
+            floor: Math.round(storedAiRate * (1 - (guardrailsData?.minRateDecrease ?? 0.05))),
+          } : null,
           poweredByGPT5: true,
           // Revenue Target Strategy - shows how targets influence pricing (original layer)
           revenueTarget: {
