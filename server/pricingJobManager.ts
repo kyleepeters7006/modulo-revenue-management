@@ -408,11 +408,18 @@ class PricingJobManager {
         // Accumulate occ_units and available_units for weighted average
         const rtAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
         for (const row of rtOccRows) {
-          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
-          if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
-          const entry = rtAccumulator.get(key)!;
-          entry.occUnits += row.occUnits ?? 0;
-          entry.availableUnits += row.availableUnits ?? 0;
+          const locName = (row.locationName || '').trim().toLowerCase();
+          const normalizedRoomTypeKey = (row.normalizedRoomType || '').trim().toLowerCase();
+          // Split composite service lines (e.g. "AL, MC") into individual tokens so
+          // each token gets its own map entry and lookup by single service line succeeds.
+          const serviceLineTokens = (row.serviceLine || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+          for (const slToken of serviceLineTokens) {
+            const key = `${locName}|${slToken}|${normalizedRoomTypeKey}`;
+            if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
+            const entry = rtAccumulator.get(key)!;
+            entry.occUnits += row.occUnits ?? 0;
+            entry.availableUnits += row.availableUnits ?? 0;
+          }
         }
         for (const [key, { occUnits, availableUnits }] of rtAccumulator) {
           if (availableUnits > 0) {
@@ -715,8 +722,9 @@ class PricingJobManager {
         const serviceLineOcc = context.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
 
         // Look up T3M room type occupancy — use weighted avg if available, else fall back to spot
-        const normalizedRT = normalizeRoomType(unit.roomType || '');
-        const t3mKey = `${unit.location}|${unit.serviceLine}|${normalizedRT}`;
+        // Keys are stored lowercase+trimmed (location, service line, and room type), so normalize all three
+        const normalizedRT = normalizeRoomType(unit.roomType || '').trim().toLowerCase();
+        const t3mKey = `${(unit.location || '').trim().toLowerCase()}|${(unit.serviceLine || '').trim().toLowerCase()}|${normalizedRT}`;
         const t3mOcc = context.t3mOccupancyMap.get(t3mKey);
         const occupancy = t3mOcc !== undefined ? t3mOcc : serviceLineOcc;
         const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';
