@@ -1561,6 +1561,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Room Type Occupancy History template download endpoint
+  app.get("/api/template/room-type-occupancy", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+      const templateData = [
+        {
+          'Month': 'DESCRIPTION: Last day of the month (e.g., 1/31/2026)',
+          'Division': 'DESCRIPTION: Division name (e.g., Indiana)',
+          'Campus': 'DESCRIPTION: Facility/campus name matching your location list',
+          'Service Line': 'DESCRIPTION: Service line code (e.g., AL, HC, IL, SL, VIL)',
+          'Room Type': 'DESCRIPTION: Raw room type string from VO report (e.g., Studio;A Vw;B Loc;B Sz)',
+          'Occ Units': 'DESCRIPTION: Number of occupied units (numeric)',
+          'Available Units/Beds': 'DESCRIPTION: Total available units or beds (numeric)',
+          'OCC%': 'DESCRIPTION: Occupancy percentage (e.g., 84% or 84)',
+        },
+        {
+          'Month': '1/31/2026',
+          'Division': 'Indiana',
+          'Campus': 'Anderson - 112',
+          'Service Line': 'AL',
+          'Room Type': 'Studio;A Vw;B Loc;B Sz',
+          'Occ Units': 10,
+          'Available Units/Beds': 12,
+          'OCC%': '83.33%',
+        },
+        {
+          'Month': '1/31/2026',
+          'Division': 'Indiana',
+          'Campus': 'Anderson - 112',
+          'Service Line': 'AL',
+          'Room Type': 'MC-Compan;A Vw;A Loc;A Sz',
+          'Occ Units': 4,
+          'Available Units/Beds': 4,
+          'OCC%': '100%',
+        },
+        {},
+        {
+          'Month': 'FREQUENCY: Upload monthly. Rows are matched by Campus + Service Line + Normalized Room Type + Month/Year and upserted.',
+        }
+      ];
+
+      const sheet = xlsx.utils.json_to_sheet(templateData);
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Room Type Occ History');
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="room_type_occupancy_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating room type occupancy template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
   // Location template download endpoint with description row
   app.get("/api/template/location", async (req, res) => {
     try {
@@ -5661,6 +5715,168 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
     } catch (error) {
       console.error('Inquiry upload error:', error);
       res.status(500).json({ error: 'Failed to process inquiry data upload' });
+    }
+  });
+
+  // Room Type Occupancy History upload endpoint
+  app.post("/api/upload/room-type-occupancy", upload.single('file'), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const clientId = req.clientId || 'demo';
+      const buffer = req.file.buffer;
+      let jsonData: any[] = [];
+
+      if (req.file.originalname.endsWith('.csv')) {
+        const csvText = buffer.toString();
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        jsonData = parsed.data as any[];
+      } else if (req.file.originalname.endsWith('.xlsx') || req.file.originalname.endsWith('.xls')) {
+        const workbook = xlsx.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        jsonData = xlsx.utils.sheet_to_json(worksheet);
+      } else {
+        return res.status(400).json({ error: 'Unsupported file format. Please use CSV or Excel files.' });
+      }
+
+      if (jsonData.length === 0) {
+        return res.status(400).json({ error: 'No data found in file' });
+      }
+
+      const { normalizeRoomType } = await import('@shared/roomTypes');
+      const { roomTypeOccupancyHistory } = await import('@shared/schema');
+      const { db } = await import('./db');
+      const { sql: drizzleSql } = await import('drizzle-orm');
+
+      // Fetch all locations for this client for matching
+      const allLocations = await storage.getLocations(clientId);
+      const locationMap = new Map<string, string>();
+      for (const loc of allLocations) {
+        locationMap.set(loc.name.toLowerCase().trim(), loc.id);
+      }
+
+      const parseOccPercent = (val: any): number | null => {
+        if (val === null || val === undefined || val === '') return null;
+        const str = String(val).replace('%', '').trim();
+        const num = parseFloat(str);
+        return isNaN(num) ? null : num;
+      };
+
+      const parseMonthFromDate = (val: any): { month: number; year: number } | null => {
+        if (!val) return null;
+        let dateStr = String(val).trim();
+        // Excel serial date number
+        if (typeof val === 'number') {
+          const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+          return { month: d.getMonth() + 1, year: d.getFullYear() };
+        }
+        // e.g. "1/31/2026" or "01/31/2026"
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          const month = parseInt(parts[0]);
+          const year = parseInt(parts[2].length === 2 ? (parseInt(parts[2]) < 50 ? `20${parts[2]}` : `19${parts[2]}`) : parts[2]);
+          if (!isNaN(month) && !isNaN(year)) return { month, year };
+        }
+        // ISO or other parseable
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) return { month: d.getMonth() + 1, year: d.getFullYear() };
+        return null;
+      };
+
+      const records: any[] = [];
+      let skipped = 0;
+
+      for (const row of jsonData) {
+        const monthRaw = row['Month'] || row['month'];
+        const parsedDate = parseMonthFromDate(monthRaw);
+        if (!parsedDate) { skipped++; continue; }
+
+        const locationName = (row['Campus'] || row['campus'] || row['Location'] || row['location'] || '').toString().trim();
+        if (!locationName) { skipped++; continue; }
+
+        const rawRoomType = (row['Room Type'] || row['room type'] || row['RoomType'] || row['roomType'] || '').toString().trim();
+        if (!rawRoomType) { skipped++; continue; }
+
+        const serviceLine = (row['Service Line'] || row['service line'] || row['ServiceLine'] || row['serviceLine'] || '').toString().trim();
+        const division = (row['Division'] || row['division'] || '').toString().trim();
+
+        const occUnitsRaw = row['Occ Units'] || row['occ units'] || row['OCC Units'] || row['Occupied Units'] || null;
+        const availUnitsRaw = row['Available Units/Beds'] || row['Available Units'] || row['available units'] || row['Available Beds'] || null;
+        const occPercentRaw = row['OCC%'] || row['Occ%'] || row['occ%'] || row['OccPercent'] || row['Occ Percent'] || null;
+
+        const normalizedRoomType = normalizeRoomType(rawRoomType);
+        const locationId = locationMap.get(locationName.toLowerCase()) || null;
+
+        records.push({
+          clientId,
+          locationId,
+          locationName,
+          division: division || null,
+          serviceLine,
+          rawRoomType,
+          normalizedRoomType,
+          month: parsedDate.month,
+          year: parsedDate.year,
+          occUnits: occUnitsRaw !== null && occUnitsRaw !== '' ? parseFloat(String(occUnitsRaw)) || null : null,
+          availableUnits: availUnitsRaw !== null && availUnitsRaw !== '' ? parseInt(String(availUnitsRaw)) || null : null,
+          occPercent: parseOccPercent(occPercentRaw),
+        });
+      }
+
+      if (records.length === 0) {
+        return res.status(400).json({ error: `No valid records found. ${skipped} rows were skipped (missing Month or Campus or Room Type).` });
+      }
+
+      // Upsert all records
+      let inserted = 0;
+      let updated = 0;
+
+      for (const record of records) {
+        const existing = await db.select({ id: roomTypeOccupancyHistory.id })
+          .from(roomTypeOccupancyHistory)
+          .where(drizzleSql`
+            ${roomTypeOccupancyHistory.clientId} = ${record.clientId}
+            AND ${roomTypeOccupancyHistory.locationName} = ${record.locationName}
+            AND ${roomTypeOccupancyHistory.serviceLine} = ${record.serviceLine}
+            AND ${roomTypeOccupancyHistory.normalizedRoomType} = ${record.normalizedRoomType}
+            AND ${roomTypeOccupancyHistory.month} = ${record.month}
+            AND ${roomTypeOccupancyHistory.year} = ${record.year}
+          `)
+          .limit(1);
+
+        if (existing.length > 0) {
+          await db.update(roomTypeOccupancyHistory)
+            .set({
+              rawRoomType: record.rawRoomType,
+              division: record.division,
+              locationId: record.locationId,
+              occUnits: record.occUnits,
+              availableUnits: record.availableUnits,
+              occPercent: record.occPercent,
+            })
+            .where(drizzleSql`${roomTypeOccupancyHistory.id} = ${existing[0].id}`);
+          updated++;
+        } else {
+          await db.insert(roomTypeOccupancyHistory).values(record);
+          inserted++;
+        }
+      }
+
+      res.json({
+        message: 'Upload successful',
+        recordsProcessed: records.length,
+        inserted,
+        updated,
+        skipped,
+        total: jsonData.length,
+      });
+
+    } catch (error) {
+      console.error('Room type occupancy upload error:', error);
+      res.status(500).json({ error: 'Failed to process room type occupancy data upload' });
     }
   });
 

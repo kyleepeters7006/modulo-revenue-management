@@ -999,6 +999,36 @@ export const insertMlTrainingHistorySchema = createInsertSchema(mlTrainingHistor
   createdAt: true,
 });
 
+// Room Type Occupancy History - VO "Avg Occ by Room Type" report uploads
+export const roomTypeOccupancyHistory = pgTable("room_type_occupancy_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  locationId: varchar("location_id").references(() => locations.id),
+  locationName: text("location_name").notNull(),
+  division: text("division"),
+  serviceLine: text("service_line").notNull(),
+  rawRoomType: text("raw_room_type").notNull(),
+  normalizedRoomType: text("normalized_room_type").notNull(),
+  month: integer("month").notNull(),
+  year: integer("year").notNull(),
+  occUnits: real("occ_units"),
+  availableUnits: integer("available_units"),
+  occPercent: real("occ_percent"),
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+}, (table) => ({
+  clientLocSlRtMonthYearUniq: uniqueIndex("rt_occ_hist_unique_idx").on(
+    table.clientId, table.locationName, table.serviceLine, table.normalizedRoomType, table.month, table.year
+  ),
+}));
+
+export const insertRoomTypeOccupancyHistorySchema = createInsertSchema(roomTypeOccupancyHistory).omit({
+  id: true,
+  uploadedAt: true,
+});
+
+export type RoomTypeOccupancyHistory = typeof roomTypeOccupancyHistory.$inferSelect;
+export type InsertRoomTypeOccupancyHistory = z.infer<typeof insertRoomTypeOccupancyHistorySchema>;
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;

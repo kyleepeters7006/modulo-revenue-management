@@ -26,6 +26,7 @@ export default function DataManagement() {
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
   const locationFileInputRef = useRef<HTMLInputElement>(null);
+  const roomTypeOccFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
@@ -81,20 +82,22 @@ export default function DataManagement() {
     },
   });
 
-  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location') => {
+  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy') => {
     try {
       const endpoints = {
         'rent-roll': '/api/template/rent-roll',
         'inquiry': '/api/template/inquiry',
         'competitor': '/api/template/competitor',
-        'location': '/api/template/location'
+        'location': '/api/template/location',
+        'room-type-occupancy': '/api/template/room-type-occupancy',
       };
       
       const filenames = {
         'rent-roll': 'rent_roll_template.xlsx',
         'inquiry': 'inquiry_data_template.xlsx',
         'competitor': 'competitive_data_template.xlsx',
-        'location': 'location_template.xlsx'
+        'location': 'location_template.xlsx',
+        'room-type-occupancy': 'room_type_occupancy_template.xlsx',
       };
       
       const response = await fetch(endpoints[type]);
@@ -472,7 +475,45 @@ export default function DataManagement() {
     }
   };
 
-  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location') => (event: React.ChangeEvent<HTMLInputElement>) => {
+  const roomTypeOccMutation = useMutation({
+    mutationFn: async ({ formData, uploadId }: { formData: FormData; uploadId: string }) => {
+      const response = await fetch('/api/upload/room-type-occupancy', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || error.message || 'Upload failed');
+      }
+      
+      return { data: await response.json(), uploadId };
+    },
+    onSuccess: ({ data, uploadId }) => {
+      updateUpload(uploadId, { status: 'success', message: `Processed ${data.recordsProcessed || 0} records` });
+      toast({
+        title: "Upload Successful",
+        description: `Processed ${data.recordsProcessed || 0} records (${data.inserted || 0} new, ${data.updated || 0} updated).`,
+      });
+      setUploadHistory(prev => [{ ...data, type: 'room-type-occupancy', timestamp: new Date() }, ...prev.slice(0, 9)]);
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+    },
+    onError: (error: Error, variables) => {
+      updateUpload(variables.uploadId, { status: 'error', error: error.message });
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      if (roomTypeOccFileInputRef.current) {
+        roomTypeOccFileInputRef.current.value = '';
+      }
+    },
+  });
+
+  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy') => (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
@@ -489,7 +530,8 @@ export default function DataManagement() {
       'rent-roll': rentRollMutation,
       'inquiry': inquiryMutation,
       'competitor': competitorMutation,
-      'location': locationMutation
+      'location': locationMutation,
+      'room-type-occupancy': roomTypeOccMutation,
     };
     
     mutations[type].mutate({ formData, uploadId });
@@ -827,6 +869,54 @@ export default function DataManagement() {
                 className="hidden"
                 onChange={handleFileUpload('competitor')}
                 data-testid="input-competitor-file"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Room Type Occupancy History Upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Room Type Occupancy History Upload</CardTitle>
+              <CardDescription>
+                Upload VO "Avg Occ by Room Type" report data to track occupancy trends by room type
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="h-4 w-4" />
+                <AlertDescription>
+                  Upload the long-format VO occupancy report containing Month, Division, Campus, Service Line, Room Type, Occ Units, Available Units/Beds, and OCC%. Room types are automatically normalized to 5 standard groups: Studio, Studio Dlx, One Bedroom, Two Bedroom, and Companion.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col space-y-3">
+                <Button
+                  onClick={() => handleDownloadTemplate('room-type-occupancy')}
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                  data-testid="button-download-room-type-occ-template"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Room Type Occupancy Template
+                </Button>
+
+                <Button
+                  onClick={() => roomTypeOccFileInputRef.current?.click()}
+                  disabled={isUploading('room-type-occupancy')}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
+                  data-testid="button-upload-room-type-occ"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {isUploading('room-type-occupancy') ? 'Processing...' : 'Upload Room Type Occupancy Data'}
+                </Button>
+              </div>
+
+              <input
+                ref={roomTypeOccFileInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={handleFileUpload('room-type-occupancy')}
+                data-testid="input-room-type-occ-file"
               />
             </CardContent>
           </Card>
