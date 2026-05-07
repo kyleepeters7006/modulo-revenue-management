@@ -5760,7 +5760,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       const { normalizeRoomType } = await import('@shared/roomTypes');
       const { roomTypeOccupancyHistory } = await import('@shared/schema');
       const { db } = await import('./db');
-      const { sql: drizzleSql } = await import('drizzle-orm');
 
       // Fetch all locations for this client for matching
       const allLocations = await storage.getLocations(clientId);
@@ -5875,39 +5874,79 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       }
       const mergedRecords = Array.from(mergeMap.values());
 
-      // Batch upsert in chunks of 500 inside a transaction to avoid PostgreSQL's
-      // 65,535 bind-parameter limit while preserving all-or-nothing semantics.
+      // Use delete-then-insert inside a transaction instead of ON CONFLICT DO UPDATE.
+      // The DB unique index may be on only 5 columns (clientId, locationName,
+      // normalizedRoomType, month, year) WITHOUT serviceLine. When multiple rows share
+      // that 5-column key but differ only by serviceLine they all survive the first merge
+      // pass above (which keys on 6 columns) but then collide during insert.
+      // We therefore perform a second deduplication pass keyed on the 5-column key,
+      // summing numeric fields and collecting all service lines into one record.
+      const fiveKeyMap = new Map<string, typeof mergedRecords[0]>();
+      for (const rec of mergedRecords) {
+        const key = `${rec.clientId}|${rec.locationName}|${rec.normalizedRoomType}|${rec.month}|${rec.year}`;
+        if (fiveKeyMap.has(key)) {
+          const existing = fiveKeyMap.get(key)!;
+          // Merge serviceLine labels (deduplicated)
+          const existingLines = existing.serviceLine ? existing.serviceLine.split(', ') : [];
+          if (rec.serviceLine && !existingLines.includes(rec.serviceLine)) {
+            existing.serviceLine = existing.serviceLine
+              ? `${existing.serviceLine}, ${rec.serviceLine}`
+              : rec.serviceLine;
+          }
+          // Merge rawRoomType labels (deduplicated)
+          const existingTypes = existing.rawRoomType ? existing.rawRoomType.split(', ') : [];
+          if (rec.rawRoomType && !existingTypes.includes(rec.rawRoomType)) {
+            existing.rawRoomType = `${existing.rawRoomType}, ${rec.rawRoomType}`;
+          }
+          // Sum numeric fields
+          if (rec.occUnits !== null) {
+            existing.occUnits = (existing.occUnits ?? 0) + rec.occUnits;
+          }
+          if (rec.availableUnits !== null) {
+            existing.availableUnits = (existing.availableUnits ?? 0) + rec.availableUnits;
+          }
+          // Recalculate occ percent from merged totals
+          if (existing.availableUnits !== null && existing.availableUnits > 0 && existing.occUnits !== null) {
+            existing.occPercent = (existing.occUnits / existing.availableUnits) * 100;
+          } else {
+            existing.occPercent = null;
+          }
+        } else {
+          fiveKeyMap.set(key, { ...rec });
+        }
+      }
+      const insertRecords = Array.from(fiveKeyMap.values());
+
       const CHUNK_SIZE = 500;
+
       await db.transaction(async (tx) => {
-        for (let i = 0; i < mergedRecords.length; i += CHUNK_SIZE) {
-          const chunk = mergedRecords.slice(i, i + CHUNK_SIZE);
-          await tx.insert(roomTypeOccupancyHistory)
-            .values(chunk)
-            .onConflictDoUpdate({
-              target: [
-                roomTypeOccupancyHistory.clientId,
-                roomTypeOccupancyHistory.locationName,
-                roomTypeOccupancyHistory.serviceLine,
-                roomTypeOccupancyHistory.normalizedRoomType,
-                roomTypeOccupancyHistory.month,
-                roomTypeOccupancyHistory.year,
-              ],
-              set: {
-                rawRoomType: drizzleSql`excluded.raw_room_type`,
-                division: drizzleSql`excluded.division`,
-                locationId: drizzleSql`excluded.location_id`,
-                occUnits: drizzleSql`excluded.occ_units`,
-                availableUnits: drizzleSql`excluded.available_units`,
-                occPercent: drizzleSql`excluded.occ_percent`,
-                uploadedAt: drizzleSql`now()`,
-              },
-            });
+        // Delete existing rows for all affected 5-column key combinations.
+        for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
+          const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
+          for (const key of chunk) {
+            await tx.delete(roomTypeOccupancyHistory)
+              .where(
+                and(
+                  eq(roomTypeOccupancyHistory.clientId, key.clientId),
+                  eq(roomTypeOccupancyHistory.locationName, key.locationName),
+                  eq(roomTypeOccupancyHistory.normalizedRoomType, key.normalizedRoomType),
+                  eq(roomTypeOccupancyHistory.month, key.month),
+                  eq(roomTypeOccupancyHistory.year, key.year),
+                )
+              );
+          }
+        }
+
+        // Insert fully-deduplicated records in chunks.
+        for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
+          const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
+          await tx.insert(roomTypeOccupancyHistory).values(chunk);
         }
       });
 
       res.json({
         message: 'Upload successful',
-        recordsProcessed: mergedRecords.length,
+        recordsProcessed: insertRecords.length,
         skipped,
         total: jsonData.length,
       });
