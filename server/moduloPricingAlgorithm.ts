@@ -330,6 +330,7 @@ function signalRevenueGrowthTarget(gap: number | undefined, cfg: ModuloPricingCo
 
 export interface PricingInputs {
   occupancy: number;           // 0-1 (e.g., 0.85 for 85%)
+  occupancySource?: 't3m' | 'spot'; // Whether occupancy came from T3M history or spot calculation
   daysVacant: number;          // integer days
   monthIndex: number;          // 1-12
   competitorPrices: number[];  // array of competitor rates
@@ -556,8 +557,10 @@ export function calculateModuloPrice(
 
 function getFactorDescription(factor: string, inputs: PricingInputs, adjustment: number, basePrice: number): string {
   switch(factor) {
-    case 'occupancy':
-      return `Unit type occupancy: ${Math.round(inputs.occupancy * 100)}% (target: 90%)`;
+    case 'occupancy': {
+      const srcLabel = inputs.occupancySource === 't3m' ? 'T3M avg' : 'spot';
+      return `Occupancy (${srcLabel}): ${Math.round(inputs.occupancy * 100)}% (target: 90%)`;
+    }
     case 'daysVacant':
       return `Unit type avg days vacant: ${inputs.daysVacant} days`;
     case 'seasonality':
@@ -635,6 +638,7 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
     case 'occupancy':
       return {
         'Current Occupancy': `${(inputs.occupancy * 100).toFixed(1)}%`,
+        'Occupancy Source': inputs.occupancySource === 't3m' ? 'T3M weighted avg (room type history)' : 'Spot (service-line snapshot)',
         'Target Occupancy': '90%',
         'Floor (Strong Cuts)': '85%',
         'Occupancy Pressure': inputs.occupancy < 0.85 ? 'High pressure to cut' : inputs.occupancy > 0.90 ? 'Premium territory' : 'Moderate zone'

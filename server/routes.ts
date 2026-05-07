@@ -8178,32 +8178,57 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       }
 
       // Build trailing 3-month room type occupancy lookup for demand signal enrichment
+      // rtT3OccMap keys: locationName|serviceLine|normalizedRoomType — used for roomTypeOccTrend nudge
+      // t3mOccByLocationId keys: locationId|serviceLine|normalizedRoomType — used to replace spot occupancy
+      // Uses the 3 most recent distinct uploaded months (not current calendar months) to handle lagged uploads
       const rtT3OccMap = new Map<string, number>();
+      const t3mOccByLocationId = new Map<string, number>();
       try {
-        const now = new Date();
-        const t3MonthConditions: ReturnType<typeof and>[] = [];
-        for (let i = 0; i < 3; i++) {
-          let m = now.getMonth() + 1 - i;
-          let y = now.getFullYear();
-          if (m <= 0) { m += 12; y -= 1; }
-          t3MonthConditions.push(and(eq(roomTypeOccupancyHistory.month, m), eq(roomTypeOccupancyHistory.year, y)));
-        }
-        const rtOccRows = await db.select().from(roomTypeOccupancyHistory)
-          .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...t3MonthConditions)));
-        const rtAccumulator = new Map<string, { total: number; count: number }>();
-        for (const row of rtOccRows) {
-          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
-          if (!rtAccumulator.has(key)) rtAccumulator.set(key, { total: 0, count: 0 });
-          const entry = rtAccumulator.get(key)!;
-          if (row.occPercent !== null && row.occPercent !== undefined) {
-            entry.total += row.occPercent;
-            entry.count += 1;
+        // Discover the 3 most recent distinct (year, month) pairs that have been uploaded for this client
+        const distinctMonths = await db
+          .selectDistinct({ year: roomTypeOccupancyHistory.year, month: roomTypeOccupancyHistory.month })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+          .orderBy(sql`year DESC, month DESC`)
+          .limit(3);
+
+        if (distinctMonths.length > 0) {
+          const t3MonthConditions = distinctMonths.map(({ year, month }) =>
+            and(eq(roomTypeOccupancyHistory.year, year!), eq(roomTypeOccupancyHistory.month, month!))
+          );
+          const rtOccRows = await db.select().from(roomTypeOccupancyHistory)
+            .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...t3MonthConditions)));
+          // Build locationName-keyed map (for roomTypeOccTrend — existing behaviour, unchanged)
+          const rtAccumulator = new Map<string, { total: number; count: number }>();
+          // Build locationId-keyed accumulator for weighted-average occupancy substitution
+          const t3mAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
+          for (const row of rtOccRows) {
+            const nameKey = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
+            if (!rtAccumulator.has(nameKey)) rtAccumulator.set(nameKey, { total: 0, count: 0 });
+            const nameEntry = rtAccumulator.get(nameKey)!;
+            if (row.occPercent !== null && row.occPercent !== undefined) {
+              nameEntry.total += row.occPercent;
+              nameEntry.count += 1;
+            }
+            // Only add to locationId map when locationId is present
+            if (row.locationId) {
+              const idKey = `${row.locationId}|${row.serviceLine}|${row.normalizedRoomType}`;
+              if (!t3mAccumulator.has(idKey)) t3mAccumulator.set(idKey, { occUnits: 0, availableUnits: 0 });
+              const idEntry = t3mAccumulator.get(idKey)!;
+              idEntry.occUnits += row.occUnits ?? 0;
+              idEntry.availableUnits += row.availableUnits ?? 0;
+            }
           }
+          for (const [key, { total, count }] of rtAccumulator) {
+            if (count > 0) rtT3OccMap.set(key, (total / count) / 100); // stored as %, convert to 0-1
+          }
+          for (const [key, { occUnits, availableUnits }] of t3mAccumulator) {
+            if (availableUnits > 0) t3mOccByLocationId.set(key, occUnits / availableUnits);
+          }
+          console.log(`[Modulo] Loaded room type T3 occupancy data: ${rtT3OccMap.size} name-keyed segments, ${t3mOccByLocationId.size} locationId-keyed segments (from months: ${distinctMonths.map(m => `${m.year}-${m.month}`).join(', ')})`);
+        } else {
+          console.log('[Modulo] No room type occupancy history found for this client, occupancy will use spot fallback');
         }
-        for (const [key, { total, count }] of rtAccumulator) {
-          if (count > 0) rtT3OccMap.set(key, (total / count) / 100); // stored as %, convert to 0-1
-        }
-        console.log(`[Modulo] Loaded room type T3 occupancy data for ${rtT3OccMap.size} room type segments`);
       } catch (err) {
         console.warn('[Modulo] Failed to load room type T3 occupancy data, proceeding without it:', err);
       }
@@ -8302,14 +8327,22 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           const demandHistory = demandData.demandHistory.length > 0 ? demandData.demandHistory : [10, 12, 15, 13, 14, 11];
           const demandCurrent = demandData.currentDemand > 0 ? demandData.currentDemand : 12;
           
-          // Look up T3 room type occupancy trend for this unit
+          // Look up T3 room type occupancy trend for this unit (existing informational nudge — unchanged)
           // Normalize roomType at lookup time to guarantee alignment with normalizedRoomType in history table
-          const rtKey = `${unit.location}|${unit.serviceLine}|${normalizeRoomType(unit.roomType || '')}`;
+          const normalizedRT = normalizeRoomType(unit.roomType || '');
+          const rtKey = `${unit.location}|${unit.serviceLine}|${normalizedRT}`;
           const roomTypeOccTrend = rtT3OccMap.get(rtKey);
+
+          // Look up T3M weighted-average occupancy by locationId to replace spot occupancy
+          const t3mIdKey = `${unit.locationId}|${unit.serviceLine}|${normalizedRT}`;
+          const t3mOcc = t3mOccByLocationId.get(t3mIdKey);
+          const occupancyForUnit = t3mOcc !== undefined ? t3mOcc : serviceLineOcc;
+          const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';
 
           // Use the pricing orchestrator with attribute-based pricing
           const pricingInputs: PricingInputs = {
-            occupancy: serviceLineOcc,
+            occupancy: occupancyForUnit,
+            occupancySource,
             daysVacant,
             monthIndex,
             competitorPrices,
@@ -8356,7 +8389,9 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             signals: orchestratorResult.moduloDetails.signals,
             blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
             explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
-            guardrailsApplied: orchestratorResult.guardrailsApplied
+            guardrailsApplied: orchestratorResult.guardrailsApplied,
+            occupancySource,
+            occupancyUsed: occupancyForUnit
           };
         } else if (!manualRuleApplied) {
           // Weights disabled AND no manual rule - start with base rate

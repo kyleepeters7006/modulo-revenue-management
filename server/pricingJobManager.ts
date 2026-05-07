@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto';
 import { storage } from './storage';
 import { db } from './db';
-import { rentRollData, competitiveSurveyData, enquireData } from '@shared/schema';
+import { rentRollData, competitiveSurveyData, enquireData, roomTypeOccupancyHistory } from '@shared/schema';
 import { eq, sql, and, or, inArray } from 'drizzle-orm';
+import { normalizeRoomType } from '@shared/roomTypes';
 import { calculateAttributedPrice, ensureCacheInitialized } from './pricingOrchestrator';
 import type { RentRollData, Guardrails, PricingWeights } from '@shared/schema';
 import type { PricingInputs } from './moduloPricingAlgorithm';
@@ -28,11 +29,15 @@ interface PricingContext {
   // Service line metrics
   serviceLineOccupancy: Map<string, number>;
   
+  // T3M room type occupancy: key = locationId|serviceLine|normalizedRoomType -> weighted avg occ (0-1)
+  t3mOccupancyMap: Map<string, number>;
+  
   // Configuration data
   guardrailsData: Guardrails | undefined;
   stockMarketChange: number;
   activeRules: any[];
   targetMonth: string;
+  clientId: string;
 }
 
 interface PricingJob {
@@ -59,6 +64,7 @@ interface PricingJob {
     regions?: string[];
     divisions?: string[];
     locations?: string[];
+    clientId?: string;
   };
 }
 
@@ -168,7 +174,8 @@ class PricingJobManager {
   private async buildPricingContext(
     units: RentRollData[], 
     targetMonth: string,
-    jobId: string
+    jobId: string,
+    clientId: string = 'demo'
   ): Promise<PricingContext> {
     const startTime = Date.now();
     console.log(`[PricingJob ${jobId}] Building pricing context with pre-fetched data...`);
@@ -377,6 +384,48 @@ class PricingJobManager {
       const { occupied, total } = stats as { occupied: number; total: number };
       serviceLineOccupancy.set(serviceLine, total > 0 ? occupied / total : 0);
     }
+
+    // 8. Build T3M room type occupancy map (weighted avg per locationId|serviceLine|normalizedRoomType)
+    // Use the 3 most recent distinct uploaded months from room_type_occupancy_history (not calendar months)
+    console.log(`[PricingJob ${jobId}] Building T3M room type occupancy map...`);
+    const t3mOccupancyMap = new Map<string, number>();
+    try {
+      // Discover the 3 most recent distinct (year, month) pairs that have been uploaded for this client
+      const distinctMonths = await db
+        .selectDistinct({ year: roomTypeOccupancyHistory.year, month: roomTypeOccupancyHistory.month })
+        .from(roomTypeOccupancyHistory)
+        .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+        .orderBy(sql`year DESC, month DESC`)
+        .limit(3);
+
+      if (distinctMonths.length > 0) {
+        const t3MonthConditions = distinctMonths.map(({ year, month }) =>
+          and(eq(roomTypeOccupancyHistory.year, year!), eq(roomTypeOccupancyHistory.month, month!))
+        );
+        const rtOccRows = await db.select().from(roomTypeOccupancyHistory)
+          .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...t3MonthConditions)));
+        // Accumulate occ_units and available_units for weighted average
+        const rtAccumulator = new Map<string, { occUnits: number; availableUnits: number }>();
+        for (const row of rtOccRows) {
+          if (!row.locationId) continue;
+          const key = `${row.locationId}|${row.serviceLine}|${row.normalizedRoomType}`;
+          if (!rtAccumulator.has(key)) rtAccumulator.set(key, { occUnits: 0, availableUnits: 0 });
+          const entry = rtAccumulator.get(key)!;
+          entry.occUnits += row.occUnits ?? 0;
+          entry.availableUnits += row.availableUnits ?? 0;
+        }
+        for (const [key, { occUnits, availableUnits }] of rtAccumulator) {
+          if (availableUnits > 0) {
+            t3mOccupancyMap.set(key, occUnits / availableUnits);
+          }
+        }
+        console.log(`[PricingJob ${jobId}] T3M occupancy map built: ${t3mOccupancyMap.size} room type segments (from months: ${distinctMonths.map(m => `${m.year}-${m.month}`).join(', ')})`);
+      } else {
+        console.log(`[PricingJob ${jobId}] No room type occupancy history found for clientId=${clientId}, occupancy will use spot fallback`);
+      }
+    } catch (err) {
+      console.warn(`[PricingJob ${jobId}] Failed to build T3M occupancy map, proceeding without it:`, err);
+    }
     
     const buildTime = Date.now() - startTime;
     console.log(`[PricingJob ${jobId}] Pricing context built in ${buildTime}ms with:
@@ -386,7 +435,8 @@ class PricingJobManager {
       - ${trilogyCareLevel2Cache.size} care level 2 rates
       - ${competitorMediansByService.size} competitor medians
       - ${demandHistoryCache.size} demand histories
-      - ${serviceLineOccupancy.size} occupancy rates`);
+      - ${serviceLineOccupancy.size} occupancy rates
+      - ${t3mOccupancyMap.size} T3M room type occupancy entries`);
     
     return {
       weightsCache,
@@ -399,10 +449,12 @@ class PricingJobManager {
       demandHistoryCache,
       inquiryMetricsCache,
       serviceLineOccupancy,
+      t3mOccupancyMap,
       guardrailsData,
       stockMarketChange,
       activeRules,
-      targetMonth
+      targetMonth,
+      clientId
     };
   }
   
@@ -422,8 +474,9 @@ class PricingJobManager {
       this.processingJobs.add(jobId);
       
       const startTime = Date.now();
-      const { month, locationId } = job.params;
+      const { month, locationId, clientId: jobClientId } = job.params;
       const targetMonth = month || '2025-10';
+      const jobClientId_ = jobClientId || 'demo';
       
       // Create calculation history entry
       const historyEntry = await storage.createCalculationHistory({
@@ -460,7 +513,7 @@ class PricingJobManager {
       this.updateProgress(jobId, 0, totalUnits, 0, totalBatches);
       
       // Build pricing context with all pre-fetched data (MAJOR OPTIMIZATION)
-      const pricingContext = await this.buildPricingContext(units, targetMonth, jobId);
+      const pricingContext = await this.buildPricingContext(units, targetMonth, jobId, jobClientId_);
       
       // Process units in batches
       console.log(`[PricingJob ${jobId}] Starting batch processing (${totalBatches} batches of ${this.BATCH_SIZE} units)...`);
@@ -660,10 +713,17 @@ class PricingJobManager {
         
         // Get cached occupancy (O(1) lookup)
         const serviceLineOcc = context.serviceLineOccupancy.get(unit.serviceLine) || 0.87;
-        
+
+        // Look up T3M room type occupancy — use weighted avg if available, else fall back to spot
+        const normalizedRT = normalizeRoomType(unit.roomType || '');
+        const t3mKey = `${unit.locationId}|${unit.serviceLine}|${normalizedRT}`;
+        const t3mOcc = context.t3mOccupancyMap.get(t3mKey);
+        const occupancy = t3mOcc !== undefined ? t3mOcc : serviceLineOcc;
+        const occupancySource: 't3m' | 'spot' = t3mOcc !== undefined ? 't3m' : 'spot';
+
         // Log the actual occupancy being used for debugging
         if (processedInBatch === 0 || unit.serviceLine !== units[0]?.serviceLine) {
-          console.log(`[Batch] Using ${unit.serviceLine} occupancy: ${(serviceLineOcc * 100).toFixed(1)}% for unit ${unit.roomNumber}`);
+          console.log(`[Batch] Using ${unit.serviceLine} occupancy: ${(occupancy * 100).toFixed(1)}% (${occupancySource}) for unit ${unit.roomNumber}`);
         }
         const daysVacant = unit.daysVacant || 0;
         const monthIndex = new Date(context.targetMonth).getMonth() + 1;
@@ -717,7 +777,8 @@ class PricingJobManager {
           (unit.inquiryCount || 0) + (unit.tourCount || 0);
         
         const pricingInputs: PricingInputs = {
-          occupancy: serviceLineOcc,
+          occupancy,
+          occupancySource,
           daysVacant,
           monthIndex,
           competitorPrices,
@@ -757,7 +818,9 @@ class PricingJobManager {
           signals: orchestratorResult.moduloDetails.signals,
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
-          guardrailsApplied: orchestratorResult.guardrailsApplied
+          guardrailsApplied: orchestratorResult.guardrailsApplied,
+          occupancySource,
+          occupancyUsed: occupancy
         };
         
         updates.push({
