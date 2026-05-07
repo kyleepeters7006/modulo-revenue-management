@@ -105,8 +105,8 @@ async function processUnitBatch(
           };
         }
         
-        const locServiceRoomOccKey = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
-        const locServiceOccKey = `${unit.locationId}|${unit.serviceLine}`;
+        const locServiceRoomOccKey = `${unit.location}|${unit.serviceLine}|${unit.roomType}`;
+        const locServiceOccKey = `${unit.location}|${unit.serviceLine}`;
 
         // T3M room-type occupancy takes priority when history data is available
         const normalizedRT = normalizeRoomType(unit.roomType || '');
@@ -395,8 +395,8 @@ export async function generateModuloOptimized(req: any, res: any) {
     const occupancyStats = new Map<string, { occupied: number; total: number }>();
     
     for (const unit of unitsForOccupancy) {
-      const locServiceRoomKey = `${unit.locationId}|${unit.serviceLine}|${unit.roomType}`;
-      const locServiceKey = `${unit.locationId}|${unit.serviceLine}`;
+      const locServiceRoomKey = `${unit.location}|${unit.serviceLine}|${unit.roomType}`;
+      const locServiceKey = `${unit.location}|${unit.serviceLine}`;
       const serviceKey = unit.serviceLine || 'Unknown';
       
       // Location + Service Line + Room Type stats (most granular)
@@ -425,9 +425,9 @@ export async function generateModuloOptimized(req: any, res: any) {
     }
     
     // Calculate occupancy percentages — key format determines bucket:
-    //   two pipes  = locationId|serviceLine|roomType → locationRoomTypeOccupancy
-    //   one pipe   = locationId|serviceLine          → locationOccupancy
-    //   no pipe    = serviceLine                     → serviceLineOccupancy
+    //   two pipes  = locationName|serviceLine|roomType → locationRoomTypeOccupancy
+    //   one pipe   = locationName|serviceLine          → locationOccupancy
+    //   no pipe    = serviceLine                       → serviceLineOccupancy
     for (const [key, stats] of Array.from(occupancyStats)) {
       const occ = stats.total > 0 ? stats.occupied / stats.total : 0;
       const pipeCount = (key.match(/\|/g) || []).length;
