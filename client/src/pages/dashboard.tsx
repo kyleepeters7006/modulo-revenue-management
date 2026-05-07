@@ -18,8 +18,9 @@ import BuildingMapUploader from "@/components/dashboard/building-map-uploader";
 import RateCard from "@/components/dashboard/rate-card";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import { Menu, BookOpen } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Link } from "wouter";
 
 
 export default function Dashboard() {
@@ -98,6 +99,14 @@ export default function Dashboard() {
             <p className="text-base sm:text-lg lg:text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
               Real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
             </p>
+            <div className="mt-4 flex justify-center lg:justify-start">
+              <Link href="/pricing-algorithm">
+                <span className="inline-flex items-center gap-1.5 text-sm text-[var(--trilogy-teal)] hover:text-[var(--trilogy-teal)]/80 transition-colors cursor-pointer">
+                  <BookOpen className="h-3.5 w-3.5" />
+                  How the pricing algorithm works
+                </span>
+              </Link>
+            </div>
           </div>
 
           {/* Service Line Overview */}

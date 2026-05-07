@@ -95,7 +95,8 @@ export default function PricingAlgorithmDocs() {
                 </div>
               </div>
               <p className="text-xs text-center mt-4 text-[var(--trilogy-grey)]/60">
-                The Revenue Target Strategy layer within Stage 3 only applies to vacant units. Occupied units pass through directly to guardrails.
+                Smart Adjustment Rules apply after Stage 1 (Modulo) and before guardrails, within the Modulo pipeline only.
+                The Revenue Target Strategy layer in Stage 3 applies to vacant units only; occupied units proceed directly to guardrails.
               </p>
             </CardContent>
           </Card>
@@ -109,9 +110,10 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The Modulo algorithm is a sophisticated multi-factor pricing engine that calculates optimal rates 
-                by blending 7 pricing signals with configurable weights. Each factor generates a "signal" normalized 
-                to a -1 to +1 range, which is then weighted and blended to produce a final price adjustment.
+                The Modulo algorithm is a multi-factor pricing engine that calculates optimal rates by blending
+                6 weighted pricing signals. Each signal is normalized to a -1 to +1 range, then weighted and
+                blended to produce a final price adjustment. Room attribute quality (location, size, view,
+                renovation) is applied as a separate multiplier on top of that result.
               </p>
               
               <div className="bg-gray-50 rounded-lg p-4">
@@ -125,7 +127,7 @@ export default function PricingAlgorithmDocs() {
               </div>
 
               <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mt-6 mb-4">
-                The 7 Pricing Factors
+                The 6 Weighted Pricing Signals
               </h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -136,8 +138,8 @@ export default function PricingAlgorithmDocs() {
                   </div>
                   <p className="text-sm">
                     <strong>Range:</strong> -12% to +6%<br/>
-                    Campus-level occupancy drives pricing pressure. Below 85% occupancy triggers stronger 
-                    reductions; above 90% allows premium pricing.
+                    Campus-level occupancy drives pricing pressure. Below 85% triggers stronger reductions;
+                    above 90% allows premium pricing.
                   </p>
                 </div>
 
@@ -148,20 +150,8 @@ export default function PricingAlgorithmDocs() {
                   </div>
                   <p className="text-sm">
                     <strong>Range:</strong> -15% to 0%<br/>
-                    Unit-level vacancy decay applies progressive discounts. 7-day grace period before 
-                    discounts begin, reaching maximum reduction after extended vacancy.
-                  </p>
-                </div>
-
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Home className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Room Attributes</h5>
-                  </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> ±10%<br/>
-                    Adjusts for location within building, unit size, view quality, renovation status, 
-                    and amenity level. Premium rooms earn uplift; basic rooms may receive discounts.
+                    Progressive discounts begin after a 7-day grace period and increase with extended
+                    vacancy duration.
                   </p>
                 </div>
 
@@ -172,8 +162,8 @@ export default function PricingAlgorithmDocs() {
                   </div>
                   <p className="text-sm">
                     <strong>Range:</strong> ±5%<br/>
-                    Monthly demand patterns adjust pricing. Peak months (May-July) see increases; 
-                    slower months (Oct-Dec) may see modest reductions.
+                    Monthly demand patterns adjust pricing. Peak months (May–July) support increases;
+                    slower months (Oct–Dec) may see modest reductions.
                   </p>
                 </div>
 
@@ -184,8 +174,8 @@ export default function PricingAlgorithmDocs() {
                   </div>
                   <p className="text-sm">
                     <strong>Range:</strong> ±8%<br/>
-                    Compares rates against market median. Targets premium positioning (10-25% above median 
-                    depending on service line) to reflect quality and care value.
+                    Compares rates against the market median and targets a service-line-specific premium
+                    (10–25% above median) to reflect quality and care value.
                   </p>
                 </div>
 
@@ -196,22 +186,31 @@ export default function PricingAlgorithmDocs() {
                   </div>
                   <p className="text-sm">
                     <strong>Range:</strong> ±3%<br/>
-                    Economic indicators (S&P 500 performance) provide macroeconomic context. 
-                    Strong markets support higher pricing; weak markets suggest caution.
+                    S&amp;P 500 performance provides macroeconomic context. Strong markets support higher
+                    pricing; weak markets suggest caution.
                   </p>
                 </div>
 
-                <div className="border border-gray-200 rounded-lg p-4 bg-white md:col-span-2">
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
                   <div className="flex items-center gap-2 mb-2">
                     <Activity className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Demand (Inquiry/Tour Volume)</h5>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Demand (Inquiry / Tour Volume)</h5>
                   </div>
                   <p className="text-sm">
                     <strong>Range:</strong> ±15%<br/>
-                    Real-time demand signals from inquiry and tour volume. High inquiry volume signals strong 
-                    demand, justifying premium pricing. Low volume suggests market softness.
+                    Real-time signals from inquiry and tour volume. High volume justifies premium pricing;
+                    low volume indicates market softness.
                   </p>
                 </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-3 mt-2 text-sm text-[var(--trilogy-grey)] flex items-start gap-2">
+                <Home className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                <span>
+                  <strong className="text-[var(--trilogy-dark-blue)]">Room attributes</strong> (location within building, unit size, view quality, renovation status, amenity level)
+                  are applied as a separate multiplier after the blended signal is computed — not as one of the 6 weighted signals.
+                  Premium rooms earn up to ±10% relative to their base rate.
+                </span>
               </div>
 
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 mt-4">
@@ -244,12 +243,12 @@ export default function PricingAlgorithmDocs() {
               <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4 mt-4 border border-[var(--trilogy-dark-blue)]/20">
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI-Generated Weights & Guardrails</h4>
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI-Generated Weights</h4>
                 </div>
                 <p className="text-sm mb-3">
-                  While Modulo weights can be configured manually, the system also offers <strong>AI-powered weight and 
-                  guardrail generation</strong>. This feature uses the same machine learning technology as the AI Pricing 
-                  Engine to analyze your portfolio's performance and generate optimal settings.
+                  While Modulo weights can be configured manually, the system also offers <strong>AI-powered weight
+                  generation</strong>. This feature analyzes your portfolio's performance metrics and generates
+                  suggested weight settings to use as a data-driven starting point.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div className="bg-white rounded-lg p-3">
@@ -288,43 +287,45 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The AI Pricing Engine builds upon the Modulo algorithm by using machine learning to continuously 
-                optimize pricing weights based on real-world outcomes. Unlike the static Modulo weights, AI weights 
-                adapt and improve over time.
+                The AI Pricing Engine enhances Modulo in two distinct ways. First, for each calculation run it
+                calls GPT-5 to dynamically suggest optimal pricing weights based on the current portfolio
+                snapshot — occupancy, vacancy duration, competitor rates, and service line breakdown.
+                Second, a separate ML learning system tracks real-world outcomes over time and uses regularized
+                regression to refine weights as adoption and sales data accumulates.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="border border-[var(--trilogy-dark-blue)]/20 rounded-lg p-4 bg-[var(--trilogy-dark-blue)]/5">
                   <div className="flex items-center gap-2 mb-3">
                     <Sparkles className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">How AI Learning Works</h5>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Per-Run: GPT-5 Weight Suggestion</h5>
                   </div>
                   <ol className="text-sm space-y-2 list-decimal list-inside">
-                    <li>Track when AI-recommended rates are adopted</li>
-                    <li>Monitor if adopted rates result in sales (within 30 days)</li>
-                    <li>Analyze patterns between successful rates and pricing factors</li>
-                    <li>Use regularized regression to adjust factor weights</li>
-                    <li>Version-control weight updates for rollback capability</li>
+                    <li>Portfolio snapshot is sent to GPT-5 each run</li>
+                    <li>GPT-5 returns suggested weights (summing to 100) with reasoning</li>
+                    <li>Suggested weights replace the defaults for that calculation batch</li>
+                    <li>Final per-unit rates are produced using those weights</li>
+                    <li>Guardrails clamp the result before rates are saved</li>
                   </ol>
                 </div>
 
                 <div className="border border-[var(--trilogy-dark-blue)]/20 rounded-lg p-4 bg-[var(--trilogy-dark-blue)]/5">
                   <div className="flex items-center gap-2 mb-3">
                     <RefreshCw className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Automated Daily Learning</h5>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Ongoing: ML Learning Loop</h5>
                   </div>
                   <ul className="text-sm space-y-2 list-disc list-inside">
-                    <li>Portfolio-wide calculations run daily at 6:00 AM EST</li>
-                    <li>New outcome data is processed automatically</li>
-                    <li>Weights are updated based on latest performance</li>
-                    <li>Models can be trained per service line or globally</li>
-                    <li>All calculated rates are saved for historical tracking</li>
+                    <li>Tracks when AI-suggested rates are adopted by operators</li>
+                    <li>Monitors whether adopted rates result in move-ins within 30 days</li>
+                    <li>Regularized regression identifies which factors predicted success</li>
+                    <li>Weight versions are stored for rollback; models train per service line or globally</li>
+                    <li>Portfolio-wide daily calculations run at 6:00 AM EST</li>
                   </ul>
                 </div>
               </div>
 
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">AI vs Modulo: Key Differences</h4>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">AI Engine vs Modulo: Key Differences</h4>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b">
@@ -335,9 +336,9 @@ export default function PricingAlgorithmDocs() {
                   </thead>
                   <tbody>
                     <tr className="border-b">
-                      <td className="py-2">Weights</td>
+                      <td className="py-2">Weight source</td>
                       <td className="py-2">Operator-configured</td>
-                      <td className="py-2">ML-optimized</td>
+                      <td className="py-2">GPT-5 suggested, ML-refined</td>
                     </tr>
                     <tr className="border-b">
                       <td className="py-2">Adaptation</td>
@@ -345,13 +346,13 @@ export default function PricingAlgorithmDocs() {
                       <td className="py-2">Continuous learning</td>
                     </tr>
                     <tr className="border-b">
-                      <td className="py-2">Outcome Tracking</td>
+                      <td className="py-2">Outcome tracking</td>
                       <td className="py-2">Not used</td>
-                      <td className="py-2">Adoption + sales data</td>
+                      <td className="py-2">Adoption + move-in data</td>
                     </tr>
                     <tr>
-                      <td className="py-2">Best For</td>
-                      <td className="py-2">Initial setup, known markets</td>
+                      <td className="py-2">Best for</td>
+                      <td className="py-2">Initial setup, predictable markets</td>
                       <td className="py-2">Ongoing optimization</td>
                     </tr>
                   </tbody>
@@ -605,17 +606,17 @@ export default function PricingAlgorithmDocs() {
                   <div className="border border-gray-200 rounded-lg p-4 bg-white">
                     <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Rate Change Limits</h5>
                     <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Maximum single increase: configurable (default 25%)</li>
-                      <li>Maximum single decrease: configurable (default 15%)</li>
-                      <li>Prevents excessive price swings between cycles</li>
+                      <li>Maximum single increase: configurable (default 15%)</li>
+                      <li>Maximum single decrease: configurable (default 5%)</li>
+                      <li>Prevents excessive price swings between calculation cycles</li>
                     </ul>
                   </div>
                   <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Absolute Price Limits</h5>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Competitor Variance Limit</h5>
                     <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Minimum absolute price floor per service line</li>
-                      <li>Maximum absolute price ceiling per service line</li>
-                      <li>Competitor variance limits (±10% default)</li>
+                      <li>Caps how far a rate can deviate from competitor median (default ±10%)</li>
+                      <li>Configurable at portfolio, location, or service line level</li>
+                      <li>Applies independently of the percentage change limits above</li>
                     </ul>
                   </div>
                   <div className="border border-gray-200 rounded-lg p-4 bg-white">
