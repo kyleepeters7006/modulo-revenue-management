@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { 
-  ArrowLeft, 
-  Calculator, 
-  Brain, 
-  Target, 
+import {
+  ArrowLeft,
+  Calculator,
+  Brain,
+  Target,
   ChevronRight,
   TrendingUp,
   Clock,
@@ -21,16 +21,19 @@ import {
   CalendarClock,
   Zap,
   ArrowRightLeft,
-  Layers
+  Layers,
+  ArrowDown,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function PricingAlgorithmDocs() {
   const [, setLocation] = useLocation();
-  
+
   return (
     <div className="min-h-screen bg-[var(--dashboard-bg)] p-8">
       <div className="max-w-5xl mx-auto">
+
+        {/* Back button */}
         <div className="mb-8">
           <Button
             variant="outline"
@@ -42,8 +45,9 @@ export default function PricingAlgorithmDocs() {
             Back to About Us
           </Button>
         </div>
-        
-        <div className="text-center mb-12">
+
+        {/* Title */}
+        <div className="text-center mb-10">
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">
             Pricing Algorithm Documentation
           </h1>
@@ -52,246 +56,416 @@ export default function PricingAlgorithmDocs() {
           </p>
         </div>
 
-        <div className="text-center -mt-6 mb-8 text-sm text-[var(--trilogy-grey)]/70">
-          Jump to:{" "}
-          <a href="#stage1" className="text-[var(--trilogy-teal)] hover:underline">Modulo</a> ·{" "}
-          <a href="#stage2" className="text-[var(--trilogy-teal)] hover:underline">AI Engine</a> ·{" "}
-          <a href="#stage3" className="text-[var(--trilogy-teal)] hover:underline">AI Rate &amp; Revenue Target Strategy</a> ·{" "}
-          <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Smart Adjustment Rules</a> ·{" "}
-          <a href="#guardrails" className="text-[var(--trilogy-teal)] hover:underline">Rules &amp; Guardrails</a>
+        {/* Jump links */}
+        <div className="text-center -mt-4 mb-10 text-sm text-[var(--trilogy-grey)]/70 flex flex-wrap justify-center gap-x-2 gap-y-1">
+          <span>Jump to:</span>
+          <a href="#overview" className="text-[var(--trilogy-teal)] hover:underline">Overview</a>
+          <span>·</span>
+          <a href="#workflow" className="text-[var(--trilogy-teal)] hover:underline">Workflow</a>
+          <span>·</span>
+          <a href="#modulo-rate" className="text-[var(--trilogy-teal)] hover:underline">Modulo Rate</a>
+          <span>·</span>
+          <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Smart Adjustment Rules</a>
+          <span>·</span>
+          <a href="#ai-rate" className="text-[var(--trilogy-teal)] hover:underline">AI Rate</a>
+          <span>·</span>
+          <a href="#revenue-strategy" className="text-[var(--trilogy-teal)] hover:underline">Revenue Target Strategy</a>
+          <span>·</span>
+          <a href="#guardrails" className="text-[var(--trilogy-teal)] hover:underline">Guardrails</a>
+          <span>·</span>
+          <a href="#summary" className="text-[var(--trilogy-teal)] hover:underline">Summary</a>
         </div>
 
         <div className="space-y-8">
-          <Card className="bg-gradient-to-r from-[var(--trilogy-teal)]/10 to-[var(--trilogy-dark-blue)]/10 border-[var(--trilogy-grey)]/20">
+
+          {/* ── 1. OVERVIEW ──────────────────────────────────────────────────── */}
+          <Card id="overview" className="bg-gradient-to-r from-[var(--trilogy-teal)]/10 to-[var(--trilogy-dark-blue)]/10 border-[var(--trilogy-grey)]/20">
             <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <GitBranch className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
-                Algorithm Workflow Overview
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <GitBranch className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                Overview
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
+              <p>
+                Modulo generates <strong className="text-[var(--trilogy-dark-blue)]">two separate pricing recommendations</strong> for every unit — the <strong>Modulo Rate</strong> and the <strong>AI Rate</strong>. Both are bounded by Guardrails. Operators see both side-by-side and choose which rate to adopt, and when.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white rounded-lg border border-[var(--trilogy-teal)]/30 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Modulo Rate</h4>
+                  </div>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>Deterministic and fully auditable</li>
+                    <li>Driven by six operator-configured weighted signals</li>
+                    <li>Room attributes applied as a separate quality multiplier</li>
+                    <li>Smart Adjustment Rules apply here — not to the AI Rate</li>
+                    <li>Guardrails apply after Smart Adjustment Rules</li>
+                  </ul>
+                </div>
+                <div className="bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Brain className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
+                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI Rate</h4>
+                  </div>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>AI-enhanced, independently generated</li>
+                    <li>Uses GPT-generated weights based on current portfolio snapshot</li>
+                    <li>Refined over time by ML learning from outcomes</li>
+                    <li>Revenue Target Strategy applies here — not to the Modulo Rate</li>
+                    <li>Revenue Target Strategy applies to vacant units only</li>
+                    <li>Guardrails apply after Revenue Target Strategy</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="bg-white/70 rounded-lg border border-[var(--trilogy-grey)]/20 p-4 text-sm">
+                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> Smart Adjustment Rules belong to the Modulo Rate path only. The Revenue Target Strategy Layer belongs to the AI Rate path only. Guardrails apply to both.
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── 2. COMPLETE PRICING WORKFLOW ─────────────────────────────────── */}
+          <Card id="workflow" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+            <CardHeader>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Layers className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                Complete Pricing Workflow
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+              <p className="text-sm">
+                Modulo runs two independent pricing paths in parallel. Each path starts from the same base unit data and ends at a guardrail-bounded rate recommendation.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Modulo path */}
+                <div>
+                  <div className="text-center mb-3">
+                    <span className="inline-flex items-center gap-1.5 bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] font-semibold text-sm px-3 py-1 rounded-full border border-[var(--trilogy-teal)]/30">
+                      <Calculator className="h-4 w-4" /> Modulo Rate Path
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    {[
+                      { label: "Base Unit Data", sub: "occupancy, rates, vacancy, attributes" },
+                      { label: "Modulo Core Engine", sub: "6 weighted signals + attribute multiplier" },
+                      { label: "Smart Adjustment Rules", sub: "operator-defined rules, stacked in priority order" },
+                      { label: "Guardrails", sub: "max increase/decrease, competitor variance" },
+                      { label: "Modulo Rate", sub: "deterministic recommendation", highlight: true },
+                    ].map((step, i) => (
+                      <div key={i} className="flex flex-col items-center w-full">
+                        <div className={`w-full rounded-lg border px-4 py-2.5 text-center text-sm ${step.highlight ? "bg-[var(--trilogy-teal)] text-white border-[var(--trilogy-teal)] font-semibold" : "bg-white border-[var(--trilogy-teal)]/20"}`}>
+                          <div className={`font-medium ${step.highlight ? "text-white" : "text-[var(--trilogy-dark-blue)]"}`}>{step.label}</div>
+                          <div className={`text-xs mt-0.5 ${step.highlight ? "text-white/80" : "text-[var(--trilogy-grey)]/70"}`}>{step.sub}</div>
+                        </div>
+                        {i < 4 && <ArrowDown className="h-4 w-4 text-[var(--trilogy-teal)] my-0.5 flex-shrink-0" />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* AI path */}
+                <div>
+                  <div className="text-center mb-3">
+                    <span className="inline-flex items-center gap-1.5 bg-[var(--trilogy-dark-blue)]/10 text-[var(--trilogy-dark-blue)] font-semibold text-sm px-3 py-1 rounded-full border border-[var(--trilogy-dark-blue)]/30">
+                      <Brain className="h-4 w-4" /> AI Rate Path
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    {[
+                      { label: "Base Unit Data", sub: "occupancy, rates, vacancy, attributes" },
+                      { label: "AI Pricing Engine", sub: "GPT-generated weights + ML-refined learning" },
+                      { label: "Revenue Target Strategy", sub: "vacant units only — occupied units pass through" },
+                      { label: "Guardrails", sub: "max increase/decrease, competitor variance" },
+                      { label: "AI Rate", sub: "AI-enhanced recommendation", highlight: true },
+                    ].map((step, i) => (
+                      <div key={i} className="flex flex-col items-center w-full">
+                        <div className={`w-full rounded-lg border px-4 py-2.5 text-center text-sm ${step.highlight ? "bg-[var(--trilogy-dark-blue)] text-white border-[var(--trilogy-dark-blue)] font-semibold" : "bg-white border-[var(--trilogy-dark-blue)]/20"}`}>
+                          <div className={`font-medium ${step.highlight ? "text-white" : "text-[var(--trilogy-dark-blue)]"}`}>{step.label}</div>
+                          <div className={`text-xs mt-0.5 ${step.highlight ? "text-white/80" : "text-[var(--trilogy-grey)]/70"}`}>{step.sub}</div>
+                        </div>
+                        {i < 4 && <ArrowDown className="h-4 w-4 text-[var(--trilogy-dark-blue)] my-0.5 flex-shrink-0" />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── WHY TWO RATES ────────────────────────────────────────────────── */}
+          <Card className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+            <CardHeader>
+              <CardTitle className="text-xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <ArrowRightLeft className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                Why Modulo Rate and AI Rate Are Separate
               </CardTitle>
             </CardHeader>
             <CardContent className="text-[var(--trilogy-grey)]">
-              <p className="mb-4">
-                Modulo uses a three-stage pricing pipeline to generate rate recommendations. Each stage builds on the previous, and guardrails are applied at the end to enforce business boundaries.
-              </p>
-              <div className="flex flex-col md:flex-row gap-2 items-center justify-center flex-wrap">
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-teal)]/30 text-sm">
-                  <Calculator className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                  <span className="font-medium">1. Modulo Algorithm</span>
-                </div>
-                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30 text-sm">
-                  <Brain className="h-4 w-4 text-[var(--trilogy-dark-blue)]" />
-                  <span className="font-medium">2. AI Pricing Engine</span>
-                </div>
-                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-[var(--trilogy-orange)]/30 text-sm">
-                  <Target className="h-4 w-4 text-[var(--trilogy-orange)]" />
-                  <span className="font-medium">3. AI Rate &amp; Revenue Target Strategy</span>
-                </div>
-                <ChevronRight className="h-5 w-5 text-[var(--trilogy-grey)] hidden md:block flex-shrink-0" />
-                <div className="flex items-center gap-2 px-4 py-3 bg-white rounded-lg border border-gray-300 text-sm">
-                  <Shield className="h-4 w-4 text-[var(--trilogy-grey)]" />
-                  <span className="font-medium text-[var(--trilogy-grey)]">Guardrails</span>
-                </div>
-              </div>
-              <p className="text-xs text-center mt-4 text-[var(--trilogy-grey)]/60">
-                Smart Adjustment Rules apply after Stage 1 (Modulo) and before guardrails, within the Modulo pipeline only.
-                The Revenue Target Strategy layer in Stage 3 applies to vacant units only; occupied units proceed directly to guardrails.
+              <p className="text-sm leading-relaxed">
+                The <strong className="text-[var(--trilogy-dark-blue)]">Modulo Rate</strong> is the deterministic, rules-governed recommendation — fully auditable, repeatable, and bounded by operator-configured guardrails. The <strong className="text-[var(--trilogy-dark-blue)]">AI Rate</strong> is a second, independent AI-enhanced recommendation generated by a separate engine and shown alongside it for comparison. Keeping them separate lets operators see both perspectives without one automatically overwriting the other. Operators decide which rate to adopt, when to adopt it, and at what frequency — the system never forces a change.
               </p>
             </CardContent>
           </Card>
 
-          <Card id="stage1" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          {/* ── 3. MODULO RATE CALCULATION ───────────────────────────────────── */}
+          <Card id="modulo-rate" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <Calculator className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
-                Stage 1: Modulo Pricing Algorithm
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Calculator className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                Modulo Rate Calculation
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The Modulo algorithm is a multi-factor pricing engine that calculates optimal rates by blending
-                6 weighted pricing signals. Each signal is normalized to a -1 to +1 range, then weighted and
-                blended to produce a final price adjustment. Room attribute quality (location, size, view,
-                renovation) is applied as a separate multiplier on top of that result.
+                The Modulo engine is a deterministic, multi-factor pricing model. It blends six weighted pricing signals into a single adjustment, applies a room attribute quality multiplier, then clamps the result with guardrails. The same inputs always produce the same output — making every recommendation fully auditable.
               </p>
-              
+
+              {/* Formula */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Core Formula</h4>
                 <div className="font-mono text-sm bg-white p-3 rounded border border-gray-200">
                   Final Price = Base Rate × (1 + Blended Adjustment)
                 </div>
                 <p className="text-sm mt-2">
-                  Where Blended Adjustment = Σ(Signal × Normalized Weight), capped at ±25%
+                  Where <strong>Blended Adjustment</strong> = Σ(Signal × Normalized Weight), capped at ±25%
+                </p>
+                <p className="text-sm mt-1 text-[var(--trilogy-grey)]/80">
+                  After blending, a room attribute multiplier of up to ±10% is applied separately based on unit quality.
                 </p>
               </div>
 
-              <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mt-6 mb-4">
-                The 6 Weighted Pricing Signals
-              </h4>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Users className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Occupancy Pressure</h5>
+              {/* 6 signals */}
+              <div>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-4">The 6 Weighted Pricing Signals</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Occupancy Pressure</h5>
+                    </div>
+                    <p className="text-sm">
+                      <strong>Range:</strong> −12% to +6%<br />
+                      Campus-level occupancy drives pricing pressure. Below 85% triggers stronger reductions; above 90% supports premium pricing.
+                    </p>
                   </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> -12% to +6%<br/>
-                    Campus-level occupancy drives pricing pressure. Below 85% triggers stronger reductions;
-                    above 90% allows premium pricing.
-                  </p>
-                </div>
 
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Clock className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Days Vacant Decay</h5>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Days Vacant Decay</h5>
+                    </div>
+                    <p className="text-sm">
+                      <strong>Range:</strong> −15% to 0%<br />
+                      Progressive discounts begin after a 7-day grace period and increase with extended vacancy duration.
+                    </p>
                   </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> -15% to 0%<br/>
-                    Progressive discounts begin after a 7-day grace period and increase with extended
-                    vacancy duration.
-                  </p>
-                </div>
 
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Seasonality</h5>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Seasonality</h5>
+                    </div>
+                    <p className="text-sm">
+                      <strong>Range:</strong> ±5%<br />
+                      Monthly demand patterns adjust pricing. Peak months (May–July) support increases; slower months (Oct–Dec) may see modest reductions.
+                    </p>
                   </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> ±5%<br/>
-                    Monthly demand patterns adjust pricing. Peak months (May–July) support increases;
-                    slower months (Oct–Dec) may see modest reductions.
-                  </p>
-                </div>
 
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <BarChart3 className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Competitor Positioning</h5>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center gap-2 mb-2">
+                      <BarChart3 className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Competitor Positioning</h5>
+                    </div>
+                    <p className="text-sm">
+                      <strong>Range:</strong> ±8%<br />
+                      Compares rates against the market median and targets a service-line-specific premium (10–25% above median) to reflect quality and care value.
+                    </p>
                   </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> ±8%<br/>
-                    Compares rates against the market median and targets a service-line-specific premium
-                    (10–25% above median) to reflect quality and care value.
-                  </p>
-                </div>
 
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Market Conditions</h5>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingUp className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Market Conditions</h5>
+                    </div>
+                    <p className="text-sm">
+                      <strong>Range:</strong> ±3%<br />
+                      S&amp;P 500 performance provides macroeconomic context. Strong markets support higher pricing; weak markets suggest caution.
+                    </p>
                   </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> ±3%<br/>
-                    S&amp;P 500 performance provides macroeconomic context. Strong markets support higher
-                    pricing; weak markets suggest caution.
-                  </p>
-                </div>
 
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Activity className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Demand (Inquiry / Tour Volume)</h5>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Activity className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Demand Signals</h5>
+                    </div>
+                    <p className="text-sm">
+                      <strong>Range:</strong> ±15%<br />
+                      Inquiry and tour volume. High volume justifies premium pricing; low volume indicates market softness.
+                    </p>
                   </div>
-                  <p className="text-sm">
-                    <strong>Range:</strong> ±15%<br/>
-                    Real-time signals from inquiry and tour volume. High volume justifies premium pricing;
-                    low volume indicates market softness.
-                  </p>
                 </div>
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-3 mt-2 text-sm text-[var(--trilogy-grey)] flex items-start gap-2">
+              {/* Room attributes note */}
+              <div className="bg-gray-50 rounded-lg p-3 text-sm text-[var(--trilogy-grey)] flex items-start gap-2">
                 <Home className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <span>
                   <strong className="text-[var(--trilogy-dark-blue)]">Room attributes</strong> (location within building, unit size, view quality, renovation status, amenity level)
-                  are applied as a separate multiplier after the blended signal is computed — not as one of the 6 weighted signals.
+                  are applied as a <em>separate quality multiplier</em> after the six signals are blended — not as one of the weighted signals.
                   Premium rooms earn up to ±10% relative to their base rate.
                 </span>
               </div>
 
-              <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 mt-4">
+              {/* Service line premiums */}
+              <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4">
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Service Line Premium Targets</h4>
                 <p className="text-sm mb-3">
-                  Each service line has a target premium positioning above competitor median:
+                  The Competitor Positioning signal targets these premiums above the local competitor median:
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
-                  <div className="bg-white rounded px-3 py-2">
-                    <span className="font-medium">AL:</span> +25% premium
-                  </div>
-                  <div className="bg-white rounded px-3 py-2">
-                    <span className="font-medium">HC:</span> +20% premium
-                  </div>
-                  <div className="bg-white rounded px-3 py-2">
-                    <span className="font-medium">AL/MC, HC/MC:</span> +20%
-                  </div>
-                  <div className="bg-white rounded px-3 py-2">
-                    <span className="font-medium">SL:</span> +10% premium
-                  </div>
-                  <div className="bg-white rounded px-3 py-2">
-                    <span className="font-medium">VIL:</span> +10% premium
-                  </div>
-                  <div className="bg-white rounded px-3 py-2">
-                    <span className="font-medium">Default:</span> +18%
-                  </div>
+                  {[
+                    { label: "AL", value: "+25%" },
+                    { label: "HC", value: "+20%" },
+                    { label: "AL/MC, HC/MC", value: "+20%" },
+                    { label: "SL", value: "+10%" },
+                    { label: "VIL", value: "+10%" },
+                    { label: "Default", value: "+18%" },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-white rounded px-3 py-2">
+                      <span className="font-medium">{label}:</span> {value} premium
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4 mt-4 border border-[var(--trilogy-dark-blue)]/20">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI-Generated Weights</h4>
-                </div>
-                <p className="text-sm mb-3">
-                  While Modulo weights can be configured manually, the system also offers <strong>AI-powered weight
-                  generation</strong>. This feature analyzes your portfolio's performance metrics and generates
-                  suggested weight settings to use as a data-driven starting point.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="bg-white rounded-lg p-3">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">How It Works</h5>
-                    <ul className="list-disc list-inside space-y-1 text-[var(--trilogy-grey)]">
-                      <li>Analyzes portfolio occupancy, vacancy patterns, and sales velocity</li>
-                      <li>Reviews competitor positioning and market conditions</li>
-                      <li>Examines historical pricing outcomes and adoption rates</li>
-                      <li>Generates optimized weights and guardrails per service line</li>
-                    </ul>
+              {/* Two operating modes */}
+              <div>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-4">Operating Modes</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-[var(--trilogy-teal)]/5 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <SlidersHorizontal className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                      <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Dynamic Weights Mode</h5>
+                    </div>
+                    <p className="text-sm">
+                      Operators configure signal weights to reflect their priorities — heavily weighted toward occupancy in high-vacancy markets, toward competitor positioning in competitive markets, etc. The algorithm continuously blends these signals as conditions change. Guardrails keep every suggestion within safe bounds.
+                    </p>
                   </div>
-                  <div className="bg-white rounded-lg p-3">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Benefits</h5>
-                    <ul className="list-disc list-inside space-y-1 text-[var(--trilogy-grey)]">
-                      <li>Data-driven initial configuration instead of guesswork</li>
-                      <li>Tailored to your specific portfolio characteristics</li>
-                      <li>Can be used to optimize Modulo rates directly</li>
-                      <li>Provides a baseline that improves with AI learning</li>
-                    </ul>
+                  <div className="rounded-lg border border-[var(--trilogy-dark-blue)]/30 bg-[var(--trilogy-dark-blue)]/5 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <CalendarClock className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
+                      <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Traditional Rules Mode</h5>
+                    </div>
+                    <p className="text-sm">
+                      Configure floors, ceilings, and change limits and run calculations at whatever cadence fits your workflow — daily, weekly, monthly, or on-demand. An immediate upgrade over manual spreadsheet pricing with a full audit trail and no change to how teams think about rate decisions.
+                    </p>
                   </div>
                 </div>
-                <p className="text-sm mt-3 text-[var(--trilogy-grey)]/80 italic">
-                  Access this feature from the Pricing Controls page by using the "Generate with AI" option 
-                  when setting revenue growth targets.
-                </p>
               </div>
             </CardContent>
           </Card>
 
-          <Card id="stage2" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          {/* ── 4. SMART ADJUSTMENT RULES ────────────────────────────────────── */}
+          <Card id="smart-rules" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <Brain className="mr-3 h-6 w-6 text-[var(--trilogy-dark-blue)]" />
-                Stage 2: AI Pricing Engine
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Sparkles className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                Smart Adjustment Rules
+              </CardTitle>
+              <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
+                Applies to the Modulo Rate path only — runs after Modulo, before Guardrails
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+              <p>
+                Smart Adjustment Rules are operator-defined pricing rules written in plain English — for example, <em>"Reduce vacant AL rates by $100 after 30 days vacant."</em> They are parsed by AI into structured conditions and applied automatically on every Modulo calculation cycle. Multiple active rules stack in priority order, each building on the rate produced by the previous rule.
+              </p>
+
+              {/* Placement callout */}
+              <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-3 border border-[var(--trilogy-teal)]/20 text-sm flex items-start gap-2">
+                <Zap className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                <span>
+                  Smart Adjustment Rules apply <strong>after</strong> the core Modulo Rate is calculated and <strong>before</strong> Guardrails clamp the result.
+                  They do <strong>not</strong> apply to the AI Rate path.
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                    Trigger Types
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Immediate</p><p>Applies to every unit in scope on every calculation run.</p></div>
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Occupancy Status</p><p>Triggers only for vacant or only for occupied units.</p></div>
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Vacancy Duration</p><p>Triggers when a unit has been vacant for a configurable number of days (e.g. ≥ 30 days).</p></div>
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Service Line</p><p>Restricts a trigger to a specific service line (AL, MC, IL, etc.).</p></div>
+                  </div>
+                </div>
+
+                <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4 text-[var(--trilogy-dark-blue)]" />
+                    Action Types &amp; Scope
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Percentage Adjustment</p><p>Multiplies the current rate by 1 + value/100. E.g. +5% or −3%.</p></div>
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Fixed Dollar Adjustment</p><p>Adds or subtracts a flat dollar amount. E.g. −$100 or +$50.</p></div>
+                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Scope options</p><ul className="list-disc list-inside mt-1 space-y-0.5"><li>Portfolio-wide</li><li>Location-specific</li><li>Service-line-specific</li><li>Location + service line</li></ul></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stacking example */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Rule Stacking Example</h4>
+                <p className="text-sm mb-3">
+                  Rules are applied in descending priority order. Each rule receives the rate produced by the previous rule — adjustments compound rather than conflict.
+                </p>
+                <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
+                  <p>Base Modulo Rate: $4,500</p>
+                  <p>Rule 1 (priority 10) — +5% AL all vacant → $4,500 × 1.05 = <strong>$4,725</strong></p>
+                  <p>Rule 2 (priority 5) — −$100 after 30 days vacant → $4,725 − $100 = <strong>$4,625</strong></p>
+                  <p className="text-[var(--trilogy-teal)] mt-1">Final Rule-Adjusted Modulo Rate: $4,625</p>
+                </div>
+                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
+                  The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records each rule that fired so operators can audit exactly which rules affected each unit.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Where in the pipeline</h5>
+                  <p className="text-sm">After Modulo calculates the base rate, before Guardrails clamp the result. Modulo Rate path only.</p>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">When they run</h5>
+                  <p className="text-sm">Automatically on every Modulo calculation — daily automated runs and manual triggers. Also executable on-demand via the Smart Adjustments panel.</p>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">How to configure</h5>
+                  <p className="text-sm">Navigate to <strong>Pricing Controls → Smart Adjustments</strong>. Type a rule in plain English, preview its impact, then activate it. Rules can be toggled on/off without deletion.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── 5. AI RATE CALCULATION ───────────────────────────────────────── */}
+          <Card id="ai-rate" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+            <CardHeader>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Brain className="h-6 w-6 text-[var(--trilogy-dark-blue)]" />
+                AI Rate Calculation
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The AI Pricing Engine enhances Modulo in two distinct ways. First, for each calculation run it
-                calls GPT-5 to dynamically suggest optimal pricing weights based on the current portfolio
-                snapshot — occupancy, vacancy duration, competitor rates, and service line breakdown.
-                Second, a separate ML learning system tracks real-world outcomes over time and uses regularized
-                regression to refine weights as adoption and sales data accumulates.
+                The AI Pricing Engine generates a separate AI Rate using two complementary mechanisms: a per-run GPT-5 weight suggestion and an ongoing ML learning loop. These operate independently — the GPT suggestion shapes each run, while the ML system refines the model over time.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -301,11 +475,11 @@ export default function PricingAlgorithmDocs() {
                     <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Per-Run: GPT-5 Weight Suggestion</h5>
                   </div>
                   <ol className="text-sm space-y-2 list-decimal list-inside">
-                    <li>Portfolio snapshot is sent to GPT-5 each run</li>
-                    <li>GPT-5 returns suggested weights (summing to 100) with reasoning</li>
-                    <li>Suggested weights replace the defaults for that calculation batch</li>
-                    <li>Final per-unit rates are produced using those weights</li>
-                    <li>Guardrails clamp the result before rates are saved</li>
+                    <li>Current portfolio snapshot is sent to GPT-5 (occupancy, vacancy, competitor rates, service line breakdown)</li>
+                    <li>GPT-5 returns suggested pricing weights with reasoning</li>
+                    <li>Suggested weights are used for that calculation batch</li>
+                    <li>Per-unit AI Rates are produced using those weights</li>
+                    <li>Guardrails clamp the final rates before storage</li>
                   </ol>
                 </div>
 
@@ -318,20 +492,22 @@ export default function PricingAlgorithmDocs() {
                     <li>Tracks when AI-suggested rates are adopted by operators</li>
                     <li>Monitors whether adopted rates result in move-ins within 30 days</li>
                     <li>Regularized regression identifies which factors predicted success</li>
-                    <li>Weight versions are stored for rollback; models train per service line or globally</li>
+                    <li>Weight versions are stored for rollback</li>
+                    <li>Models train per service line or globally</li>
                     <li>Portfolio-wide daily calculations run at 6:00 AM EST</li>
                   </ul>
                 </div>
               </div>
 
+              {/* Comparison table */}
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">AI Engine vs Modulo: Key Differences</h4>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Modulo Rate vs AI Rate: Key Differences</h4>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-2">Aspect</th>
-                      <th className="text-left py-2">Modulo</th>
-                      <th className="text-left py-2">AI Engine</th>
+                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">Aspect</th>
+                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">Modulo Rate</th>
+                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">AI Rate</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -341,19 +517,24 @@ export default function PricingAlgorithmDocs() {
                       <td className="py-2">GPT-5 suggested, ML-refined</td>
                     </tr>
                     <tr className="border-b">
-                      <td className="py-2">Adaptation</td>
-                      <td className="py-2">Manual adjustment</td>
-                      <td className="py-2">Continuous learning</td>
+                      <td className="py-2">Determinism</td>
+                      <td className="py-2">Fully deterministic</td>
+                      <td className="py-2">AI-enhanced, adapts over time</td>
+                    </tr>
+                    <tr className="border-b">
+                      <td className="py-2">Adjustment layer</td>
+                      <td className="py-2">Smart Adjustment Rules</td>
+                      <td className="py-2">Revenue Target Strategy (vacant units only)</td>
                     </tr>
                     <tr className="border-b">
                       <td className="py-2">Outcome tracking</td>
                       <td className="py-2">Not used</td>
-                      <td className="py-2">Adoption + move-in data</td>
+                      <td className="py-2">Adoption + move-in outcomes</td>
                     </tr>
                     <tr>
                       <td className="py-2">Best for</td>
-                      <td className="py-2">Initial setup, predictable markets</td>
-                      <td className="py-2">Ongoing optimization</td>
+                      <td className="py-2">Predictable, auditable pricing</td>
+                      <td className="py-2">Continuous optimization</td>
                     </tr>
                   </tbody>
                 </table>
@@ -361,34 +542,42 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
-          {/* ── Stage 3: AI Rate & Revenue Target Strategy ──────────────────── */}
-          <Card id="stage3" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          {/* ── 6. REVENUE TARGET STRATEGY LAYER ────────────────────────────── */}
+          <Card id="revenue-strategy" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <Target className="mr-3 h-6 w-6 text-[var(--trilogy-orange)]" />
-                Stage 3: AI Rate &amp; Revenue Target Strategy
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Target className="h-6 w-6 text-[var(--trilogy-orange)]" />
+                Revenue Target Strategy Layer
               </CardTitle>
+              <p className="text-sm text-[var(--trilogy-orange)] font-medium mt-1">
+                Add-on overlay for the AI Rate — applies to vacant units only
+              </p>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                After the AI Rate is calculated, and before guardrails are applied, every <strong>vacant</strong> unit
-                passes through the Revenue Target Strategy Layer. This stage classifies each unit, generates a set of
-                candidate rates, estimates the expected revenue each would produce by year-end, and selects the best
-                one. Occupied units are never touched.
+                The Revenue Target Strategy Layer is an add-on overlay to the AI Rate — not a replacement. It starts with the AI Rate, then evaluates whether a vacant unit should preserve that rate, discount modestly to accelerate leasing, or increase modestly to improve exit-rate value. Occupied units pass through unchanged to Guardrails.
               </p>
 
-              {/* Pipeline diagram */}
+              <div className="bg-[var(--trilogy-orange)]/5 rounded-lg p-3 border border-[var(--trilogy-orange)]/20 text-sm flex items-start gap-2">
+                <Target className="h-4 w-4 text-[var(--trilogy-orange)] mt-0.5 flex-shrink-0" />
+                <span>
+                  If no revenue growth target exists for a location or service line, the AI Rate passes through this layer unchanged.
+                  If a unit is occupied, it passes through unchanged regardless of targets.
+                </span>
+              </div>
+
+              {/* Per-unit pipeline */}
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 border border-[var(--trilogy-teal)]/20">
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 text-sm uppercase tracking-wide">
                   Per-Vacant-Unit Pipeline
                 </h4>
-                <div className="flex flex-col md:flex-row gap-2 items-center text-sm">
+                <div className="flex flex-col md:flex-row gap-2 items-center text-sm flex-wrap">
                   {[
                     { label: "Compute Urgency", sub: "gap × months remaining" },
                     { label: "Classify Unit", sub: "Volume / Premium / Neutral" },
                     { label: "Generate Candidates", sub: "discount, premium, or ±1%" },
                     { label: "Score Each Candidate", sub: "expected revenue by Dec 31" },
-                    { label: "Select Best Rate", sub: "highest score wins" },
+                    { label: "Select Best Rate", sub: "highest score above threshold" },
                   ].map((step, i, arr) => (
                     <div key={i} className="flex items-center gap-2 flex-shrink-0">
                       <div className="bg-white rounded-lg border border-[var(--trilogy-teal)]/30 px-3 py-2 text-center">
@@ -407,23 +596,21 @@ export default function PricingAlgorithmDocs() {
               <div>
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 1 — Urgency Score</h4>
                 <p className="text-sm mb-3">
-                  An urgency score between 0 and 1 is computed from two inputs: how far behind the revenue growth
-                  target the campus is, and how many months remain in the calendar year.
+                  A score between 0 and 1 is computed from two inputs: how far behind the revenue growth target the campus is, and how many months remain in the calendar year.
                 </p>
                 <div className="font-mono text-sm bg-gray-50 border border-gray-200 rounded p-3">
                   Urgency = clamp( |growth gap %| ÷ (months remaining × urgencyDivisor), 0, 1 )
                 </div>
                 <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
-                  A campus 8 percentage points behind target with 4 months remaining scores 1.0 (maximum urgency).
-                  A campus ahead of target has urgency = 0. Default urgencyDivisor = 2.0.
+                  A campus 8 percentage points behind target with 4 months remaining scores 1.0 (maximum urgency). A campus ahead of target has urgency = 0. Default urgencyDivisor = 2.0.
                 </p>
               </div>
 
-              {/* Step 2: Segmentation */}
+              {/* Step 2: Classification */}
               <div>
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 2 — Unit Classification</h4>
                 <p className="text-sm mb-3">
-                  Each vacant unit is scored across five criteria. The side with the higher cumulative score wins.
+                  Each vacant unit is scored across five criteria. The side with the higher cumulative score determines the classification.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="rounded-lg border-2 border-[var(--trilogy-orange)]/40 bg-[var(--trilogy-orange)]/5 p-4">
@@ -432,8 +619,7 @@ export default function PricingAlgorithmDocs() {
                       <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Volume Driver</h5>
                     </div>
                     <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
-                      High urgency · unit vacant longer than peers · AI Rate above competitor average ·
-                      low occupancy · below-average unit attributes
+                      High urgency · unit vacant longer than peers · AI Rate above competitor average · low occupancy · below-average unit attributes
                     </p>
                     <p className="text-xs font-medium text-[var(--trilogy-orange)] mt-2">Action: 3–8% discount</p>
                   </div>
@@ -443,8 +629,7 @@ export default function PricingAlgorithmDocs() {
                       <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Premium Driver</h5>
                     </div>
                     <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
-                      Strong leasing velocity · unit filling faster than peers · AI Rate below competitor average ·
-                      high occupancy · premium unit attributes
+                      Strong leasing velocity · filling faster than peers · AI Rate below competitor average · high occupancy · premium unit attributes
                     </p>
                     <p className="text-xs font-medium text-[var(--trilogy-teal)] mt-2">Action: 2–10% increase</p>
                   </div>
@@ -460,20 +645,17 @@ export default function PricingAlgorithmDocs() {
                   </div>
                 </div>
                 <div className="mt-3 bg-gray-50 rounded-lg p-3 text-xs text-[var(--trilogy-grey)]">
-                  <strong>Scoring criteria and weights:</strong> Urgency 20% · Sales velocity vs pace 20% ·
-                  Days vacant vs unit-type average 15% · Competitor gap 20% · Unit attribute quality 25%.
-                  Confidence score = |volumeScore − premiumScore| ÷ totalScore.
+                  <strong>Scoring criteria:</strong> Urgency 20% · Sales velocity vs pace 20% · Days vacant vs unit-type average 15% · Competitor gap 20% · Unit attribute quality 25%.
                 </div>
               </div>
 
               {/* Step 3: Sale probability */}
               <div>
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 3 — Sale Probability Model</h4>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 3 — Expected Revenue Model</h4>
                 <p className="text-sm mb-3">
-                  For each candidate rate, an adjusted weekly sale probability is estimated and used to project
-                  expected revenue by December 31.
+                  For each candidate rate, an adjusted weekly sale probability is estimated and used to project expected revenue by December 31.
                 </p>
-                <div className="space-y-2 font-mono text-xs bg-gray-50 border border-gray-200 rounded p-3">
+                <div className="space-y-1 font-mono text-xs bg-gray-50 border border-gray-200 rounded p-3">
                   <div>adjustedWeeklyProb = baseProb × elasticityMult × daysVacantFactor × occupancyFactor × competitorFactor × attributeFactor</div>
                   <div>expectedSaleProb = 1 − exp(−adjustedWeeklyProb × weeksRemaining)</div>
                   <div>expectedRevenue = expectedSaleProb × candidateRate × revenueMonthsRemaining</div>
@@ -481,34 +663,28 @@ export default function PricingAlgorithmDocs() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-sm">
                   <div className="bg-white rounded border border-gray-200 p-3">
                     <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Sales velocity source</h6>
-                    <p className="text-xs text-[var(--trilogy-grey)]">
-                      Base probability is drawn from a velocity cache built at run-time from recent move-in dates
-                      in the current rent roll. Fallback chain: room type → service line → campus → 10%/week default.
-                    </p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Base probability is drawn from recent move-in dates in the current rent roll. Fallback chain: room type → service line → campus → 10%/week default.</p>
                   </div>
                   <div className="bg-white rounded border border-gray-200 p-3">
                     <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Price elasticity</h6>
-                    <p className="text-xs text-[var(--trilogy-grey)]">
-                      Each 1% discount multiplies weekly sale probability by (1 + 0.8×discount). Each 1% premium
-                      reduces it by (1 − 0.8×increase). Stale vacant units are more responsive to discounts.
-                    </p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Each 1% discount multiplies weekly sale probability by (1 + 0.8×discount). Each 1% premium reduces it by (1 − 0.8×increase). Stale vacant units are more responsive to discounts.</p>
                   </div>
                 </div>
               </div>
 
-              {/* Step 4: Selection rule */}
+              {/* Selection rules */}
               <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4 border border-[var(--trilogy-dark-blue)]/20">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Step 4 — Best Candidate Selection Rules</h4>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Step 4 — Best Candidate Selection</h4>
                 <ul className="text-sm space-y-1 list-disc list-inside">
                   <li><strong>Volume Driver:</strong> Discount selected only if expected revenue improves by ≥ 0.5%</li>
-                  <li><strong>Premium Driver:</strong> Increase selected if revenue improves, or if the exit-rate value rises and sale probability drops by less than 15 percentage points</li>
+                  <li><strong>Premium Driver:</strong> Increase selected if revenue improves, or if exit-rate value rises and sale probability drops by less than 15 percentage points</li>
                   <li><strong>Neutral:</strong> Only applied if revenue improvement exceeds the 0.5% minimum threshold</li>
                   <li><strong>No improvement:</strong> If no candidate clears the threshold, the existing AI Rate is preserved unchanged</li>
-                  <li><strong>No target set:</strong> If no revenue growth target exists for the location / service line, the existing AI Rate passes through untouched</li>
+                  <li><strong>No target:</strong> If no revenue growth target exists, the AI Rate passes through untouched</li>
                 </ul>
               </div>
 
-              {/* What gets stored */}
+              {/* Stored fields */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">What Gets Stored</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
@@ -516,7 +692,7 @@ export default function PricingAlgorithmDocs() {
                     { field: "targetAwareAiRate", desc: "Rate chosen by strategy layer" },
                     { field: "unitStrategySegment", desc: "volume_driver / premium_driver / neutral" },
                     { field: "urgencyScore", desc: "0–1 urgency from gap × time" },
-                    { field: "expectedRevenueExistingAi", desc: "Projected revenue at existing rate" },
+                    { field: "expectedRevenueExistingAi", desc: "Projected revenue at existing AI Rate" },
                     { field: "expectedRevenueTargetAware", desc: "Projected revenue at new rate" },
                     { field: "incrementalExpectedRevenue", desc: "Difference between the two" },
                     { field: "strategyLayerDetails", desc: "Full audit trail (JSON)" },
@@ -532,266 +708,91 @@ export default function PricingAlgorithmDocs() {
             </CardContent>
           </Card>
 
+          {/* ── 7. GUARDRAILS ────────────────────────────────────────────────── */}
           <Card id="guardrails" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
             <CardHeader className="pb-2">
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
-                <Shield className="mr-1 h-6 w-6 text-[var(--trilogy-teal)]" />
-                Rules Engine &amp; Guardrails
+                <Shield className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                Guardrails
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
-                The foundation of controlled pricing — and the primary reason Modulo rates and AI rates are kept separate
+                Final safety layer — applies to both the Modulo Rate path and the AI Rate path
               </p>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The Rules Engine — also called Guardrails — is one of Modulo's most important features.
-                It gives operators precise control over how pricing recommendations are generated and applied,
-                without requiring constant manual review of every unit. Rules define the hard boundaries within
-                which any rate change can occur. No recommendation ever leaves these boundaries, regardless of
-                what the algorithm or AI calculates.
+                Guardrails are the last step in both pricing paths. They enforce hard business boundaries regardless of what the Modulo engine, AI Pricing Engine, Smart Adjustment Rules, or Revenue Target Strategy produce. No recommendation ever leaves these boundaries.
               </p>
 
-              {/* Why Modulo and AI are separate */}
-              <div className="rounded-lg border border-[var(--trilogy-grey)]/20 bg-[var(--dashboard-bg)] p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <ArrowRightLeft className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                  <h3 className="font-semibold text-[var(--trilogy-dark-blue)]">Why Modulo Rates and AI Rates Are Separate</h3>
-                </div>
-                <p className="text-sm">
-                  The Modulo rate is a deterministic, rules-governed recommendation — fully auditable, repeatable,
-                  and bounded by your guardrails. The AI rate is a second, independent suggestion generated by
-                  the AI Pricing Engine and shown alongside it for comparison. Keeping them separate lets operators
-                  see both perspectives without one overwriting the other. Operators decide which rate to adopt,
-                  when to adopt it, and at what frequency — the system never forces a change.
-                </p>
-              </div>
-
-              {/* Two operating modes */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-[var(--trilogy-teal)]/5 p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <SlidersHorizontal className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h3 className="font-semibold text-[var(--trilogy-dark-blue)]">Dynamic Weights Mode</h3>
-                  </div>
-                  <p className="text-sm">
-                    Use Modulo's full multi-factor engine with configurable weights for occupancy, competitor
-                    rates, vacancy duration, room attributes, seasonal factors, and more. The algorithm
-                    continuously balances these signals and outputs a recommendation that shifts dynamically
-                    as market conditions change — the same way hotel and airline revenue management works.
-                    Guardrails keep every suggestion within safe bounds while the weights handle nuance.
-                  </p>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Rate Change Limits</h5>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>Maximum single increase: configurable (default 15%)</li>
+                    <li>Maximum single decrease: configurable (default 5%)</li>
+                    <li>Prevents excessive price swings between calculation cycles</li>
+                  </ul>
                 </div>
-                <div className="rounded-lg border border-[var(--trilogy-dark-blue)]/30 bg-[var(--trilogy-dark-blue)]/5 p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <CalendarClock className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                    <h3 className="font-semibold text-[var(--trilogy-dark-blue)]">Traditional Rules Mode</h3>
-                  </div>
-                  <p className="text-sm">
-                    Operators can configure Modulo as a rules-based pricing engine — set your floors, ceilings,
-                    and change limits, then run calculations at whatever cadence fits your workflow: daily, weekly,
-                    monthly, or on-demand. This makes Modulo an immediate upgrade over manual spreadsheet pricing,
-                    requiring no change to how teams already think about rate decisions — just faster, more
-                    consistent execution with a full audit trail.
-                  </p>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Competitor Variance Limit</h5>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>Caps how far a rate can deviate from competitor median (default ±10%)</li>
+                    <li>Applies independently of the percentage change limits above</li>
+                  </ul>
                 </div>
-              </div>
-
-              {/* What rules control */}
-              <div className="rounded-lg border border-[var(--trilogy-grey)]/20 bg-[var(--dashboard-bg)] p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <Zap className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                  <h3 className="font-semibold text-[var(--trilogy-dark-blue)]">What the Rules Engine Controls</h3>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Occupancy &amp; Demand Triggers</h5>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>Occupancy thresholds that activate pricing pressure</li>
+                    <li>Vacancy day triggers for progressive discounts</li>
+                  </ul>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Rate Change Limits</h5>
-                    <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Maximum single increase: configurable (default 15%)</li>
-                      <li>Maximum single decrease: configurable (default 5%)</li>
-                      <li>Prevents excessive price swings between calculation cycles</li>
-                    </ul>
-                  </div>
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Competitor Variance Limit</h5>
-                    <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Caps how far a rate can deviate from competitor median (default ±10%)</li>
-                      <li>Configurable at portfolio, location, or service line level</li>
-                      <li>Applies independently of the percentage change limits above</li>
-                    </ul>
-                  </div>
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Occupancy &amp; Demand Triggers</h5>
-                    <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Occupancy thresholds that activate pricing pressure</li>
-                      <li>Vacancy day triggers for progressive discounts</li>
-                    </ul>
-                  </div>
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Scope &amp; Configuration</h5>
-                    <ul className="text-sm space-y-1 list-disc list-inside">
-                      <li>Configurable at portfolio, location, or service line level</li>
-                      <li>Seasonal adjustment overrides</li>
-                      <li>Granular control across different segments</li>
-                    </ul>
-                  </div>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Configuration Scope</h5>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>Configurable at portfolio, location, or service line level</li>
+                    <li>Seasonal adjustment overrides available</li>
+                    <li>Granular control across different segments</li>
+                  </ul>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── Smart Adjustment Rules ──────────────────────────────────────── */}
-          <Card id="smart-rules" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
-            <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center">
-                <Sparkles className="mr-3 h-6 w-6 text-[var(--trilogy-teal)]" />
-                Smart Adjustment Rules
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
-              <p>
-                Smart Adjustment Rules are operator-defined pricing rules that sit between the Modulo calculation
-                and the Guardrails layer. They are written in plain English (e.g. <em>"Reduce vacant AL rates by $100
-                after 30 days vacant"</em>), parsed by AI into structured conditions, and stored in the database so
-                they run automatically on every Modulo calculation cycle. Multiple active rules are applied in
-                priority order, each building on the rate produced by the previous rule — i.e. they stack.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4">
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                    Trigger Types
-                  </h4>
-                  <div className="space-y-3 text-sm">
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Immediate</p>
-                      <p>Applies to every unit in scope on every calculation run, regardless of occupancy or vacancy status.</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Condition — Occupancy Status</p>
-                      <p>Triggers only for <em>vacant</em> or only for <em>occupied</em> units.</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Condition — Vacancy Duration</p>
-                      <p>Triggers when a unit has been vacant for a configurable number of days (e.g. ≥ 30 days, &gt; 60 days).</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Condition — Service Line</p>
-                      <p>Combines with other conditions to restrict a trigger to a specific service line (AL, MC, IL, etc.).</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4">
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
-                    <SlidersHorizontal className="h-4 w-4 text-[var(--trilogy-dark-blue)]" />
-                    Action Types &amp; Scoping
-                  </h4>
-                  <div className="space-y-3 text-sm">
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Percentage Adjustment</p>
-                      <p>Multiplies the current rate by <code className="bg-white rounded px-1 border border-gray-200">1 + value/100</code>. E.g. +5% or −3%.</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Fixed Dollar Adjustment</p>
-                      <p>Adds or subtracts a flat dollar amount from the current rate. E.g. −$100 or +$50.</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-[var(--trilogy-dark-blue)]">Scope</p>
-                      <ul className="list-disc list-inside space-y-0.5 mt-1">
-                        <li>Portfolio-wide (no location or service line filter)</li>
-                        <li>Location-specific (one campus)</li>
-                        <li>Service-line-specific (e.g. all AL across portfolio)</li>
-                        <li>Location + service line combination</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Rule Stacking — How Multiple Rules Combine</h4>
-                <p className="text-sm mb-3">
-                  All active rules that match a unit's scope <em>and</em> trigger are applied in descending priority order.
-                  Each rule receives the rate produced by the previous rule — not the original base rate — so adjustments
-                  compound rather than conflict. The final stored rate reflects the cumulative effect of every matching rule.
-                </p>
-                <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
-                  <p>Base Modulo rate: $4,500</p>
-                  <p>Rule 1 (priority 10) — +5% AL all vacant → $4,500 × 1.05 = <strong>$4,725</strong></p>
-                  <p>Rule 2 (priority 5)  — −$100 after 30 days vacant → $4,725 − $100 = <strong>$4,625</strong></p>
-                  <p className="text-[var(--trilogy-teal)] mt-1">Rule-Adjusted Rate stored: $4,625 (applied: "Rule 1 + Rule 2")</p>
-                </div>
-                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
-                  The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records
-                  each rule that fired, joined by " + ", so operators can audit exactly which rules affected each unit.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Where in the pipeline</h5>
-                  <p className="text-sm">Applied <strong>after</strong> Modulo calculates the base rate and <strong>before</strong> guardrails clamp the result. The rule-adjusted rate is what enters the guardrail check.</p>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">When they run</h5>
-                  <p className="text-sm">Automatically on every Modulo calculation — daily automated runs and manual triggers. Can also be executed on-demand via the Smart Adjustments panel.</p>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">How to configure</h5>
-                  <p className="text-sm">Navigate to <strong>Pricing Controls → Smart Adjustments</strong>. Type a rule in plain English, preview its impact, then activate it. Rules can be toggled on/off without deletion.</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-[var(--trilogy-dark-blue)]/10 to-[var(--trilogy-teal)]/10 border-[var(--trilogy-grey)]/20">
+          {/* ── 8. FINAL SUMMARY ─────────────────────────────────────────────── */}
+          <Card id="summary" className="bg-gradient-to-r from-[var(--trilogy-dark-blue)]/10 to-[var(--trilogy-teal)]/10 border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
-                Summary: The Complete Workflow
+                Summary
               </CardTitle>
             </CardHeader>
             <CardContent className="text-[var(--trilogy-grey)]">
               <ol className="space-y-3 list-decimal list-inside">
                 <li className="pl-2">
-                  <strong>Base Rate Calculation:</strong> Modulo algorithm calculates an initial recommendation
-                  using 7 weighted factors — occupancy, vacancy decay, room attributes, seasonality, competitor
-                  positioning, market conditions, and demand signals.
+                  <strong>Modulo Rate:</strong> The Modulo engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals. Room attribute quality is applied separately as a multiplier, up to ±10%.
                 </li>
                 <li className="pl-2">
-                  <strong>AI Optimization:</strong> Machine learning adjusts weights based on historical outcomes
-                  (adoptions and sales within 30 days), continuously improving recommendations through a daily
-                  learning loop.
+                  <strong>Smart Adjustment Rules:</strong> Operator-defined rules modify the Modulo Rate only. They apply after the Modulo engine, before Guardrails, and stack in priority order. They do not affect the AI Rate.
                 </li>
                 <li className="pl-2">
-                  <strong>AI Rate &amp; Revenue Target Strategy:</strong> The AI Rate incorporates revenue
-                  growth targets in two complementary ways. A high-level overlay tracks actual YOY growth
-                  vs. target and surfaces "Attention Needed" signals when a campus falls behind (or allows
-                  a modest premium of up to +2% when ahead). For each <em>vacant</em> unit, the Revenue Target
-                  Strategy layer classifies it as Volume Driver, Premium Driver, or Neutral, generates candidate
-                  rates, and selects the one with the highest expected revenue by year-end. Occupied units pass
-                  through unchanged.
+                  <strong>AI Rate:</strong> The AI Pricing Engine independently calculates a second recommendation using GPT-5-generated weights based on the current portfolio snapshot. An ML learning loop refines these weights over time using adoption and move-in outcome data.
                 </li>
                 <li className="pl-2">
-                  <strong>Smart Adjustment Rules:</strong> All active operator-defined rules that match a unit's
-                  scope and trigger conditions are applied in priority order, stacking on top of each other.
-                  Each rule operates on the rate produced by the previous rule, compounding percentage and
-                  fixed-dollar adjustments before the result reaches guardrails.
+                  <strong>Revenue Target Strategy:</strong> For vacant units with an active revenue growth target, the strategy layer evaluates whether the AI Rate should be preserved, discounted to accelerate leasing, or increased to improve exit-rate value — choosing only the option with the highest expected revenue by year-end. Occupied units pass through unchanged. This layer applies to the AI Rate only.
                 </li>
                 <li className="pl-2">
-                  <strong>Guardrail Enforcement:</strong> Final rates are clamped to configured min/max limits
-                  (absolute floors, ceilings, and max change fractions) to ensure business boundaries are
-                  respected regardless of algorithmic output.
+                  <strong>Guardrails:</strong> Both final recommendations — the Modulo Rate and the AI Rate — are clamped by Guardrails before being stored or displayed. No recommendation can exceed configured increase or decrease limits, regardless of what the algorithm or AI produces.
                 </li>
                 <li className="pl-2">
-                  <strong>Continuous Improvement:</strong> Daily automated calculations and ML learning loops
-                  keep pricing optimised as occupancy, competitor rates, and market conditions evolve.
+                  <strong>Operator decision:</strong> Operators see both the Modulo Rate and the AI Rate side-by-side and decide which rate to adopt, when, and at what frequency. The system never forces a change.
                 </li>
               </ol>
             </CardContent>
           </Card>
+
         </div>
 
+        {/* Footer button */}
         <div className="mt-8 text-center">
           <Button
             variant="outline"

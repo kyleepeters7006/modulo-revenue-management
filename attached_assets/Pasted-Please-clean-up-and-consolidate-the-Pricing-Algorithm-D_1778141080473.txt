@@ -1,0 +1,161 @@
+Please clean up and consolidate the Pricing Algorithm Documentation page so it is easier to understand, less repetitive, and accurately explains the relationship between the Modulo Rate, AI Rate, Smart Adjustment Rules, Revenue Target Strategy, and Guardrails.
+
+Important: This is a documentation/content restructuring task. Do not change the pricing algorithm logic unless you find documentation that is clearly inconsistent with the current code. The goal is to make the About / Documentation page clearer and more coherent.
+
+Please restructure the page around this core concept:
+
+Modulo generates two separate but related pricing recommendations:
+
+1. Modulo Rate
+- Deterministic, operator-controlled, rules-governed, auditable.
+- Uses the core Modulo pricing engine.
+- Uses six weighted pricing signals:
+  a. Occupancy Pressure
+  b. Days Vacant Decay
+  c. Seasonality
+  d. Competitor Positioning
+  e. Market Conditions
+  f. Demand Signals
+- Room attributes are applied separately as a quality multiplier, not as one of the six weighted signals.
+- Smart Adjustment Rules apply only to the Modulo Rate path.
+- Guardrails apply after Smart Adjustment Rules.
+
+2. AI Rate
+- AI-enhanced recommendation shown separately from the Modulo Rate.
+- Uses GPT-generated pricing weights based on the current portfolio snapshot.
+- Uses ML learning over time based on operator adoption and move-in outcomes.
+- Includes the Revenue Target Strategy Layer as an add-on overlay, not a replacement.
+- Revenue Target Strategy applies only to vacant units.
+- Occupied units keep their initial AI Rate and proceed directly to guardrails.
+- Guardrails apply after the Revenue Target Strategy layer.
+
+Please create a clearer high-level workflow near the top of the page using this structure:
+
+Base Unit Data
+→ Modulo Core Pricing Engine
+→ Smart Adjustment Rules
+→ Guardrails
+→ Modulo Rate
+
+Base Unit Data
+→ AI Pricing Engine
+→ Revenue Target Strategy Layer for vacant units only
+→ Guardrails
+→ AI Rate
+
+Please add an early section titled “Why Modulo Rate and AI Rate Are Separate” and explain:
+
+The Modulo Rate is the deterministic, rules-governed recommendation. The AI Rate is a second, independent AI-enhanced recommendation. Keeping them separate allows operators to compare both perspectives without either one automatically overwriting the other. Operators decide which rate to adopt and when.
+
+Please revise the page into these major sections:
+
+1. Overview
+- Explain that Modulo produces two pricing recommendations: Modulo Rate and AI Rate.
+- Explain that both are bounded by guardrails.
+- Explain that Smart Adjustment Rules belong to the Modulo path only.
+- Explain that Revenue Target Strategy belongs to the AI Rate path only and applies only to vacant units.
+
+2. Complete Pricing Workflow
+- Show the two-path workflow described above.
+- Make the sequence visually clear.
+
+3. Modulo Rate Calculation
+- Explain the deterministic Modulo engine.
+- Keep the formula:
+  Final Price = Base Rate × (1 + Blended Adjustment)
+  Blended Adjustment = Σ(Signal × Normalized Weight), capped at ±25%
+- List the six weighted pricing signals.
+- Clarify that room attributes are applied as a separate multiplier, up to ±10%.
+- Keep the service line premium targets.
+- Include Dynamic Weights Mode and Traditional Rules Mode here if they already exist on the page.
+
+4. Smart Adjustment Rules
+- Explain that Smart Adjustment Rules are operator-defined plain-English rules.
+- They are parsed into structured conditions and applied automatically.
+- They apply after the core Modulo Rate is calculated and before guardrails.
+- They apply only to the Modulo Rate path.
+- Multiple rules stack in priority order.
+- Keep a shortened version of the existing example:
+  Base Modulo Rate: $4,500
+  Rule 1: +5% → $4,725
+  Rule 2: -$100 → $4,625
+  Final Rule-Adjusted Modulo Rate: $4,625
+
+5. AI Rate Calculation
+- Explain that the AI Pricing Engine generates a separate AI Rate.
+- Include the GPT-generated weight suggestion process:
+  a. Current portfolio snapshot is analyzed
+  b. GPT suggests pricing weights and reasoning
+  c. Suggested weights are used for the AI calculation batch
+  d. Guardrails clamp the final AI Rate before storage/display
+- Include the ML learning loop:
+  a. Tracks AI rate adoption
+  b. Tracks whether adopted rates result in move-ins within 30 days
+  c. Uses regularized regression to refine weights
+  d. Stores weight versions for rollback
+  e. Can train globally or by service line
+
+6. Revenue Target Strategy Layer
+- Position this as an add-on to the AI Rate, not a replacement.
+- Use this exact concept:
+  “The Revenue Target Strategy Layer starts with the AI Rate, then evaluates whether a vacant unit should preserve that rate, discount modestly to accelerate leasing, or increase modestly to improve exit-rate value.”
+- Explain that it applies only to vacant units.
+- Explain that occupied units pass through unchanged.
+- Keep the major steps:
+  a. Compute urgency
+  b. Classify unit as Volume Driver, Premium Driver, or Neutral
+  c. Generate candidate rates
+  d. Score each candidate based on expected revenue by year-end
+  e. Select the best rate only if it clears the required improvement threshold
+- Keep the fields that get stored:
+  targetAwareAiRate
+  unitStrategySegment
+  urgencyScore
+  expectedRevenueExistingAi
+  expectedRevenueTargetAware
+  incrementalExpectedRevenue
+  strategyLayerDetails
+  strategyLayerProjection
+- Make clear that if no revenue target exists, the AI Rate passes through unchanged.
+
+7. Guardrails
+- Explain that guardrails are the final safety layer for both Modulo Rate and AI Rate.
+- They enforce business boundaries regardless of what the algorithm, AI engine, Smart Adjustment Rules, or Revenue Target Strategy produce.
+- Keep these guardrail categories:
+  a. Maximum single increase
+  b. Maximum single decrease
+  c. Competitor variance limit
+  d. Occupancy and demand triggers
+  e. Portfolio/location/service-line configuration
+- Remove any wording that implies guardrails only apply to one path.
+
+8. Final Summary
+Rewrite the final summary so it follows this order:
+
+a. Modulo calculates a deterministic Modulo Rate using six weighted signals and a separate room attribute multiplier.
+b. Smart Adjustment Rules can modify the Modulo Rate only.
+c. AI Pricing Engine calculates a separate AI Rate using GPT-generated weights and ML learning.
+d. Revenue Target Strategy can adjust the AI Rate for vacant units only based on revenue targets and expected revenue.
+e. Guardrails clamp both final recommendations.
+f. Operators compare the Modulo Rate and AI Rate and decide which rate to adopt.
+
+Please also fix terminology consistency across the page:
+- Use “Modulo Rate” for the deterministic recommendation.
+- Use “AI Rate” for the AI-generated recommendation.
+- Use “Revenue Target Strategy Layer” consistently.
+- Use “Smart Adjustment Rules” consistently.
+- Use “Guardrails” consistently.
+- Do not refer to the algorithm as using seven weighted factors. It uses six weighted signals plus a separate room attribute multiplier.
+- Do not imply the Revenue Target Strategy replaces the AI Rate. It is an add-on overlay.
+- Do not imply Smart Adjustment Rules apply to the AI Rate unless the current code explicitly supports that.
+
+Please remove repetition, shorten long paragraphs, and improve readability for an executive/operator audience. The tone should be clear, confident, and product-oriented, not overly technical.
+
+Please preserve useful technical detail, but organize it so a non-technical senior housing operator can understand:
+- What the system calculates
+- Why there are two rates
+- Which layers apply to which rate
+- Where guardrails apply
+- How the system stays auditable and operator-controlled
+
+After updating the documentation, check the page for layout issues, duplicated headings, confusing sequencing, and any references that conflict with the two-path model above.
