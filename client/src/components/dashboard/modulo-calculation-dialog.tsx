@@ -361,6 +361,9 @@ export default function ModuloCalculationDialog({
                                                 : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-600'
                                             }`}
                                           >
+                                            {calcDetails.occupancyUsed !== undefined
+                                              ? `${(calcDetails.occupancyUsed * 100).toFixed(1)}% — `
+                                              : ''}
                                             {calcDetails.occupancySource === 't3m' ? 'T3M avg' : 'Snapshot'}
                                           </Badge>
                                         </TooltipTrigger>
