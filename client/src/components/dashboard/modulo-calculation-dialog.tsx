@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -343,11 +344,34 @@ export default function ModuloCalculationDialog({
                           <div key={index}>
                             <div className="flex items-start justify-between mb-2">
                               <div className="space-y-1 flex-1">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h4 className="text-sm font-medium">{adj.factor}</h4>
                                   <Badge variant="outline" className="text-xs">
                                     Weight: {adj.weight}%
                                   </Badge>
+                                  {/occupancy/i.test(adj.factor) && calcDetails.occupancySource && (
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Badge
+                                            variant="secondary"
+                                            className={`text-xs cursor-help ${
+                                              calcDetails.occupancySource === 't3m'
+                                                ? 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300 border-teal-300 dark:border-teal-700'
+                                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-600'
+                                            }`}
+                                          >
+                                            {calcDetails.occupancySource === 't3m' ? 'T3M avg' : 'Snapshot'}
+                                          </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs text-xs">
+                                          {calcDetails.occupancySource === 't3m'
+                                            ? 'Trailing 3-month weighted average — uses recent historical move-in/move-out data for a smoother, more accurate occupancy signal.'
+                                            : 'Real-time snapshot — uses the current point-in-time occupancy count. Applied when insufficient historical data is available.'}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  )}
                                 </div>
                               </div>
                               <div className="text-right">
