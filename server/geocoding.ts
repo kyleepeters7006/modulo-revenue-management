@@ -230,6 +230,148 @@ export async function geocodeMissingLocations(): Promise<GeocodeMissingResult> {
   return { updated, failed, skipped };
 }
 
+// ── Geocode competitor survey rows missing coordinates ────────────────────────
+
+export interface GeocodeMissingSurveysResult {
+  updated: number;
+  failed: number;
+  skipped: number;
+}
+
+/**
+ * Geocode competitive_survey_data rows that have null lat or lng.
+ *
+ * Strategy per row:
+ *   1. If the notes column contains JSON with latitude/longitude fields, use those.
+ *   2. Otherwise try geocodeAddressNearLocation(competitorAddress, baseLocation):
+ *      a. Nominatim resolves the real address → uses real coords.
+ *      b. Nominatim fails (e.g. fake demo address) → deterministic offset
+ *         near the associated portfolio location so the pin appears in the
+ *         right region even for synthetic data.
+ *
+ * Rows that already have both coordinates are skipped (idempotent).
+ * Unique addresses are geocoded only once and the result is reused for every
+ * row that shares the same address, reducing Nominatim calls significantly.
+ */
+export async function geocodeMissingCompetitorSurveys(): Promise<GeocodeMissingSurveysResult> {
+  let updated = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  const missing = await db
+    .select({
+      id: competitiveSurveyData.id,
+      notes: competitiveSurveyData.notes,
+      competitorAddress: competitiveSurveyData.competitorAddress,
+      keyStatsLocation: competitiveSurveyData.keyStatsLocation,
+    })
+    .from(competitiveSurveyData)
+    .where(or(isNull(competitiveSurveyData.lat), isNull(competitiveSurveyData.lng)));
+
+  if (missing.length === 0) {
+    console.log("[geocode-survey] All competitive_survey_data rows already have coordinates.");
+    return { updated, failed, skipped };
+  }
+
+  console.log(`[geocode-survey] ${missing.length} survey row(s) need geocoding…`);
+
+  // Pre-load all location lat/lng so we can use them as base points for the
+  // near-location fallback without an extra DB query per row.
+  const locationRows = await db
+    .select({ name: locations.name, lat: locations.lat, lng: locations.lng })
+    .from(locations);
+
+  const locationCoords = new Map<string, LatLng>();
+  // Cache for city-level geocode fallbacks (e.g. "Louisville" from "Louisville - 101")
+  const cityFallbackCache = new Map<string, LatLng | null>();
+
+  for (const loc of locationRows) {
+    if (loc.lat != null && loc.lng != null) {
+      locationCoords.set(loc.name, { lat: loc.lat, lng: loc.lng });
+    }
+  }
+
+  // Helper: return base coords for a location, falling back to a city-level
+  // geocode if the location row itself has no coordinates.
+  const getBaseLocation = async (locationName: string | null): Promise<LatLng | null> => {
+    if (!locationName) return null;
+
+    const direct = locationCoords.get(locationName);
+    if (direct) return direct;
+
+    // Extract city from "City - Code" pattern (e.g. "Louisville - 101" → "Louisville")
+    const cityPart = locationName.includes(' - ')
+      ? locationName.split(' - ')[0].trim()
+      : locationName.trim();
+
+    if (!cityPart) return null;
+    if (cityFallbackCache.has(cityPart)) return cityFallbackCache.get(cityPart) ?? null;
+
+    const coords = await geocodeAddress(cityPart);
+    cityFallbackCache.set(cityPart, coords);
+    if (coords) {
+      // Cache it on the full location name too to avoid duplicate lookups
+      locationCoords.set(locationName, coords);
+    }
+    return coords;
+  };
+
+  // Cache geocode results per address to avoid redundant Nominatim calls
+  const addressCache = new Map<string, LatLng | null>();
+
+  for (const row of missing) {
+    // 1. Try coordinates embedded in notes JSON (imported from CSV Latitude/Longitude columns)
+    let coords: LatLng | null = null;
+    try {
+      const notes = typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes ?? {});
+      const lat = parseFloat(notes.latitude);
+      const lng = parseFloat(notes.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        coords = { lat, lng };
+      }
+    } catch {
+      // notes not valid JSON — ignore
+    }
+
+    // 2. Geocode the address, using the associated portfolio location as a
+    //    context hint for the deterministic-offset fallback.
+    if (!coords) {
+      if (!row.competitorAddress) {
+        skipped++;
+        console.warn(`[geocode-survey] Skipping row ${row.id} — no address.`);
+        continue;
+      }
+
+      // Key by (address, location) so that unresolved/fake addresses that are
+      // identical across different locations each get their own deterministic
+      // offset near the correct city rather than reusing the first computed one.
+      const addrNorm = row.competitorAddress.trim().toLowerCase();
+      const cacheKey = `${addrNorm}||${(row.keyStatsLocation ?? '').toLowerCase()}`;
+      if (addressCache.has(cacheKey)) {
+        coords = addressCache.get(cacheKey) ?? null;
+      } else {
+        const baseLocation = await getBaseLocation(row.keyStatsLocation ?? null);
+        coords = await geocodeAddressNearLocation(row.competitorAddress, baseLocation, 8);
+        addressCache.set(cacheKey, coords);
+      }
+    }
+
+    if (coords) {
+      await db
+        .update(competitiveSurveyData)
+        .set({ lat: coords.lat, lng: coords.lng })
+        .where(eq(competitiveSurveyData.id, row.id));
+      updated++;
+    } else {
+      failed++;
+      console.warn(`[geocode-survey] Could not geocode "${row.competitorAddress}" (row ${row.id})`);
+    }
+  }
+
+  console.log(`[geocode-survey] Done: ${updated} updated, ${failed} failed, ${skipped} skipped (no address).`);
+  return { updated, failed, skipped };
+}
+
 // ── Batch re-geocode ──────────────────────────────────────────────────────────
 
 export interface ReGeocodeResult {

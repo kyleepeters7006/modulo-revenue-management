@@ -116,6 +116,23 @@ app.use((req, res, next) => {
     }
   }, 6000); // 6-second delay — after demo seed and job resume have started
 
+  // Background job: geocode competitor survey rows that have null lat/lng so
+  // that the Competitor Map shows pins for all competitors with an address.
+  // Idempotent — rows that already have coordinates are skipped.
+  // Delayed to start after the location geocoding job so both share the same
+  // Nominatim rate-limiter queue without stepping on each other.
+  setTimeout(async () => {
+    try {
+      const { geocodeMissingCompetitorSurveys } = await import('./geocoding');
+      const result = await geocodeMissingCompetitorSurveys();
+      if (result.updated > 0 || result.failed > 0) {
+        log(`[startup] Geocoded missing competitor surveys: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
+      }
+    } catch (err) {
+      log(`[startup] Background geocode-missing-competitor-surveys failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 10000); // 10-second delay — starts after location geocoding job has begun
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
