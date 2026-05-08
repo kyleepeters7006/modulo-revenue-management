@@ -115,30 +115,18 @@ export function CompetitorMap({
       // Default fallback coordinates (Louisville area)
       const defaultCenter = [38.2527, -85.7585];
       
-      if (!competitors?.items?.length) return defaultCenter;
-      
       try {
-        // If we have a single location selected, center on that location's competitors
-        if (selectedLocations.length === 1) {
-          const locationCompetitors = competitors.items.filter((comp: any) => 
-            comp.location === selectedLocations[0]
-          );
-          
-          if (locationCompetitors.length > 0) {
-            const avgLat = locationCompetitors.reduce((sum: number, comp: any) => sum + (comp.lat || 0), 0) / locationCompetitors.length;
-            const avgLng = locationCompetitors.reduce((sum: number, comp: any) => sum + (comp.lng || 0), 0) / locationCompetitors.length;
-            
-            // Validate coordinates
-            if (avgLat && avgLng && !isNaN(avgLat) && !isNaN(avgLng)) {
-              return [avgLat, avgLng];
-            }
-          }
+        // First priority: use the selected location's real geocoded coordinates from the locations table
+        const competitorData = competitors as any;
+        const cl = competitorData?.currentLocation;
+        if (Number.isFinite(cl?.lat) && Number.isFinite(cl?.lng)) {
+          return [cl.lat, cl.lng];
         }
         
-        // Calculate center from all visible competitors
-        if (competitors.items.length > 0) {
-          const validCompetitors = competitors.items.filter((comp: any) => 
-            comp.lat && comp.lng && !isNaN(comp.lat) && !isNaN(comp.lng)
+        // Fallback: calculate center from all visible competitors
+        if (competitorData?.items?.length > 0) {
+          const validCompetitors = competitorData.items.filter((comp: any) => 
+            Number.isFinite(comp.lat) && Number.isFinite(comp.lng)
           );
           
           if (validCompetitors.length > 0) {
@@ -160,43 +148,29 @@ export function CompetitorMap({
       const competitorData = competitors as any;
       if (!competitorData?.items) return;
       
-      // Get current property location based on selected location filter
-      let currentLocation;
+      // Use the real location coordinates returned by the API from the locations table
+      // Validate that the API-provided currentLocation has finite coordinates before accepting it
+      const apiLocation = competitorData.currentLocation;
+      let currentLocation = (apiLocation && Number.isFinite(apiLocation.lat) && Number.isFinite(apiLocation.lng))
+        ? apiLocation
+        : null;
       
-      if (selectedLocations.length === 1) {
-        // Single location selected - find its coordinates from competitors data
-        const locationCompetitors = competitorData.items.filter((comp: any) => 
-          comp.location === selectedLocations[0]
-        );
-        
-        if (locationCompetitors.length > 0) {
-          // Calculate center point from competitors for this location
-          const avgLat = locationCompetitors.reduce((sum: number, comp: any) => sum + comp.lat, 0) / locationCompetitors.length;
-          const avgLng = locationCompetitors.reduce((sum: number, comp: any) => sum + comp.lng, 0) / locationCompetitors.length;
-          
+      // Fallback to first competitor's area if no real location coordinates available
+      if (!currentLocation && competitorData.items.length > 0) {
+        const firstComp = competitorData.items[0];
+        if (Number.isFinite(firstComp.lat) && Number.isFinite(firstComp.lng)) {
           currentLocation = {
-            name: selectedLocations[0],
-            lat: avgLat,
-            lng: avgLng,
-            address: `${selectedLocations[0]} Senior Living Community`
+            name: firstComp.location || "Selected Location",
+            lat: firstComp.lat,
+            lng: firstComp.lng,
+            address: `${firstComp.location || "Senior Living"} Community`
           };
         }
       }
       
-      // Fallback to first competitor's area if no specific location or multiple locations
-      if (!currentLocation && competitorData.items.length > 0) {
-        const firstComp = competitorData.items[0];
-        currentLocation = {
-          name: firstComp.location || "Selected Location",
-          lat: firstComp.lat + (Math.random() - 0.5) * 0.01, // Slight offset from competitor
-          lng: firstComp.lng + (Math.random() - 0.5) * 0.01,
-          address: `${firstComp.location || "Senior Living"} Community`
-        };
-      }
-      
       // Set up portfolio property data for use in comparisons
       // This will be used by competitor popups even if we don't show a portfolio marker
-      const currentProperty = currentLocation && currentLocation.lat && currentLocation.lng ? {
+      const currentProperty = (currentLocation && Number.isFinite(currentLocation.lat) && Number.isFinite(currentLocation.lng)) ? {
         name: currentLocation.name,
         lat: currentLocation.lat,
         lng: currentLocation.lng,
@@ -296,7 +270,7 @@ export function CompetitorMap({
       
       // Competitor markers
       competitorData.items.forEach((competitor: any) => {
-        if (!competitor.lat || !competitor.lng || !mounted) return;
+        if (!Number.isFinite(competitor.lat) || !Number.isFinite(competitor.lng) || !mounted) return;
         
         // Style based on distance (closer = larger/more prominent)
         const getDistanceStyle = (distanceMiles: number | undefined) => {
@@ -499,37 +473,28 @@ export function CompetitorMap({
         `);
       });
       
-      // Adjust map to fit all markers with better padding
-      if (competitorData.items.length > 0 && mapInstanceRef.current) {
-        const bounds = window.L.latLngBounds(
-          [[currentProperty.lat, currentProperty.lng]]
-        );
-        competitorData.items.forEach((comp: any) => {
-          if (comp.lat && comp.lng) {
-            bounds.extend([comp.lat, comp.lng]);
-          }
-        });
-        mapInstanceRef.current.fitBounds(bounds, { 
-          padding: [60, 60],
-          maxZoom: 13 // Prevent excessive zoom-in
-        });
-      }
-      
-      console.log(`Added ${competitorData.items.length + 1} markers to map`);
-      
-      // Set map view based on current location and competitors
-      if (competitorData.items.length > 0) {
-        // Create bounds including current property and all competitors
-        const allPoints = [[currentProperty.lat, currentProperty.lng], ...competitorData.items.map((comp: any) => [comp.lat, comp.lng])];
-        const bounds = window.L.latLngBounds(allPoints);
-        
-        // Fit map to show all markers with appropriate padding
-        mapInstanceRef.current.fitBounds(bounds, { 
-          padding: [30, 30],
-          maxZoom: 12 // Good zoom level for location view
-        });
-      } else {
-        // No competitors, center on current location
+      const validCompItems = competitorData.items.filter((comp: any) =>
+        Number.isFinite(comp.lat) && Number.isFinite(comp.lng)
+      );
+
+      console.log(`Added ${validCompItems.length + (currentLocation ? 1 : 0)} markers to map`);
+
+      // Set map view: fit bounds when competitors exist, otherwise center on location
+      if (validCompItems.length > 0 && mapInstanceRef.current) {
+        const startPoint = Number.isFinite(currentProperty.lat) && Number.isFinite(currentProperty.lng)
+          ? [[currentProperty.lat, currentProperty.lng]]
+          : [];
+        const compPoints = validCompItems.map((comp: any) => [comp.lat, comp.lng]);
+        const allPoints = [...startPoint, ...compPoints];
+        if (allPoints.length > 0) {
+          const bounds = window.L.latLngBounds(allPoints);
+          mapInstanceRef.current.fitBounds(bounds, {
+            padding: [50, 50],
+            maxZoom: 13
+          });
+        }
+      } else if (Number.isFinite(currentProperty.lat) && Number.isFinite(currentProperty.lng)) {
+        // No competitors: center directly on the selected location
         mapInstanceRef.current.setView([currentProperty.lat, currentProperty.lng], 11);
       }
     };
