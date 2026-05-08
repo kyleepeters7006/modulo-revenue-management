@@ -3325,8 +3325,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (loc) {
             currentLocation = {
               name: loc.name,
-              lat: loc.latitude,
-              lng: loc.longitude,
+              lat: loc.lat,
+              lng: loc.lng,
               address: `${loc.address}, ${loc.city}, ${loc.state}`
             };
           }

@@ -155,19 +155,6 @@ export function CompetitorMap({
         ? apiLocation
         : null;
       
-      // Fallback to first competitor's area if no real location coordinates available
-      if (!currentLocation && competitorData.items.length > 0) {
-        const firstComp = competitorData.items[0];
-        if (Number.isFinite(firstComp.lat) && Number.isFinite(firstComp.lng)) {
-          currentLocation = {
-            name: firstComp.location || "Selected Location",
-            lat: firstComp.lat,
-            lng: firstComp.lng,
-            address: `${firstComp.location || "Senior Living"} Community`
-          };
-        }
-      }
-      
       // Set up portfolio property data for use in comparisons
       // This will be used by competitor popups even if we don't show a portfolio marker
       const currentProperty = (currentLocation && Number.isFinite(currentLocation.lat) && Number.isFinite(currentLocation.lng)) ? {
