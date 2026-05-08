@@ -5,9 +5,9 @@ import { storage } from "./storage";
 import { fetchSP500Data } from "./routes";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
-import type { PricingInputs } from "./moduloPricingAlgorithm";
+import type { PricingInputs, CompetitorInfo } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
-import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
+import { matchAndAdjustCompetitor } from "./services/competitorLookup";
 import { db } from './db';
 import { roomTypeOccupancyHistory } from '@shared/schema';
 import { eq, and, or, sql } from 'drizzle-orm';
@@ -18,9 +18,20 @@ interface DemandData {
   demandHistory: number[];
 }
 
+interface SurveyCompetitorRow {
+  competitorName: string;
+  roomType: string;
+  monthlyRateAvg: number;
+  careLevel2Rate: number | null;
+  medicationManagementFee: number | null;
+  weight: number;
+  distanceMiles: number | null;
+}
+
 interface CompetitorData {
-  competitor: any | undefined;
+  surveyRows: SurveyCompetitorRow[];
   trilogyCareLevel2Rate: number | null;
+  trilogyMedMgmtFee: number;
 }
 
 interface PrecomputedSignals {
@@ -128,24 +139,16 @@ async function processUnitBatch(
         
         const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
         
-        let competitorPrices: number[];
-        const competitorKey = `${unit.campus}|${unit.serviceLine}`;
-        const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
-        
-        if (cachedCompetitorData?.competitor && cachedCompetitorData.competitor.streetRate) {
-          const adjustmentResult = calculateAdjustedCompetitorRate({
-            competitorBaseRate: cachedCompetitorData.competitor.streetRate,
-            competitorCareLevel2Rate: cachedCompetitorData.competitor.careLevel2Rate || 0,
-            competitorMedicationManagementFee: cachedCompetitorData.competitor.medicationManagementFee || 0,
-            trilogyCareLevel2Rate: cachedCompetitorData.trilogyCareLevel2Rate || 0
-          });
-          competitorPrices = [adjustmentResult.adjustedRate];
-        } else if (serviceLineMedian && serviceLineMedian > 0) {
-          competitorPrices = [serviceLineMedian];
-        } else if (unit.competitorRate && unit.competitorRate > 0) {
-          competitorPrices = [unit.competitorRate];
-        } else {
-          competitorPrices = [baseRate * 0.95, baseRate * 1.05];
+        let competitorPrices: number[] = [];
+        let competitorInfo: CompetitorInfo | undefined;
+        {
+          const competitorKey = `${unit.campus}|${unit.serviceLine}|${unit.roomType || ''}`;
+          const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
+          const ourCareLevel2 = cachedCompetitorData?.trilogyCareLevel2Rate || 0;
+          const ourMedMgmt = cachedCompetitorData?.trilogyMedMgmtFee ?? 0;
+          ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
+            cachedCompetitorData?.surveyRows || [], unit.roomType || '', ourCareLevel2, ourMedMgmt
+          ));
         }
         
         const demandKey = `${unit.location}|${unit.serviceLine || ''}`;
@@ -166,7 +169,8 @@ async function processUnitBatch(
           marketReturn: precomputedSignals.stockMarketChange / 100,
           demandCurrent,
           demandHistory,
-          serviceLine: unit.serviceLine
+          serviceLine: unit.serviceLine,
+          competitorInfo
         };
         
         // Calculate without guardrails first to get the raw totalAdjustment
@@ -551,40 +555,63 @@ export async function generateModuloOptimized(req: any, res: any) {
     await Promise.all(demandPromises);
     console.log(`Demand data cache: ${demandCache.size} location+service combinations with real data`);
     
-    // Precompute competitor data for all unique campus+serviceLine combinations (fixes N+1 query issue)
-    const competitorCache = new Map<string, CompetitorData>();
-    const uniqueCampusServiceLines = new Set<string>();
-    
+    // Precompute competitor data keyed by campus|serviceLine|roomType so the distance
+    // fallback is room-type-aware at pre-fetch time.  Care/med rates are keyed by
+    // campus|serviceLine (same value for all room types — cheaper to fetch once per pair).
+    const competitorCache = new Map<string, CompetitorData>(); // key: campus|serviceLine|roomType
+    const careRateCache = new Map<string, { trilogyCareLevel2Rate: number | null; trilogyMedMgmtFee: number }>(); // key: campus|serviceLine
+    const uniqueCampusServiceLines = new Set<string>(); // campus|serviceLine pairs
+    const uniqueCampusServiceLineRooms = new Set<string>(); // campus|serviceLine|roomType triples
+
     units.forEach(unit => {
       if (unit.campus && unit.serviceLine) {
-        const key = `${unit.campus}|${unit.serviceLine}`;
-        uniqueCampusServiceLines.add(key);
+        const slKey = `${unit.campus}|${unit.serviceLine}`;
+        uniqueCampusServiceLines.add(slKey);
+        uniqueCampusServiceLineRooms.add(`${slKey}|${unit.roomType || ''}`);
       }
     });
-    
-    // Fetch competitor data for all unique combinations in parallel
-    const competitorPromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
+
+    // First pass: care/med rates per campus|serviceLine
+    const careRatePromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
       const [campus, serviceLine] = key.split('|');
       try {
-        const [topCompetitor, trilogyCareLevel2Rate] = await Promise.all([
-          storage.getTopCompetitorByWeight(campus, serviceLine),
-          storage.getTrilogyCareLevel2Rate(campus, serviceLine)
+        const [trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
+          storage.getTrilogyCareLevel2Rate(campus, serviceLine),
+          storage.getTrilogyMedicationManagementFee(campus, serviceLine)
         ]);
+        careRateCache.set(key, { trilogyCareLevel2Rate, trilogyMedMgmtFee });
+      } catch {
+        careRateCache.set(key, { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 });
+      }
+    });
+    await Promise.all(careRatePromises);
+
+    // Second pass: survey rows per campus|serviceLine|roomType (enables room-type-aware distance fallback)
+    const competitorPromises = Array.from(uniqueCampusServiceLineRooms).map(async (key) => {
+      const parts = key.split('|');
+      const campus = parts[0];
+      const serviceLine = parts[1];
+      const roomType = parts[2] || '';
+      const slKey = `${campus}|${serviceLine}`;
+      const careRates = careRateCache.get(slKey) || { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 };
+      try {
+        const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, serviceLine, roomType || undefined);
         competitorCache.set(key, {
-          competitor: topCompetitor,
-          trilogyCareLevel2Rate: trilogyCareLevel2Rate
+          surveyRows: surveyRows || [],
+          trilogyCareLevel2Rate: careRates.trilogyCareLevel2Rate,
+          trilogyMedMgmtFee: careRates.trilogyMedMgmtFee
         });
-      } catch (error) {
-        // Cache empty data on error
+      } catch {
         competitorCache.set(key, {
-          competitor: undefined,
-          trilogyCareLevel2Rate: null
+          surveyRows: [],
+          trilogyCareLevel2Rate: careRates.trilogyCareLevel2Rate,
+          trilogyMedMgmtFee: careRates.trilogyMedMgmtFee
         });
       }
     });
-    
+
     await Promise.all(competitorPromises);
-    console.log(`Competitor data cache: ${competitorCache.size} campus+service combinations pre-fetched`);
+    console.log(`Competitor data cache: ${competitorCache.size} campus+service+roomType combinations pre-fetched (survey-data based)`);
 
     // Build T3M room type occupancy map (weighted avg per locationName|serviceLine|normalizedRoomType)
     // Keyed by locationName (always present) since locationId is nullable on room_type_occupancy_history.

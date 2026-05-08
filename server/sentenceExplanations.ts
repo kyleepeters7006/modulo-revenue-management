@@ -44,16 +44,60 @@ export function getSentenceExplanation(factor: string, inputs: any, adjustment: 
 
     case 'competitors':
       if (!inputs.competitorPrices || inputs.competitorPrices.length === 0) {
-        return `No competitor data available for comparison. We're maintaining current pricing strategy based on internal factors only.`;
+        // Neutral-state: no usable survey rate — no competitor adjustment applied
+        const neutralRoomType = (inputs.competitorInfo?.originalRoomType) || 'this room type';
+        const topCompetitorName = inputs.competitorInfo?.name;
+        if (topCompetitorName) {
+          return `${topCompetitorName} has no survey rate available for the ${neutralRoomType} room type at this location. The competitor factor was not applied; pricing assumes a comparable market position based on internal metrics only.`;
+        }
+        return `No competitive survey data was found for ${neutralRoomType} at this location. The competitor factor was not applied; pricing assumes a comparable market position based on internal metrics only.`;
       }
-      const median = inputs.competitorPrices.sort((a: number, b: number) => a - b)[Math.floor(inputs.competitorPrices.length / 2)];
+      const compRate = inputs.competitorPrices[0];
+      const formattedRate = `$${Math.round(compRate).toLocaleString()}`;
       const diff = ((adjustment.adjustment / 100) * 100).toFixed(1);
+
+      if (inputs.competitorInfo) {
+        const ci = inputs.competitorInfo;
+        const weightStr = ci.weight > 0 ? ` (weight ${ci.weight.toFixed(2)})` : '';
+        let rateContext = `${ci.name}${weightStr} at an adjusted rate of ${formattedRate}`;
+
+        // Full adjustment breakdown: their values vs ours
+        let adjParts: string[] = [];
+        if (ci.theirCareL2 > 0 || ci.ourCareL2 > 0) {
+          const cl2Net = ci.theirCareL2 - ci.ourCareL2;
+          adjParts.push(`care L2: their $${Math.round(ci.theirCareL2)} − ours $${Math.round(ci.ourCareL2)} = ${cl2Net >= 0 ? '+' : ''}$${Math.round(cl2Net)}`);
+        } else if (ci.careLevel2Adj !== 0) {
+          adjParts.push(`care level 2 adjustment ${ci.careLevel2Adj > 0 ? '+' : ''}$${Math.round(ci.careLevel2Adj)}`);
+        }
+        if (ci.theirMedMgmt > 0 || ci.ourMedMgmt > 0) {
+          const mmNet = ci.theirMedMgmt - ci.ourMedMgmt;
+          adjParts.push(`med mgmt: their $${Math.round(ci.theirMedMgmt)} − ours $${Math.round(ci.ourMedMgmt)} = ${mmNet >= 0 ? '+' : ''}$${Math.round(mmNet)}`);
+        } else if (ci.medMgmtAdj !== 0) {
+          adjParts.push(`medication management ${ci.medMgmtAdj > 0 ? '+' : ''}$${Math.round(ci.medMgmtAdj)}`);
+        }
+        const adjSuffix = adjParts.length > 0 ? ` (adjustments: ${adjParts.join('; ')})` : '';
+
+        let fallbackNote = '';
+        if (ci.usedFallback) {
+          fallbackNote = ` ${ci.name} does not offer a ${ci.originalRoomType} room type; the adjusted ${ci.usedRoomType} rate was used instead.`;
+        }
+
+        if (adjustment.adjustment > 0) {
+          return `Our rates are below the competitor benchmark from ${rateContext}${adjSuffix}. We can increase rates by ${diff}% while remaining competitive, capturing additional revenue.${fallbackNote}`;
+        } else if (adjustment.adjustment < 0) {
+          return `We're currently priced above the competitor benchmark from ${rateContext}${adjSuffix}. A ${Math.abs(parseFloat(diff))}% adjustment improves our competitive position.${fallbackNote}`;
+        } else {
+          return `Our pricing aligns with the competitor benchmark from ${rateContext}${adjSuffix}. No competitive adjustment needed.${fallbackNote}`;
+        }
+      }
+
+      // Fallback explanation when no named competitor info is available
       if (adjustment.adjustment > 0) {
-        return `Our rates are below the market median of $${median.toFixed(0)}. We can increase rates by ${diff}% while remaining competitive, capturing additional revenue without losing market position.`;
+        return `Our rates are below the market rate of ${formattedRate}. We can increase rates by ${diff}% while remaining competitive, capturing additional revenue without losing market position.`;
       } else if (adjustment.adjustment < 0) {
-        return `We're currently priced above the market median of $${median.toFixed(0)}. A ${Math.abs(parseFloat(diff))}% adjustment brings us closer to market rates, improving our competitive position.`;
+        return `We're currently priced above the market rate of ${formattedRate}. A ${Math.abs(parseFloat(diff))}% adjustment brings us closer to market rates, improving our competitive position.`;
       } else {
-        return `Our pricing aligns well with the market median of $${median.toFixed(0)}. No competitive adjustment needed as we're appropriately positioned.`;
+        return `Our pricing aligns well with the market rate of ${formattedRate}. No competitive adjustment needed as we're appropriately positioned.`;
       }
 
     case 'market':

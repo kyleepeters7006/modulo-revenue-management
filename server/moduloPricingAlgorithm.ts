@@ -328,6 +328,22 @@ function signalRevenueGrowthTarget(gap: number | undefined, cfg: ModuloPricingCo
   }
 }
 
+export interface CompetitorInfo {
+  name: string;
+  weight: number;
+  adjustedRate: number;
+  baseRate: number;
+  careLevel2Adj: number;
+  medMgmtAdj: number;
+  theirCareL2: number;
+  ourCareL2: number;
+  theirMedMgmt: number;
+  ourMedMgmt: number;
+  originalRoomType: string;
+  usedRoomType: string;
+  usedFallback: boolean;
+}
+
 export interface PricingInputs {
   occupancy: number;           // 0-1 (e.g., 0.85 for 85%)
   occupancySource?: 't3m' | 'spot'; // Whether occupancy came from T3M history or spot calculation
@@ -341,6 +357,7 @@ export interface PricingInputs {
   revenueGrowthGap?: number;   // Gap between target and actual YOY growth (positive = ahead, negative = behind)
   targetRevenueGrowth?: number; // The target growth percentage for this service line
   roomTypeOccTrend?: number;   // Trailing 3-month avg occupancy % for this specific room type (0-1 scale)
+  competitorInfo?: CompetitorInfo; // Named competitor used for competitor signal
 }
 
 export interface PricingWeights {

@@ -27,6 +27,28 @@ export interface ImportStats {
   columnWarning?: string;
 }
 
+interface SurveyRoomType {
+  name: string;
+  rate: any;
+  careLevel: any;
+  otherAdj: any;
+  weight: any;
+}
+
+interface SurveyServiceLine {
+  type: string;
+  targetServiceLine?: string;
+  flag: any;
+  careLevel1?: number | null;
+  careLevel2?: number | null;
+  careLevel3?: number | null;
+  careLevel4?: number | null;
+  medicationManagement?: number | null;
+  roomTypes: SurveyRoomType[];
+  occupancy: any;
+  totalUnits: any;
+}
+
 export async function importRentRollCSV(
   fileBuffer: Buffer,
   uploadMonth: string,
@@ -316,11 +338,14 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                 };
 
                 // Helper to parse numeric values safely
+                // Non-numeric strings (e.g. "yes") are treated as 0, not null,
+                // so they don't accidentally carry through as a non-zero care rate.
                 const parseNumeric = (value: any): number | null => {
-                  if (!value) return null;
+                  if (value === null || value === undefined || value === '') return null;
                   const cleaned = String(value).trim().replace(/[\$,\s]/g, '');
+                  if (!cleaned) return null;
                   const parsed = parseFloat(cleaned);
-                  return isNaN(parsed) ? null : parsed;
+                  return isNaN(parsed) ? 0 : parsed;
                 };
 
                 // Helper to get first non-null value from multiple column names
@@ -336,7 +361,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                 // Service line definitions
                 // IL data is split: "IL_Villa" prefix for VIL service line, "IL_IL" prefix for SL service line
                 // Both use the same IL flag to indicate if competitor has Independent Living
-                const serviceLines = [
+                const serviceLines: SurveyServiceLine[] = [
                   {
                     type: 'IL_Villa',
                     targetServiceLine: 'VIL',
@@ -385,7 +410,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                       { name: 'One Bedroom', rate: row['AL_OneBedRate'] || row['AL_1BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                       { name: 'Two Bedroom', rate: row['AL_TwoBedRate'] || row['AL_2BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                      { name: 'Companion', rate: row['AL_CompanionRate'] || row['AL_2ndPersonFee'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                      { name: 'Companion', rate: row['AL_StudioDeluxePrivateRoomRate'] || row['AL_StudioRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                     ],
                     occupancy: row['AL_Occupancy'],
                     totalUnits: row['AL_TotalUnits'],
@@ -439,6 +464,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   {
                     type: 'AL/MC',
                     flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    careLevel1: parseNumeric(row['AL/MC_Level1'] ?? row['AL_Level1']),
+                    careLevel2: parseNumeric(row['AL/MC_Level2'] ?? row['AL_Level2']),
+                    careLevel3: parseNumeric(row['AL/MC_Level3'] ?? row['AL_Level3']),
+                    careLevel4: parseNumeric(row['AL/MC_Level4'] ?? row['AL_Level4']),
+                    medicationManagement: parseNumeric(row['AL/MC_MedicationManagement'] ?? row['MC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['AL/MC_PrivateRate'] || row['AL/MC_StudioRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                       { name: 'Companion', rate: row['AL/MC_CompanionRate'] || row['MC_ALCompanionRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
@@ -449,6 +479,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   {
                     type: 'HC/MC',
                     flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    careLevel1: parseNumeric(row['HC/MC_Level1'] ?? row['HC_Level1']),
+                    careLevel2: parseNumeric(row['HC/MC_Level2'] ?? row['HC_Level2']),
+                    careLevel3: parseNumeric(row['HC/MC_Level3'] ?? row['HC_Level3']),
+                    careLevel4: parseNumeric(row['HC/MC_Level4'] ?? row['HC_Level4']),
+                    medicationManagement: parseNumeric(row['HC/MC_MedicationManagement'] ?? row['SMC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['HC/MC_PrivateRate'] || row['SMC_PrivateRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
                       { name: 'Companion', rate: row['HC/MC_CompanionRate'] || row['SMC_CompanionRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
@@ -465,8 +500,8 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   for (const roomType of serviceLine.roomTypes) {
                     if (!roomType.rate || parseFloat(roomType.rate) === 0) continue;
 
-                    const dbType = (serviceLine as any).targetServiceLine === 'VIL' ? 'IL_Villa' 
-                                 : (serviceLine as any).targetServiceLine === 'SL' ? 'IL_IL' 
+                    const dbType = serviceLine.targetServiceLine === 'VIL' ? 'IL_Villa' 
+                                 : serviceLine.targetServiceLine === 'SL' ? 'IL_IL' 
                                  : serviceLine.type;
                     const record: InsertCompetitiveSurveyData = {
                       surveyMonth,
@@ -483,10 +518,10 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       careFeesLow: null,
                       careFeesHigh: null,
                       careFeesAvg: parseFloat(roomType.careLevel) || null,
-                      careLevel1Rate: serviceLine.careLevel1 || null,
-                      careLevel2Rate: serviceLine.careLevel2 || null,
-                      careLevel3Rate: serviceLine.careLevel3 || null,
-                      careLevel4Rate: serviceLine.careLevel4 || null,
+                      careLevel1Rate: serviceLine.careLevel1 ?? null,
+                      careLevel2Rate: serviceLine.careLevel2 ?? null,
+                      careLevel3Rate: serviceLine.careLevel3 ?? null,
+                      careLevel4Rate: serviceLine.careLevel4 ?? null,
                       totalMonthlyLow: null,
                       totalMonthlyHigh: null,
                       totalMonthlyAvg: null,
@@ -501,7 +536,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       amenities: null,
                       lat: latitude ? parseFloat(latitude) : null,
                       lng: longitude ? parseFloat(longitude) : null,
-                      medicationManagementFee: serviceLine.medicationManagement || null,
+                      medicationManagementFee: serviceLine.medicationManagement ?? null,
                       notes: JSON.stringify({
                         weight: roomType.weight || 0,
                         latitude,
@@ -622,14 +657,27 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             return null;
           };
 
+          // parseNumeric: strips currency symbols / commas so "$1,000" → 1000, non-numerics → 0
+          const parseNumericExcel = (value: any): number | null => {
+            if (value === null || value === undefined || value === '') return null;
+            const cleaned = String(value).replace(/[$,\s]/g, '');
+            const parsed = parseFloat(cleaned);
+            return isNaN(parsed) ? 0 : parsed;
+          };
+
           // Service line definitions with their room type mappings
           // IL data is split: "IL_Villa" prefix for VIL service line, "IL_IL" prefix for SL service line
           // Both use the same IL flag to indicate if competitor has Independent Living
-          const serviceLines = [
+          const serviceLines: SurveyServiceLine[] = [
             {
               type: 'IL_Villa',
               targetServiceLine: 'VIL',
               flag: getColumn('IL', 'IL flag'),  // Check IL flag (common for both Villa and SL)
+              careLevel1: parseNumericExcel(getColumn('IL_Level1')),
+              careLevel2: parseNumericExcel(getColumn('IL_Level2')),
+              careLevel3: parseNumericExcel(getColumn('IL_Level3')),
+              careLevel4: parseNumericExcel(getColumn('IL_Level4')),
+              medicationManagement: parseNumericExcel(getColumn('IL_MedicationManagement')),
               roomTypes: [
                 { 
                   name: 'Studio', 
@@ -667,6 +715,11 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               type: 'IL_IL',
               targetServiceLine: 'SL',
               flag: getColumn('IL', 'IL flag'),  // Check IL flag (common for both Villa and SL)
+              careLevel1: parseNumericExcel(getColumn('IL_Level1')),
+              careLevel2: parseNumericExcel(getColumn('IL_Level2')),
+              careLevel3: parseNumericExcel(getColumn('IL_Level3')),
+              careLevel4: parseNumericExcel(getColumn('IL_Level4')),
+              medicationManagement: parseNumericExcel(getColumn('IL_MedicationManagement')),
               roomTypes: [
                 { 
                   name: 'Studio', 
@@ -696,13 +749,18 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             {
               type: 'AL',
               flag: row['AL'],
+              careLevel1: parseNumericExcel(row['AL_Level1']),
+              careLevel2: parseNumericExcel(row['AL_Level2']),
+              careLevel3: parseNumericExcel(row['AL_Level3']),
+              careLevel4: parseNumericExcel(row['AL_Level4']),
+              medicationManagement: parseNumericExcel(row['AL_MedicationManagement']),
               roomTypes: [
                 // Support both old and new column name formats
                 { name: 'Studio', rate: row['AL_StudioRate'] || row['AL_StudioPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                 { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                 { name: 'One Bedroom', rate: row['AL_OneBedRate'] || row['AL_1BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                 { name: 'Two Bedroom', rate: row['AL_TwoBedRate'] || row['AL_2BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                { name: 'Companion', rate: row['AL_CompanionRate'] || row['AL_2ndPersonFee'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Companion', rate: row['AL_StudioDeluxePrivateRoomRate'] || row['AL_StudioRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
               ],
               occupancy: row['AL_Occupancy'],
               totalUnits: row['AL_TotalUnits'],
@@ -710,6 +768,11 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             {
               type: 'HC',
               flag: row['HC'],
+              careLevel1: parseNumericExcel(row['HC_Level1']),
+              careLevel2: parseNumericExcel(row['HC_Level2']),
+              careLevel3: parseNumericExcel(row['HC_Level3']),
+              careLevel4: parseNumericExcel(row['HC_Level4']),
+              medicationManagement: parseNumericExcel(row['HC_MedicationManagement']),
               roomTypes: [
                 // Support both old and new column name formats
                 { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
@@ -722,6 +785,11 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             {
               type: 'SMC',
               flag: row['SMC'],
+              careLevel1: parseNumericExcel(row['SMC_Level1']),
+              careLevel2: parseNumericExcel(row['SMC_Level2']),
+              careLevel3: parseNumericExcel(row['SMC_Level3']),
+              careLevel4: parseNumericExcel(row['SMC_Level4']),
+              medicationManagement: parseNumericExcel(row['SMC_MedicationManagement']),
               roomTypes: [
                 { name: 'Studio', rate: row['SMC_PrivateRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
                 { name: 'Companion', rate: row['SMC_CompanionRoomRate'], careLevel: row['SMC_Comp_Care_Adj'], otherAdj: row['SMC_Comp_Other_Adj'], weight: row['SMC_Comp_Weight'] },
@@ -732,6 +800,11 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             {
               type: 'MC',
               flag: row['MC'],
+              careLevel1: parseNumericExcel(row['MC_Level1']),
+              careLevel2: parseNumericExcel(row['MC_Level2']),
+              careLevel3: parseNumericExcel(row['MC_Level3']),
+              careLevel4: parseNumericExcel(row['MC_Level4']),
+              medicationManagement: parseNumericExcel(row['MC_MedicationManagement']),
               roomTypes: [
                 { name: 'Studio', rate: row['MC_StudioRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
                 { name: 'Companion', rate: row['MC_CompanionRate'], careLevel: row['MC_Comp_Care_Adj'], otherAdj: row['MC_Comp_Other_Adj'], weight: row['MC_Comp_Weight'] },
@@ -743,6 +816,11 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               type: 'AL/MC',
               flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && 
                     (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+              careLevel1: parseNumericExcel(row['AL/MC_Level1'] ?? row['AL_Level1']),
+              careLevel2: parseNumericExcel(row['AL/MC_Level2'] ?? row['AL_Level2']),
+              careLevel3: parseNumericExcel(row['AL/MC_Level3'] ?? row['AL_Level3']),
+              careLevel4: parseNumericExcel(row['AL/MC_Level4'] ?? row['AL_Level4']),
+              medicationManagement: parseNumericExcel(row['AL/MC_MedicationManagement'] ?? row['MC_MedicationManagement']),
               roomTypes: [
                 { name: 'Studio', rate: row['AL/MC_StudioRate'] || row['AL/MC_PrivateRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                 { name: 'Companion', rate: row['AL/MC_CompanionRate'] || row['MC_ALCompanionRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
@@ -754,6 +832,11 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               type: 'HC/MC',
               flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && 
                     (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+              careLevel1: parseNumericExcel(row['HC/MC_Level1'] ?? row['HC_Level1']),
+              careLevel2: parseNumericExcel(row['HC/MC_Level2'] ?? row['HC_Level2']),
+              careLevel3: parseNumericExcel(row['HC/MC_Level3'] ?? row['HC_Level3']),
+              careLevel4: parseNumericExcel(row['HC/MC_Level4'] ?? row['HC_Level4']),
+              medicationManagement: parseNumericExcel(row['HC/MC_MedicationManagement'] ?? row['SMC_MedicationManagement']),
               roomTypes: [
                 { name: 'Studio', rate: row['HC/MC_PrivateRate'] || row['SMC_PrivateRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
                 { name: 'Companion', rate: row['HC/MC_CompanionRate'] || row['SMC_CompanionRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
@@ -783,8 +866,8 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 continue;
               }
 
-              const dbType = (serviceLine as any).targetServiceLine === 'VIL' ? 'IL_Villa' 
-                           : (serviceLine as any).targetServiceLine === 'SL' ? 'IL_IL' 
+              const dbType = serviceLine.targetServiceLine === 'VIL' ? 'IL_Villa' 
+                           : serviceLine.targetServiceLine === 'SL' ? 'IL_IL' 
                            : serviceLine.type;
               const record: InsertCompetitiveSurveyData = {
                 surveyMonth,
@@ -801,6 +884,10 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 careFeesLow: null,
                 careFeesHigh: null,
                 careFeesAvg: parseFloat(roomType.careLevel) || null,
+                careLevel1Rate: serviceLine.careLevel1 ?? null,
+                careLevel2Rate: serviceLine.careLevel2 ?? null,
+                careLevel3Rate: serviceLine.careLevel3 ?? null,
+                careLevel4Rate: serviceLine.careLevel4 ?? null,
                 totalMonthlyLow: null,
                 totalMonthlyHigh: null,
                 totalMonthlyAvg: null,
@@ -816,6 +903,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 lat: latitude ? parseFloat(latitude) : null,
                 lng: longitude ? parseFloat(longitude) : null,
                 clientId,
+                medicationManagementFee: serviceLine.medicationManagement ?? null,
                 notes: JSON.stringify({
                   weight: roomType.weight || 0,
                   latitude,
@@ -1024,8 +1112,33 @@ export async function importMatrixCareRentRollCSV(
                 const locationKey = locationId || locationName || 'unknown';
                 const unitKey = `${locationKey}|${serviceLine}|${roomNumber}`;
                 if (seenUnits.has(unitKey)) {
+                  // Before skipping, check if this is a LOC (Level of Care) row carrying Level 2 data.
+                  // The MatrixCare export emits a separate row for each care charge on the same room.
+                  // We want to capture the care_level and care_rate from the Level 2 LOC row.
+                  const locDescription = (row['LOCDescription'] || '').trim();
+                  const locRate = parseCurrency(row['LOC_Rate']);
+                  const isLevel2 = locDescription &&
+                    (locDescription.toLowerCase().includes('level 2') ||
+                     locDescription.toLowerCase().includes('lvl 2') ||
+                     locDescription === '2');
+                  if (isLevel2 && locRate > 0) {
+                    try {
+                      await tx.update(rentRollHistory)
+                        .set({ careLevel: locDescription, careRate: locRate })
+                        .where(and(
+                          eq(rentRollHistory.uploadMonth, uploadMonth),
+                          eq(rentRollHistory.location, locationName),
+                          eq(rentRollHistory.serviceLine, serviceLine),
+                          eq(rentRollHistory.roomNumber, roomNumber)
+                        ));
+                    } catch (updateErr) {
+                      const msg = `LOC level-2 update failed for ${unitKey}: ${updateErr}`;
+                      console.warn(`[rent-roll-import] ${msg}`);
+                      stats.errors.push(msg);
+                    }
+                  }
                   console.log(`Skipping duplicate: ${unitKey}`);
-                  continue; // Skip duplicate
+                  continue;
                 }
                 seenUnits.add(unitKey);
 
@@ -1069,7 +1182,17 @@ export async function importMatrixCareRentRollCSV(
                   streetRate: roomRate,
                   inHouseRate: billedRate || roomRate,
                   discountToStreetRate: null,
-                  careLevel: row['LevelOfCare1'] || row['ActualLevel1'] || null,
+                  careLevel: (() => {
+                    // Prefer LOCDescription if it identifies Level 2 (covers the case where the
+                    // LOC row arrives before the room row and is inserted as the primary record).
+                    const locDesc = (row['LOCDescription'] || '').trim();
+                    const isL2 = locDesc && (
+                      locDesc.toLowerCase().includes('level 2') ||
+                      locDesc.toLowerCase().includes('lvl 2') ||
+                      locDesc === '2'
+                    );
+                    return isL2 ? locDesc : (row['LevelOfCare1'] || row['ActualLevel1'] || null);
+                  })(),
                   careRate: locRate,
                   rentAndCareRate: finalRate || (roomRate + locRate),
                   competitorRate: null,

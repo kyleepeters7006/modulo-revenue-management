@@ -8,6 +8,7 @@ import { calculateAttributedPrice, ensureCacheInitialized } from './pricingOrche
 import type { RentRollData, Guardrails, PricingWeights } from '@shared/schema';
 import type { PricingInputs } from './moduloPricingAlgorithm';
 import { getSentenceExplanation, generateOverallExplanation } from './sentenceExplanations';
+import { matchAndAdjustCompetitor } from './services/competitorLookup';
 
 // Pre-computed pricing context to avoid per-unit async calls
 interface PricingContext {
@@ -20,6 +21,7 @@ interface PricingContext {
   // Competitor data caches
   competitorsByLocationService: Map<string, any[]>; // key: location|serviceLine
   trilogyCareLevel2Cache: Map<string, number>; // key: location|serviceLine
+  trilogyMedMgmtCache: Map<string, number>; // key: location|serviceLine (usually 0)
   competitorMediansByService: Map<string, number>; // serviceLine -> median rate
   
   // Demand and inquiry data
@@ -257,60 +259,60 @@ class PricingJobManager {
     await Promise.all(comboWeightsPromises);
     
     // 4. Pre-fetch all competitor data
-    console.log(`[PricingJob ${jobId}] Pre-fetching competitor data...`);
-    const competitorsByLocationService = new Map<string, any[]>();
-    const trilogyCareLevel2Cache = new Map<string, number>();
-    const uniqueLocationServices = new Set<string>();
-    
+    // Survey rows are keyed by campus|serviceLine|roomType so the distance fallback is
+    // room-type-aware at pre-fetch time.  Care/med rates are keyed by campus|serviceLine
+    // (same value regardless of room type — cheaper to fetch once per pair).
+    console.log(`[PricingJob ${jobId}] Pre-fetching survey competitor data...`);
+    const competitorsByLocationService = new Map<string, any[]>(); // key: campus|serviceLine|roomType
+    const trilogyCareLevel2Cache = new Map<string, number>(); // key: campus|serviceLine
+    const trilogyMedMgmtCache = new Map<string, number>(); // key: campus|serviceLine
+    const uniqueLocationServices = new Set<string>(); // campus|serviceLine pairs
+    const uniqueLocationServiceRooms = new Set<string>(); // campus|serviceLine|roomType triples
+
     units.forEach(unit => {
       if (unit.campus && unit.serviceLine) {
-        uniqueLocationServices.add(`${unit.campus}|${unit.serviceLine}`);
+        const slKey = `${unit.campus}|${unit.serviceLine}`;
+        uniqueLocationServices.add(slKey);
+        uniqueLocationServiceRooms.add(`${slKey}|${unit.roomType || ''}`);
       }
     });
-    
-    // Batch fetch all competitor data
-    const competitorPromises = Array.from(uniqueLocationServices).map(async key => {
+
+    // First pass: care/med rates per campus|serviceLine
+    const careMedPromises = Array.from(uniqueLocationServices).map(async key => {
       const [location, serviceLine] = key.split('|');
-      
-      // Get competitors for this location/service
-      const competitors = await storage.getCompetitorsByLocationAndServiceLine(location, serviceLine);
-      competitorsByLocationService.set(key, competitors);
-      
-      // Get Trilogy care level 2 rate
       try {
-        const careLevel2Rate = await storage.getTrilogyCareLevel2Rate(location, serviceLine);
-        if (careLevel2Rate) {
-          trilogyCareLevel2Cache.set(key, careLevel2Rate);
+        const [careLevel2Rate, medMgmtFee] = await Promise.all([
+          storage.getTrilogyCareLevel2Rate(location, serviceLine),
+          storage.getTrilogyMedicationManagementFee(location, serviceLine)
+        ]);
+        if (careLevel2Rate) trilogyCareLevel2Cache.set(key, careLevel2Rate);
+        trilogyMedMgmtCache.set(key, medMgmtFee);
+      } catch (err) {
+        // Continue without care/med data
+      }
+    });
+    await Promise.all(careMedPromises);
+
+    // Second pass: survey rows per campus|serviceLine|roomType (enables room-type-aware distance fallback)
+    const competitorPromises = Array.from(uniqueLocationServiceRooms).map(async key => {
+      const parts = key.split('|');
+      const location = parts[0];
+      const serviceLine = parts[1];
+      const roomType = parts[2] || '';
+      try {
+        const surveyRows = await storage.getTopSurveyCompetitorForLocation(location, serviceLine, roomType || undefined);
+        if (surveyRows && surveyRows.length > 0) {
+          competitorsByLocationService.set(key, surveyRows);
         }
       } catch (err) {
-        // Continue without care level 2 rate
+        // Continue without competitor data
       }
     });
     await Promise.all(competitorPromises);
     
-    // 5. Calculate competitor medians by service line
-    console.log(`[PricingJob ${jobId}] Calculating competitor medians...`);
-    const competitorMediansByService = new Map<string, number>();
-    const allCompetitors = await storage.getCompetitors();
-    
-    const serviceLines = [...new Set(units.map(u => u.serviceLine).filter(Boolean))];
-    for (const serviceLine of serviceLines) {
-      const serviceLineCompetitors = allCompetitors.filter((c: any) => c.serviceLine === serviceLine);
-      const rates = serviceLineCompetitors
-        .map((c: any) => c.streetRate)
-        .filter((r: number) => r > 0)
-        .sort((a: number, b: number) => a - b);
-      
-      if (rates.length > 0) {
-        const midIndex = Math.floor(rates.length / 2);
-        const median = rates.length % 2 === 0
-          ? (rates[midIndex - 1] + rates[midIndex]) / 2
-          : rates[midIndex];
-        competitorMediansByService.set(serviceLine, median);
-      } else {
-        competitorMediansByService.set(serviceLine, 3500); // Default
-      }
-    }
+    // Portfolio-wide medians are no longer used as the primary competitor signal.
+    // We now use location+service line+room-type specific rates from competitive_survey_data.
+    const competitorMediansByService = new Map<string, number>(); // kept for interface compatibility
     
     // 6. Pre-fetch inquiry metrics and demand history
     console.log(`[PricingJob ${jobId}] Pre-fetching demand history...`);
@@ -452,6 +454,7 @@ class PricingJobManager {
       globalWeights,
       competitorsByLocationService,
       trilogyCareLevel2Cache,
+      trilogyMedMgmtCache,
       competitorMediansByService,
       demandHistoryCache,
       inquiryMetricsCache,
@@ -706,9 +709,6 @@ class PricingJobManager {
     let processedInBatch = 0;
     let skippedCount = 0;
     
-    // Import competitor adjustments module once
-    const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
-    
     for (const unit of units) {
       try {
         // Get weights from cache (O(1) lookup)
@@ -736,45 +736,19 @@ class PricingJobManager {
         const daysVacant = unit.daysVacant || 0;
         const monthIndex = new Date(context.targetMonth).getMonth() + 1;
         
-        // Get competitor prices from cache (O(1) lookups, NO async DB calls)
+        // Get competitor prices from survey data cache (O(1) lookups, NO async DB calls)
         let competitorPrices: number[] = [];
-        
-        // Use cached median
-        const serviceLineMedian = context.competitorMediansByService.get(unit.serviceLine);
-        if (serviceLineMedian) {
-          competitorPrices.push(serviceLineMedian);
-        }
-        
-        // Get cached competitor and care level data (NO async DB calls)
+        let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
+
         if (unit.campus && unit.serviceLine) {
-          const cacheKey = `${unit.campus}|${unit.serviceLine}`;
-          const cachedCompetitors = context.competitorsByLocationService.get(cacheKey);
-          const cachedCareLevel2 = context.trilogyCareLevel2Cache.get(cacheKey);
-          
-          if (cachedCompetitors && cachedCompetitors.length > 0) {
-            // Get top competitor from cached data
-            const topCompetitor = cachedCompetitors
-              .filter((c: any) => c.streetRate > 0)
-              .sort((a: any, b: any) => (b.weight || 0) - (a.weight || 0))[0];
-            
-            if (topCompetitor && topCompetitor.streetRate > 0) {
-              // Calculate adjusted rate using cached data (synchronous now!)
-              const adjustmentResult = calculateAdjustedCompetitorRate({
-                competitorBaseRate: topCompetitor.streetRate,
-                competitorCareLevel2Rate: topCompetitor.careLevel2Rate,
-                competitorMedicationManagementFee: topCompetitor.medicationManagementFee,
-                trilogyCareLevel2Rate: cachedCareLevel2
-              });
-              
-              if (adjustmentResult.adjustedRate > 0) {
-                competitorPrices.push(adjustmentResult.adjustedRate);
-              }
-            }
-          }
-        }
-        
-        if (competitorPrices.length === 0) {
-          competitorPrices = [3500]; // Default fallback
+          const slKey = `${unit.campus}|${unit.serviceLine}`;
+          const surveyKey = `${slKey}|${unit.roomType || ''}`;
+          const surveyRows: any[] = context.competitorsByLocationService.get(surveyKey) || [];
+          const ourCareLevel2 = context.trilogyCareLevel2Cache.get(slKey) || 0;
+          const ourMedMgmt = context.trilogyMedMgmtCache?.get(slKey) ?? 0;
+          ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
+            surveyRows, unit.roomType || '', ourCareLevel2, ourMedMgmt
+          ));
         }
         
         // Get demand data from cache (O(1) lookup)
@@ -793,7 +767,8 @@ class PricingJobManager {
           marketReturn: context.stockMarketChange / 100,
           demandCurrent,
           demandHistory,
-          serviceLine: unit.serviceLine
+          serviceLine: unit.serviceLine,
+          competitorInfo
         };
         
         // Calculate pricing (should be much faster now with cached data)

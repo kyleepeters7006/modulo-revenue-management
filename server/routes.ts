@@ -124,7 +124,7 @@ import {
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
-import { calculateAdjustedCompetitorRate } from "./services/competitorAdjustments";
+import { matchAndAdjustCompetitor } from "./services/competitorLookup";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { startCompetitorRateJob, getJobStatus, getJobsForMonth, resumeInterruptedJobs } from "./services/competitorRateJobService";
 import { normalizeRoomType } from "@shared/roomTypes";
@@ -8640,49 +8640,22 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           
           // Use service-line-specific competitor median with care level 2 and medication management adjustments
           const serviceLineMedian = serviceLineMedians[unit.serviceLine];
-          let competitorPrices: number[];
+          let competitorPrices: number[] = [];
           
-          // Try to get adjusted competitor rate using top competitor by weight
+          // Try to get adjusted competitor rate from competitive_survey_data (room-type specific)
+          let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
           try {
-            const topCompetitor = await storage.getTopCompetitorByWeight(unit.campus, unit.serviceLine);
-            const trilogyCareLevel2Rate = await storage.getTrilogyCareLevel2Rate(unit.campus, unit.serviceLine);
-            
-            if (topCompetitor && topCompetitor.streetRate) {
-              const { calculateAdjustedCompetitorRate } = await import('./services/competitorAdjustments');
-              const adjustmentResult = calculateAdjustedCompetitorRate({
-                competitorBaseRate: topCompetitor.streetRate,
-                competitorCareLevel2Rate: topCompetitor.careLevel2Rate || 0,
-                competitorMedicationManagementFee: topCompetitor.medicationManagementFee || 0,
-                trilogyCareLevel2Rate: trilogyCareLevel2Rate || 0
-              });
-              
-              // Use adjusted rate for fairer comparison
-              competitorPrices = [adjustmentResult.adjustedRate];
-              
-              // Store adjustment details for transparency
-              if (isDebugUnit) {
-                console.log('Competitor adjustment:', adjustmentResult);
-              }
-            } else if (serviceLineMedian && serviceLineMedian > 0) {
-              // Fallback to service-line median without adjustment
-              competitorPrices = [serviceLineMedian];
-            } else if (unit.competitorRate && unit.competitorRate > 0) {
-              // Fallback to unit's specific competitor rate
-              competitorPrices = [unit.competitorRate];
-            } else {
-              // Final fallback: assume competitors are within ±5% of base rate
-              competitorPrices = [baseRate * 0.95, baseRate * 1.05];
-            }
+            const [surveyRows, trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
+              storage.getTopSurveyCompetitorForLocation(unit.campus, unit.serviceLine, unit.roomType || undefined),
+              storage.getTrilogyCareLevel2Rate(unit.campus, unit.serviceLine),
+              storage.getTrilogyMedicationManagementFee(unit.campus, unit.serviceLine)
+            ]);
+            ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
+              surveyRows, unit.roomType || '', trilogyCareLevel2Rate || 0, trilogyMedMgmtFee
+            ));
+            if (isDebugUnit && competitorInfo) console.log('Survey competitor:', competitorInfo.name, competitorInfo.adjustedRate);
           } catch (error) {
-            // If adjustment fails, use standard logic
-            console.error('Competitor adjustment failed:', error);
-            if (serviceLineMedian && serviceLineMedian > 0) {
-              competitorPrices = [serviceLineMedian];
-            } else if (unit.competitorRate && unit.competitorRate > 0) {
-              competitorPrices = [unit.competitorRate];
-            } else {
-              competitorPrices = [baseRate * 0.95, baseRate * 1.05];
-            }
+            console.error('Competitor lookup failed:', error);
           }
           
           // Fetch real inquiry data for demand signals
@@ -8719,7 +8692,8 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
             demandCurrent,
             demandHistory,
             serviceLine: unit.serviceLine,
-            roomTypeOccTrend
+            roomTypeOccTrend,
+            competitorInfo
           };
           
           // Use the unitWeights already fetched from database (Issue 1 fix: no manual construction)
@@ -9173,32 +9147,54 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       
       console.log(`[AI Pricing] Loaded ${revenueGrowthTargets.length} revenue growth targets`);
       
-      // OPTIMIZATION 3: Pre-cache competitor data like the Modulo endpoint
-      const competitorCache = new Map<string, { competitor: any; trilogyCareLevel2Rate: number | null }>();
-      const uniqueCampusServiceLines = new Set<string>();
-      
+      // OPTIMIZATION 3: Pre-cache competitor data keyed by campus|serviceLine|roomType so the
+      // distance fallback is room-type-aware.  Care/med rates are keyed by campus|serviceLine.
+      const competitorCache = new Map<string, { surveyRows: any[]; trilogyCareLevel2Rate: number | null; trilogyMedMgmtFee: number }>();
+      const aiCareRateCache = new Map<string, { trilogyCareLevel2Rate: number | null; trilogyMedMgmtFee: number }>();
+      const uniqueCampusServiceLines = new Set<string>(); // campus|serviceLine pairs
+      const uniqueCampusServiceLineRooms = new Set<string>(); // campus|serviceLine|roomType triples
+
       for (const unit of units) {
         if (unit.campus && unit.serviceLine) {
-          uniqueCampusServiceLines.add(`${unit.campus}|${unit.serviceLine}`);
+          const slKey = `${unit.campus}|${unit.serviceLine}`;
+          uniqueCampusServiceLines.add(slKey);
+          uniqueCampusServiceLineRooms.add(`${slKey}|${unit.roomType || ''}`);
         }
       }
-      
-      // Fetch all competitor data in parallel
-      const competitorPromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
+
+      // First pass: care/med rates per campus|serviceLine
+      const aiCareRatePromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
         const [campus, sl] = key.split('|');
         try {
-          const [topCompetitor, trilogyCareLevel2Rate] = await Promise.all([
-            storage.getTopCompetitorByWeight(campus, sl),
-            storage.getTrilogyCareLevel2Rate(campus, sl)
+          const [trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
+            storage.getTrilogyCareLevel2Rate(campus, sl),
+            storage.getTrilogyMedicationManagementFee(campus, sl)
           ]);
-          competitorCache.set(key, { competitor: topCompetitor, trilogyCareLevel2Rate });
+          aiCareRateCache.set(key, { trilogyCareLevel2Rate, trilogyMedMgmtFee });
         } catch {
-          competitorCache.set(key, { competitor: undefined, trilogyCareLevel2Rate: null });
+          aiCareRateCache.set(key, { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 });
         }
       });
-      
-      await Promise.all(competitorPromises);
-      console.log(`[AI Pricing] Pre-cached competitor data for ${competitorCache.size} campus/serviceLine combinations`);
+      await Promise.all(aiCareRatePromises);
+
+      // Second pass: survey rows per campus|serviceLine|roomType (room-type-aware distance fallback)
+      const aiCompetitorPromises = Array.from(uniqueCampusServiceLineRooms).map(async (key) => {
+        const parts = key.split('|');
+        const campus = parts[0];
+        const sl = parts[1];
+        const roomType = parts[2] || '';
+        const slKey = `${campus}|${sl}`;
+        const careRates = aiCareRateCache.get(slKey) || { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 };
+        try {
+          const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, sl, roomType || undefined);
+          competitorCache.set(key, { surveyRows: surveyRows || [], ...careRates });
+        } catch {
+          competitorCache.set(key, { surveyRows: [], ...careRates });
+        }
+      });
+
+      await Promise.all(aiCompetitorPromises);
+      console.log(`[AI Pricing] Pre-cached survey competitor data for ${competitorCache.size} campus/serviceLine/roomType combinations`);
 
       // Revenue Target Strategy Layer — build sales velocity cache once before unit loop
       const today = new Date();
@@ -9222,26 +9218,20 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         const serviceLineOcc = serviceLineOccupancy.get(unit.serviceLine) || 0.87;
         const revenueGapData = getRevenueGap(unit.location || '', unit.serviceLine || '');
         
-        // Get competitor prices from cache or fallback
-        let competitorPrices: number[];
-        const competitorKey = `${unit.campus}|${unit.serviceLine}`;
-        const cachedCompetitor = competitorCache.get(competitorKey);
+        // Get competitor prices from survey cache (room-type specific) — neutral state if no data
         let competitorAverageRateRaw: number | undefined;
-        
-        if (cachedCompetitor?.competitor?.streetRate) {
-          const adjustmentResult = calculateAdjustedCompetitorRate({
-            competitorBaseRate: cachedCompetitor.competitor.streetRate,
-            competitorCareLevel2Rate: cachedCompetitor.competitor.careLevel2Rate || 0,
-            competitorMedicationManagementFee: cachedCompetitor.competitor.medicationManagementFee || 0,
-            trilogyCareLevel2Rate: cachedCompetitor.trilogyCareLevel2Rate || 0
-          });
-          competitorPrices = [adjustmentResult.adjustedRate];
-          competitorAverageRateRaw = adjustmentResult.adjustedRate;
-        } else if (unit.competitorRate && unit.competitorRate > 0) {
-          competitorPrices = [unit.competitorRate];
-          competitorAverageRateRaw = unit.competitorRate;
-        } else {
-          competitorPrices = [unit.streetRate * 0.95, unit.streetRate * 1.05];
+        let competitorPrices: number[] = [];
+        let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
+        {
+          const competitorKey = `${unit.campus}|${unit.serviceLine}|${unit.roomType || ''}`;
+          const cachedCompetitor = competitorCache.get(competitorKey);
+          ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
+            cachedCompetitor?.surveyRows || [],
+            unit.roomType || '',
+            cachedCompetitor?.trilogyCareLevel2Rate || 0,
+            cachedCompetitor?.trilogyMedMgmtFee ?? 0
+          ));
+          if (competitorPrices.length > 0) competitorAverageRateRaw = competitorPrices[0];
         }
         
         // Normalize roomType at lookup time to guarantee alignment with normalizedRoomType in history table
@@ -9257,7 +9247,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           serviceLine: unit.serviceLine,
           revenueGrowthGap: revenueGapData.gap,
           targetRevenueGrowth: revenueGapData.target,
-          roomTypeOccTrend: aiRtT3OccMap.get(aiRtKey)
+          roomTypeOccTrend: aiRtT3OccMap.get(aiRtKey),
+          competitorInfo
         };
         
         const pricingWeights = {

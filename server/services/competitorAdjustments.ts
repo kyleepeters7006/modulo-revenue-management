@@ -1,14 +1,11 @@
 /**
  * Competitor Rate Adjustment Service
- * 
+ *
  * Implements Trilogy's 4-level care competitor rate adjustment logic:
- * 1. Calculate normalized competitor rate = base + care_level_2 + med_mgmt_fee
- * 2. Calculate adjustment = (competitor_care_level_2 - trilogy_care_level_2) + competitor_med_mgmt_fee
- * 3. Return both normalized rate and adjustment with detailed explanation
- * 
- * Example: Competitor base=$1000, care2=$1000, med=$500, Trilogy care2=$500
- *   Normalized comp rate = $1000 + $1000 + $500 = $2500
- *   Adjustment = ($1000 - $500) + $500 = $1000
+ *   Adjusted Rate = base + (theirCareL2 - ourCareL2) + (theirMedMgmt - ourMedMgmt)
+ *
+ * Example: Competitor base=$1000, care2=$1000, med=$500, Trilogy care2=$500, med=$0
+ *   Adjusted = $1000 + ($1000-$500) + ($500-$0) = $2000
  */
 
 export interface CompetitorAdjustmentInput {
@@ -19,6 +16,7 @@ export interface CompetitorAdjustmentInput {
   competitorCareLevel4Rate?: number | null;
   competitorMedicationManagementFee?: number | null;
   trilogyCareLevel2Rate?: number | null;
+  trilogyMedicationManagementFee?: number | null; // Trilogy's own med mgmt fee (usually 0 — included)
 }
 
 export interface CompetitorAdjustmentResult {
@@ -46,7 +44,8 @@ export function calculateAdjustedCompetitorRate(
     competitorCareLevel3Rate = 0,
     competitorCareLevel4Rate = 0,
     competitorMedicationManagementFee = 0,
-    trilogyCareLevel2Rate = 0
+    trilogyCareLevel2Rate = 0,
+    trilogyMedicationManagementFee = 0
   } = input;
   
   let careLevel2Adjustment = 0;
@@ -59,41 +58,44 @@ export function calculateAdjustedCompetitorRate(
     (competitorCareLevel2Rate || 0) + 
     (competitorMedicationManagementFee || 0);
   
-  // Care Level 2 Adjustment
-  // Calculate difference between competitor's care level 2 and Trilogy's
-  if (competitorCareLevel2Rate && trilogyCareLevel2Rate) {
-    careLevel2Adjustment = competitorCareLevel2Rate - trilogyCareLevel2Rate;
+  // Care Level 2 Adjustment: (theirCareL2 - ourCareL2)
+  // Always apply whenever either side has a non-zero value (zero is a valid rate, not "unknown")
+  const theirCareL2Val = competitorCareLevel2Rate || 0;
+  const ourCareL2Val = trilogyCareLevel2Rate || 0;
+  if (theirCareL2Val > 0 || ourCareL2Val > 0) {
+    careLevel2Adjustment = theirCareL2Val - ourCareL2Val;
     if (careLevel2Adjustment > 0) {
       explanationParts.push(
-        `Care Level 2: Competitor charges $${competitorCareLevel2Rate.toFixed(0)}, Trilogy charges $${trilogyCareLevel2Rate.toFixed(0)} (difference: +$${careLevel2Adjustment.toFixed(0)})`
+        `Care Level 2: Competitor charges $${theirCareL2Val.toFixed(0)}, Trilogy charges $${ourCareL2Val.toFixed(0)} (difference: +$${careLevel2Adjustment.toFixed(0)})`
       );
     } else if (careLevel2Adjustment < 0) {
       explanationParts.push(
-        `Care Level 2: Trilogy charges $${trilogyCareLevel2Rate.toFixed(0)}, Competitor charges $${competitorCareLevel2Rate.toFixed(0)} (difference: $${careLevel2Adjustment.toFixed(0)})`
+        `Care Level 2: Trilogy charges $${ourCareL2Val.toFixed(0)}, Competitor charges $${theirCareL2Val.toFixed(0)} (difference: $${careLevel2Adjustment.toFixed(0)})`
       );
     } else {
       explanationParts.push(
-        `Care Level 2: Both charge $${trilogyCareLevel2Rate.toFixed(0)} (no difference)`
+        `Care Level 2: Both charge $${ourCareL2Val.toFixed(0)} (no difference)`
       );
     }
-  } else if (competitorCareLevel2Rate) {
-    // Competitor has care level 2 but Trilogy rate not available
-    careLevel2Adjustment = competitorCareLevel2Rate;
-    explanationParts.push(
-      `Care Level 2: Competitor charges $${competitorCareLevel2Rate.toFixed(0)} (Trilogy rate unavailable)`
-    );
   }
   
-  // Medication Management Adjustment
-  // If competitor charges for medication management and Trilogy doesn't, add that to adjustment
-  if (competitorMedicationManagementFee && competitorMedicationManagementFee > 0) {
-    medicationManagementAdjustment = competitorMedicationManagementFee;
-    explanationParts.push(
-      `Medication Management: Competitor charges $${competitorMedicationManagementFee.toFixed(0)}, Trilogy includes at no charge (+$${competitorMedicationManagementFee.toFixed(0)})`
-    );
+  // Medication Management Adjustment: (theirMedMgmt - ourMedMgmt)
+  const ourMedMgmt = trilogyMedicationManagementFee || 0;
+  const theirMedMgmt = competitorMedicationManagementFee || 0;
+  if (theirMedMgmt > 0 || ourMedMgmt > 0) {
+    medicationManagementAdjustment = theirMedMgmt - ourMedMgmt;
+    if (medicationManagementAdjustment > 0) {
+      explanationParts.push(
+        `Medication Management: Competitor charges $${theirMedMgmt.toFixed(0)}, Trilogy $${ourMedMgmt.toFixed(0)} (difference: +$${medicationManagementAdjustment.toFixed(0)})`
+      );
+    } else if (medicationManagementAdjustment < 0) {
+      explanationParts.push(
+        `Medication Management: Trilogy charges $${ourMedMgmt.toFixed(0)}, Competitor $${theirMedMgmt.toFixed(0)} (difference: $${medicationManagementAdjustment.toFixed(0)})`
+      );
+    }
   }
-  
-  // Total adjustment = care level difference + medication management fee
+
+  // Total adjustment = care level difference + medication management difference
   const adjustedRate = competitorBaseRate + careLevel2Adjustment + medicationManagementAdjustment;
   
   // Build explanation

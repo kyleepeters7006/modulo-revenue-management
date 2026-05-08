@@ -182,6 +182,16 @@ export interface IStorage {
   clearCompetitorsByLocation(location: string): Promise<void>;
   getTopCompetitorByWeight(location: string, serviceLine?: string): Promise<Competitor | undefined>;
   getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null>;
+  getTrilogyMedicationManagementFee(location: string, serviceLine: string): Promise<number>;
+  getTopSurveyCompetitorForLocation(locationName: string, serviceLine: string, roomType?: string): Promise<Array<{
+    competitorName: string;
+    roomType: string;
+    monthlyRateAvg: number;
+    careLevel2Rate: number | null;
+    medicationManagementFee: number | null;
+    weight: number;
+    distanceMiles: number | null;
+  }> | null>;
   
   // Portfolio Competitors
   getPortfolioCompetitors(): Promise<PortfolioCompetitor[]>;
@@ -1534,8 +1544,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null> {
+    // Return most-recent non-zero care-level-2 rate for this location+service line
     const result = await db.select({
-      careRate: rentRollData.careRate
+      careRate: rentRollData.careRate,
+      uploadMonth: rentRollData.uploadMonth
     })
       .from(rentRollData)
       .where(
@@ -1545,20 +1557,176 @@ export class DatabaseStorage implements IStorage {
           sql`${rentRollData.careLevel} = '2' OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%'`
         )
       )
-      .limit(10);
+      .orderBy(sql`${rentRollData.uploadMonth} DESC NULLS LAST`)
+      .limit(50);
     
-    if (result.length === 0) {
-      return null;
+    if (result.length === 0) return null;
+    
+    // First non-zero value from the most-recent upload months wins
+    for (const row of result) {
+      if (row.careRate != null && row.careRate > 0) return row.careRate;
     }
-    
-    const validRates = result.map(r => r.careRate).filter((rate): rate is number => rate != null);
-    
-    if (validRates.length === 0) {
-      return null;
+    return null;
+  }
+
+  async getTrilogyMedicationManagementFee(_location: string, _serviceLine: string): Promise<number> {
+    // Trilogy includes medication management at no charge (fee = $0).
+    // This method exists so callers can explicitly pass ourMedMgmt into the formula:
+    //   adjustedRate = base + (theirCareL2 - ourCareL2) + (theirMedMgmt - ourMedMgmt)
+    // If Trilogy ever begins charging, this method can query rent_roll_data.
+    return 0;
+  }
+
+  /**
+   * Look up the top-weighted competitor from competitive_survey_data for a given
+   * location name and service line. Returns one row per room type for the top competitor,
+   * so callers can do a room-type-specific rate lookup.
+   *
+   * Lookback: current month + up to 3 prior months (4 total).
+   * Selection: highest-weight competitor (weight > 0 required). When all weights are ≤ 0,
+   *   distance fallback prefers nearest competitor with a rate for the requested roomType
+   *   (if provided), then nearest with a core rate, then nearest with any usable rate.
+   * Sentinel: when the selected competitor has no usable room-type rates, returns a single
+   *   row with monthlyRateAvg=0 so callers can name the competitor in explanations.
+   */
+  async getTopSurveyCompetitorForLocation(
+    locationName: string,
+    serviceLine: string,
+    roomType?: string
+  ): Promise<Array<{
+    competitorName: string;
+    roomType: string;
+    monthlyRateAvg: number;
+    careLevel2Rate: number | null;
+    medicationManagementFee: number | null;
+    weight: number;
+    distanceMiles: number | null;
+  }> | null> {
+    const rows = await db.select()
+      .from(competitiveSurveyData)
+      .where(and(
+        eq(competitiveSurveyData.keyStatsLocation, locationName),
+        eq(competitiveSurveyData.competitorType, serviceLine)
+      ))
+      .orderBy(sql`survey_month DESC`);
+
+    if (!rows.length) return null;
+
+    // Parse weights from notes JSON; first occurrence per competitor name wins
+    const competitorMeta = new Map<string, { weight: number; distanceMiles: number | null }>();
+    for (const row of rows) {
+      if (!competitorMeta.has(row.competitorName)) {
+        let weight = 0;
+        try {
+          const notes = JSON.parse(row.notes || '{}');
+          weight = parseFloat(notes.weight) || 0;
+        } catch { /* ignore parse errors */ }
+        competitorMeta.set(row.competitorName, { weight, distanceMiles: row.distanceMiles });
+      }
     }
-    
-    const avgRate = validRates.reduce((sum, rate) => sum + rate, 0) / validRates.length;
-    return avgRate;
+
+    // Select a single top competitor:
+    //   • Primary: highest weight among competitors with weight > 0 (room-type agnostic)
+    //   • Fallback (all weights ≤ 0, room-type-aware when roomType provided):
+    //       1. Nearest with a non-zero rate for the exact requested roomType
+    //       2. Nearest with a core rate (Studio / Studio Dlx / Companion)
+    //       3. Nearest with any usable rate
+    // Only that one competitor's rows are returned; the caller applies the room-type
+    // fallback chain within those rows.
+    const nameHasRateForRoomType = (name: string, rt: string) =>
+      rows.some(r => r.competitorName === name && r.roomType === rt && r.monthlyRateAvg && r.monthlyRateAvg > 0);
+    const nameHasUsableRate = (name: string) =>
+      rows.some(r => r.competitorName === name && r.monthlyRateAvg && r.monthlyRateAvg > 0);
+    const coreRoomTypes = new Set(['Studio', 'Studio Dlx', 'Companion']);
+    const nameHasCoreRate = (name: string) =>
+      rows.some(r => r.competitorName === name && coreRoomTypes.has(r.roomType) && r.monthlyRateAvg && r.monthlyRateAvg > 0);
+
+    // Weight pass — pick highest-weight competitor (weight must be > 0)
+    let topName: string | null = null;
+    let maxWeight = 0;
+    for (const [name, { weight }] of competitorMeta) {
+      if (weight > maxWeight) { maxWeight = weight; topName = name; }
+    }
+
+    // Distance fallback — only runs when no competitor has weight > 0
+    if (!topName) {
+      let minDist = Infinity;
+      // First pass: nearest with a non-zero rate for the exact requested room type (if known)
+      if (roomType) {
+        for (const [name, { distanceMiles }] of competitorMeta) {
+          if (!nameHasRateForRoomType(name, roomType)) continue;
+          const d = distanceMiles ?? Infinity;
+          if (d < minDist) { minDist = d; topName = name; }
+        }
+      }
+      // Second pass: nearest with a core room-type rate
+      if (!topName) {
+        for (const [name, { distanceMiles }] of competitorMeta) {
+          if (!nameHasCoreRate(name)) continue;
+          const d = distanceMiles ?? Infinity;
+          if (d < minDist) { minDist = d; topName = name; }
+        }
+      }
+      // Third pass: any usable rate
+      if (!topName) {
+        for (const [name, { distanceMiles }] of competitorMeta) {
+          if (!nameHasUsableRate(name)) continue;
+          const d = distanceMiles ?? Infinity;
+          if (d < minDist) { minDist = d; topName = name; }
+        }
+      }
+    }
+
+    if (!topName) return null;
+
+    const topWeight = competitorMeta.get(topName)?.weight ?? 0;
+    const topDist = competitorMeta.get(topName)?.distanceMiles ?? null;
+
+    // Collect rows for the selected competitor across current + up to 3 prior months (4 total)
+    const topRows = rows.filter(r => r.competitorName === topName);
+    const uniqueMonths = [...new Set(topRows.map(r => r.surveyMonth).filter(Boolean) as string[])]
+      .sort().reverse().slice(0, 4);
+    const recentRows = topRows.filter(r => uniqueMonths.includes(r.surveyMonth || ''));
+
+    // Competitor-level care/med data (shared across room types)
+    let sharedCareLevel2Rate: number | null = null;
+    let sharedMedMgmtFee: number | null = null;
+    for (const row of recentRows) {
+      if (!sharedCareLevel2Rate && row.careLevel2Rate && row.careLevel2Rate > 0) sharedCareLevel2Rate = row.careLevel2Rate;
+      if (!sharedMedMgmtFee && row.medicationManagementFee && row.medicationManagementFee > 0) sharedMedMgmtFee = row.medicationManagementFee;
+    }
+
+    // Build one entry per room type (most-recent valid rate wins)
+    const roomTypeRates = new Map<string, number>();
+    for (const row of recentRows) {
+      if (row.roomType && row.monthlyRateAvg && row.monthlyRateAvg > 0 && !roomTypeRates.has(row.roomType)) {
+        roomTypeRates.set(row.roomType, row.monthlyRateAvg);
+      }
+    }
+
+    // When the selected competitor has no usable rates, return a sentinel row (monthlyRateAvg: 0)
+    // so the caller can still name this competitor in the explanation.
+    if (roomTypeRates.size === 0) {
+      return [{
+        competitorName: topName,
+        roomType: '',
+        monthlyRateAvg: 0,
+        careLevel2Rate: null,
+        medicationManagementFee: null,
+        weight: topWeight,
+        distanceMiles: topDist,
+      }];
+    }
+
+    return Array.from(roomTypeRates.entries()).map(([rt, monthlyRateAvg]) => ({
+      competitorName: topName!,
+      roomType: rt,
+      monthlyRateAvg,
+      careLevel2Rate: sharedCareLevel2Rate,
+      medicationManagementFee: sharedMedMgmtFee,
+      weight: topWeight,
+      distanceMiles: topDist,
+    }));
   }
 
   // Targets and Trends operations
