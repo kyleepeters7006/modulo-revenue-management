@@ -73,7 +73,7 @@ export default function CompetitorAnalysis() {
   // Poll geocoding status — shows a banner while competitor coordinates are still being resolved
   const { data: geocodingStatus } = useQuery<{ pending: number; geocoding: boolean }>({
     queryKey: ["/api/admin/geocoding-status"],
-    refetchInterval: 5000,
+    refetchInterval: (query) => (query.state.data as { geocoding?: boolean } | undefined)?.geocoding ? 5000 : false,
     staleTime: 0,
   });
   const isGeocoding = geocodingStatus?.geocoding === true;
