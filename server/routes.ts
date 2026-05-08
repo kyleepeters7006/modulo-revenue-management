@@ -326,7 +326,21 @@ async function checkAndInitializeDatabase() {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
-  
+
+  // Background job: geocode any locations that are missing lat/lng.
+  // Fire-and-forget so it doesn't block server startup. Rate-limited internally.
+  (async () => {
+    try {
+      const { geocodeMissingLocations } = await import('./geocoding');
+      const result = await geocodeMissingLocations();
+      if (result.updated > 0) {
+        console.log(`[startup] Geocoded ${result.updated} location(s) that were missing coordinates.`);
+      }
+    } catch (err) {
+      console.error('[startup] Background geocode-missing-locations failed (non-fatal):', err);
+    }
+  })();
+
   // Serve attached assets statically
   app.use('/attached_assets', express.static(path.resolve('attached_assets')));
   
@@ -495,6 +509,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // POST /api/admin/geocode-missing-locations — geocode only locations that lack lat/lng
+  // Protected by x-seed-secret header. Skips locations that already have coordinates.
+  app.post('/api/admin/geocode-missing-locations', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      const { geocodeMissingLocations } = await import('./geocoding');
+      console.log('[geocode-missing] Starting geocode of locations with null lat/lng…');
+      const result = await geocodeMissingLocations();
+      res.json({
+        success: true,
+        updated: result.updated,
+        failed: result.failed,
+        skipped: result.skipped,
+        message: `Geocoded ${result.updated} location(s) (${result.failed} failed, ${result.skipped} skipped — no address).`,
+      });
+    } catch (e: any) {
+      console.error('[geocode-missing] Error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/admin/regeocode — re-geocode all locations using real Nominatim API
   // Protected by x-seed-secret header. Runs sequentially with 1s delays to comply with rate limits.
   app.post('/api/admin/regeocode', async (req: any, res) => {

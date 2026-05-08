@@ -13,7 +13,7 @@
 
 import { db } from "./db";
 import { geocodeCache, locations, competitiveSurveyData, competitors } from "@shared/schema";
-import { eq, isNotNull } from "drizzle-orm";
+import { eq, isNotNull, isNull, or } from "drizzle-orm";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -161,6 +161,70 @@ export async function geocodeAddressNearLocation(
     lat: Number((baseLocation.lat + latOffset + variation).toFixed(6)),
     lng: Number((baseLocation.lng + lngOffset + variation).toFixed(6)),
   };
+}
+
+// ── Geocode locations missing coordinates ─────────────────────────────────────
+
+export interface GeocodeMissingResult {
+  updated: number;
+  failed: number;
+  skipped: number;
+}
+
+/**
+ * Geocode only locations that have null lat or lng values.
+ * Locations that already have both coordinates are skipped entirely.
+ * Runs in the background — callers should not await unless they need the result.
+ */
+export async function geocodeMissingLocations(): Promise<GeocodeMissingResult> {
+  let updated = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  const missing = await db
+    .select({
+      id: locations.id,
+      name: locations.name,
+      address: locations.address,
+      city: locations.city,
+      state: locations.state,
+    })
+    .from(locations)
+    .where(or(isNull(locations.lat), isNull(locations.lng)));
+
+  if (missing.length === 0) {
+    console.log("[geocode-missing] All locations already have coordinates.");
+    return { updated, failed, skipped };
+  }
+
+  console.log(`[geocode-missing] ${missing.length} location(s) need geocoding…`);
+
+  for (const loc of missing) {
+    const parts = [loc.address, loc.city, loc.state].filter(Boolean);
+    if (parts.length === 0) {
+      skipped++;
+      console.warn(`[geocode-missing] Skipping "${loc.name}" — no address info.`);
+      continue;
+    }
+
+    const addressStr = parts.join(", ");
+    const coords = await geocodeAddress(addressStr);
+
+    if (coords) {
+      await db
+        .update(locations)
+        .set({ lat: coords.lat, lng: coords.lng })
+        .where(eq(locations.id, loc.id));
+      updated++;
+      console.log(`[geocode-missing] "${loc.name}" → ${coords.lat}, ${coords.lng}`);
+    } else {
+      failed++;
+      console.warn(`[geocode-missing] Could not geocode "${loc.name}" (${addressStr})`);
+    }
+  }
+
+  console.log(`[geocode-missing] Done: ${updated} updated, ${failed} failed, ${skipped} skipped.`);
+  return { updated, failed, skipped };
 }
 
 // ── Batch re-geocode ──────────────────────────────────────────────────────────
