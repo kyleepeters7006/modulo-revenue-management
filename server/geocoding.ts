@@ -89,7 +89,10 @@ export async function geocodeAddress(address: string | null): Promise<LatLng | n
       await db
         .insert(geocodeCache)
         .values({ address: key, lat: coords.lat, lng: coords.lng })
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: geocodeCache.address,
+          set: { lat: coords.lat, lng: coords.lng },
+        });
     } catch (err) {
       console.warn("[geocode] DB cache write failed:", err);
     }
@@ -100,7 +103,7 @@ export async function geocodeAddress(address: string | null): Promise<LatLng | n
 
 async function fetchNominatim(address: string): Promise<LatLng | null> {
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`;
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Modulo-RevenueManagement/1.0 (contact@modulo.app)",
@@ -270,6 +273,16 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
     if (parts.length === 0) continue;
 
     const addressStr = parts.join(", ");
+    const key = addressStr.trim().toLowerCase();
+
+    // Clear stale cache so fresh Nominatim result is always persisted
+    memCache.delete(key);
+    try {
+      await db.delete(geocodeCache).where(eq(geocodeCache.address, key));
+    } catch (err) {
+      console.warn(`[regeocode] Could not clear DB cache for "${addressStr}":`, err);
+    }
+
     const coords = await geocodeAddress(addressStr);
 
     if (coords) {
@@ -297,6 +310,16 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
 
   for (const comp of allCompetitors) {
     if (!comp.address) continue;
+
+    const compKey = comp.address.trim().toLowerCase();
+
+    // Clear stale cache so fresh Nominatim result is always persisted
+    memCache.delete(compKey);
+    try {
+      await db.delete(geocodeCache).where(eq(geocodeCache.address, compKey));
+    } catch (err) {
+      console.warn(`[regeocode] Could not clear DB cache for competitor "${comp.address}":`, err);
+    }
 
     const coords = await geocodeAddress(comp.address);
 
@@ -326,11 +349,17 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
     .from(competitiveSurveyData);
 
   for (const row of surveyRows) {
-    if (row.lat != null && row.lng != null) {
-      surveyAddressesCached++;
-      continue;
-    }
     if (!row.competitorAddress) continue;
+
+    const surveyKey = row.competitorAddress.trim().toLowerCase();
+
+    // Clear stale cache so fresh Nominatim result is always persisted
+    memCache.delete(surveyKey);
+    try {
+      await db.delete(geocodeCache).where(eq(geocodeCache.address, surveyKey));
+    } catch (err) {
+      console.warn(`[regeocode] Could not clear DB cache for survey address "${row.competitorAddress}":`, err);
+    }
 
     const coords = await geocodeAddress(row.competitorAddress);
     if (coords) {

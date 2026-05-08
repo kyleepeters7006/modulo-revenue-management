@@ -327,20 +327,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
 
-  // Background job: geocode any locations that are missing lat/lng.
-  // Fire-and-forget so it doesn't block server startup. Rate-limited internally.
-  (async () => {
-    try {
-      const { geocodeMissingLocations } = await import('./geocoding');
-      const result = await geocodeMissingLocations();
-      if (result.updated > 0) {
-        console.log(`[startup] Geocoded ${result.updated} location(s) that were missing coordinates.`);
-      }
-    } catch (err) {
-      console.error('[startup] Background geocode-missing-locations failed (non-fatal):', err);
-    }
-  })();
-
   // Serve attached assets statically
   app.use('/attached_assets', express.static(path.resolve('attached_assets')));
   

@@ -88,6 +88,21 @@ app.use((req, res, next) => {
     }
   }, 3000); // Check for interrupted jobs 3 seconds after server starts
 
+  // Background job: geocode any locations that have an address but null lat/lng.
+  // Runs after the server is already serving so it never blocks startup.
+  // Rate-limited internally (1.1 s per Nominatim request).
+  setTimeout(async () => {
+    try {
+      const { geocodeMissingLocations } = await import('./geocoding');
+      const result = await geocodeMissingLocations();
+      if (result.updated > 0 || result.failed > 0) {
+        log(`[startup] Geocoded missing locations: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
+      }
+    } catch (err) {
+      log(`[startup] Background geocode-missing-locations failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 6000); // 6-second delay — after demo seed and job resume have started
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
