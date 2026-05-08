@@ -118,10 +118,13 @@ app.use((req, res, next) => {
 
   // Background job: resume any interrupted geocoding job for competitor surveys,
   // or start fresh if rows still need geocoding.
+  // After geocoding, backfill distanceMiles for any rows that have lat/lng but
+  // no distance yet — this is the value used by the distance-based competitor
+  // fallback in getTopSurveyCompetitorForLocation.
   // This ensures progress is never lost across server restarts.
   setTimeout(async () => {
     try {
-      const { geocodeMissingCompetitorSurveys, getLatestGeocodingJob } = await import('./geocoding');
+      const { geocodeMissingCompetitorSurveys, getLatestGeocodingJob, backfillSurveyDistances, getSurveyGeocodingCoverage } = await import('./geocoding');
 
       // Check for an interrupted (running) job from before the last restart
       const latestJob = await getLatestGeocodingJob('competitor_surveys');
@@ -137,6 +140,25 @@ app.use((req, res, next) => {
         if (result.updated > 0 || result.failed > 0) {
           log(`[startup] Geocoded missing competitor surveys: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
         }
+      }
+
+      // Backfill distanceMiles for any already-geocoded rows that are still missing distance.
+      // This handles rows geocoded before the distanceMiles computation was added.
+      try {
+        const backfilled = await backfillSurveyDistances();
+        if (backfilled > 0) {
+          log(`[startup] Backfilled distanceMiles for ${backfilled} survey rows.`);
+        }
+      } catch (bfErr) {
+        log(`[startup] Distance backfill non-fatal error: ${bfErr instanceof Error ? bfErr.message : String(bfErr)}`);
+      }
+
+      // Log geocoding coverage so operators can confirm the distance fallback has data.
+      try {
+        const coverage = await getSurveyGeocodingCoverage();
+        log(`[startup] Survey geocoding coverage: ${coverage.coveragePct}% geocoded, ${coverage.distancePct}% have distance_miles (${coverage.distanceCalculated}/${coverage.total} rows).`);
+      } catch (covErr) {
+        log(`[startup] Coverage check non-fatal error: ${covErr instanceof Error ? covErr.message : String(covErr)}`);
       }
     } catch (err) {
       log(`[startup] Background geocode-missing-competitor-surveys failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);

@@ -87,6 +87,7 @@ import { db } from "./db";
 import { eq, and, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
+import { calculateDistance } from "./geocoding";
 
 // Interface for storage operations
 export interface IStorage {
@@ -1602,6 +1603,17 @@ export class DatabaseStorage implements IStorage {
     weight: number;
     distanceMiles: number | null;
   }> | null> {
+    // Fetch the portfolio location's coordinates once so we can compute distance
+    // on-the-fly for any survey rows whose distanceMiles column is still null.
+    const [locationRow] = await db
+      .select({ lat: locations.lat, lng: locations.lng })
+      .from(locations)
+      .where(eq(locations.name, locationName))
+      .limit(1);
+    const locationLatLng = (locationRow?.lat != null && locationRow?.lng != null)
+      ? { lat: locationRow.lat, lng: locationRow.lng }
+      : null;
+
     const rows = await db.select()
       .from(competitiveSurveyData)
       .where(and(
@@ -1612,7 +1624,9 @@ export class DatabaseStorage implements IStorage {
 
     if (!rows.length) return null;
 
-    // Parse weights from notes JSON; first occurrence per competitor name wins
+    // Parse weights from notes JSON; first occurrence per competitor name wins.
+    // If distanceMiles is null but lat/lng are present, compute it on-the-fly
+    // so the distance-based fallback always has something to work with.
     const competitorMeta = new Map<string, { weight: number; distanceMiles: number | null }>();
     for (const row of rows) {
       if (!competitorMeta.has(row.competitorName)) {
@@ -1621,7 +1635,13 @@ export class DatabaseStorage implements IStorage {
           const notes = JSON.parse(row.notes || '{}');
           weight = parseFloat(notes.weight) || 0;
         } catch { /* ignore parse errors */ }
-        competitorMeta.set(row.competitorName, { weight, distanceMiles: row.distanceMiles });
+
+        let distMiles: number | null = row.distanceMiles;
+        if (distMiles == null && locationLatLng && row.lat != null && row.lng != null) {
+          distMiles = calculateDistance(locationLatLng.lat, locationLatLng.lng, row.lat, row.lng);
+        }
+
+        competitorMeta.set(row.competitorName, { weight, distanceMiles: distMiles });
       }
     }
 

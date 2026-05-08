@@ -13,7 +13,7 @@
 
 import { db } from "./db";
 import { geocodeCache, geocodingJobs, locations, competitiveSurveyData, competitors } from "@shared/schema";
-import { and, eq, isNotNull, isNull, or, desc } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, desc, sql, count } from "drizzle-orm";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -565,9 +565,16 @@ export async function geocodeMissingCompetitorSurveys(jobId?: string): Promise<G
       }
 
       if (coords) {
+        // Compute distanceMiles from the portfolio location's coordinates so
+        // the distance-based fallback in getTopSurveyCompetitorForLocation works.
+        const basePt = locationCoords.get(row.keyStatsLocation ?? '');
+        const distanceMiles = basePt
+          ? calculateDistance(basePt.lat, basePt.lng, coords.lat, coords.lng)
+          : null;
+
         await db
           .update(competitiveSurveyData)
-          .set({ lat: coords.lat, lng: coords.lng })
+          .set({ lat: coords.lat, lng: coords.lng, distanceMiles })
           .where(eq(competitiveSurveyData.id, row.id));
         updated++;
       } else {
@@ -591,6 +598,98 @@ export async function geocodeMissingCompetitorSurveys(jobId?: string): Promise<G
 
   console.log(`[geocode-survey] Done: ${updated} updated, ${failed} failed, ${skipped} skipped (no address).`);
   return { updated, failed, skipped };
+}
+
+// ── Survey geocoding coverage / backfill helpers ──────────────────────────────
+
+export interface SurveyGeocodingCoverage {
+  total: number;
+  geocoded: number;
+  distanceCalculated: number;
+  coveragePct: number;
+  distancePct: number;
+}
+
+/**
+ * Returns coverage stats for competitive_survey_data geocoding.
+ * Logs the result so operators can quickly see the coverage at startup.
+ */
+export async function getSurveyGeocodingCoverage(): Promise<SurveyGeocodingCoverage> {
+  const [row] = await db
+    .select({
+      total: count(),
+      geocoded: sql<number>`COUNT(*) FILTER (WHERE lat IS NOT NULL AND lng IS NOT NULL)`,
+      distanceCalculated: sql<number>`COUNT(*) FILTER (WHERE distance_miles IS NOT NULL)`,
+    })
+    .from(competitiveSurveyData);
+
+  const total = Number(row?.total ?? 0);
+  const geocoded = Number(row?.geocoded ?? 0);
+  const distanceCalculated = Number(row?.distanceCalculated ?? 0);
+  const coveragePct = total > 0 ? Math.round((geocoded / total) * 100) : 0;
+  const distancePct = total > 0 ? Math.round((distanceCalculated / total) * 100) : 0;
+  console.log(
+    `[geocode-survey] Coverage: ${geocoded}/${total} rows geocoded (${coveragePct}%), ` +
+    `${distanceCalculated}/${total} have distance_miles (${distancePct}%)`
+  );
+  return { total, geocoded, distanceCalculated, coveragePct, distancePct };
+}
+
+/**
+ * Backfill distanceMiles for rows that already have lat/lng but null distanceMiles.
+ * Safe to run repeatedly — only touches rows that are actually missing distance.
+ * Returns the number of rows updated.
+ */
+export async function backfillSurveyDistances(): Promise<number> {
+  const needsDistance = await db
+    .select({
+      id: competitiveSurveyData.id,
+      lat: competitiveSurveyData.lat,
+      lng: competitiveSurveyData.lng,
+      keyStatsLocation: competitiveSurveyData.keyStatsLocation,
+    })
+    .from(competitiveSurveyData)
+    .where(and(
+      isNotNull(competitiveSurveyData.lat),
+      isNotNull(competitiveSurveyData.lng),
+      isNull(competitiveSurveyData.distanceMiles),
+    ));
+
+  if (needsDistance.length === 0) {
+    console.log('[geocode-survey] No survey rows need distance backfill.');
+    return 0;
+  }
+
+  console.log(`[geocode-survey] Backfilling distanceMiles for ${needsDistance.length} rows…`);
+
+  // Load all location coordinates once
+  const locationRows = await db
+    .select({ name: locations.name, lat: locations.lat, lng: locations.lng })
+    .from(locations);
+
+  const locationCoords = new Map<string, LatLng>();
+  for (const loc of locationRows) {
+    if (loc.lat != null && loc.lng != null) {
+      locationCoords.set(loc.name, { lat: loc.lat, lng: loc.lng });
+    }
+  }
+
+  let updated = 0;
+  for (const row of needsDistance) {
+    if (row.lat == null || row.lng == null) continue;
+    const basePt = locationCoords.get(row.keyStatsLocation ?? '');
+    if (!basePt) continue; // can't compute without location coords
+
+    const distanceMiles = calculateDistance(basePt.lat, basePt.lng, row.lat, row.lng);
+    await db
+      .update(competitiveSurveyData)
+      .set({ distanceMiles })
+      .where(eq(competitiveSurveyData.id, row.id));
+    updated++;
+  }
+
+  console.log(`[geocode-survey] Distance backfill complete: ${updated} rows updated.`);
+  return updated;
 }
 
 // ── Batch re-geocode ──────────────────────────────────────────────────────────
