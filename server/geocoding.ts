@@ -12,8 +12,8 @@
  */
 
 import { db } from "./db";
-import { geocodeCache, locations, competitiveSurveyData, competitors } from "@shared/schema";
-import { eq, isNotNull, isNull, or } from "drizzle-orm";
+import { geocodeCache, geocodingJobs, locations, competitiveSurveyData, competitors } from "@shared/schema";
+import { and, eq, isNotNull, isNull, or, desc } from "drizzle-orm";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -305,6 +305,72 @@ export async function geocodeMissingLocations(): Promise<GeocodeMissingResult> {
   return { updated, failed, skipped };
 }
 
+// ── Geocoding job persistence ─────────────────────────────────────────────────
+
+/**
+ * Create a new geocoding job record in the DB and return its ID.
+ * Marks any previous 'running' jobs of the same type as 'failed' (interrupted).
+ */
+export async function createGeocodingJob(jobType: string = 'competitor_surveys', totalRows: number = 0): Promise<string> {
+  // Mark any stale running jobs of THIS type as interrupted before creating a fresh one.
+  // Filtering by jobType prevents unintentionally cancelling other job types if they
+  // are ever tracked in this table.
+  await db
+    .update(geocodingJobs)
+    .set({ status: 'failed', errorMessage: 'Interrupted by new job', completedAt: new Date() })
+    .where(and(eq(geocodingJobs.status, 'running'), eq(geocodingJobs.jobType, jobType)));
+
+  const [job] = await db
+    .insert(geocodingJobs)
+    .values({ jobType, status: 'running', totalRows, processedRows: 0, updatedRows: 0, failedRows: 0, skippedRows: 0 })
+    .returning({ id: geocodingJobs.id });
+
+  return job.id;
+}
+
+/** Update progress counters on an existing geocoding job. */
+async function updateGeocodingJobProgress(
+  jobId: string,
+  processed: number,
+  updated: number,
+  failed: number,
+  skipped: number,
+): Promise<void> {
+  try {
+    await db
+      .update(geocodingJobs)
+      .set({ processedRows: processed, updatedRows: updated, failedRows: failed, skippedRows: skipped })
+      .where(eq(geocodingJobs.id, jobId));
+  } catch (err) {
+    console.warn('[geocode-job] Progress update failed (non-fatal):', err);
+  }
+}
+
+/** Mark a geocoding job as completed or failed. */
+export async function finalizeGeocodingJob(jobId: string, status: 'completed' | 'failed', errorMessage?: string): Promise<void> {
+  try {
+    await db
+      .update(geocodingJobs)
+      .set({ status, completedAt: new Date(), ...(errorMessage ? { errorMessage } : {}) })
+      .where(eq(geocodingJobs.id, jobId));
+  } catch (err) {
+    console.warn('[geocode-job] Finalize failed (non-fatal):', err);
+  }
+}
+
+/**
+ * Return the most recent geocoding job of the given type, or null if none exists.
+ */
+export async function getLatestGeocodingJob(jobType: string = 'competitor_surveys') {
+  const [job] = await db
+    .select()
+    .from(geocodingJobs)
+    .where(eq(geocodingJobs.jobType, jobType))
+    .orderBy(desc(geocodingJobs.startedAt))
+    .limit(1);
+  return job ?? null;
+}
+
 // ── Geocode competitor survey rows missing coordinates ────────────────────────
 
 export interface GeocodeMissingSurveysResult {
@@ -327,8 +393,11 @@ export interface GeocodeMissingSurveysResult {
  * Rows that already have both coordinates are skipped (idempotent).
  * Unique addresses are geocoded only once and the result is reused for every
  * row that shares the same address, reducing Nominatim calls significantly.
+ *
+ * Pass an existing jobId to resume a previously created job (e.g. after server
+ * restart). If omitted a fresh job record is created automatically.
  */
-export async function geocodeMissingCompetitorSurveys(): Promise<GeocodeMissingSurveysResult> {
+export async function geocodeMissingCompetitorSurveys(jobId?: string): Promise<GeocodeMissingSurveysResult> {
   let updated = 0;
   let failed = 0;
   let skipped = 0;
@@ -345,10 +414,25 @@ export async function geocodeMissingCompetitorSurveys(): Promise<GeocodeMissingS
 
   if (missing.length === 0) {
     console.log("[geocode-survey] All competitive_survey_data rows already have coordinates.");
+    // If we were given a job to track, mark it done immediately
+    if (jobId) await finalizeGeocodingJob(jobId, 'completed');
     return { updated, failed, skipped };
   }
 
   console.log(`[geocode-survey] ${missing.length} survey row(s) need geocoding…`);
+
+  // Create or reuse the job tracker
+  const activeJobId = jobId ?? await createGeocodingJob('competitor_surveys', missing.length);
+
+  // Update total if we're resuming (the DB may have a stale count)
+  if (jobId) {
+    try {
+      await db
+        .update(geocodingJobs)
+        .set({ totalRows: missing.length, status: 'running' })
+        .where(eq(geocodingJobs.id, jobId));
+    } catch { /* non-fatal */ }
+  }
 
   // Pre-load all location lat/lng + state so we can use them as base points for
   // the near-location fallback without an extra DB query per row.
@@ -433,53 +517,76 @@ export async function geocodeMissingCompetitorSurveys(): Promise<GeocodeMissingS
   // Cache geocode results per address to avoid redundant Nominatim calls
   const addressCache = new Map<string, LatLng | null>();
 
-  for (const row of missing) {
-    // 1. Try coordinates embedded in notes JSON (imported from CSV Latitude/Longitude columns)
-    let coords: LatLng | null = null;
-    try {
-      const notes = typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes ?? {});
-      const lat = parseFloat(notes.latitude);
-      const lng = parseFloat(notes.longitude);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        coords = { lat, lng };
-      }
-    } catch {
-      // notes not valid JSON — ignore
-    }
+  // Flush progress every N rows to reduce DB write frequency
+  const PROGRESS_FLUSH_EVERY = 10;
 
-    // 2. Geocode the address, using the associated portfolio location as a
-    //    context hint for the deterministic-offset fallback.
-    if (!coords) {
-      if (!row.competitorAddress) {
-        skipped++;
-        console.warn(`[geocode-survey] Skipping row ${row.id} — no address.`);
-        continue;
+  try {
+    for (let i = 0; i < missing.length; i++) {
+      const row = missing[i];
+
+      // 1. Try coordinates embedded in notes JSON (imported from CSV Latitude/Longitude columns)
+      let coords: LatLng | null = null;
+      try {
+        const notes = typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes ?? {});
+        const lat = parseFloat(notes.latitude);
+        const lng = parseFloat(notes.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          coords = { lat, lng };
+        }
+      } catch {
+        // notes not valid JSON — ignore
       }
 
-      // Key by (address, location) so that unresolved/fake addresses that are
-      // identical across different locations each get their own deterministic
-      // offset near the correct city rather than reusing the first computed one.
-      const addrNorm = row.competitorAddress.trim().toLowerCase();
-      const cacheKey = `${addrNorm}||${(row.keyStatsLocation ?? '').toLowerCase()}`;
-      if (addressCache.has(cacheKey)) {
-        coords = addressCache.get(cacheKey) ?? null;
+      // 2. Geocode the address, using the associated portfolio location as a
+      //    context hint for the deterministic-offset fallback.
+      if (!coords) {
+        if (!row.competitorAddress) {
+          skipped++;
+          console.warn(`[geocode-survey] Skipping row ${row.id} — no address.`);
+          // Flush progress periodically
+          if ((i + 1) % PROGRESS_FLUSH_EVERY === 0) {
+            await updateGeocodingJobProgress(activeJobId, i + 1, updated, failed, skipped);
+          }
+          continue;
+        }
+
+        // Key by (address, location) so that unresolved/fake addresses that are
+        // identical across different locations each get their own deterministic
+        // offset near the correct city rather than reusing the first computed one.
+        const addrNorm = row.competitorAddress.trim().toLowerCase();
+        const cacheKey = `${addrNorm}||${(row.keyStatsLocation ?? '').toLowerCase()}`;
+        if (addressCache.has(cacheKey)) {
+          coords = addressCache.get(cacheKey) ?? null;
+        } else {
+          const baseLocation = await getBaseLocation(row.keyStatsLocation ?? null, row.competitorAddress);
+          coords = await geocodeAddressNearLocation(row.competitorAddress, baseLocation, 8);
+          addressCache.set(cacheKey, coords);
+        }
+      }
+
+      if (coords) {
+        await db
+          .update(competitiveSurveyData)
+          .set({ lat: coords.lat, lng: coords.lng })
+          .where(eq(competitiveSurveyData.id, row.id));
+        updated++;
       } else {
-        const baseLocation = await getBaseLocation(row.keyStatsLocation ?? null, row.competitorAddress);
-        coords = await geocodeAddressNearLocation(row.competitorAddress, baseLocation, 8);
-        addressCache.set(cacheKey, coords);
+        failed++;
+        console.warn(`[geocode-survey] Could not geocode "${row.competitorAddress}" (row ${row.id})`);
+      }
+
+      // Flush progress periodically
+      if ((i + 1) % PROGRESS_FLUSH_EVERY === 0) {
+        await updateGeocodingJobProgress(activeJobId, i + 1, updated, failed, skipped);
       }
     }
 
-    if (coords) {
-      await db
-        .update(competitiveSurveyData)
-        .set({ lat: coords.lat, lng: coords.lng })
-        .where(eq(competitiveSurveyData.id, row.id));
-      updated++;
-    } else {
-      failed++;
-      console.warn(`[geocode-survey] Could not geocode "${row.competitorAddress}" (row ${row.id})`);
-    }
+    // Final progress flush
+    await updateGeocodingJobProgress(activeJobId, missing.length, updated, failed, skipped);
+    await finalizeGeocodingJob(activeJobId, 'completed');
+  } catch (err: any) {
+    console.error('[geocode-survey] Job failed:', err);
+    await finalizeGeocodingJob(activeJobId, 'failed', err?.message ?? String(err));
   }
 
   console.log(`[geocode-survey] Done: ${updated} updated, ${failed} failed, ${skipped} skipped (no address).`);

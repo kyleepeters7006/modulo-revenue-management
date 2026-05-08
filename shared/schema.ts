@@ -1103,3 +1103,26 @@ export const geocodeCache = pgTable("geocode_cache", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 export type GeocodeCache = typeof geocodeCache.$inferSelect;
+
+// Geocoding job progress tracker — survives server restarts
+export const geocodingJobs = pgTable("geocoding_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobType: text("job_type").notNull().default('competitor_surveys'), // 'competitor_surveys' | 'locations'
+  status: text("status").notNull().default('pending'), // 'pending' | 'running' | 'completed' | 'failed'
+  totalRows: integer("total_rows").notNull().default(0),
+  processedRows: integer("processed_rows").notNull().default(0),
+  updatedRows: integer("updated_rows").notNull().default(0),
+  failedRows: integer("failed_rows").notNull().default(0),
+  skippedRows: integer("skipped_rows").notNull().default(0),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+});
+
+export const insertGeocodingJobSchema = createInsertSchema(geocodingJobs).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+export type GeocodingJob = typeof geocodingJobs.$inferSelect;
+export type InsertGeocodingJob = z.infer<typeof insertGeocodingJobSchema>;

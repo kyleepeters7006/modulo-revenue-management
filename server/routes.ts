@@ -308,6 +308,23 @@ async function checkAndInitializeDatabase() {
       )
     `);
 
+    // Ensure the geocoding_jobs table exists for persistent progress tracking
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS geocoding_jobs (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        job_type text NOT NULL DEFAULT 'competitor_surveys',
+        status text NOT NULL DEFAULT 'pending',
+        total_rows integer NOT NULL DEFAULT 0,
+        processed_rows integer NOT NULL DEFAULT 0,
+        updated_rows integer NOT NULL DEFAULT 0,
+        failed_rows integer NOT NULL DEFAULT 0,
+        skipped_rows integer NOT NULL DEFAULT 0,
+        started_at timestamp DEFAULT now(),
+        completed_at timestamp,
+        error_message text
+      )
+    `);
+
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
@@ -530,6 +547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // POST /api/admin/geocode-missing-competitor-surveys — geocode competitor survey rows that lack lat/lng.
   // Accepts seed-secret header OR a logged-in admin session so the UI can call it without exposing secrets.
+  // Returns immediately with the job ID; progress is tracked in the geocoding_jobs table.
   app.post('/api/admin/geocode-missing-competitor-surveys', async (req: any, res) => {
     const seedSecret = req.headers['x-seed-secret'];
     const session = req.session as any;
@@ -546,16 +564,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
-      const { geocodeMissingCompetitorSurveys } = await import('./geocoding');
-      console.log('[geocode-survey] Starting geocode of competitor survey rows with null lat/lng…');
-      const result = await geocodeMissingCompetitorSurveys();
-      res.json({
-        success: true,
-        updated: result.updated,
-        failed: result.failed,
-        skipped: result.skipped,
-        message: `Geocoded ${result.updated} competitor survey row(s) (${result.failed} failed, ${result.skipped} skipped — no address).`,
+      const { geocodeMissingCompetitorSurveys, createGeocodingJob } = await import('./geocoding');
+      // Create the job record first so the UI can poll progress immediately
+      const jobId = await createGeocodingJob('competitor_surveys', 0);
+      console.log(`[geocode-survey] Job ${jobId} created — starting background geocoding…`);
+      // Run geocoding in the background; do NOT await
+      geocodeMissingCompetitorSurveys(jobId).catch((err) => {
+        console.error('[geocode-survey] Background job error:', err);
       });
+      res.json({ success: true, jobId, message: 'Geocoding started in background. Poll /api/admin/geocoding-status for progress.' });
     } catch (e: any) {
       console.error('[geocode-survey] Error:', e);
       res.status(500).json({ error: e.message });
@@ -589,12 +606,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GET /api/admin/geocoding-status — returns the number of competitive_survey_data rows still missing lat/lng
+  // GET /api/admin/geocoding-status — returns pending count + real-time job progress from the DB.
   // Scoped to the current session's clientId (defaults to 'demo' for unauthenticated users).
   app.get('/api/admin/geocoding-status', async (req: any, res) => {
     try {
       const clientId: string = req.clientId || 'demo';
       const { count } = await import('drizzle-orm');
+      const { getLatestGeocodingJob } = await import('./geocoding');
+
+      // Count rows still missing coordinates for this client
       const [row] = await db
         .select({ pending: count() })
         .from(competitiveSurveyData)
@@ -603,7 +623,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           or(isNull(competitiveSurveyData.lat), isNull(competitiveSurveyData.lng))
         ));
       const pending = Number(row?.pending ?? 0);
-      res.json({ pending, geocoding: pending > 0 });
+
+      // Load the latest geocoding job for progress data
+      const latestJob = await getLatestGeocodingJob('competitor_surveys');
+      const isRunning = latestJob?.status === 'running';
+
+      const jobProgress = latestJob ? {
+        jobId: latestJob.id,
+        status: latestJob.status,
+        totalRows: latestJob.totalRows,
+        processedRows: latestJob.processedRows,
+        updatedRows: latestJob.updatedRows,
+        failedRows: latestJob.failedRows,
+        skippedRows: latestJob.skippedRows,
+        percent: latestJob.totalRows > 0
+          ? Math.round((latestJob.processedRows / latestJob.totalRows) * 100)
+          : 0,
+        startedAt: latestJob.startedAt,
+        completedAt: latestJob.completedAt,
+      } : null;
+
+      res.json({ pending, geocoding: isRunning, jobProgress });
     } catch (e: any) {
       console.error('[geocoding-status] Error:', e);
       res.status(500).json({ error: e.message });

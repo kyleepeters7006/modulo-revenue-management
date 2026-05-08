@@ -75,23 +75,39 @@ export default function CompetitorAnalysis() {
   });
 
   // Poll geocoding status — shows a banner while competitor coordinates are still being resolved
-  const { data: geocodingStatus, refetch: refetchGeocodingStatus } = useQuery<{ pending: number; geocoding: boolean }>({
+  const { data: geocodingStatus, refetch: refetchGeocodingStatus } = useQuery<{
+    pending: number;
+    geocoding: boolean;
+    jobProgress: {
+      jobId: string;
+      status: string;
+      totalRows: number;
+      processedRows: number;
+      updatedRows: number;
+      failedRows: number;
+      skippedRows: number;
+      percent: number;
+      startedAt: string | null;
+      completedAt: string | null;
+    } | null;
+  }>({
     queryKey: ["/api/admin/geocoding-status"],
-    refetchInterval: (query) => (query.state.data as { geocoding?: boolean } | undefined)?.geocoding ? 5000 : false,
+    refetchInterval: (query) => (query.state.data as { geocoding?: boolean } | undefined)?.geocoding ? 3000 : false,
     staleTime: 0,
   });
   const isGeocoding = geocodingStatus?.geocoding === true;
   const geocodingPending = geocodingStatus?.pending ?? 0;
+  const jobProgress = geocodingStatus?.jobProgress ?? null;
 
   // Retry geocoding mutation — triggers both geocoding jobs on demand (admin only)
   const retryGeocodeMutation = useMutation({
     mutationFn: async () => {
-      await Promise.all([
-        apiRequest("/api/admin/geocode-missing-locations", "POST"),
-        apiRequest("/api/admin/geocode-missing-competitor-surveys", "POST"),
-      ]);
+      await apiRequest("/api/admin/geocode-missing-locations", "POST");
+      // Fire-and-forget; returns immediately with a jobId
+      await apiRequest("/api/admin/geocode-missing-competitor-surveys", "POST");
     },
     onSuccess: () => {
+      // Start polling immediately
       refetchGeocodingStatus();
       queryClient.invalidateQueries({ queryKey: ["/api/competitors"] });
     },
@@ -154,15 +170,49 @@ export default function CompetitorAnalysis() {
           <div className="mt-4 flex items-center gap-3 flex-wrap">
             {isGeocoding && (
               <div
-                className="flex flex-1 items-center gap-3 rounded-md border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800"
+                className="flex flex-1 flex-col gap-2 rounded-md border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800"
                 data-testid="banner-geocoding-progress"
               >
-                <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 text-teal-600" />
-                <span>
-                  Geocoding competitor locations&hellip;{" "}
-                  <span className="font-semibold">{geocodingPending}</span>{" "}
-                  {geocodingPending === 1 ? "address" : "addresses"} remaining. Map pins will appear as coordinates resolve.
-                </span>
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 text-teal-600" />
+                  <span>
+                    Geocoding competitor locations&hellip;{" "}
+                    {jobProgress && jobProgress.totalRows > 0 ? (
+                      <>
+                        <span className="font-semibold">{jobProgress.processedRows}</span>
+                        {" / "}
+                        <span className="font-semibold">{jobProgress.totalRows}</span>
+                        {" addresses processed"}
+                        {geocodingPending > 0 && (
+                          <> &mdash; <span className="font-semibold">{geocodingPending}</span> {geocodingPending === 1 ? "pin" : "pins"} still missing</>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">{geocodingPending}</span>{" "}
+                        {geocodingPending === 1 ? "address" : "addresses"} remaining
+                      </>
+                    )}
+                    . Map pins will appear as coordinates resolve.
+                  </span>
+                </div>
+                {jobProgress && jobProgress.totalRows > 0 && (
+                  <div className="w-full rounded-full bg-teal-200 h-2 overflow-hidden">
+                    <div
+                      className="h-2 rounded-full bg-teal-500 transition-all duration-500"
+                      style={{ width: `${jobProgress.percent}%` }}
+                      data-testid="geocoding-progress-bar"
+                    />
+                  </div>
+                )}
+                {jobProgress && jobProgress.totalRows > 0 && (
+                  <div className="flex gap-4 text-xs text-teal-700">
+                    <span>{jobProgress.percent}% complete</span>
+                    {jobProgress.updatedRows > 0 && <span>{jobProgress.updatedRows} geocoded</span>}
+                    {jobProgress.failedRows > 0 && <span className="text-amber-700">{jobProgress.failedRows} failed</span>}
+                    {jobProgress.skippedRows > 0 && <span>{jobProgress.skippedRows} skipped</span>}
+                  </div>
+                )}
               </div>
             )}
             {isAdmin && (
@@ -179,7 +229,7 @@ export default function CompetitorAnalysis() {
                 ) : (
                   <RefreshCw className="h-4 w-4" />
                 )}
-                {isRetrying ? "Geocoding…" : geocodingPending > 0 ? `Retry (${geocodingPending} pending)` : "Retry Geocoding"}
+                {isRetrying ? "Starting…" : geocodingPending > 0 ? `Retry (${geocodingPending} pending)` : "Retry Geocoding"}
               </Button>
             )}
           </div>
