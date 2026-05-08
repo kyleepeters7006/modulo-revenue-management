@@ -8,8 +8,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ChevronDown, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2, RefreshCw } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
 
 // Helper functions for localStorage persistence - using shared key for cross-page sync
 const saveCompetitorFiltersToStorage = (filters: any) => {
@@ -31,6 +33,8 @@ const loadCompetitorFiltersFromStorage = () => {
 };
 
 export default function CompetitorAnalysis() {
+  const { isAdmin } = useAuth();
+
   // Check for URL parameters first
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
@@ -71,13 +75,28 @@ export default function CompetitorAnalysis() {
   });
 
   // Poll geocoding status — shows a banner while competitor coordinates are still being resolved
-  const { data: geocodingStatus } = useQuery<{ pending: number; geocoding: boolean }>({
+  const { data: geocodingStatus, refetch: refetchGeocodingStatus } = useQuery<{ pending: number; geocoding: boolean }>({
     queryKey: ["/api/admin/geocoding-status"],
     refetchInterval: (query) => (query.state.data as { geocoding?: boolean } | undefined)?.geocoding ? 5000 : false,
     staleTime: 0,
   });
   const isGeocoding = geocodingStatus?.geocoding === true;
   const geocodingPending = geocodingStatus?.pending ?? 0;
+
+  // Retry geocoding mutation — triggers both geocoding jobs on demand (admin only)
+  const retryGeocodeMutation = useMutation({
+    mutationFn: async () => {
+      await Promise.all([
+        apiRequest("/api/admin/geocode-missing-locations", "POST"),
+        apiRequest("/api/admin/geocode-missing-competitor-surveys", "POST"),
+      ]);
+    },
+    onSuccess: () => {
+      refetchGeocodingStatus();
+      queryClient.invalidateQueries({ queryKey: ["/api/competitors"] });
+    },
+  });
+  const isRetrying = retryGeocodeMutation.isPending;
 
   // Fetch competitor rate comparison data when a single location is selected
   const { data: competitorRateData, isLoading: isLoadingRates } = useQuery({
@@ -131,20 +150,39 @@ export default function CompetitorAnalysis() {
             Geographic mapping and rate comparison with nearby competitors
           </p>
 
-          {/* Geocoding progress banner */}
-          {isGeocoding && (
-            <div
-              className="mt-4 flex items-center gap-3 rounded-md border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800"
-              data-testid="banner-geocoding-progress"
-            >
-              <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 text-teal-600" />
-              <span>
-                Geocoding competitor locations&hellip;{" "}
-                <span className="font-semibold">{geocodingPending}</span>{" "}
-                {geocodingPending === 1 ? "address" : "addresses"} remaining. Map pins will appear as coordinates resolve.
-              </span>
-            </div>
-          )}
+          {/* Geocoding progress / retry banner */}
+          <div className="mt-4 flex items-center gap-3 flex-wrap">
+            {isGeocoding && (
+              <div
+                className="flex flex-1 items-center gap-3 rounded-md border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800"
+                data-testid="banner-geocoding-progress"
+              >
+                <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 text-teal-600" />
+                <span>
+                  Geocoding competitor locations&hellip;{" "}
+                  <span className="font-semibold">{geocodingPending}</span>{" "}
+                  {geocodingPending === 1 ? "address" : "addresses"} remaining. Map pins will appear as coordinates resolve.
+                </span>
+              </div>
+            )}
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => retryGeocodeMutation.mutate()}
+                disabled={isRetrying || isGeocoding}
+                data-testid="btn-retry-geocoding"
+                className="flex items-center gap-2 whitespace-nowrap"
+              >
+                {isRetrying ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {isRetrying ? "Geocoding…" : geocodingPending > 0 ? `Retry (${geocodingPending} pending)` : "Retry Geocoding"}
+              </Button>
+            )}
+          </div>
 
           {/* Filters */}
           <div className="mt-6 space-y-4">

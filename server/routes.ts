@@ -496,10 +496,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // POST /api/admin/geocode-missing-locations — geocode only locations that lack lat/lng
-  // Protected by x-seed-secret header. Skips locations that already have coordinates.
+  // Protected by x-seed-secret header OR a logged-in admin session (username ending in _admin).
   app.post('/api/admin/geocode-missing-locations', async (req: any, res) => {
     const seedSecret = req.headers['x-seed-secret'];
-    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+    const session = req.session as any;
+    const hasSecret = seedSecret && seedSecret === process.env.SEED_SECRET;
+    let hasAdminSession = false;
+    if (session?.userId) {
+      try {
+        const userRows = await db.select({ username: users.username }).from(users).where(eq(users.id, session.userId)).limit(1);
+        hasAdminSession = userRows.length > 0 && (userRows[0].username ?? '').endsWith('_admin');
+      } catch { /* fall through */ }
+    }
+    if (!hasSecret && !hasAdminSession) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
@@ -515,6 +524,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (e: any) {
       console.error('[geocode-missing] Error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/admin/geocode-missing-competitor-surveys — geocode competitor survey rows that lack lat/lng.
+  // Accepts seed-secret header OR a logged-in admin session so the UI can call it without exposing secrets.
+  app.post('/api/admin/geocode-missing-competitor-surveys', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    const session = req.session as any;
+    const hasSecret = seedSecret && seedSecret === process.env.SEED_SECRET;
+    // Only admin users (username ending in _admin) may call this via session
+    let hasAdminSession = false;
+    if (session?.userId) {
+      try {
+        const userRows = await db.select({ username: users.username }).from(users).where(eq(users.id, session.userId)).limit(1);
+        hasAdminSession = userRows.length > 0 && (userRows[0].username ?? '').endsWith('_admin');
+      } catch { /* fall through */ }
+    }
+    if (!hasSecret && !hasAdminSession) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      const { geocodeMissingCompetitorSurveys } = await import('./geocoding');
+      console.log('[geocode-survey] Starting geocode of competitor survey rows with null lat/lng…');
+      const result = await geocodeMissingCompetitorSurveys();
+      res.json({
+        success: true,
+        updated: result.updated,
+        failed: result.failed,
+        skipped: result.skipped,
+        message: `Geocoded ${result.updated} competitor survey row(s) (${result.failed} failed, ${result.skipped} skipped — no address).`,
+      });
+    } catch (e: any) {
+      console.error('[geocode-survey] Error:', e);
       res.status(500).json({ error: e.message });
     }
   });
