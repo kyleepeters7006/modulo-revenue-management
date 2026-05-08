@@ -577,6 +577,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         stats: result,
         message: `Demo data generated: ${result.locations} locations, ${result.rentRoll} rent roll, ${result.competitive} competitive, ${result.inquiry} inquiry records`,
       });
+
+      // Kick off geocoding in the background so competitor pins appear on the
+      // map immediately without needing a server restart.
+      // Locations are geocoded first so their coordinates are available as
+      // fallback base points when geocoding competitor survey rows.
+      import('./geocoding').then(async ({ geocodeMissingCompetitorSurveys, geocodeMissingLocations }) => {
+        try { await geocodeMissingLocations(); } catch (err: unknown) {
+          console.error('[regenerate-demo-data] geocodeMissingLocations error:', err);
+        }
+        try { await geocodeMissingCompetitorSurveys(); } catch (err: unknown) {
+          console.error('[regenerate-demo-data] geocodeMissingCompetitorSurveys error:', err);
+        }
+      }).catch((err: unknown) =>
+        console.error('[regenerate-demo-data] geocoding import error:', err)
+      );
     } catch (e: any) {
       console.error('[regenerate-demo-data] Error:', e);
       res.status(500).json({ error: e.message });
@@ -606,6 +621,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         stats: result,
         message: `Demo data generated: ${result.locations} locations, ${result.rentRoll} rent roll, ${result.competitive} competitive, ${result.inquiry} inquiry records`,
       });
+
+      // Kick off geocoding in the background so competitor pins appear on the
+      // map immediately without needing a server restart.
+      // Locations are geocoded first so their coordinates are available as
+      // fallback base points when geocoding competitor survey rows.
+      import('./geocoding').then(async ({ geocodeMissingCompetitorSurveys, geocodeMissingLocations }) => {
+        try { await geocodeMissingLocations(); } catch (err: unknown) {
+          console.error('[generate-demo-data] geocodeMissingLocations error:', err);
+        }
+        try { await geocodeMissingCompetitorSurveys(); } catch (err: unknown) {
+          console.error('[generate-demo-data] geocodeMissingCompetitorSurveys error:', err);
+        }
+      }).catch((err: unknown) =>
+        console.error('[generate-demo-data] geocoding import error:', err)
+      );
     } catch (e: any) {
       console.error('[generate-demo-data] Error:', e);
       res.status(500).json({ error: e.message });
