@@ -297,6 +297,17 @@ export async function fetchSP500Data() {
 // Check if database needs initialization on startup
 async function checkAndInitializeDatabase() {
   try {
+    // Ensure the geocode_cache table exists (created here for environments
+    // where schema push has not been run separately)
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS geocode_cache (
+        address text PRIMARY KEY,
+        lat real NOT NULL,
+        lng real NOT NULL,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
@@ -467,13 +478,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.execute(sql`UPDATE competitive_survey_data SET client_id = 'demo' WHERE client_id IS NULL`);
       await db.execute(sql`UPDATE inquiry_metrics SET client_id = 'demo' WHERE client_id IS NULL`);
 
-      res.json({ success: true, message: 'Clients and users seeded. Existing data tagged as demo.' });
+      // Re-geocode all locations and competitors so coordinates are correct
+      // before returning success. Errors are logged but do not fail the seed.
+      try {
+        const { reGeocodeAll } = await import('./geocoding');
+        const result = await reGeocodeAll();
+        console.log(`[seed] Re-geocode complete: ${result.locationsUpdated} locations updated, ${result.locationsFailed} failed, ${result.competitorsUpdated} competitors updated, ${result.surveyAddressesCached} survey addresses cached`);
+      } catch (err) {
+        console.error('[seed] Re-geocode failed (non-fatal):', err);
+      }
+
+      res.json({ success: true, message: 'Clients and users seeded, existing data tagged as demo, and coordinates re-geocoded.' });
     } catch (e: any) {
       console.error('Seed error:', e);
       res.status(500).json({ error: e.message });
     }
   });
   
+  // POST /api/admin/regeocode — re-geocode all locations using real Nominatim API
+  // Protected by x-seed-secret header. Runs sequentially with 1s delays to comply with rate limits.
+  app.post('/api/admin/regeocode', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      const { reGeocodeAll } = await import('./geocoding');
+      console.log('[regeocode] Starting re-geocode of all locations and competitor addresses...');
+      const result = await reGeocodeAll();
+      console.log(`[regeocode] Done: ${result.locationsUpdated} locations updated, ${result.locationsFailed} failed, ${result.competitorsUpdated} competitors updated, ${result.surveyAddressesCached} survey addresses cached`);
+      res.json({
+        success: true,
+        locationsUpdated: result.locationsUpdated,
+        locationsFailed: result.locationsFailed,
+        competitorsUpdated: result.competitorsUpdated,
+        competitorsFailed: result.competitorsFailed,
+        surveyAddressesCached: result.surveyAddressesCached,
+        message: `Re-geocoded ${result.locationsUpdated} locations (${result.locationsFailed} failed), ${result.competitorsUpdated} competitors (${result.competitorsFailed} failed), cached ${result.surveyAddressesCached} survey addresses`
+      });
+    } catch (e: any) {
+      console.error('[regeocode] Error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/admin/regenerate-demo-data — UI-accessible endpoint for authenticated admins to re-seed demo data
   app.post('/api/admin/regenerate-demo-data', async (req: any, res) => {
     const session = req.session as any;

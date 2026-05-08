@@ -1092,3 +1092,12 @@ export type MlTrainingHistory = typeof mlTrainingHistory.$inferSelect;
 export type InsertMlTrainingHistory = z.infer<typeof insertMlTrainingHistorySchema>;
 export type RevenueGrowthTarget = typeof revenueGrowthTargets.$inferSelect;
 export type InsertRevenueGrowthTarget = z.infer<typeof insertRevenueGrowthTargetsSchema>;
+
+// Persistent geocoding cache so Nominatim is only queried once per address
+export const geocodeCache = pgTable("geocode_cache", {
+  address: text("address").primaryKey(),
+  lat: real("lat").notNull(),
+  lng: real("lng").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type GeocodeCache = typeof geocodeCache.$inferSelect;

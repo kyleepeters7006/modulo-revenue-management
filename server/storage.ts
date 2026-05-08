@@ -361,6 +361,22 @@ export class DatabaseStorage implements IStorage {
 
   // Location operations
   async createLocation(data: InsertLocation): Promise<Location> {
+    // Populate lat/lng from real geocoding if an address is present and
+    // coordinates were not explicitly supplied by the caller.
+    if (!data.lat && !data.lng) {
+      const parts = [data.address, data.city, data.state].filter(Boolean);
+      if (parts.length > 0) {
+        try {
+          const { geocodeAddress } = await import('./geocoding');
+          const coords = await geocodeAddress(parts.join(', '));
+          if (coords) {
+            data = { ...data, lat: coords.lat, lng: coords.lng };
+          }
+        } catch (err) {
+          console.error('[storage] Geocoding failed for new location:', err);
+        }
+      }
+    }
     const [location] = await db.insert(locations).values(data).returning();
     return location;
   }
@@ -390,6 +406,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOrUpdateLocation(data: InsertLocation): Promise<Location> {
+    // Populate lat/lng from real geocoding if address present and not already set by caller.
+    if (!data.lat && !data.lng) {
+      const parts = [data.address, data.city, data.state].filter(Boolean);
+      if (parts.length > 0) {
+        try {
+          const { geocodeAddress } = await import('./geocoding');
+          const coords = await geocodeAddress(parts.join(', '));
+          if (coords) {
+            data = { ...data, lat: coords.lat, lng: coords.lng };
+          }
+        } catch (err) {
+          console.error('[storage] Geocoding failed for location upsert:', err);
+        }
+      }
+    }
     const existing = await this.getLocationByName(data.name);
     if (existing) {
       const [updated] = await db
@@ -1452,11 +1483,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCompetitor(data: InsertCompetitor): Promise<Competitor> {
+    // Populate lat/lng from real geocoding if address present and not already set.
+    if (!data.lat && !data.lng && data.address) {
+      try {
+        const { geocodeAddress } = await import('./geocoding');
+        const coords = await geocodeAddress(data.address);
+        if (coords) {
+          data = { ...data, lat: coords.lat, lng: coords.lng };
+        }
+      } catch (err) {
+        console.error('[storage] Geocoding failed for new competitor:', err);
+      }
+    }
     const [competitor] = await db.insert(competitors).values(data).returning();
     return competitor;
   }
 
   async updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor> {
+    // Re-geocode if address is being updated and no coordinates explicitly supplied.
+    if (!data.lat && !data.lng && data.address) {
+      try {
+        const { geocodeAddress } = await import('./geocoding');
+        const coords = await geocodeAddress(data.address);
+        if (coords) {
+          data = { ...data, lat: coords.lat, lng: coords.lng };
+        }
+      } catch (err) {
+        console.error('[storage] Geocoding failed for competitor update:', err);
+      }
+    }
     const [updated] = await db.update(competitors)
       .set(data)
       .where(eq(competitors.id, id))
