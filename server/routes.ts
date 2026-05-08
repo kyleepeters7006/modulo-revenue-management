@@ -8486,30 +8486,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
       
       console.log(`Generating Modulo for ${units.length} units (Weights ${weightsEnabled ? 'ENABLED' : 'DISABLED'})`);
       
-      // Calculate service-line-specific benchmarks using internal street rates
-      // Since competitor data may not be service-line-specific, use each service line's
-      // own median street rate as the competitive benchmark for that service line
-      const serviceLineMedians: Record<string, number> = {};
-      const serviceLineStreetRates = units.reduce((groups: any, unit: any) => {
-        const sl = unit.serviceLine || 'Unknown';
-        if (!groups[sl]) groups[sl] = [];
-        if (unit.streetRate && unit.streetRate > 0) {
-          groups[sl].push(unit.streetRate);
-        }
-        return groups;
-      }, {});
-      
-      for (const [serviceLine, rates] of Object.entries(serviceLineStreetRates)) {
-        const rateArray = rates as number[];
-        if (rateArray.length > 0) {
-          const sorted = [...rateArray].sort((a, b) => a - b);
-          // Use median street rate as the competitive benchmark for this service line
-          serviceLineMedians[serviceLine] = sorted[Math.floor(sorted.length / 2)];
-        }
-      }
-      
-      console.log('Service line internal medians (used as competitive benchmark):', serviceLineMedians);
-      
       // Calculate service-line-specific occupancy rates using filtered units for senior housing
       const serviceLineOccupancy: Record<string, number> = {};
       const serviceLineStats = allUnitsForOccupancy.reduce((acc: any, unit: any) => {
@@ -8638,8 +8614,6 @@ Keep recommendations specific and quantitative when possible.${location ? ` Focu
           
           const monthIndex = new Date(targetMonth).getMonth() + 1;
           
-          // Use service-line-specific competitor median with care level 2 and medication management adjustments
-          const serviceLineMedian = serviceLineMedians[unit.serviceLine];
           let competitorPrices: number[] = [];
           
           // Try to get adjusted competitor rate from competitive_survey_data (room-type specific)
@@ -11205,6 +11179,54 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
   
+  // Per-location immediate recalculation trigger
+  // Runs the pricingJobManager for a single location so users can see updated competitor rates
+  // without waiting for the next daily batch job.
+  app.post("/api/locations/:locationId/recalculate", async (req, res) => {
+    try {
+      const { locationId } = req.params;
+      const { month } = req.body;
+      const clientId = req.clientId || 'demo';
+
+      if (!locationId) {
+        return res.status(400).json({ error: 'locationId is required' });
+      }
+
+      // Resolve the target month: use the provided month or fall back to the most recent data month
+      let targetMonth = month;
+      if (!targetMonth) {
+        const monthRow = await db
+          .selectDistinct({ uploadMonth: rentRollData.uploadMonth })
+          .from(rentRollData)
+          .where(eq(rentRollData.locationId, locationId))
+          .orderBy(sql`upload_month DESC`)
+          .limit(1);
+        targetMonth = monthRow[0]?.uploadMonth || new Date().toISOString().slice(0, 7);
+      }
+
+      const { pricingJobManager } = await import('./pricingJobManager');
+
+      const jobId = pricingJobManager.createJob({
+        month: targetMonth,
+        locations: [locationId],
+        clientId
+      });
+
+      console.log(`[Recalculate] Created job ${jobId} for location ${locationId}, month ${targetMonth}`);
+
+      res.json({
+        success: true,
+        jobId,
+        targetMonth,
+        message: 'Recalculation started. Use the job status endpoint to track progress.',
+        statusUrl: `/api/pricing/job-status/${jobId}`
+      });
+    } catch (error) {
+      console.error('[Recalculate] Error:', error);
+      res.status(500).json({ error: 'Failed to start recalculation', details: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
   // Get all pricing jobs (for monitoring)
   app.get("/api/pricing/jobs", async (req, res) => {
     try {

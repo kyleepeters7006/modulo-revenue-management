@@ -214,7 +214,6 @@ export interface IStorage {
   createOrUpdateGuardrails(data: InsertGuardrails): Promise<Guardrails>;
   
   // Pricing suggestions
-  generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]>;
   generateAIPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]>;
   acceptPricingSuggestions(unitIds: string[], suggestionType: string): Promise<number>;
   
@@ -1943,70 +1942,6 @@ export class DatabaseStorage implements IStorage {
     
     const [guardrail] = await db.insert(guardrails).values(guardrailData).returning();
     return guardrail;
-  }
-
-  // Pricing suggestions
-  async generateModuloPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]> {
-    await ensureCacheInitialized();
-    
-    const updatedUnits = [];
-    
-    // Filter units for occupancy calculation - exclude B beds for senior housing
-    const seniorHousingServiceLines = ['AL', 'AL/MC', 'SL', 'VIL'];
-    const unitsForOccupancy = units.filter(unit => {
-      if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
-        const roomNumber = unit.roomNumber || '';
-        if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
-          return false; // Exclude B beds from occupancy calculation
-        }
-      }
-      return true;
-    });
-    
-    // Calculate occupancy rate as a ratio (using filtered units for senior housing)
-    const occupiedCount = unitsForOccupancy.filter(u => u.occupiedYN).length;
-    const actualOccupancyRate = unitsForOccupancy.length > 0 ? occupiedCount / unitsForOccupancy.length : 0.85;
-    
-    const currentMonth = new Date().getMonth() + 1;
-    const marketReturn = 0.023;
-    
-    const locationInquiries = await this.getInquiryMetricsByMonth(units[0]?.uploadMonth || new Date().toISOString().slice(0, 7));
-    const demandCurrent = locationInquiries.length > 0 ? locationInquiries[0].inquiries || 50 : 50;
-    const demandHistory = [45, 52, 48, 55, 50, 47];
-    
-    for (const unit of units) {
-      const competitorPrices = unit.competitorRate ? [unit.competitorRate] : [];
-      
-      const pricingInputs: PricingInputs = {
-        occupancy: actualOccupancyRate,
-        daysVacant: unit.daysVacant || 0,
-        monthIndex: currentMonth,
-        competitorPrices,
-        marketReturn,
-        demandCurrent,
-        demandHistory,
-        serviceLine: unit.serviceLine
-      };
-      
-      const calculationDetails = await calculateAttributedPrice(unit, weights, pricingInputs, guardrails);
-      
-      // Issue 2 fix: Store all rate values for complete audit trail
-      // - finalPrice (after guardrails) -> moduloSuggestedRate field
-      // - All rates (finalPrice, attributedRate, moduloRate, baseRate) -> calculation details JSON
-      const suggestedRate = calculationDetails.finalPrice;
-      const calculationDetailsJson = JSON.stringify(calculationDetails);
-
-      await db.update(rentRollData)
-        .set({ 
-          moduloSuggestedRate: suggestedRate,
-          moduloCalculationDetails: calculationDetailsJson
-        })
-        .where(eq(rentRollData.id, unit.id));
-
-      updatedUnits.push({...unit, moduloSuggestedRate: suggestedRate, moduloCalculationDetails: calculationDetailsJson});
-    }
-
-    return updatedUnits;
   }
 
   async generateAIPricingSuggestions(units: any[], weights: PricingWeights, guardrails: Guardrails): Promise<any[]> {

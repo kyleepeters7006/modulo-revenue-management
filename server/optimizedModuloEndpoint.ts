@@ -40,7 +40,6 @@ interface PrecomputedSignals {
   locationOccupancy: Map<string, number>;
   locationRoomTypeOccupancy: Map<string, number>;
   t3mOccupancyMap: Map<string, number>;
-  serviceLineMedians: Map<string, number>;
   monthIndex: number;
   demandCache: Map<string, DemandData>;
   defaultDemandHistory: number[];
@@ -136,8 +135,6 @@ async function processUnitBatch(
               : precomputedSignals.serviceLineOccupancy.has(unit.serviceLine)
                 ? precomputedSignals.serviceLineOccupancy.get(unit.serviceLine)!
                 : 0.87;
-        
-        const serviceLineMedian = precomputedSignals.serviceLineMedians.get(unit.serviceLine);
         
         let competitorPrices: number[] = [];
         let competitorInfo: CompetitorInfo | undefined;
@@ -448,27 +445,6 @@ export async function generateModuloOptimized(req: any, res: any) {
       }
     }
     
-    // Precompute service line medians
-    const serviceLineMedians = new Map<string, number>();
-    const serviceLineRates = new Map<string, number[]>();
-    
-    for (const unit of units) {
-      const sl = unit.serviceLine || 'Unknown';
-      if (!serviceLineRates.has(sl)) {
-        serviceLineRates.set(sl, []);
-      }
-      if (unit.streetRate && unit.streetRate > 0) {
-        serviceLineRates.get(sl)!.push(unit.streetRate);
-      }
-    }
-    
-    for (const [sl, rates] of Array.from(serviceLineRates)) {
-      if (rates.length > 0) {
-        const sorted = [...rates].sort((a, b) => a - b);
-        serviceLineMedians.set(sl, sorted[Math.floor(sorted.length / 2)]);
-      }
-    }
-    
     // Precompute weights cache
     const uniqueCombinations = new Set<string>();
     const uniqueLocations = new Set<string>();
@@ -683,7 +659,6 @@ export async function generateModuloOptimized(req: any, res: any) {
       locationOccupancy,
       locationRoomTypeOccupancy,
       t3mOccupancyMap,
-      serviceLineMedians,
       monthIndex: new Date(targetMonth).getMonth() + 1,
       demandCache,
       defaultDemandHistory: [10, 12, 15, 13, 14, 11],

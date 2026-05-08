@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 interface WeightsApiResponse {
   weights: {
@@ -46,6 +48,58 @@ export default function ModuloCalculationDialog({
 }: ModuloCalculationDialogProps) {
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<any>(null);
+  const [recalcStatus, setRecalcStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
+  const queryClient = useQueryClient();
+
+  const recalculateMutation = useMutation({
+    mutationFn: async () => {
+      if (!locationId) throw new Error('No locationId available');
+      const res = await apiRequest(`/api/locations/${locationId}/recalculate`, 'POST', {});
+      return res.json() as Promise<{ jobId: string; targetMonth: string }>;
+    },
+    onSuccess: (data) => {
+      setRecalcStatus('running');
+      pollForCompletion(data.jobId);
+    },
+    onError: () => {
+      setRecalcStatus('error');
+    }
+  });
+
+  const pollForCompletion = (jobId: string) => {
+    let attempts = 0;
+    const maxAttempts = 120;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/pricing/job-status/${jobId}`, { credentials: 'include' });
+        const data = await res.json();
+        if (data.status === 'completed') {
+          setRecalcStatus('done');
+          setRecalcJobId(null);
+          queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
+          queryClient.invalidateQueries({ queryKey: ['/api/locations'] });
+        } else if (data.status === 'failed') {
+          setRecalcStatus('error');
+          setRecalcJobId(null);
+        } else if (attempts < maxAttempts) {
+          attempts++;
+          pollRef.current = setTimeout(poll, 2000);
+        } else {
+          setRecalcStatus('error');
+        }
+      } catch {
+        setRecalcStatus('error');
+      }
+    };
+    poll();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
 
   // Parse calculation details when dialog opens
   useEffect(() => {
@@ -166,11 +220,29 @@ export default function ModuloCalculationDialog({
       </DialogTrigger>
       <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto sm:w-full">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
             Modulo Pricing Calculation
             <Badge variant="secondary">{roomType}</Badge>
+            {locationId && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto h-7 text-xs gap-1.5"
+                disabled={recalcStatus === 'running' || recalculateMutation.isPending}
+                onClick={() => {
+                  setRecalcStatus('idle');
+                  recalculateMutation.mutate();
+                }}
+              >
+                <RefreshCw className={`h-3 w-3 ${recalcStatus === 'running' ? 'animate-spin' : ''}`} />
+                {recalcStatus === 'running' ? 'Recalculating…' : recalcStatus === 'done' ? 'Done — Reopen to see updated rates' : 'Recalculate'}
+              </Button>
+            )}
           </DialogTitle>
+          {recalcStatus === 'error' && (
+            <p className="text-xs text-red-600 mt-1">Recalculation failed. Please try again.</p>
+          )}
         </DialogHeader>
 
         <div className="space-y-4 mt-4">

@@ -484,7 +484,7 @@ class PricingJobManager {
       this.processingJobs.add(jobId);
       
       const startTime = Date.now();
-      const { month, locationId, clientId: jobClientId } = job.params;
+      const { month, locationId, locations: locationFilter, clientId: jobClientId } = job.params;
       const targetMonth = month || '2025-10';
       const jobClientId_ = jobClientId || 'demo';
       
@@ -494,7 +494,7 @@ class PricingJobManager {
         status: 'started',
         startedAt: new Date(),
         completedAt: null,
-        locationId: locationId || null,
+        locationId: locationFilter?.[0] || locationId || null,
         uploadMonth: targetMonth,
         totalUnits: null,
         unitsCalculated: null,
@@ -509,9 +509,15 @@ class PricingJobManager {
       console.log(`[PricingJob ${jobId}] Initializing attribute pricing cache for month: ${targetMonth}`);
       await ensureCacheInitialized(targetMonth);
       
-      // Get all units for the month
+      // Get all units for the month, then filter by location if specified
       console.log(`[PricingJob ${jobId}] Fetching units for month: ${targetMonth}`);
-      const units = await storage.getRentRollDataByMonth(targetMonth);
+      const allMonthUnits = await storage.getRentRollDataByMonth(targetMonth);
+      const units = locationFilter && locationFilter.length > 0
+        ? allMonthUnits.filter(u => locationFilter.includes(u.locationId ?? ''))
+        : allMonthUnits;
+      if (locationFilter && locationFilter.length > 0) {
+        console.log(`[PricingJob ${jobId}] Filtered to ${units.length} units for location(s): ${locationFilter.join(', ')}`);
+      }
       const totalUnits = units.length;
       
       console.log(`[PricingJob ${jobId}] Total units to process: ${totalUnits}`);

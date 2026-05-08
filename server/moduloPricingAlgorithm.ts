@@ -701,7 +701,7 @@ function getRawData(factor: string, inputs: PricingInputs, basePrice: number, cf
       
       return {
         'Base Price': `$${basePrice.toFixed(0)}`,
-        'Competitor Median': `$${median.toFixed(0)}`,
+        'Adjusted Competitor Rate': `$${median.toFixed(0)}`,
         'Target Premium': `${(targetPremium * 100).toFixed(0)}% above market`,
         'Current Position': `${(currentPremium * 100).toFixed(1)}% ${currentPremium >= 0 ? 'above' : 'below'} market`,
         'Premium Gap': `${(premiumGap * 100).toFixed(1)}% ${premiumGap > 0 ? 'increase needed' : 'above target'}`,
