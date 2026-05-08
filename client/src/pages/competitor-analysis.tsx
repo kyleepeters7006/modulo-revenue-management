@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ChevronDown, X, Building2, TrendingUp, TrendingDown, Minus, Info } from "lucide-react";
+import { ChevronDown, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 // Helper functions for localStorage persistence - using shared key for cross-page sync
@@ -70,6 +70,15 @@ export default function CompetitorAnalysis() {
     queryKey: ["/api/locations"],
   });
 
+  // Poll geocoding status — shows a banner while competitor coordinates are still being resolved
+  const { data: geocodingStatus } = useQuery<{ pending: number; geocoding: boolean }>({
+    queryKey: ["/api/admin/geocoding-status"],
+    refetchInterval: 5000,
+    staleTime: 0,
+  });
+  const isGeocoding = geocodingStatus?.geocoding === true;
+  const geocodingPending = geocodingStatus?.pending ?? 0;
+
   // Fetch competitor rate comparison data when a single location is selected
   const { data: competitorRateData, isLoading: isLoadingRates } = useQuery({
     queryKey: ["/api/competitor-rate-comparison", selectedLocations[0], selectedServiceLines],
@@ -121,7 +130,22 @@ export default function CompetitorAnalysis() {
           <p className="text-gray-600" data-testid="text-page-subtitle">
             Geographic mapping and rate comparison with nearby competitors
           </p>
-          
+
+          {/* Geocoding progress banner */}
+          {isGeocoding && (
+            <div
+              className="mt-4 flex items-center gap-3 rounded-md border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800"
+              data-testid="banner-geocoding-progress"
+            >
+              <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 text-teal-600" />
+              <span>
+                Geocoding competitor locations&hellip;{" "}
+                <span className="font-semibold">{geocodingPending}</span>{" "}
+                {geocodingPending === 1 ? "address" : "addresses"} remaining. Map pins will appear as coordinates resolve.
+              </span>
+            </div>
+          )}
+
           {/* Filters */}
           <div className="mt-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

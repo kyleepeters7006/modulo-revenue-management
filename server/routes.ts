@@ -546,6 +546,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/geocoding-status — returns the number of competitive_survey_data rows still missing lat/lng
+  // Scoped to the current session's clientId (defaults to 'demo' for unauthenticated users).
+  app.get('/api/admin/geocoding-status', async (req: any, res) => {
+    try {
+      const clientId: string = req.clientId || 'demo';
+      const { count } = await import('drizzle-orm');
+      const [row] = await db
+        .select({ pending: count() })
+        .from(competitiveSurveyData)
+        .where(and(
+          eq(competitiveSurveyData.clientId, clientId),
+          or(isNull(competitiveSurveyData.lat), isNull(competitiveSurveyData.lng))
+        ));
+      const pending = Number(row?.pending ?? 0);
+      res.json({ pending, geocoding: pending > 0 });
+    } catch (e: any) {
+      console.error('[geocoding-status] Error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/admin/regenerate-demo-data — UI-accessible endpoint for authenticated admins to re-seed demo data
   app.post('/api/admin/regenerate-demo-data', async (req: any, res) => {
     const session = req.session as any;
