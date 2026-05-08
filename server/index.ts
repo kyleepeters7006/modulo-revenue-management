@@ -52,6 +52,19 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Idempotent migration: ensure lat/lng columns exist on competitive_survey_data.
+  // These were added to the Drizzle schema in Task #138 but never applied to the live DB.
+  try {
+    await db.execute(sql`
+      ALTER TABLE competitive_survey_data
+        ADD COLUMN IF NOT EXISTS lat real,
+        ADD COLUMN IF NOT EXISTS lng real
+    `);
+    log("[migration] competitive_survey_data lat/lng columns ensured");
+  } catch (migErr) {
+    log(`[migration] lat/lng column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background
