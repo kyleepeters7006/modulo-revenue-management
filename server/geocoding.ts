@@ -337,14 +337,14 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
   }
 
   // ── Competitive survey data — persist lat/lng directly on each row ──────────
-  // Rows that already have coordinates are skipped; the rest are geocoded and
-  // written back so subsequent map requests read from the DB column directly.
+  // All rows are re-geocoded (cache cleared first) so stale coordinates stored
+  // directly on survey rows are always refreshed. lat/lng are not fetched from
+  // the DB because no skip-if-coords-exist guard is used — every row with an
+  // address goes through geocodeAddress() after both caches are cleared.
   const surveyRows = await db
     .select({
       id: competitiveSurveyData.id,
       competitorAddress: competitiveSurveyData.competitorAddress,
-      lat: competitiveSurveyData.lat,
-      lng: competitiveSurveyData.lng,
     })
     .from(competitiveSurveyData);
 
@@ -353,7 +353,8 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
 
     const surveyKey = row.competitorAddress.trim().toLowerCase();
 
-    // Clear stale cache so fresh Nominatim result is always persisted
+    // Clear stale memCache and DB cache so a fresh Nominatim result is always
+    // fetched, even when the row already has coordinates.
     memCache.delete(surveyKey);
     try {
       await db.delete(geocodeCache).where(eq(geocodeCache.address, surveyKey));
