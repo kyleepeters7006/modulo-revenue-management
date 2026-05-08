@@ -249,32 +249,33 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
     }
   }
 
-  // ── Competitive survey data addresses (no lat/lng column — cache only) ─────
-  // These addresses are geocoded on each map request; prewarming the persistent
-  // geocode_cache means subsequent requests hit the DB rather than Nominatim.
+  // ── Competitive survey data — persist lat/lng directly on each row ──────────
+  // Rows that already have coordinates are skipped; the rest are geocoded and
+  // written back so subsequent map requests read from the DB column directly.
   const surveyRows = await db
-    .select({ competitorAddress: competitiveSurveyData.competitorAddress })
+    .select({
+      id: competitiveSurveyData.id,
+      competitorAddress: competitiveSurveyData.competitorAddress,
+      lat: competitiveSurveyData.lat,
+      lng: competitiveSurveyData.lng,
+    })
     .from(competitiveSurveyData);
 
-  const uniqueSurveyAddresses = [
-    ...new Set(
-      surveyRows
-        .map(r => r.competitorAddress)
-        .filter((a): a is string => Boolean(a)),
-    ),
-  ];
-
-  for (const addr of uniqueSurveyAddresses) {
-    const cacheKey = addr.trim().toLowerCase();
-    // Skip if already resolved this session (avoids redundant Nominatim call)
-    if (memCache.has(cacheKey)) {
+  for (const row of surveyRows) {
+    if (row.lat != null && row.lng != null) {
       surveyAddressesCached++;
       continue;
     }
-    const coords = await geocodeAddress(addr);
+    if (!row.competitorAddress) continue;
+
+    const coords = await geocodeAddress(row.competitorAddress);
     if (coords) {
+      await db
+        .update(competitiveSurveyData)
+        .set({ lat: coords.lat, lng: coords.lng })
+        .where(eq(competitiveSurveyData.id, row.id));
       surveyAddressesCached++;
-      console.log(`[regeocode] survey address cached: ${addr}`);
+      console.log(`[regeocode] survey row ${row.id} → ${coords.lat}, ${coords.lng}`);
     }
   }
 

@@ -1103,6 +1103,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/admin/backfill-survey-coords
+  // Backfill lat/lng on competitive_survey_data rows that either:
+  //   (a) have coordinates already stored in the notes JSON (latitude/longitude fields), or
+  //   (b) can be geocoded from the competitorAddress column via the geocoding service.
+  // Rows that already have lat/lng populated are skipped (idempotent).
+  app.post('/api/admin/backfill-survey-coords', async (req: any, res) => {
+    const session = req.session as any;
+    if (!session?.userId || !session?.clientId) {
+      return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
+    }
+    try {
+      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
+
+    const clientId = session.clientId as string;
+
+    try {
+      const { geocodeAddress } = await import('./geocoding');
+
+      const rows = await db
+        .select({
+          id: competitiveSurveyData.id,
+          notes: competitiveSurveyData.notes,
+          competitorAddress: competitiveSurveyData.competitorAddress,
+          lat: competitiveSurveyData.lat,
+          lng: competitiveSurveyData.lng,
+        })
+        .from(competitiveSurveyData)
+        .where(and(
+          eq(competitiveSurveyData.clientId, clientId),
+          or(isNull(competitiveSurveyData.lat), isNull(competitiveSurveyData.lng))
+        ));
+
+      let updated = 0;
+      let failed = 0;
+
+      for (const row of rows) {
+        // Try to get coordinates from the notes JSON (imported from CSV Latitude/Longitude columns)
+        let lat: number | null = null;
+        let lng: number | null = null;
+        try {
+          const notes = typeof row.notes === 'string' ? JSON.parse(row.notes) : (row.notes || {});
+          if (notes.latitude && notes.longitude) {
+            lat = parseFloat(notes.latitude);
+            lng = parseFloat(notes.longitude);
+          }
+        } catch {
+          // notes not valid JSON, ignore
+        }
+
+        // Fall back to geocoding the address
+        if ((lat == null || lng == null) && row.competitorAddress) {
+          const coords = await geocodeAddress(row.competitorAddress);
+          if (coords) {
+            lat = coords.lat;
+            lng = coords.lng;
+          }
+        }
+
+        if (lat != null && lng != null) {
+          await db
+            .update(competitiveSurveyData)
+            .set({ lat, lng })
+            .where(and(eq(competitiveSurveyData.id, row.id), eq(competitiveSurveyData.clientId, clientId)));
+          updated++;
+        } else {
+          failed++;
+        }
+      }
+
+      res.json({
+        message: 'Survey coordinate backfill complete',
+        updated,
+        failed,
+        total: rows.length,
+      });
+    } catch (error: any) {
+      console.error('Error running survey coords backfill:', error);
+      res.status(500).json({ error: 'Failed to run survey coords backfill', details: error.message });
+    }
+  });
+
   // Cleanup orphaned location rows that have zero references across all FK-referencing tables.
   // Tenant-scoped to the authenticated admin's client — does NOT touch other tenants.
   // Requires a logged-in _admin user. Safe to run repeatedly (idempotent).

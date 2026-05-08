@@ -499,6 +499,8 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       yearBuilt: row['Age'] ? parseInt(row['Age']) : null,
                       lastRenovation: null,
                       amenities: null,
+                      lat: latitude ? parseFloat(latitude) : null,
+                      lng: longitude ? parseFloat(longitude) : null,
                       medicationManagementFee: serviceLine.medicationManagement || null,
                       notes: JSON.stringify({
                         weight: roomType.weight || 0,
@@ -811,6 +813,8 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 yearBuilt: row['Age'] ? parseInt(row['Age']) : null,
                 lastRenovation: null,
                 amenities: null,
+                lat: latitude ? parseFloat(latitude) : null,
+                lng: longitude ? parseFloat(longitude) : null,
                 clientId,
                 notes: JSON.stringify({
                   weight: roomType.weight || 0,

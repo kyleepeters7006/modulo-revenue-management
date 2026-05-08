@@ -1129,26 +1129,6 @@ export class DatabaseStorage implements IStorage {
       ? await db.select().from(competitiveSurveyData).where(eq(competitiveSurveyData.clientId, clientId))
       : await db.select().from(competitiveSurveyData);
     
-    // Get location coordinates for better geocoding context
-    const locationCoords = new Map<string, { lat: number; lng: number }>();
-    const locationNames = [...new Set(surveyData.map(r => r.keyStatsLocation).filter(Boolean))];
-    
-    if (locationNames.length > 0) {
-      const locationData = await db.select({ 
-        name: locations.name, 
-        lat: locations.lat, 
-        lng: locations.lng 
-      })
-        .from(locations)
-        .where(inArray(locations.name, locationNames as string[]));
-      
-      for (const loc of locationData) {
-        if (loc.lat && loc.lng) {
-          locationCoords.set(loc.name, { lat: loc.lat, lng: loc.lng });
-        }
-      }
-    }
-    
     // Group by competitor and location to aggregate room types
     const competitorMap = new Map<string, any>();
     
@@ -1156,32 +1136,13 @@ export class DatabaseStorage implements IStorage {
       const key = `${record.keyStatsLocation}|${record.competitorName}`;
       
       if (!competitorMap.has(key)) {
-        // Geocode address with location context if available
-        let lat = null;
-        let lng = null;
-        if (record.competitorAddress && record.keyStatsLocation) {
-          try {
-            const { geocodeAddressNearLocation } = await import('./geocoding');
-            const baseLocation = locationCoords.get(record.keyStatsLocation);
-            const coords = await geocodeAddressNearLocation(
-              record.competitorAddress,
-              baseLocation || null,
-              record.distanceMiles || 10
-            );
-            lat = coords?.lat || null;
-            lng = coords?.lng || null;
-          } catch (error) {
-            console.error('Error geocoding competitor address:', error);
-          }
-        }
-        
         competitorMap.set(key, {
           id: record.id,
           name: record.competitorName,
           location: record.keyStatsLocation,
           locationId: null,
-          lat,
-          lng,
+          lat: record.lat ?? null,
+          lng: record.lng ?? null,
           address: record.competitorAddress,
           distanceMiles: record.distanceMiles,
           streetRate: record.monthlyRateAvg,
@@ -1320,26 +1281,6 @@ export class DatabaseStorage implements IStorage {
     // Get all survey data matching the filters
     const surveyData = await query;
     
-    // Get location coordinates for better geocoding context
-    const locationCoords = new Map<string, { lat: number; lng: number }>();
-    const locationNames = [...new Set(surveyData.map(r => r.keyStatsLocation).filter(Boolean))];
-    
-    if (locationNames.length > 0) {
-      const locationData = await db.select({ 
-        name: locations.name, 
-        lat: locations.lat, 
-        lng: locations.lng 
-      })
-        .from(locations)
-        .where(inArray(locations.name, locationNames as string[]));
-      
-      for (const loc of locationData) {
-        if (loc.lat && loc.lng) {
-          locationCoords.set(loc.name, { lat: loc.lat, lng: loc.lng });
-        }
-      }
-    }
-
     // Helper to parse weight from notes JSON
     const parseRecordWeight = (record: any): number => {
       try {
@@ -1417,32 +1358,13 @@ export class DatabaseStorage implements IStorage {
       const recordWeight = parseRecordWeight(record);
       
       if (!competitorMap.has(key)) {
-        // Geocode address with location context if available
-        let lat = null;
-        let lng = null;
-        if (record.competitorAddress && record.keyStatsLocation) {
-          try {
-            const { geocodeAddressNearLocation } = await import('./geocoding');
-            const baseLocation = locationCoords.get(record.keyStatsLocation);
-            const coords = await geocodeAddressNearLocation(
-              record.competitorAddress,
-              baseLocation || null,
-              record.distanceMiles || 10
-            );
-            lat = coords?.lat || null;
-            lng = coords?.lng || null;
-          } catch (error) {
-            console.error('Error geocoding competitor address:', error);
-          }
-        }
-        
         competitorMap.set(key, {
           id: record.id,
           name: record.competitorName,
           location: record.keyStatsLocation,
           locationId: null,
-          lat,
-          lng,
+          lat: record.lat ?? null,
+          lng: record.lng ?? null,
           address: record.competitorAddress,
           distanceMiles: record.distanceMiles,
           streetRate: record.monthlyRateAvg,
