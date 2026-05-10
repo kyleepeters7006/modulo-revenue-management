@@ -642,17 +642,21 @@ export default function RoomAttributes() {
                     </TableRow>
                   ) : (
                     roomTypePricing.map(({ roomType, count, storedBasePrice, avgStreetRate, effectiveBasePrice, displayBasePrice, avgAttributedPrice, lift }) => {
-                      const inputVal = editingBasePrices[roomType] !== undefined
+                      const rawBasePrice = storedBasePrice !== undefined ? storedBasePrice : displayBasePrice;
+                      const isEditing = editingBasePrices[roomType] !== undefined;
+                      const inputVal = isEditing
                         ? editingBasePrices[roomType]
-                        : storedBasePrice !== undefined ? String(storedBasePrice) : String(displayBasePrice);
+                        : Number(rawBasePrice).toLocaleString();
                       const isSaving = saveBasePriceMutation.isPending && saveBasePriceMutation.variables?.roomType === roomType;
                       const isSaved = savedRoomTypes.has(roomType);
 
                       const handleSave = () => {
-                        const parsed = parseFloat(inputVal.replace(/,/g, ''));
+                        const raw = editingBasePrices[roomType] ?? String(rawBasePrice);
+                        const parsed = parseFloat(raw.replace(/,/g, ''));
                         if (!isNaN(parsed) && parsed >= 0) {
                           saveBasePriceMutation.mutate({ roomType, basePrice: parsed });
                         }
+                        setEditingBasePrices(prev => { const next = { ...prev }; delete next[roomType]; return next; });
                       };
 
                       return (
@@ -665,6 +669,7 @@ export default function RoomAttributes() {
                               <Input
                                 className="w-28 h-7 text-right font-mono text-sm px-1"
                                 value={inputVal}
+                                onFocus={() => setEditingBasePrices(prev => ({ ...prev, [roomType]: String(rawBasePrice) }))}
                                 onChange={e => setEditingBasePrices(prev => ({ ...prev, [roomType]: e.target.value }))}
                                 onBlur={handleSave}
                                 onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
