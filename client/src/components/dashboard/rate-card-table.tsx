@@ -926,13 +926,14 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                             adjustedRate={unit.competitorFinalRate}
                             serviceLine={unit.serviceLine}
                           >
-                            <Button
-                              variant="link"
-                              className="text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] p-0 h-auto font-medium"
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] font-medium min-h-[44px] px-1 focus:outline-none focus:ring-2 focus:ring-[var(--trilogy-teal)] rounded"
                               data-testid={`button-competitor-rate-${unit.roomNumber}`}
                             >
                               {formatRateByServiceLine(Math.round(unit.competitorFinalRate), unit.serviceLine)}
-                            </Button>
+                              <Info className="h-3 w-3 shrink-0" />
+                            </button>
                           </CompetitorAdjustmentDialog>
                         ) : (
                           <span className="text-gray-400">-</span>
