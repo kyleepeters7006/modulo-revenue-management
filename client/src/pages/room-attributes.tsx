@@ -135,6 +135,27 @@ export default function RoomAttributes() {
     basePriceMap[entry.roomType] = entry.basePrice;
   }
 
+  const updateRatingMutation = useMutation({
+    mutationFn: async ({ id, field, value }: { id: string; field: string; value: string | null }) => {
+      return apiRequest(`/api/rent-roll/${id}/ratings`, 'PATCH', { field, value });
+    },
+    onMutate: async ({ id, field, value }) => {
+      await queryClient.cancelQueries({ queryKey: ['/api/rent-roll'] });
+      const previous = queryClient.getQueryData(['/api/rent-roll']);
+      queryClient.setQueryData(['/api/rent-roll'], (old: UnitWithAttributes[] | undefined) =>
+        old?.map(unit => unit.id === id ? { ...unit, [field]: value } : unit) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(['/api/rent-roll'], context.previous);
+      toast({ title: 'Failed to update rating', variant: 'destructive' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
+    },
+  });
+
   const saveBasePriceMutation = useMutation({
     mutationFn: async ({ roomType, basePrice }: { roomType: string; basePrice: number }) => {
       return apiRequest('/api/room-type-base-prices', 'PUT', { roomType, basePrice });
@@ -995,41 +1016,36 @@ export default function RoomAttributes() {
                                   : <span className="text-muted-foreground">—</span>;
                               })()}
                             </TableCell>
-                            <TableCell className="text-center">
-                              {unit.sizeRating ? (
-                                <Badge className={getRatingColor(unit.sizeRating)} variant="outline">
-                                  {unit.sizeRating}
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {unit.viewRating ? (
-                                <Badge className={getRatingColor(unit.viewRating)} variant="outline">
-                                  {unit.viewRating}
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {unit.renovationRating ? (
-                                <Badge className={getRatingColor(unit.renovationRating)} variant="outline">
-                                  {unit.renovationRating}
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {unit.locationRating ? (
-                                <Badge className={getRatingColor(unit.locationRating)} variant="outline">
-                                  {unit.locationRating}
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {unit.amenityRating ? (
-                                <Badge className={getRatingColor(unit.amenityRating)} variant="outline">
-                                  {unit.amenityRating}
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
+                            {(['sizeRating', 'viewRating', 'renovationRating', 'locationRating', 'amenityRating'] as const).map(field => {
+                              const rating = unit[field] as string | undefined;
+                              return (
+                                <TableCell key={field} className="text-center p-1">
+                                  <Select
+                                    value={rating || '__none__'}
+                                    onValueChange={val => updateRatingMutation.mutate({
+                                      id: unit.id,
+                                      field,
+                                      value: val === '__none__' ? null : val,
+                                    })}
+                                  >
+                                    <SelectTrigger className="h-7 w-16 mx-auto text-xs border-dashed hover:border-solid focus:ring-0">
+                                      <SelectValue>
+                                        {rating
+                                          ? <Badge className={`${getRatingColor(rating)} text-xs px-1 py-0`} variant="outline">{rating}</Badge>
+                                          : <span className="text-muted-foreground">—</span>
+                                        }
+                                      </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__"><span className="text-muted-foreground text-xs">None</span></SelectItem>
+                                      <SelectItem value="A"><Badge className={`${getRatingColor('A')} text-xs`} variant="outline">A</Badge></SelectItem>
+                                      <SelectItem value="B"><Badge className={`${getRatingColor('B')} text-xs`} variant="outline">B</Badge></SelectItem>
+                                      <SelectItem value="C"><Badge className={`${getRatingColor('C')} text-xs`} variant="outline">C</Badge></SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                              );
+                            })}
                             <TableCell className="text-right font-mono text-green-600 font-semibold">
                               {attributedPrice !== null
                                 ? `$${attributedPrice.toLocaleString()}`

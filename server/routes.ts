@@ -13569,6 +13569,55 @@ Respond in JSON format:
     }
   });
 
+  // Update attribute ratings for a unit (propagates to all months for that room)
+  app.patch("/api/rent-roll/:id/ratings", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = (req as any).clientId || 'demo';
+      const { field, value } = req.body;
+
+      const validFields = ['sizeRating', 'viewRating', 'renovationRating', 'locationRating', 'amenityRating'];
+      const validValues = ['A', 'B', 'C', null];
+
+      if (!validFields.includes(field)) {
+        return res.status(400).json({ error: 'Invalid field' });
+      }
+      if (value !== null && !['A', 'B', 'C'].includes(value)) {
+        return res.status(400).json({ error: 'Invalid value — must be A, B, C, or null' });
+      }
+
+      // Look up the room's location + number so we can update all months
+      const rows = await db
+        .select({ location: rentRollData.location, roomNumber: rentRollData.roomNumber })
+        .from(rentRollData)
+        .where(and(eq(rentRollData.id, id), eq(rentRollData.clientId, clientId)))
+        .limit(1);
+
+      if (!rows.length) {
+        return res.status(404).json({ error: 'Unit not found' });
+      }
+
+      const { location, roomNumber } = rows[0];
+
+      // Build the update payload (dynamic key must satisfy Drizzle's type via cast)
+      const setPayload: Record<string, string | null> = { [field]: value };
+
+      await db
+        .update(rentRollData)
+        .set(setPayload as any)
+        .where(and(
+          eq(rentRollData.clientId, clientId),
+          eq(rentRollData.location, location!),
+          eq(rentRollData.roomNumber, roomNumber!)
+        ));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating unit rating:', error);
+      res.status(500).json({ error: 'Failed to update unit rating' });
+    }
+  });
+
   // Get available upload months
   app.get("/api/rent-roll/available-months", async (req, res) => {
     try {
