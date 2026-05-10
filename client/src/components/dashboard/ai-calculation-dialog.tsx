@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Calculator, TrendingUp, TrendingDown, Shield, Info, ChevronRight, Sparkles, Target } from "lucide-react";
+import { Calculator, TrendingUp, TrendingDown, Shield, Info, ChevronRight, Sparkles, Target, Zap, ArrowRight } from "lucide-react";
 
 interface AICalculationDialogProps {
   open: boolean;
@@ -328,6 +328,159 @@ export default function AICalculationDialog({
               </Card>
             )}
 
+            {/* Revenue Target Strategy Layer — the enhanced algorithm pass */}
+            {calcDetails.strategyLayer && (
+              <Card className="border-indigo-200 dark:border-indigo-800">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-indigo-500" />
+                    Revenue Target Strategy Layer
+                    <Badge variant="outline" className="text-xs ml-auto">
+                      {calcDetails.strategyLayer.unitStrategySegment?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) || 'Neutral'}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Segment reason */}
+                  {calcDetails.strategyLayer.segmentReason && (
+                    <div className="border-l-2 border-indigo-400 pl-3">
+                      <p className="text-xs text-muted-foreground">{calcDetails.strategyLayer.segmentReason}</p>
+                    </div>
+                  )}
+
+                  {/* Rate progression */}
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Rate Progression</p>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <div className="bg-gray-100 dark:bg-gray-800 rounded px-2 py-1 text-center min-w-[90px]">
+                        <p className="text-xs text-muted-foreground">Base AI</p>
+                        <p className="font-medium">{formatCurrency(calcDetails.strategyLayer.existingAiRate || 0)}</p>
+                      </div>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <div className="bg-indigo-50 dark:bg-indigo-950/30 rounded px-2 py-1 text-center min-w-[90px]">
+                        <p className="text-xs text-muted-foreground">Target-Aware</p>
+                        <p className="font-medium text-indigo-700 dark:text-indigo-300">
+                          {formatCurrency(calcDetails.strategyLayer.targetAwareAiRate || 0)}
+                        </p>
+                      </div>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <div className={`rounded px-2 py-1 text-center min-w-[90px] ${calcDetails.strategyLayer.guardrailApplied ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-green-50 dark:bg-green-950/30'}`}>
+                        <p className="text-xs text-muted-foreground">
+                          Final {calcDetails.strategyLayer.guardrailApplied ? '(Guardrailed)' : ''}
+                        </p>
+                        <p className={`font-bold ${calcDetails.strategyLayer.guardrailApplied ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}`}>
+                          {formatCurrency(calcDetails.strategyLayer.finalGuardrailedAiRate || 0)}
+                        </p>
+                      </div>
+                    </div>
+                    {calcDetails.strategyLayer.guardrailApplied && calcDetails.strategyLayer.guardrailReason && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                        <Shield className="h-3 w-3 shrink-0" />
+                        {calcDetails.strategyLayer.guardrailReason}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Revenue & sale probability comparison */}
+                  {(calcDetails.strategyLayer.expectedRevenueExistingAi || calcDetails.strategyLayer.expectedRevenueTargetAware) && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Expected Revenue (90-day window)</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-gray-50 dark:bg-gray-900/50 rounded p-3">
+                          <p className="text-xs text-muted-foreground mb-1">Without target strategy</p>
+                          <p className="font-bold text-base">{formatCurrency(calcDetails.strategyLayer.expectedRevenueExistingAi || 0)}</p>
+                          {calcDetails.strategyLayer.expectedSaleProbExistingAi !== undefined && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {(calcDetails.strategyLayer.expectedSaleProbExistingAi * 100).toFixed(1)}% sale probability
+                            </p>
+                          )}
+                        </div>
+                        <div className="bg-indigo-50 dark:bg-indigo-950/20 rounded p-3">
+                          <p className="text-xs text-muted-foreground mb-1">With target strategy</p>
+                          <p className="font-bold text-base text-indigo-700 dark:text-indigo-300">{formatCurrency(calcDetails.strategyLayer.expectedRevenueTargetAware || 0)}</p>
+                          {calcDetails.strategyLayer.expectedSaleProbTargetAware !== undefined && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {(calcDetails.strategyLayer.expectedSaleProbTargetAware * 100).toFixed(1)}% sale probability
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {calcDetails.strategyLayer.incrementalExpectedRevenue !== undefined && (
+                        <div className={`mt-2 text-xs font-medium flex items-center gap-1 ${calcDetails.strategyLayer.incrementalExpectedRevenue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {calcDetails.strategyLayer.incrementalExpectedRevenue >= 0
+                            ? <TrendingUp className="h-3 w-3" />
+                            : <TrendingDown className="h-3 w-3" />}
+                          Incremental expected revenue: {calcDetails.strategyLayer.incrementalExpectedRevenue >= 0 ? '+' : ''}{formatCurrency(calcDetails.strategyLayer.incrementalExpectedRevenue)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Competitor positioning */}
+                  {calcDetails.strategyLayer.competitorAverageRate !== undefined && (
+                    <div className="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-900/50 rounded p-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Competitor Average Rate</p>
+                        <p className="font-medium">{formatCurrency(calcDetails.strategyLayer.competitorAverageRate)}</p>
+                      </div>
+                      {calcDetails.strategyLayer.competitorGapPct !== undefined && (
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">Positioning vs market</p>
+                          <p className={`font-bold ${calcDetails.strategyLayer.competitorGapPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {calcDetails.strategyLayer.competitorGapPct >= 0 ? '+' : ''}{(calcDetails.strategyLayer.competitorGapPct * 100).toFixed(1)}%
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Signal metrics */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                    {calcDetails.strategyLayer.urgencyScore !== undefined && (
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded p-2">
+                        <p className="text-muted-foreground">Urgency Score</p>
+                        <p className="font-semibold mt-0.5">{(calcDetails.strategyLayer.urgencyScore * 100).toFixed(0)}%</p>
+                        <Progress value={calcDetails.strategyLayer.urgencyScore * 100} className="h-1 mt-1" />
+                      </div>
+                    )}
+                    {calcDetails.strategyLayer.segmentConfidence !== undefined && (
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded p-2">
+                        <p className="text-muted-foreground">Segment Confidence</p>
+                        <p className="font-semibold mt-0.5">{(calcDetails.strategyLayer.segmentConfidence * 100).toFixed(0)}%</p>
+                        <Progress value={calcDetails.strategyLayer.segmentConfidence * 100} className="h-1 mt-1" />
+                      </div>
+                    )}
+                    {calcDetails.strategyLayer.avgDaysVacantForUnitType !== undefined && (
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded p-2">
+                        <p className="text-muted-foreground">Avg Days Vacant (type)</p>
+                        <p className="font-semibold mt-0.5">{Math.round(calcDetails.strategyLayer.avgDaysVacantForUnitType)} days</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reason codes */}
+                  {calcDetails.strategyLayer.reasonCodes?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-1">Pricing Signals</p>
+                      <div className="flex flex-wrap gap-1">
+                        {calcDetails.strategyLayer.reasonCodes.map((code: string, i: number) => (
+                          <Badge key={i} variant="outline" className="text-xs font-mono">
+                            {code.replace(/_/g, ' ')}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {calcDetails.strategyLayer.noImprovementFound && (
+                    <div className="text-xs text-muted-foreground italic bg-gray-50 dark:bg-gray-900/50 rounded p-2">
+                      No rate improvement found — existing AI rate already optimizes expected revenue for this unit.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* AI Algorithm Calculation - matching Modulo format with collapsible details */}
             <Card>
               <CardHeader className="pb-3">
@@ -564,12 +717,14 @@ export default function AICalculationDialog({
                   <Sparkles className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                      AI Algorithm Note
+                      AI Pricing Algorithm
                     </h4>
                     <p className="text-xs text-blue-800 dark:text-blue-200">
-                      The AI uses the same weight configuration as Modulo but applies slightly different adjustment curves 
-                      and factors to provide alternative pricing perspectives. The AI tends to be more aggressive with 
-                      competitor positioning and vacancy adjustments, offering a second opinion on optimal pricing.
+                      The AI uses a two-pass pricing approach. The first pass (AI Algorithm Calculation) applies 
+                      weighted signals — occupancy, vacancy decay, seasonality, competitors — to derive a base rate. 
+                      The second pass (Revenue Target Strategy Layer) overlays your configured growth targets: it classifies 
+                      the unit into a strategy segment, projects expected revenue with and without target-aware pricing, 
+                      and selects the rate that best closes the revenue gap while respecting guardrail limits.
                     </p>
                   </div>
                 </div>
