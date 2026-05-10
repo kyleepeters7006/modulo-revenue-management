@@ -14,6 +14,7 @@
 import { db } from "./db";
 import { geocodeCache, geocodingJobs, locations, competitiveSurveyData, competitors } from "@shared/schema";
 import { and, eq, isNotNull, isNull, or, desc, sql, count } from "drizzle-orm";
+import { lookupCityCoords } from "./us-cities-data";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -155,7 +156,19 @@ export async function geocodeAddress(address: string | null): Promise<LatLng | n
   }
 
   // Nominatim live lookup (rate-limited)
-  const coords = await enqueueNominatimCall(() => fetchNominatim(address));
+  let coords = await enqueueNominatimCall(() => fetchNominatim(address));
+
+  // City-level local fallback — activates only when Nominatim fails.
+  // Parses city + state from the address string and looks up bundled centroids.
+  // This is a permanent offline fallback so pins always appear even when
+  // Nominatim is blocked or unavailable.
+  if (!coords) {
+    const cityCoords = lookupCityCoords(address);
+    if (cityCoords) {
+      console.log(`[geocode] Using local city fallback for "${address}" → ${cityCoords.lat}, ${cityCoords.lng}`);
+      coords = cityCoords;
+    }
+  }
 
   // Write to both caches
   memCache.set(key, coords);
