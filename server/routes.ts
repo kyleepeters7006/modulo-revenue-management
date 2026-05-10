@@ -4966,8 +4966,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const clientId = req.clientId || 'demo';
       const { location, serviceLine } = req.body || {};
-      
-      let allRentRollData = await storage.getRentRollData(clientId);
+
+      // Use only the latest month to avoid loading all historical rows
+      const latestMonthResult = await db
+        .select({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(and(
+          sql`${rentRollData.uploadMonth} IS NOT NULL`,
+          eq(rentRollData.clientId, clientId)
+        ))
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+        .limit(1);
+      const latestMonth = latestMonthResult[0]?.uploadMonth || '2026-05';
+
+      let allRentRollData = await storage.getRentRollDataByMonth(latestMonth, clientId);
       let allCompetitors = await storage.getCompetitors(clientId);
       
       // Apply filters if provided

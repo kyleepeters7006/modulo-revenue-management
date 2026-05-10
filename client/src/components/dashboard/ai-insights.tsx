@@ -87,6 +87,10 @@ export default function AiInsights() {
     queryKey: ["/api/locations"],
   });
 
+  const { data: authData } = useQuery({
+    queryKey: ["/api/auth/user"],
+  });
+
   const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a: string, b: string) => a.localeCompare(b));
   const serviceLines = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
@@ -108,6 +112,14 @@ export default function AiInsights() {
     setIsHydrated(true);
   }, []);
 
+  // Default to Albany - 215 in demo mode when no saved filter exists
+  useEffect(() => {
+    if (!isHydrated) return;
+    if ((authData as any)?.clientId === 'demo' && selectedLocation === 'all') {
+      setSelectedLocation('Albany - 215');
+    }
+  }, [isHydrated, (authData as any)?.clientId]);
+
   useEffect(() => {
     if (!isHydrated) return;
     saveFiltersToStorage({ location: selectedLocation, serviceLine: selectedServiceLine });
@@ -121,40 +133,51 @@ export default function AiInsights() {
       });
     },
     onSuccess: async (response) => {
-      const data = await response.json();
-      if (data.ok) {
-        const generatedAt = new Date().toISOString();
-        setSuggestions(data.text);
-        setLastGeneratedAt(generatedAt);
-        setEditedContent(data.text);
-        
-        saveInsightsToStorage({
-          content: data.text,
-          generatedAt,
-          filters: {
-            location: selectedLocation,
-            serviceLine: selectedServiceLine
-          }
-        });
-        
-        toast({
-          title: "Analysis Complete",
-          description: "New insights generated successfully",
-        });
-      } else {
-        setSuggestions(`Analysis failed: ${data.error}`);
+      try {
+        const data = await response.json();
+        if (data.ok) {
+          const generatedAt = new Date().toISOString();
+          setSuggestions(data.text);
+          setLastGeneratedAt(generatedAt);
+          setEditedContent(data.text);
+          
+          saveInsightsToStorage({
+            content: data.text,
+            generatedAt,
+            filters: {
+              location: selectedLocation,
+              serviceLine: selectedServiceLine
+            }
+          });
+          
+          toast({
+            title: "Analysis Complete",
+            description: "New insights generated successfully",
+          });
+        } else {
+          setSuggestions(`Analysis failed: ${data.error || 'Unknown error'}`);
+          toast({
+            title: "Analysis Failed",
+            description: data.error || 'Unknown error',
+            variant: "destructive",
+          });
+        }
+      } catch (err: any) {
+        const msg = err?.message || 'Failed to process response';
+        setSuggestions(`Analysis failed: ${msg}`);
         toast({
           title: "Analysis Failed",
-          description: data.error,
+          description: msg,
           variant: "destructive",
         });
       }
     },
-    onError: (error) => {
-      setSuggestions(`Analysis failed: ${error.message}`);
+    onError: (error: any) => {
+      const msg = error?.message || 'Unknown error';
+      setSuggestions(`Analysis failed: ${msg}`);
       toast({
         title: "Analysis Failed",
-        description: error.message,
+        description: msg,
         variant: "destructive",
       });
     },
