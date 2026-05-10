@@ -237,7 +237,21 @@ export async function geocodeAddressNearLocation(
   if (!address) return null;
 
   const real = await geocodeAddress(address);
-  if (real) return real;
+
+  // Validate the geocoded result is plausibly near the base location.
+  // Nominatim often resolves ambiguous city names (e.g. "Albany") to the
+  // wrong state. If the result is > 75 miles from the facility, discard it
+  // and fall through to the deterministic-offset fallback so the pin at
+  // least appears in the right region rather than across the continent.
+  if (real) {
+    if (!baseLocation) return real; // no context to validate against
+    const dist = calculateDistance(baseLocation.lat, baseLocation.lng, real.lat, real.lng);
+    if (dist <= 75) return real;
+    console.log(
+      `[geocode] Discarding geocode result for "${address}" — ` +
+      `${dist.toFixed(0)} miles from facility (likely wrong city). Using offset fallback.`
+    );
+  }
 
   if (!baseLocation) return null;
 

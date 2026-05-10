@@ -203,9 +203,32 @@ export function CompetitorMap({
       `);
       } // End of if block for currentLocation check
       
+      // Haversine distance helper — miles between two lat/lng points
+      const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+        const R = 3959;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
       // Competitor markers
       competitorData.items.forEach((competitor: any) => {
         if (!Number.isFinite(competitor.lat) || !Number.isFinite(competitor.lng) || !mounted) return;
+
+        // Skip pins that are geographically implausible — geocoded to the wrong
+        // city (e.g. "Albany" resolved to Albany, OR instead of the facility's
+        // Albany). If we have a known facility location, require the pin to be
+        // within 30 miles. This matches the ~20-minute drive requirement.
+        if (currentLocation && Number.isFinite(currentLocation.lat) && Number.isFinite(currentLocation.lng)) {
+          const geoDistMiles = haversineDistance(
+            currentLocation.lat, currentLocation.lng,
+            competitor.lat, competitor.lng
+          );
+          if (geoDistMiles > 30) return; // skip — geocoded to wrong city
+        }
         
         // Style based on distance (closer = larger/more prominent)
         const getDistanceStyle = (distanceMiles: number | undefined) => {
