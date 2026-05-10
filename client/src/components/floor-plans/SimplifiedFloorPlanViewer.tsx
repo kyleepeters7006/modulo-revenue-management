@@ -67,41 +67,43 @@ export default function SimplifiedFloorPlanViewer({
   const placedUnits = units.filter(unit => unitShapes[unit.id]);
 
   useEffect(() => {
-    if (units.length > 0 && Object.keys(unitShapes).length === 0) {
-      if (campusMap?.svgContent) {
-        try {
-          const savedData = JSON.parse(campusMap.svgContent);
-          if (savedData.type === 'enhanced' && savedData.shapes) {
-            setUnitShapes(savedData.shapes);
-            return;
-          }
-          if (savedData.type === 'simplified' && savedData.positions) {
-            const shapes: {[key: string]: UnitShape} = {};
-            Object.entries(savedData.positions).forEach(([id, pos]: [string, any]) => {
-              const unit = units.find(u => u.id === id);
-              if (unit) {
-                shapes[id] = {
-                  id,
-                  roomNumber: unit.roomNumber,
-                  type: 'circle',
-                  center: { x: pos.x, y: pos.y },
-                  radius: DEFAULT_RADIUS,
-                  status: unit.occupiedYN ? 'occupied' : 'available',
-                  serviceLine: unit.serviceLine
-                };
-              }
-            });
-            setUnitShapes(shapes);
-            return;
-          }
-        } catch (e) {
+    if (units.length === 0) return;
+
+    if (campusMap?.svgContent) {
+      try {
+        const savedData = JSON.parse(campusMap.svgContent);
+        if (savedData.type === 'enhanced' && savedData.shapes) {
+          setUnitShapes(savedData.shapes);
+          return;
         }
+        if (savedData.type === 'simplified' && savedData.positions) {
+          const shapes: {[key: string]: UnitShape} = {};
+          Object.entries(savedData.positions).forEach(([id, pos]: [string, any]) => {
+            const unit = units.find(u => u.id === id);
+            if (unit) {
+              shapes[id] = {
+                id,
+                roomNumber: unit.roomNumber,
+                type: 'circle',
+                center: { x: pos.x, y: pos.y },
+                radius: DEFAULT_RADIUS,
+                status: unit.occupiedYN ? 'occupied' : 'available',
+                serviceLine: unit.serviceLine
+              };
+            }
+          });
+          setUnitShapes(shapes);
+          return;
+        }
+      } catch (e) {
       }
-      
+    }
+
+    setUnitShapes(prev => {
+      if (Object.keys(prev).length > 0) return prev;
       const shapes: {[key: string]: UnitShape} = {};
       const cols = Math.ceil(Math.sqrt(units.length));
       const rows = Math.ceil(units.length / cols);
-      
       units.forEach((unit, index) => {
         const col = index % cols;
         const row = Math.floor(index / cols);
@@ -118,10 +120,10 @@ export default function SimplifiedFloorPlanViewer({
           serviceLine: unit.serviceLine
         };
       });
-      
-      setUnitShapes(shapes);
-    }
-  }, [units, unitShapes, campusMap]);
+      return shapes;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [units, campusMap?.svgContent]);
 
   const handleUnitSelect = (unitId: string) => {
     if (isEditMode && !isAddingMode) {
