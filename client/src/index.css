@@ -96,22 +96,23 @@
   .dashboard-card {
     background-color: var(--dashboard-surface);
     border: 1px solid var(--dashboard-border);
-    border-radius: 1rem;
-    padding: 1.5rem;
+    border-radius: 0.75rem;
+    padding: 1rem;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
     transition: all 0.3s ease;
   }
 
-  @media (min-width: 768px) {
+  @media (min-width: 640px) {
     .dashboard-card {
-      border-radius: 1.5rem;
-      padding: 2rem;
+      border-radius: 1rem;
+      padding: 1.25rem;
     }
   }
 
-  @media (min-width: 1024px) {
+  @media (min-width: 768px) {
     .dashboard-card {
-      padding: 3rem;
+      border-radius: 1.25rem;
+      padding: 1.5rem;
     }
   }
   
@@ -144,10 +145,24 @@
   .vogue-card {
     background-color: var(--dashboard-surface);
     border: none;
-    border-radius: 2rem;
-    padding: 4rem;
+    border-radius: 1rem;
+    padding: 1.25rem;
     box-shadow: 0 2px 16px rgba(0, 0, 0, 0.03);
     transition: all 0.3s ease;
+  }
+
+  @media (min-width: 640px) {
+    .vogue-card {
+      border-radius: 1.5rem;
+      padding: 1.75rem;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .vogue-card {
+      border-radius: 2rem;
+      padding: 2.5rem;
+    }
   }
   
   .vogue-card:hover {

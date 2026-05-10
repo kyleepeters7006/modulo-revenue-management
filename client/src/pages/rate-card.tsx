@@ -267,14 +267,14 @@ export default function RateCard() {
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <div className="flex justify-between items-start mb-2">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+        <div className="mb-4 sm:mb-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 mb-2">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2" data-testid="text-page-title">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2" data-testid="text-page-title">
                 Rate Card & Pricing
               </h1>
-              <p className="text-gray-600" data-testid="text-page-subtitle">
+              <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
                 Review current rates, Modulo suggestions, and AI recommendations
               </p>
             </div>
@@ -283,7 +283,7 @@ export default function RateCard() {
                 onClick={handleExport}
                 disabled={isExporting}
                 variant="outline"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 self-start sm:self-auto"
                 data-testid="button-export-rate-card"
               >
                 <Download className="h-4 w-4" />

@@ -531,7 +531,7 @@ export function Analytics() {
 
   return (
     <div 
-      className="container mx-auto py-6 space-y-6"
+      className="container mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6"
       onClick={(e) => {
         // Don't close if tooltip is locked (within 3-second window)
         if (isTooltipLocked) return;
@@ -552,7 +552,7 @@ export function Analytics() {
           <img 
             src="/attached_assets/image_1756817717051.png" 
             alt="Modulo" 
-            className="h-16 w-auto"
+            className="h-9 sm:h-12 w-auto"
           />
         </Link>
         <Link href="/">
@@ -564,10 +564,10 @@ export function Analytics() {
       </div>
       
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">Pricing Analytics</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Pricing Analytics</h1>
             {isFetching && !isLoading && (
               <Badge variant="outline" className="gap-1 text-xs animate-pulse">
                 <Loader2 className="h-3 w-3 animate-spin" />
