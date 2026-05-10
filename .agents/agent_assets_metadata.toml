@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "2vRWanIEivu93OZBcTxeG"
+uri = "file://modulo-platform-overview.pptx"
+type = "slides"
+title = "Modulo Platform Overview — Slide Deck"
