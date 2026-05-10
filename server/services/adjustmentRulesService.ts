@@ -95,6 +95,23 @@ export function applyAdjustmentRulesToUnit(
     const action = rule.action as any;
     if (action.type !== "adjust_rate") continue;
 
+    // Check action-level filters (room type, service line, occupancy)
+    if (action.filters) {
+      const filters = action.filters;
+      if (filters.roomType && Array.isArray(filters.roomType)) {
+        const unitRoomType = (unit.roomType || "").trim().toLowerCase();
+        const matches = filters.roomType.some(
+          (rt: string) => rt.trim().toLowerCase() === unitRoomType
+        );
+        if (!matches) continue;
+      }
+      if (filters.serviceLine && Array.isArray(filters.serviceLine)) {
+        if (!filters.serviceLine.includes(unit.serviceLine)) continue;
+      }
+      if (filters.occupancyStatus === "vacant" && unit.occupiedYN) continue;
+      if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
+    }
+
     const adjustmentType = action.adjustmentType || "percentage";
     const adjustmentValue = action.adjustmentValue ?? action.percentage ?? 0;
 
