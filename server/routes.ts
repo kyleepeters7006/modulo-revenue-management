@@ -13080,8 +13080,11 @@ Respond in JSON format:
         uploadMonth as string | undefined
       );
       
-      // If no floor plan exists, auto-generate a demo floor plan
-      if (!result.campusMap) {
+      // If no floor plan exists, or only a global template (not location-specific) exists, auto-generate
+      const needsGeneration = !result.campusMap ||
+        result.campusMap.isTemplate ||
+        (result.campusMap.locationId !== locationId && result.stats.totalRooms === 0);
+      if (needsGeneration) {
         console.log(`[Campus Maps API] No floor plan found for location ${locationId}, attempting to generate demo floor plan...`);
         const { generateOrGetDemoFloorPlan } = await import('./demoFloorPlanService');
         try {

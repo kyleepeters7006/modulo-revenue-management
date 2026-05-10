@@ -153,7 +153,7 @@ export default function FloorPlansPage() {
   // Load initial filters from localStorage (synced with other pages)
   const storedFilters = loadFiltersFromStorage();
   
-  const [selectedCampus, setSelectedCampus] = useState<string>(storedFilters?.locationId || "");
+  const [selectedCampus, setSelectedCampus] = useState<string>(storedFilters?.locationId || "demo-albany-215");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [bedroomsFilter, setBedroomsFilter] = useState<string>("any");
   const [floorPlanFilter, setFloorPlanFilter] = useState<string>("any");

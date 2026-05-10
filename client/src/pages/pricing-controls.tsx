@@ -155,7 +155,7 @@ export default function PricingControls() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
-    urlLocation ? [urlLocation] : (savedFilters?.locations || [])
+    urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"])
   );
 
   const [targetGrowth, setTargetGrowth] = useState<TargetGrowth>({
