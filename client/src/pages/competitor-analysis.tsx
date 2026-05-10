@@ -542,12 +542,6 @@ export default function CompetitorAnalysis() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                {competitorRateData?.usingDistanceFallback && (
-                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 mb-4" data-testid="rate-notice-distance-fallback">
-                    <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                    <span>No weighted competitors found for this service line — showing the 5 nearest competitors by distance instead.</span>
-                  </div>
-                )}
                 <Table>
                   <TableHeader>
                     <TableRow>
