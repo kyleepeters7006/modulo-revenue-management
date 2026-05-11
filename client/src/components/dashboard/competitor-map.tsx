@@ -495,7 +495,27 @@ export function CompetitorMap({
             Competitor Map {selectedLocations.length === 1 ? `- ${selectedLocations[0]}` : selectedLocations.length > 1 ? `- ${selectedLocations.length} Locations` : ''}
           </h3>
           <p className="text-sm text-[var(--dashboard-muted)]">
-            {competitors?.items?.length || 0} competitors found
+            {(() => {
+              const items = (competitors as any)?.items;
+              const cl = (competitors as any)?.currentLocation;
+              if (!items) return 0;
+              // Count unique visible pins — competitors that share the same lat/lng
+              // render as one stacked marker, so count by unique position.
+              const validItems = items.filter((c: any) => {
+                if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return false;
+                if (cl && Number.isFinite(cl.lat) && Number.isFinite(cl.lng)) {
+                  const dLat = (c.lat - cl.lat) * Math.PI / 180;
+                  const dLng = (c.lng - cl.lng) * Math.PI / 180;
+                  const a = Math.sin(dLat / 2) ** 2 +
+                    Math.cos(cl.lat * Math.PI / 180) * Math.cos(c.lat * Math.PI / 180) *
+                    Math.sin(dLng / 2) ** 2;
+                  return 3959 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) <= 30;
+                }
+                return true;
+              });
+              const uniquePins = new Set(validItems.map((c: any) => `${c.lat},${c.lng}`)).size;
+              return uniquePins;
+            })()} competitors found
             {selectedLocations.length > 1 && ' • Top 3 shown per location'}
           </p>
         </div>

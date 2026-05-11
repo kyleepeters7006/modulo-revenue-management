@@ -55,7 +55,7 @@ export default function CompetitorAnalysis() {
         ? savedFilters.serviceLines 
         : (savedFilters?.serviceLine && savedFilters.serviceLine !== 'All' 
             ? [savedFilters.serviceLine] 
-            : []));
+            : ['AL']));
   const [selectedServiceLines, setSelectedServiceLines] = useState<string[]>(initialServiceLines);
 
   // Save filters to localStorage whenever they change
