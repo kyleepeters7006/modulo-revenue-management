@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -62,15 +62,21 @@ const getServiceLineFullName = (code: string): string => {
   return serviceLineMap[code] || code;
 };
 
+interface CompetitorFormPropsExtended extends CompetitorFormProps {
+  initialEditId?: string | null;
+}
+
 export default function CompetitorForm({ 
   selectedRegions = [], 
   selectedDivisions = [], 
   selectedLocations = [],
-  selectedServiceLines = []
-}: CompetitorFormProps = {}) {
+  selectedServiceLines = [],
+  initialEditId = null
+}: CompetitorFormPropsExtended = {}) {
   try {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
+    const [autoEditTriggered, setAutoEditTriggered] = useState(false);
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -215,6 +221,21 @@ export default function CompetitorForm({
     form.reset();
   };
 
+  // Auto-open edit form when initialEditId is provided via URL param (?edit=<id>)
+  useEffect(() => {
+    if (!initialEditId || autoEditTriggered || isLoading || !competitors) return;
+    const compData = competitors as any;
+    const allItems = compData?.items || [];
+    const target = allItems.find((c: any) => c.id === initialEditId);
+    if (target) {
+      setAutoEditTriggered(true);
+      startEdit(target);
+      setTimeout(() => {
+        document.getElementById('competitor-form-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 200);
+    }
+  }, [initialEditId, competitors, isLoading, autoEditTriggered]);
+
   if (isLoading) {
     return (
       <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)]">
@@ -229,7 +250,7 @@ export default function CompetitorForm({
   }
 
   return (
-    <Card className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)] w-full">
+    <Card id="competitor-form-section" className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)] w-full">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-[var(--dashboard-text)]">Competitor Management</CardTitle>

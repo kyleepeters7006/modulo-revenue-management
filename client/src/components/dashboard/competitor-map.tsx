@@ -416,14 +416,18 @@ export function CompetitorMap({
               ` : ''}
               
               <!-- Action Links -->
-              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-                <a href="${googleMapsUrl}" target="_blank" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; transition: all 0.2s; border: 1px solid #e2e8f0;">
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                <a href="${googleMapsUrl}" target="_blank" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid #e2e8f0;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                  View Location
+                  Map
                 </a>
-                <a href="${directionsUrl}" target="_blank" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; transition: all 0.2s; border: 1px solid #e2e8f0;">
+                <a href="${directionsUrl}" target="_blank" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #f1f5f9; color: #475569; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid #e2e8f0;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l14 0"/><path d="M13 5l7 7-7 7"/></svg>
-                  Get Directions
+                  Directions
+                </a>
+                <a href="/competitors?edit=${competitor.id}" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: #eff6ff; color: #1d4ed8; text-decoration: none; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid #bfdbfe;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  Edit
                 </a>
               </div>
             </div>

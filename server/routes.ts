@@ -3355,13 +3355,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (locations) {
         const locList = (locations as string).split(',');
         if (locList.length === 1) {
-          const loc = locationData.find(l => l.name === locList[0]);
+          // Match by id OR name so both filter formats work
+          const loc = locationData.find(l => l.id === locList[0] || l.name === locList[0]);
           if (loc) {
+            // Build address from only non-null parts
+            const addrParts = [loc.address, loc.city, loc.state].filter(Boolean);
             currentLocation = {
+              id: loc.id,
               name: loc.name,
               lat: loc.lat,
               lng: loc.lng,
-              address: `${loc.address}, ${loc.city}, ${loc.state}`
+              address: addrParts.length > 0 ? addrParts.join(', ') : ''
             };
           }
         }

@@ -39,6 +39,7 @@ export default function CompetitorAnalysis() {
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
   const urlServiceLine = urlParams.get('serviceLine');
+  const urlEditId = urlParams.get('edit');
   
   // Load initial state from URL params, then localStorage, or use defaults
   const savedFilters = loadCompetitorFiltersFromStorage();
@@ -493,6 +494,7 @@ export default function CompetitorAnalysis() {
             selectedDivisions={selectedDivisions}
             selectedLocations={selectedLocations}
             selectedServiceLines={selectedServiceLines}
+            initialEditId={urlEditId}
           />
         </div>
         
@@ -512,6 +514,7 @@ export default function CompetitorAnalysis() {
               selectedDivisions={selectedDivisions}
               selectedLocations={selectedLocations}
               selectedServiceLines={selectedServiceLines}
+              initialEditId={urlEditId}
             />
           </div>
         </div>
