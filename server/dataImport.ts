@@ -1123,13 +1123,24 @@ export async function importMatrixCareRentRollCSV(
                      locDescription === '2');
                   if (isLevel2 && locRate > 0) {
                     try {
+                      const locUpdateWhere = and(
+                        eq(rentRollHistory.uploadMonth, uploadMonth),
+                        eq(rentRollHistory.location, locationName),
+                        eq(rentRollHistory.serviceLine, serviceLine),
+                        eq(rentRollHistory.roomNumber, roomNumber)
+                      );
                       await tx.update(rentRollHistory)
                         .set({ careLevel: locDescription, careRate: locRate })
+                        .where(locUpdateWhere);
+                      // Also update rentRollData so getTrilogyCareLevel2Rate finds it immediately.
+                      // Scope to the same uploadMonth to avoid touching other months' rows.
+                      await tx.update(rentRollData)
+                        .set({ careLevel: locDescription, careRate: locRate })
                         .where(and(
-                          eq(rentRollHistory.uploadMonth, uploadMonth),
-                          eq(rentRollHistory.location, locationName),
-                          eq(rentRollHistory.serviceLine, serviceLine),
-                          eq(rentRollHistory.roomNumber, roomNumber)
+                          eq(rentRollData.uploadMonth, uploadMonth),
+                          eq(rentRollData.location, locationName),
+                          eq(rentRollData.serviceLine, serviceLine),
+                          eq(rentRollData.roomNumber, roomNumber)
                         ));
                     } catch (updateErr) {
                       const msg = `LOC level-2 update failed for ${unitKey}: ${updateErr}`;

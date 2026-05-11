@@ -1544,28 +1544,51 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null> {
-    // Return most-recent non-zero care-level-2 rate for this location+service line
-    const result = await db.select({
-      careRate: rentRollData.careRate,
-      uploadMonth: rentRollData.uploadMonth
-    })
+    // Return most-recent non-zero care-level-2 rate for this location+service line.
+    // We push careRate > 0 into SQL so the DB returns exactly the best matching row
+    // without any application-side iteration or arbitrary row-count caps.
+    //
+    // Pass 1: rentRollData (current state after sync).
+    // Pass 2: rentRollHistory (all uploaded months, most-recent first) — fallback so
+    //         the lookup works even before syncHistoryToCurrentRentRoll has run or
+    //         when data was imported before this fix was deployed.
+
+    // Pass 1 — rentRollData
+    const [currentRow] = await db.select({ careRate: rentRollData.careRate })
       .from(rentRollData)
       .where(
         and(
           eq(rentRollData.location, location),
           eq(rentRollData.serviceLine, serviceLine),
-          sql`${rentRollData.careLevel} = '2' OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%'`
+          sql`(${rentRollData.careLevel} = '2' OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%')`,
+          sql`${rentRollData.careRate} > 0`
         )
       )
       .orderBy(sql`${rentRollData.uploadMonth} DESC NULLS LAST`)
-      .limit(50);
-    
-    if (result.length === 0) return null;
-    
-    // First non-zero value from the most-recent upload months wins
-    for (const row of result) {
-      if (row.careRate != null && row.careRate > 0) return row.careRate;
+      .limit(1);
+
+    if (currentRow?.careRate != null && currentRow.careRate > 0) {
+      return currentRow.careRate;
     }
+
+    // Pass 2 — rentRollHistory (all historical uploads, no cap)
+    const [historyRow] = await db.select({ careRate: rentRollHistory.careRate })
+      .from(rentRollHistory)
+      .where(
+        and(
+          eq(rentRollHistory.location, location),
+          eq(rentRollHistory.serviceLine, serviceLine),
+          sql`(${rentRollHistory.careLevel} = '2' OR ${rentRollHistory.careLevel} ILIKE '%level 2%' OR ${rentRollHistory.careLevel} ILIKE '%L2%')`,
+          sql`${rentRollHistory.careRate} > 0`
+        )
+      )
+      .orderBy(sql`${rentRollHistory.uploadMonth} DESC NULLS LAST`)
+      .limit(1);
+
+    if (historyRow?.careRate != null && historyRow.careRate > 0) {
+      return historyRow.careRate;
+    }
+
     return null;
   }
 
