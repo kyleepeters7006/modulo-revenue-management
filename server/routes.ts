@@ -325,6 +325,22 @@ async function checkAndInitializeDatabase() {
       )
     `);
 
+    // Ensure the care_level_rates table exists for Level 2 care rate backfill
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS care_level_rates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        location_id varchar NOT NULL REFERENCES locations(id),
+        service_line text NOT NULL,
+        level2_rate real NOT NULL,
+        client_id varchar NOT NULL REFERENCES clients(id),
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS care_level_rates_loc_sl_idx
+      ON care_level_rates (client_id, location_id, service_line)
+    `);
+
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
