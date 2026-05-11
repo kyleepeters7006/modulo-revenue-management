@@ -447,7 +447,7 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
 
             {/* Tabs for different views - Units defaults to serviceLine tab */}
             <Tabs defaultValue={tileType === 'units' ? 'serviceLine' : 'trend'} className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
                 <TabsTrigger value="trend" data-testid="tab-trend">Monthly Trend</TabsTrigger>
                 <TabsTrigger value="serviceLine" data-testid="tab-service-line">By Service Line</TabsTrigger>
                 <TabsTrigger value="location" data-testid="tab-location">By Location</TabsTrigger>
