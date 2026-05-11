@@ -12543,28 +12543,23 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         inquiryTourVolume: 10
       };
       
-      // Calculate service-line-specific occupancy rate
-      const allUnits = await storage.getRentRollData(clientId);
+      // Calculate service-line-specific occupancy rate — use aggregation, not full table scan
+      const occRows = await pool.query<{ service_line: string; total: string; occupied: string }>(`
+        SELECT service_line, COUNT(*)::text AS total,
+               COUNT(*) FILTER (WHERE occupied_yn = true)::text AS occupied
+        FROM rent_roll_data
+        WHERE client_id = $1
+        GROUP BY service_line
+      `, [clientId]);
       const serviceLineOccupancy: Record<string, number> = {};
-      const serviceLineStats = allUnits.reduce((acc: any, u: any) => {
-        const sl = u.serviceLine || 'Unknown';
-        if (!acc[sl]) {
-          acc[sl] = { occupied: 0, total: 0 };
-        }
-        acc[sl].total++;
-        if (u.occupiedYN) {
-          acc[sl].occupied++;
-        }
-        return acc;
-      }, {});
-      
-      for (const [serviceLine, stats] of Object.entries(serviceLineStats)) {
-        const { occupied, total } = stats as { occupied: number; total: number };
-        serviceLineOccupancy[serviceLine] = total > 0 ? occupied / total : 0.87;
+      for (const row of occRows.rows) {
+        const total = parseInt(row.total, 10);
+        const occupied = parseInt(row.occupied, 10);
+        serviceLineOccupancy[row.service_line] = total > 0 ? occupied / total : 0.87;
       }
-      
+
       // Use service-line-specific occupancy for this unit
-      const serviceLineOcc = serviceLineOccupancy[unit.serviceLine] || 0.87;
+      const serviceLineOcc = serviceLineOccupancy[unit.serviceLine ?? 'Unknown'] || 0.87;
       
       // Prepare inputs for sophisticated AI algorithm (more aggressive than Modulo)
       const daysVacant = unit.daysVacant || 0;
@@ -12621,38 +12616,46 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         description: getSentenceExplanation(adj.factor.toLowerCase(), aiInputs, adj)
       })) || [];
       
+      const calculationPayload = {
+        baseRate: streetRate,
+        adjustments,
+        weights: {
+          occupancyPressure: algorithmWeights.occupancy,
+          daysVacantDecay: algorithmWeights.daysVacant,
+          seasonality: algorithmWeights.seasonality,
+          competitorRates: algorithmWeights.competitors,
+          stockMarket: algorithmWeights.market,
+          inquiryTourVolume: algorithmWeights.demand
+        },
+        totalAdjustment: result.totalAdjustment,
+        preOverrideTotalAdj: result.preOverrideTotalAdj,
+        finalRate: aiSuggestedRate,
+        signals: result.signals,
+        blendedSignal: result.blendedSignal,
+        explanation: generateOverallExplanation(result, aiInputs),
+        actualOccupancyRate: serviceLineOcc,
+        serviceLine: unit.serviceLine,
+        revenueTarget: liveRevenueTarget,
+        unitData: {
+          unitId: unit.id,
+          isOccupied: unit.occupiedYN,
+          daysVacant: unit.daysVacant,
+          competitorRate: unit.competitorBenchmarkRate
+        }
+      };
+
+      // Persist the computed details so future requests are instant (fire-and-forget)
+      pool.query(
+        `UPDATE rent_roll_data SET ai_calculation_details = $1, ai_suggested_rate = $2 WHERE id = $3`,
+        [JSON.stringify(calculationPayload), aiSuggestedRate, unit.id]
+      ).catch((e: any) => console.error('[ai-calculation] persist error:', e.message));
+
       res.json({
         unitId: unit.id,
         roomType: unit.roomType,
         streetRate: streetRate,
         aiSuggestedRate: aiSuggestedRate,
-        calculation: {
-          baseRate: streetRate,
-          adjustments,
-          weights: {
-            occupancyPressure: algorithmWeights.occupancy,
-            daysVacantDecay: algorithmWeights.daysVacant,
-            seasonality: algorithmWeights.seasonality,
-            competitorRates: algorithmWeights.competitors,
-            stockMarket: algorithmWeights.market,
-            inquiryTourVolume: algorithmWeights.demand
-          },
-          totalAdjustment: result.totalAdjustment,
-          preOverrideTotalAdj: result.preOverrideTotalAdj,
-          finalRate: aiSuggestedRate,
-          signals: result.signals,
-          blendedSignal: result.blendedSignal,
-          explanation: generateOverallExplanation(result, aiInputs),
-          actualOccupancyRate: serviceLineOcc,
-          serviceLine: unit.serviceLine,
-          revenueTarget: liveRevenueTarget,
-          unitData: {
-            unitId: unit.id,
-            isOccupied: unit.occupiedYN,
-            daysVacant: unit.daysVacant,
-            competitorRate: unit.competitorBenchmarkRate
-          }
-        }
+        calculation: calculationPayload
       });
     } catch (error) {
       console.error('AI calculation fetch error:', error);

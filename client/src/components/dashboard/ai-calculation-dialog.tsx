@@ -18,6 +18,7 @@ interface AICalculationDialogProps {
   unitId: string;
   roomType: string;
   streetRate: number;
+  aiSuggestedRate?: number;
   serviceLine?: string | null;
 }
 
@@ -27,6 +28,7 @@ export default function AICalculationDialog({
   unitId,
   roomType,
   streetRate = 0,
+  aiSuggestedRate: propAiRate,
   serviceLine,
 }: AICalculationDialogProps) {
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,7 @@ export default function AICalculationDialog({
   useEffect(() => {
     if (open && unitId) {
       setLoading(true);
+      setCalculation(null);
       fetch(`/api/ai-calculation/${unitId}`)
         .then(res => res.json())
         .then(data => {
@@ -72,16 +75,40 @@ export default function AICalculationDialog({
     return null;
   };
 
+  // Fallback: show a minimal summary using prop values if API data is unavailable
   if (!calculation && !loading) {
+    const fallbackRate = propAiRate || streetRate;
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="w-[95vw] max-w-2xl bg-white dark:bg-gray-900">
           <DialogHeader>
-            <DialogTitle>AI Calculation Not Available</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-blue-600" />
+              AI Pricing Calculation
+              <Badge variant="secondary">{roomType}</Badge>
+              {serviceLine && <Badge variant="outline">{serviceLine}</Badge>}
+            </DialogTitle>
           </DialogHeader>
-          <div className="text-sm text-gray-500">
-            No AI calculation details found for this unit. Generate AI suggestions first.
-          </div>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Rate Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Street Rate</p>
+                  <p className="text-lg font-bold">{formatCurrency(streetRate)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">AI Suggested Rate</p>
+                  <p className="text-lg font-bold text-blue-600">{formatCurrency(fallbackRate)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-4">
+                Detailed breakdown will appear the next time you open this dialog.
+              </p>
+            </CardContent>
+          </Card>
         </DialogContent>
       </Dialog>
     );

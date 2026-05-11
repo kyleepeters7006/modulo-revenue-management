@@ -53,7 +53,7 @@ export default function RateCardTable({
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
-  const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number } | null>(null);
+  const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number; aiSuggestedRate: number } | null>(null);
   const [sortColumn, setSortColumn] = useState<string | null>('status');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -897,7 +897,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                   setAIDialogUnit({
                                     unitId: unit.id,
                                     roomType: unit.roomType,
-                                    streetRate: unit.streetRate || 0
+                                    streetRate: unit.streetRate || 0,
+                                    aiSuggestedRate: unit.aiSuggestedRate || 0
                                   });
                                 }}
                                 data-testid={`tooltip-ai-${unit.roomNumber}`}
@@ -1033,6 +1034,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
           unitId={aiDialogUnit.unitId}
           roomType={aiDialogUnit.roomType}
           streetRate={aiDialogUnit.streetRate}
+          aiSuggestedRate={aiDialogUnit.aiSuggestedRate}
         />
       )}
     </div>
