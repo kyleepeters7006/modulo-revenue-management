@@ -32,6 +32,7 @@ interface UnitShape {
 interface SimplifiedFloorPlanViewerProps {
   campusMap: any;
   units: any[];
+  locationId?: string;
   onUnitClick?: (unitId: string) => void;
 }
 
@@ -42,6 +43,7 @@ const MAX_RADIUS = 8;
 export default function SimplifiedFloorPlanViewer({ 
   campusMap, 
   units = [],
+  locationId,
   onUnitClick
 }: SimplifiedFloorPlanViewerProps) {
   const [zoom, setZoom] = useState(1);
@@ -427,9 +429,10 @@ export default function SimplifiedFloorPlanViewer({
         shapes: unitShapes,
         version: 2
       };
-      
+
       await apiRequest('/api/campus-maps/unit-positions', 'POST', {
-        campusMapId: campusMap.id,
+        campusMapId: campusMap?.id || null,
+        locationId: locationId || null,
         positions: saveData
       });
       
@@ -440,7 +443,7 @@ export default function SimplifiedFloorPlanViewer({
       
       setIsEditMode(false);
       setSelectedUnit(null);
-      queryClient.invalidateQueries({ queryKey: [`/api/campus-maps/${campusMap.id}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/campus-maps/${campusMap?.id || locationId}`] });
     } catch (error) {
       toast({
         title: "Error",
@@ -766,8 +769,10 @@ export default function SimplifiedFloorPlanViewer({
     );
   };
 
-  const circleShapes = Object.values(unitShapes).filter(s => s.type === 'circle');
-  const polygonShapes = Object.values(unitShapes).filter(s => s.type === 'polygon');
+  // Only show circles/polygons for units that are in the current filtered units list
+  const visibleUnitIds = new Set(units.map((u: any) => u.id));
+  const circleShapes = Object.values(unitShapes).filter(s => s.type === 'circle' && visibleUnitIds.has(s.id));
+  const polygonShapes = Object.values(unitShapes).filter(s => s.type === 'polygon' && visibleUnitIds.has(s.id));
 
   return (
     <>

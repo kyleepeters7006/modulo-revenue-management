@@ -803,6 +803,7 @@ export default function FloorPlansPage() {
                       <SimplifiedFloorPlanViewer 
                         campusMap={effectiveCampusMap}
                         units={filteredUnits}
+                        locationId={selectedCampus}
                         onUnitClick={handleUnitClick}
                       />
                     )

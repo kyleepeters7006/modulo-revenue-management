@@ -14310,28 +14310,47 @@ Respond in JSON format:
   // Save unit positions for simplified floor plan
   app.post("/api/campus-maps/unit-positions", async (req, res) => {
     try {
-      const { campusMapId, positions } = req.body;
+      const { campusMapId, locationId, positions } = req.body;
       
-      if (!campusMapId || !positions) {
-        return res.status(400).json({ error: "Missing required fields: campusMapId, positions" });
+      if (!positions) {
+        return res.status(400).json({ error: "Missing required field: positions" });
       }
-      
-      // Store positions in the campus map metadata or a separate table
-      // For now, we'll store it in the campusMap svgContent as a JSON string
-      const positionsJson = JSON.stringify({
-        type: 'simplified',
-        positions: positions,
-        updatedAt: new Date()
-      });
-      
-      await storage.updateCampusMap(campusMapId, {
+
+      // Resolve which campus map to update. If campusMapId is provided, use it directly.
+      // Otherwise fall back to locationId and upsert the campus map row.
+      let resolvedMapId: string | null = campusMapId || null;
+
+      if (!resolvedMapId && locationId) {
+        // Find or create a campus map for this location
+        let existingMap = await storage.getCampusMapByLocation(locationId);
+        if (!existingMap) {
+          existingMap = await storage.createCampusMap({
+            locationId,
+            name: 'Floor Plan',
+            svgContent: null,
+            baseImageUrl: null,
+          });
+        }
+        resolvedMapId = existingMap.id;
+      }
+
+      if (!resolvedMapId) {
+        return res.status(400).json({ error: "Missing campusMapId or locationId" });
+      }
+
+      // Store the positions JSON directly — no extra wrapper so the viewer can
+      // parse it back cleanly using the 'enhanced' type branch.
+      const positionsJson = JSON.stringify(positions);
+
+      await storage.updateCampusMap(resolvedMapId, {
         svgContent: positionsJson,
         updatedAt: new Date()
       });
       
       res.json({
         success: true,
-        message: "Unit positions saved successfully"
+        message: "Unit positions saved successfully",
+        campusMapId: resolvedMapId
       });
     } catch (error) {
       console.error('Error saving unit positions:', error);
