@@ -1026,6 +1026,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/competitor-coverage?clientId=
+  // Returns row counts per location + competitor type so admins can identify
+  // locations with zero survey coverage for a given service line.
+  app.get('/api/admin/competitor-coverage', async (req: any, res) => {
+    try {
+      const queryClientId = (req.query.clientId as string) || req.clientId || 'demo';
+      const rows = await db
+        .select({
+          location: competitiveSurveyData.keyStatsLocation,
+          competitorType: competitiveSurveyData.competitorType,
+          rowCount: sql<number>`count(*)::int`,
+        })
+        .from(competitiveSurveyData)
+        .where(eq(competitiveSurveyData.clientId, queryClientId))
+        .groupBy(competitiveSurveyData.keyStatsLocation, competitiveSurveyData.competitorType)
+        .orderBy(competitiveSurveyData.keyStatsLocation, competitiveSurveyData.competitorType);
+      res.json({ clientId: queryClientId, coverage: rows });
+    } catch (error) {
+      console.error('Error fetching competitor coverage:', error);
+      res.status(500).json({ error: 'Failed to fetch competitor coverage' });
+    }
+  });
+
   // POST /api/admin/backfill-companion-room-type
   // Corrects historical rent_roll_data and rent_roll_history rows where room_type
   // was stored as a non-canonical companion variant (e.g., "Companion Suite",
@@ -8769,7 +8792,7 @@ Focus areas (in order):
           let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
           try {
             const [surveyRows, trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
-              storage.getTopSurveyCompetitorForLocation(unit.location, unit.serviceLine, unit.roomType || undefined),
+              storage.getTopSurveyCompetitorForLocation(unit.location, unit.serviceLine, unit.roomType || undefined, clientId),
               storage.getTrilogyCareLevel2Rate(unit.location, unit.serviceLine),
               storage.getTrilogyMedicationManagementFee(unit.location, unit.serviceLine)
             ]);
@@ -9309,7 +9332,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         const slKey = `${campus}|${sl}`;
         const careRates = aiCareRateCache.get(slKey) || { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 };
         try {
-          const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, sl, roomType || undefined);
+          const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, sl, roomType || undefined, clientId);
           competitorCache.set(key, { surveyRows: surveyRows || [], ...careRates });
         } catch {
           competitorCache.set(key, { surveyRows: [], ...careRates });

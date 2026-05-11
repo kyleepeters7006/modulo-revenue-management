@@ -300,7 +300,7 @@ class PricingJobManager {
       const serviceLine = parts[1];
       const roomType = parts[2] || '';
       try {
-        const surveyRows = await storage.getTopSurveyCompetitorForLocation(location, serviceLine, roomType || undefined);
+        const surveyRows = await storage.getTopSurveyCompetitorForLocation(location, serviceLine, roomType || undefined, clientId);
         if (surveyRows && surveyRows.length > 0) {
           competitorsByLocationService.set(key, surveyRows);
         }

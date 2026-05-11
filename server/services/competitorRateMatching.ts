@@ -20,19 +20,21 @@ import { isDailyRateServiceLine, normalizeToMonthlyRate } from "./rateNormalizat
 
 // Mapping from Trilogy service line to competitor survey type
 // IL data is split: "IL_Villa" for VIL service line, "IL_IL" for SL service line
-const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
+export const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
   'HC': 'HC',
-  'HC/MC': 'SMC',
+  'HC/MC': 'HC/MC',   // HC/MC has its own dedicated type; legacy SMC rows handled via fallback
   'AL': 'AL',
-  'AL/MC': 'AL',  // AL/MC uses AL competitor type
-  'SL': 'IL_IL',  // SL (Senior Living) uses IL_IL competitor type from competitive survey
-  'VIL': 'IL_Villa'  // VIL (Villas) uses IL_Villa competitor type from competitive survey
+  'AL/MC': 'AL/MC',   // AL/MC has its own dedicated type in the survey data
+  'SL': 'IL_IL',      // SL (Senior Living) uses IL_IL competitor type from competitive survey
+  'VIL': 'IL_Villa'   // VIL (Villas) uses IL_Villa competitor type from competitive survey
 };
 
-// No fallback to other competitor types - use exact type matching only
-// User requirement: No fallback to AL rates for IL/SL/VIL service lines
+// Secondary-type fallbacks for service lines that have legacy data formats.
+// HC/MC was historically written as SMC in older imports; fall back to SMC so
+// those locations still resolve until Task #88 renames those records.
+// No other fallbacks — in particular, no fallback to AL rates for IL/SL/VIL.
 const COMPETITOR_TYPE_FALLBACK: Record<string, string> = {
-  // Empty - no fallbacks allowed
+  'HC/MC': 'SMC',
 };
 
 // Room type mapping based on the "Base Competitor Rate Column" in the mapping document
@@ -244,12 +246,28 @@ async function getBestCompetitorRate(
             const record = fallbackTypeRecords[0];
             console.log(`✓ Using ${fallbackType} fallback competitor: ${record.competitorName} for ${serviceLine}`);
             
+            // Apply daily→monthly conversion for daily-rate types (HC, HC/MC, SMC)
+            const DAYS_PER_MONTH_FB = 30.44;
+            const isFallbackDailyRate = fallbackType === 'HC' || fallbackType === 'HC/MC' || fallbackType === 'SMC';
+            let fallbackBaseRate = record.monthlyRateAvg || 0;
+            let fallbackCareLevel2Rate = record.careLevel2Rate;
+            let fallbackMedMgmtFee = record.medicationManagementFee;
+            if (isFallbackDailyRate && fallbackBaseRate > 0 && fallbackBaseRate < 1000) {
+              fallbackBaseRate = fallbackBaseRate * DAYS_PER_MONTH_FB;
+              if (fallbackCareLevel2Rate && fallbackCareLevel2Rate < 500) {
+                fallbackCareLevel2Rate = fallbackCareLevel2Rate * DAYS_PER_MONTH_FB;
+              }
+              if (fallbackMedMgmtFee && fallbackMedMgmtFee < 100) {
+                fallbackMedMgmtFee = fallbackMedMgmtFee * DAYS_PER_MONTH_FB;
+              }
+            }
+            
             return {
               competitorName: record.competitorName,
-              baseRate: record.monthlyRateAvg || 0,
+              baseRate: fallbackBaseRate,
               weight: extractWeight(record.notes),
-              careLevel2Rate: record.careLevel2Rate,
-              medicationManagementFee: record.medicationManagementFee,
+              careLevel2Rate: fallbackCareLevel2Rate,
+              medicationManagementFee: fallbackMedMgmtFee,
               distanceMiles: record.distanceMiles,
               surveyData: record
             };
@@ -261,9 +279,9 @@ async function getBestCompetitorRate(
       // Use first available record as fallback
       const record = fallbackRecords[0];
       
-      // Convert rates from daily to monthly for HC/SMC competitor types
+      // Convert rates from daily to monthly for HC/HC/MC/SMC competitor types
       const DAYS_PER_MONTH = 30.44;
-      const isHCOrSMC = competitorType === 'HC' || competitorType === 'SMC';
+      const isHCOrSMC = competitorType === 'HC' || competitorType === 'HC/MC' || competitorType === 'SMC';
       
       let baseRate = record.monthlyRateAvg || 0;
       let careLevel2Rate = record.careLevel2Rate;
@@ -322,10 +340,10 @@ async function getBestCompetitorRate(
       }
     }
     
-    // Convert rates from daily to monthly for HC/SMC competitor types
-    // Survey data for HC and SMC is stored as daily rates
+    // Convert rates from daily to monthly for HC/HC/MC/SMC competitor types
+    // Survey data for HC, HC/MC and SMC is stored as daily rates
     const DAYS_PER_MONTH = 30.44;
-    const isHCOrSMC = competitorType === 'HC' || competitorType === 'SMC';
+    const isHCOrSMC = competitorType === 'HC' || competitorType === 'HC/MC' || competitorType === 'SMC';
     
     let baseRate = bestRecord.monthlyRateAvg || 0;
     let careLevel2Rate = bestRecord.careLevel2Rate;

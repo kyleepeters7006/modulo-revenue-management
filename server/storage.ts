@@ -184,7 +184,7 @@ export interface IStorage {
   getTopCompetitorByWeight(location: string, serviceLine?: string): Promise<Competitor | undefined>;
   getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null>;
   getTrilogyMedicationManagementFee(location: string, serviceLine: string): Promise<number>;
-  getTopSurveyCompetitorForLocation(locationName: string, serviceLine: string, roomType?: string): Promise<Array<{
+  getTopSurveyCompetitorForLocation(locationName: string, serviceLine: string, roomType: string | undefined, clientId: string): Promise<Array<{
     competitorName: string;
     roomType: string;
     monthlyRateAvg: number;
@@ -1592,7 +1592,8 @@ export class DatabaseStorage implements IStorage {
   async getTopSurveyCompetitorForLocation(
     locationName: string,
     serviceLine: string,
-    roomType?: string
+    roomType: string | undefined,
+    clientId: string
   ): Promise<Array<{
     competitorName: string;
     roomType: string;
@@ -1602,6 +1603,18 @@ export class DatabaseStorage implements IStorage {
     weight: number;
     distanceMiles: number | null;
   }> | null> {
+    // Map service line to the competitorType stored in the DB
+    const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
+      'HC': 'HC',
+      'HC/MC': 'HC/MC',
+      'AL': 'AL',
+      'AL/MC': 'AL/MC',
+      'SL': 'IL_IL',
+      'VIL': 'IL_Villa',
+    };
+    const mappedType = SERVICE_LINE_TO_COMPETITOR_TYPE[serviceLine];
+    if (!mappedType) return null; // Unrecognized service line — no survey data
+
     // Fetch the portfolio location's coordinates once so we can compute distance
     // on-the-fly for any survey rows whose distanceMiles column is still null.
     const [locationRow] = await db
@@ -1613,13 +1626,40 @@ export class DatabaseStorage implements IStorage {
       ? { lat: locationRow.lat, lng: locationRow.lng }
       : null;
 
-    const rows = await db.select()
-      .from(competitiveSurveyData)
-      .where(and(
-        eq(competitiveSurveyData.keyStatsLocation, locationName),
-        eq(competitiveSurveyData.competitorType, serviceLine)
-      ))
-      .orderBy(sql`survey_month DESC`);
+    const clientIdConditions = [eq(competitiveSurveyData.clientId, clientId)];
+
+    // For HC/MC: query HC/MC rows first; fall back to legacy SMC rows only when none exist,
+    // so locations with older-format imports still resolve until Task #88 renames them.
+    let rows: (typeof competitiveSurveyData.$inferSelect)[] = [];
+    if (mappedType === 'HC/MC') {
+      rows = await db.select()
+        .from(competitiveSurveyData)
+        .where(and(
+          eq(competitiveSurveyData.keyStatsLocation, locationName),
+          eq(competitiveSurveyData.competitorType, 'HC/MC'),
+          ...clientIdConditions
+        ))
+        .orderBy(sql`survey_month DESC`);
+      if (rows.length === 0) {
+        rows = await db.select()
+          .from(competitiveSurveyData)
+          .where(and(
+            eq(competitiveSurveyData.keyStatsLocation, locationName),
+            eq(competitiveSurveyData.competitorType, 'SMC'),
+            ...clientIdConditions
+          ))
+          .orderBy(sql`survey_month DESC`);
+      }
+    } else {
+      rows = await db.select()
+        .from(competitiveSurveyData)
+        .where(and(
+          eq(competitiveSurveyData.keyStatsLocation, locationName),
+          eq(competitiveSurveyData.competitorType, mappedType),
+          ...clientIdConditions
+        ))
+        .orderBy(sql`survey_month DESC`);
+    }
 
     if (!rows.length) return null;
 

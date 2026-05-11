@@ -571,7 +571,7 @@ export async function generateModuloOptimized(req: any, res: any) {
       const slKey = `${campus}|${serviceLine}`;
       const careRates = careRateCache.get(slKey) || { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 };
       try {
-        const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, serviceLine, roomType || undefined);
+        const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, serviceLine, roomType || undefined, clientId);
         competitorCache.set(key, {
           surveyRows: surveyRows || [],
           trilogyCareLevel2Rate: careRates.trilogyCareLevel2Rate,
