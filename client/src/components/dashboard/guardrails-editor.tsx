@@ -21,6 +21,64 @@ const defaultGuardrails = {
   }
 };
 
+function formatCurrency(value: number): string {
+  return Math.round(value).toLocaleString('en-US');
+}
+
+function parseCurrency(raw: string): number {
+  const stripped = raw.replace(/[^0-9\-]/g, '');
+  return stripped === '' || stripped === '-' ? 0 : parseInt(stripped, 10);
+}
+
+interface CurrencyInputProps {
+  id: string;
+  value: number;
+  onChange: (value: number) => void;
+  className?: string;
+  'data-testid'?: string;
+}
+
+function CurrencyInput({ id, value, onChange, className, 'data-testid': testId }: CurrencyInputProps) {
+  const [displayValue, setDisplayValue] = useState(formatCurrency(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDisplayValue(formatCurrency(value));
+    }
+  }, [value, focused]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setDisplayValue(raw);
+    onChange(parseCurrency(raw));
+  };
+
+  const handleFocus = () => {
+    setFocused(true);
+    setDisplayValue(Math.round(value).toString());
+  };
+
+  const handleBlur = () => {
+    setFocused(false);
+    setDisplayValue(formatCurrency(value));
+  };
+
+  return (
+    <Input
+      id={id}
+      type="text"
+      inputMode="numeric"
+      value={displayValue}
+      onChange={handleChange}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      className={className}
+      data-testid={testId}
+    />
+  );
+}
+
 interface GuardrailsEditorProps {
   locationId?: string;
   serviceLine?: string;
@@ -83,6 +141,11 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
   const handleInputChange = (field: string, value: string) => {
     const numValue = value === '' ? 0 : parseFloat(value);
     setFormData(prev => ({ ...prev, [field]: numValue }));
+    setSaveStatus("Configuration ready to save...");
+  };
+
+  const handleCurrencyChange = (field: string, value: number) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
     setSaveStatus("Configuration ready to save...");
   };
 
@@ -151,26 +214,24 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
           </div>
         </div>
 
-        {/* Absolute Price Limits */}
+        {/* Absolute Price Limits — displayed as currency with comma separators */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="min_absolute_price">Minimum Absolute Price ($)</Label>
-            <Input
+            <CurrencyInput
               id="min_absolute_price"
-              type="number"
               value={formData.min_absolute_price}
-              onChange={(e) => handleInputChange('min_absolute_price', e.target.value)}
+              onChange={(v) => handleCurrencyChange('min_absolute_price', v)}
               className="dashboard-input"
               data-testid="input-min-absolute-price"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="max_absolute_price">Maximum Absolute Price ($)</Label>
-            <Input
+            <CurrencyInput
               id="max_absolute_price"
-              type="number"
               value={formData.max_absolute_price}
-              onChange={(e) => handleInputChange('max_absolute_price', e.target.value)}
+              onChange={(v) => handleCurrencyChange('max_absolute_price', v)}
               className="dashboard-input"
               data-testid="input-max-absolute-price"
             />
