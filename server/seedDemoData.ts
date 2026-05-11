@@ -404,7 +404,25 @@ export async function generateDemoData(): Promise<{
   const monthRateFactor = months.map((_, idx) => 0.92 + (idx / (months.length - 1)) * 0.08);
   const rentRollBatch: any[] = [];
 
+  // Simulate portfolio growth: most locations have a full year of data, but the
+  // West expansion cohorts "open" partway through the year so unit counts grow.
+  //   idx  0-35 → monthStart 0  (established portfolio, full 12 months)
+  //   idx 36-40 → monthStart 5  (West/Southwest expansion, joined ~7 months ago)
+  //   idx 41-44 → monthStart 8  (West/Pacific wave 1, joined ~4 months ago)
+  //   idx 45-48 → monthStart 10 (West/Pacific + Mountain, joined ~2 months ago)
+  //   idx 49    → monthStart 11 (newest acquisition, joined this month)
+  // This produces meaningful T1/T3/T6/T12 growth on the Total Units tile.
+  const getMonthStart = (locIndex: number): number => {
+    if (locIndex < 36) return 0;
+    if (locIndex < 41) return 5;
+    if (locIndex < 45) return 8;
+    if (locIndex < 49) return 10;
+    return 11;
+  };
+
   for (const loc of insertedLocations) {
+    const locIndex = insertedLocations.indexOf(loc);
+    const monthStart = getMonthStart(locIndex);
     const serviceLines = SIZE_SERVICE_LINES[loc.size];
     const unitCounts = UNIT_COUNTS[loc.size];
     const locSeed = seededRand(
@@ -436,7 +454,7 @@ export async function generateDemoData(): Promise<{
         // Pre-compute competitor rate for this location/sl/roomType (same for all months)
         const competitorFinalRate = lookupCompetitorRate(loc.name, sl, roomSize);
 
-        for (let mIdx = 0; mIdx < months.length; mIdx++) {
+        for (let mIdx = monthStart; mIdx < months.length; mIdx++) {
           const month = months[mIdx];
           const rateFactor = monthRateFactor[mIdx];
 
@@ -492,7 +510,7 @@ export async function generateDemoData(): Promise<{
               payorType,
               moveInDate,
               clientId: 'demo',
-              sameStore: true,
+              sameStore: monthStart === 0,
               // Pre-computed competitor rate from survey data
               competitorFinalRate,
               competitorRate: competitorFinalRate,
@@ -525,6 +543,8 @@ export async function generateDemoData(): Promise<{
   const inquiryBatch: any[] = [];
 
   for (const loc of insertedLocations) {
+    const locIndex = insertedLocations.indexOf(loc);
+    const locMonthStart = getMonthStart(locIndex);
     const locSeed = seededRand(
       loc.name.split('').reduce((acc, c) => acc * 41 + c.charCodeAt(0), 17) & 0x7fffffff
     );
@@ -533,7 +553,7 @@ export async function generateDemoData(): Promise<{
     for (const sl of serviceLines) {
       if (sl === 'HC' || sl === 'HC/MC') continue;
 
-      for (const month of inquiryMonths) {
+      for (const month of inquiryMonths.slice(locMonthStart)) {
         for (const source of leadSources) {
           const baseInquiries =
             source === 'Website'        ? randInt(locSeed, 12, 40) :

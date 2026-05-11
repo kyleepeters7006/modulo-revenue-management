@@ -667,10 +667,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       console.log('[regenerate-demo-data] Clearing existing demo data...');
-      await db.execute(sql`DELETE FROM inquiry_metrics WHERE client_id = 'demo'`);
-      await db.execute(sql`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`);
-      await db.execute(sql`DELETE FROM rent_roll_data WHERE client_id = 'demo'`);
-      await db.execute(sql`DELETE FROM locations WHERE client_id = 'demo'`);
+      await db.execute(sql.raw(`DELETE FROM ai_rate_outcomes WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo') OR rent_roll_data_id IN (SELECT id FROM rent_roll_data WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo'))`));
+      await db.execute(sql.raw(`DELETE FROM unit_polygons WHERE rent_roll_data_id IN (SELECT id FROM rent_roll_data WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo'))`));
+      await db.execute(sql.raw(`DELETE FROM inquiry_metrics WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`));
+      await db.execute(sql.raw(`DELETE FROM competitors WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM rent_roll_data WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM rent_roll_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM room_type_occupancy_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM revenue_growth_targets WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM upload_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM floor_plans WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM campus_maps WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM pricing_weights WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM guardrails WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM rate_card WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM targets_and_trends WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM adjustment_ranges WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM adjustment_rules WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM location_mappings WHERE target_location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM enquire_data WHERE mapped_location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM locations WHERE client_id = 'demo'`));
       console.log('[regenerate-demo-data] Demo data cleared. Generating new data...');
 
       const { generateDemoData } = await import('./seedDemoData');
@@ -710,11 +727,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       console.log('[generate-demo-data] Clearing existing demo data...');
-      // Clear existing demo data first (idempotent)
-      await db.execute(sql`DELETE FROM inquiry_metrics WHERE client_id = 'demo'`);
-      await db.execute(sql`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`);
-      await db.execute(sql`DELETE FROM rent_roll_data WHERE client_id = 'demo'`);
-      await db.execute(sql`DELETE FROM locations WHERE client_id = 'demo'`);
+      // Delete in FK-safe order using inline subqueries (no Drizzle variable interpolation).
+      await db.execute(sql.raw(`DELETE FROM ai_rate_outcomes WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo') OR rent_roll_data_id IN (SELECT id FROM rent_roll_data WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo'))`));
+      await db.execute(sql.raw(`DELETE FROM unit_polygons WHERE rent_roll_data_id IN (SELECT id FROM rent_roll_data WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo'))`));
+      await db.execute(sql.raw(`DELETE FROM inquiry_metrics WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`));
+      await db.execute(sql.raw(`DELETE FROM competitors WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM rent_roll_data WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM rent_roll_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM room_type_occupancy_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM revenue_growth_targets WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM upload_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM floor_plans WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM campus_maps WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM pricing_weights WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM guardrails WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM rate_card WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM targets_and_trends WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM adjustment_ranges WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM adjustment_rules WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM location_mappings WHERE target_location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM enquire_data WHERE mapped_location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM locations WHERE client_id = 'demo'`));
       console.log('[generate-demo-data] Demo data cleared. Generating new data...');
 
       const { generateDemoData } = await import('./seedDemoData');
