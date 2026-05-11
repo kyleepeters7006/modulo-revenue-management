@@ -136,7 +136,8 @@ export default function AICalculationDialog({
           </div>
         ) : calculation && calcDetails && (
           <div className="space-y-4 mt-4" data-testid="ai-calculation-details">
-            {/* Summary Card - matching Modulo format */}
+
+            {/* ── STEP 0: Rate Summary (TL;DR at top) ─────────────────────── */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Rate Summary</CardTitle>
@@ -184,13 +185,47 @@ export default function AICalculationDialog({
               </CardContent>
             </Card>
 
-            {/* Algorithm Weights Configuration - matching Modulo format */}
+            {/* ── STEP 1: Unit Information (inputs / context) ───────────────── */}
+            {calcDetails.unitData && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Info className="h-4 w-4 text-blue-500" />
+                    Step 1 — Unit Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Status</p>
+                      <Badge variant={calcDetails.unitData.isOccupied ? "default" : "secondary"}>
+                        {calcDetails.unitData.isOccupied ? "Occupied" : "Vacant"}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Days Vacant</p>
+                      <p className="font-medium">{calcDetails.unitData.daysVacant || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Service Line</p>
+                      <p className="font-medium">{calcDetails.serviceLine || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Occupancy Rate</p>
+                      <p className="font-medium">{calcDetails.actualOccupancyRate ? `${(calcDetails.actualOccupancyRate * 100).toFixed(1)}%` : 'N/A'}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── STEP 2: Algorithm Weights (Pass 1 configuration) ─────────── */}
             {calcDetails.weights && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-blue-500" />
-                    AI Algorithm Weights Configuration
+                    Step 2 — Algorithm Weights
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -245,13 +280,155 @@ export default function AICalculationDialog({
               </Card>
             )}
 
-            {/* Revenue Target Strategy - shows how targets influence AI pricing */}
+            {/* ── STEP 3: Pass 1 — Weighted Signal Calculation ─────────────── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Step 3 — Weighted Signal Calculation (Pass 1)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
+                    <>
+                      {calcDetails.adjustments.map((adj: any, index: number, allAdjustments: any[]) => (
+                        <div key={index}>
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="space-y-1 flex-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-sm font-medium">{adj.factor}</h4>
+                                <Badge variant="outline" className="text-xs">
+                                  Weight: {adj.weight}%
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatCurrency(Math.abs(adj.impact))} impact
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="bg-blue-50/50 dark:bg-blue-950/20 rounded-md px-3 py-2 mb-2">
+                            <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
+                          </div>
+
+                          <div className="border-l-2 border-blue-500/20 pl-3 mb-2">
+                            <p className="text-xs text-muted-foreground">{adj.description}</p>
+                          </div>
+
+                          <Collapsible>
+                            <CollapsibleTrigger className="w-full group">
+                              <div className="flex items-center gap-2 text-xs hover:bg-muted/50 rounded p-2 transition-colors">
+                                <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90 transition-transform" />
+                                <div className="flex items-center gap-4 flex-1 flex-wrap">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-muted-foreground">Raw adjustment:</span>
+                                    <span className="font-medium">
+                                      {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
+                                    </span>
+                                  </div>
+                                  <span className="text-muted-foreground">×</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-muted-foreground">Weight:</span>
+                                    <span className="font-medium">{adj.weight}%</span>
+                                  </div>
+                                  <span className="text-muted-foreground">=</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-muted-foreground">Weighted:</span>
+                                    <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                      {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="text-xs text-muted-foreground italic hidden sm:inline">Click for details</span>
+                              </div>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800 space-y-2">
+                                <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Signal Calculation Breakdown</p>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-muted-foreground">Normalized Signal:</span>
+                                  <span className="text-xs font-mono font-medium">
+                                    {adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}
+                                  </span>
+                                </div>
+                                <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
+                                  <p className="text-xs font-mono">
+                                    Signal ({adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}) → Adjustment ({adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)})
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {adj.signalExplanation || 'The normalized signal is converted to a percentage adjustment based on the AI algorithm\'s scaling factors.'}
+                                  </p>
+                                </div>
+                                {adj.rawData && (
+                                  <div className="space-y-1">
+                                    <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Raw Data:</p>
+                                    <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
+                                      {Object.entries(adj.rawData).map(([key, value]: [string, any]) => (
+                                        <div key={key} className="flex items-center justify-between text-xs">
+                                          <span className="text-muted-foreground">{key}:</span>
+                                          <span className="font-mono">{typeof value === 'number' ? value.toFixed(2) : String(value)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
+
+                          {index < allAdjustments.length - 1 && <Separator className="mt-3" />}
+                        </div>
+                      ))}
+
+                      {/* Pass 1 subtotal */}
+                      <Separator />
+                      {(() => {
+                        const hasV2 = calcDetails.guardrailWasApplied !== undefined;
+                        const effectiveAdj = hasV2
+                          ? calcDetails.effectiveAdjustment
+                          : (baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0);
+                        const preGuardrailAdj = hasV2
+                          ? calcDetails.preGuardrailAdjustment
+                          : calcDetails.totalAdjustment;
+                        const hasGuardrail = hasV2
+                          ? calcDetails.guardrailWasApplied
+                          : Math.abs(effectiveAdj - preGuardrailAdj) > 0.001;
+                        return (
+                          <div className="py-2 font-medium space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span>Pass 1 Total</span>
+                              <span className={getAdjustmentColor(preGuardrailAdj)}>
+                                {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)}
+                              </span>
+                            </div>
+                            {hasGuardrail && (
+                              <div className="text-xs text-amber-600 dark:text-amber-400">
+                                (After guardrail: {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)})
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-4">
+                      No detailed adjustment breakdown available
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── STEP 4a: Revenue Target context (Pass 2 inputs) ──────────── */}
             {calcDetails.revenueTarget && (
               <Card className="border-purple-200 dark:border-purple-800">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Target className="h-4 w-4 text-purple-500" />
-                    Revenue Target Strategy
+                    Step 4 — Revenue Target Context (Pass 2)
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -355,13 +532,13 @@ export default function AICalculationDialog({
               </Card>
             )}
 
-            {/* Revenue Target Strategy Layer — the enhanced algorithm pass */}
+            {/* ── STEP 4b: Revenue Target Strategy Layer (Pass 2 detail) ─────── */}
             {calcDetails.strategyLayer && (
               <Card className="border-indigo-200 dark:border-indigo-800">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Zap className="h-4 w-4 text-indigo-500" />
-                    Revenue Target Strategy Layer
+                    Step 4b — Revenue Target Strategy Layer
                     <Badge variant="outline" className="text-xs ml-auto">
                       {calcDetails.strategyLayer.unitStrategySegment?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) || 'Neutral'}
                     </Badge>
@@ -508,216 +685,46 @@ export default function AICalculationDialog({
               </Card>
             )}
 
-            {/* AI Algorithm Calculation - matching Modulo format with collapsible details */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">AI Algorithm Calculation</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
-                    <>
-                      {calcDetails.adjustments.map((adj: any, index: number, allAdjustments: any[]) => (
-                        <div key={index}>
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="space-y-1 flex-1">
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-sm font-medium">{adj.factor}</h4>
-                                <Badge variant="outline" className="text-xs">
-                                  Weight: {adj.weight}%
-                                </Badge>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className={`text-sm font-bold ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatCurrency(Math.abs(adj.impact))} impact
-                              </p>
-                            </div>
-                          </div>
-                          
-                          {/* Formula Display */}
-                          <div className="bg-blue-50/50 dark:bg-blue-950/20 rounded-md px-3 py-2 mb-2">
-                            <p className="text-xs font-mono">{adj.formula || adj.calculation}</p>
-                          </div>
-                          
-                          {/* Sentence Explanation */}
-                          <div className="border-l-2 border-blue-500/20 pl-3 mb-2">
-                            <p className="text-xs text-muted-foreground">{adj.description}</p>
-                          </div>
-                          
-                          {/* Collapsible Details - matching Modulo format */}
-                          <Collapsible>
-                            <CollapsibleTrigger className="w-full group">
-                              <div className="flex items-center gap-2 text-xs hover:bg-muted/50 rounded p-2 transition-colors">
-                                <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90 transition-transform" />
-                                <div className="flex items-center gap-4 flex-1 flex-wrap">
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-muted-foreground">Raw adjustment:</span>
-                                    <span className="font-medium">
-                                      {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
-                                    </span>
-                                  </div>
-                                  <span className="text-muted-foreground">×</span>
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-muted-foreground">Weight:</span>
-                                    <span className="font-medium">{adj.weight}%</span>
-                                  </div>
-                                  <span className="text-muted-foreground">=</span>
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-muted-foreground">Weighted:</span>
-                                    <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                      {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span className="text-xs text-muted-foreground italic hidden sm:inline">Click for details</span>
-                              </div>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800 space-y-2">
-                                <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Signal Calculation Breakdown</p>
-                                
-                                {/* Signal Value */}
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs text-muted-foreground">Normalized Signal:</span>
-                                  <span className="text-xs font-mono font-medium">
-                                    {adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}
-                                  </span>
-                                </div>
-                                
-                                {/* Signal to Adjustment Conversion */}
-                                <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
-                                  <p className="text-xs font-mono">
-                                    Signal ({adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}) → Adjustment ({adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)})
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {adj.signalExplanation || 'The normalized signal is converted to a percentage adjustment based on the AI algorithm\'s scaling factors.'}
-                                  </p>
-                                </div>
-                                
-                                {/* Raw Data Used */}
-                                {adj.rawData && (
-                                  <div className="space-y-1">
-                                    <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">Raw Data:</p>
-                                    <div className="bg-white dark:bg-gray-900 rounded p-2 space-y-1">
-                                      {Object.entries(adj.rawData).map(([key, value]: [string, any]) => (
-                                        <div key={key} className="flex items-center justify-between text-xs">
-                                          <span className="text-muted-foreground">{key}:</span>
-                                          <span className="font-mono">{typeof value === 'number' ? value.toFixed(2) : String(value)}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </CollapsibleContent>
-                          </Collapsible>
-                          
-                          {index < allAdjustments.length - 1 && <Separator className="mt-3" />}
+            {/* ── STEP 5: Guardrails (Pass 3 — final rate clamping) ─────────── */}
+            {(() => {
+              const hasV2Guardrail = calcDetails.guardrailWasApplied === true;
+              const hasLegacyGuardrail = Array.isArray(calcDetails.guardrailsApplied) && calcDetails.guardrailsApplied.length > 0;
+              if (!hasV2Guardrail && !hasLegacyGuardrail) return null;
+              return (
+                <Card className="border-amber-200 dark:border-amber-800">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-amber-500" />
+                      Step 5 — Guardrails Applied
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2" data-testid="ai-guardrails-list">
+                      {hasV2Guardrail && (
+                        <div className="p-2 bg-amber-50 dark:bg-amber-950/20 rounded text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
+                          <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                          <span>
+                            Rate clamped by guardrail: algorithm output ({formatPercent(calcDetails.preGuardrailAdjustment ?? 0)}) was
+                            adjusted to {formatPercent(calcDetails.effectiveAdjustment ?? 0)}.
+                            {(calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed)
+                              ? ` Allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'}.`
+                              : ''}
+                          </span>
+                        </div>
+                      )}
+                      {hasLegacyGuardrail && calcDetails.guardrailsApplied.map((guardrail: string, index: number) => (
+                        <div key={index} className="p-2 bg-amber-50 dark:bg-amber-950/20 rounded text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
+                          <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                          <span>{guardrail}</span>
                         </div>
                       ))}
-                      
-                      {/* Subtotal */}
-                      <Separator />
-                      {(() => {
-                        // v2: use the explicit fields stored by the endpoint so we never
-                        // infer guardrail application from a stale-rate vs fresh-adjustment
-                        // ratio, which previously showed a false -17% guardrail warning.
-                        const hasV2 = calcDetails.guardrailWasApplied !== undefined;
-                        const effectiveAdj = hasV2
-                          ? calcDetails.effectiveAdjustment
-                          : (baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0);
-                        const preGuardrailAdj = hasV2
-                          ? calcDetails.preGuardrailAdjustment
-                          : calcDetails.totalAdjustment;
-                        const hasGuardrail = hasV2
-                          ? calcDetails.guardrailWasApplied
-                          : Math.abs(effectiveAdj - preGuardrailAdj) > 0.001;
-                        return (
-                          <div className="py-2 font-medium space-y-1">
-                            <div className="flex justify-between items-center">
-                              <span>AI Algorithm Total</span>
-                              <span className={getAdjustmentColor(effectiveAdj)}>
-                                {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
-                              </span>
-                            </div>
-                            {hasGuardrail && (
-                              <div className="text-xs text-amber-600 dark:text-amber-400">
-                                (Pre-guardrail: {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)})
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </>
-                  ) : (
-                    <div className="text-center text-muted-foreground py-4">
-                      No detailed adjustment breakdown available
                     </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
-            {/* Guardrails Applied */}
-            {calcDetails.guardrailsApplied && calcDetails.guardrailsApplied.length > 0 && (
-              <Card className="border-amber-200 dark:border-amber-800">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-amber-500" />
-                    Smart Adjustments (Guardrails)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2" data-testid="ai-guardrails-list">
-                    {calcDetails.guardrailsApplied.map((guardrail: string, index: number) => (
-                      <div key={index} className="p-2 bg-amber-50 dark:bg-amber-950/20 rounded text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
-                        <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                        <span>{guardrail}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Unit Data */}
-            {calcDetails.unitData && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Info className="h-4 w-4 text-blue-500" />
-                    Unit Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Status</p>
-                      <Badge variant={calcDetails.unitData.isOccupied ? "default" : "secondary"}>
-                        {calcDetails.unitData.isOccupied ? "Occupied" : "Vacant"}
-                      </Badge>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Days Vacant</p>
-                      <p className="font-medium">{calcDetails.unitData.daysVacant || 0}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Service Line</p>
-                      <p className="font-medium">{calcDetails.serviceLine || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Occupancy Rate</p>
-                      <p className="font-medium">{calcDetails.actualOccupancyRate ? `${(calcDetails.actualOccupancyRate * 100).toFixed(1)}%` : 'N/A'}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
+            {/* ── STEP 6: Calculation Formula (final math) ──────────────────── */}
             {/* Calculation Formula */}
             <Card className="bg-gray-50 dark:bg-gray-800">
               <CardContent className="pt-4">
