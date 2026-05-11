@@ -280,6 +280,7 @@ export interface IStorage {
   // Care Level 2 Rates
   getCareLevel2Rates(clientId: string): Promise<CareLevelRate[]>;
   upsertCareLevel2Rate(locationId: string, serviceLine: string, level2Rate: number, clientId: string): Promise<CareLevelRate>;
+  backfillCareLevelRatesFromHistory(clientId: string): Promise<{ upserted: number; skipped: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2435,6 +2436,142 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return result;
+  }
+
+  /**
+   * Backfill care_level_rates from rent_roll_history for a given client.
+   *
+   * Scans all history rows where careLevel matches a Level 2 pattern and careRate > 0.
+   * Groups by (location, serviceLine), takes the highest careRate from the most recent
+   * uploadMonth. Inserts only when no existing entry exists for that location + service
+   * line combination (DO NOTHING on conflict to preserve admin-entered values).
+   *
+   * Returns { upserted, skipped } summary.
+   */
+  async backfillCareLevelRatesFromHistory(clientId: string): Promise<{ upserted: number; skipped: number }> {
+    // Get all locations for this client so we can resolve locationId from location name.
+    // rent_roll_history has no client_id column; tenant scoping is done via the locations join below.
+    // Also include global (client_id IS NULL) locations as a fallback, matching the convention used
+    // in /api/upload/rent-roll.
+    const clientLocations = await db
+      .select({ id: locations.id, name: locations.name })
+      .from(locations)
+      .where(or(eq(locations.clientId, clientId), isNull(locations.clientId)));
+    // Build map using trimmed lowercase name; client-scoped entries take precedence over global ones
+    // if both share the same name (insert client-scoped last so they win).
+    const locationMap = new Map<string, string>();
+    for (const loc of clientLocations) {
+      locationMap.set(loc.name.toLowerCase().trim(), loc.id);
+    }
+
+    // For each (location, serviceLine), choose the MOST RECENT uploadMonth that has any
+    // Level 2 rows, then take the max care_rate within that month.
+    //
+    // We UNION two sources:
+    //   1. rent_roll_history — written by importMatrixCareRentRollCSV (/api/import/rent-roll)
+    //      Tenant safety via INNER JOIN with locations filtered by clientId (history has no client_id).
+    //   2. rent_roll_data — written by /api/upload/rent-roll (legacy/generic upload path)
+    //      Directly client_id-scoped; no join needed.
+    //
+    // ROW_NUMBER() picks the latest uploadMonth per (location, serviceLine) combination;
+    // WHERE rn = 1 keeps only the most-recent month's aggregate.
+    const historyRows = await db.execute(sql`
+      WITH combined AS (
+        -- Source 1: rent_roll_history (scoped via locations join)
+        SELECT
+          rrh.location,
+          rrh.service_line,
+          rrh.upload_month,
+          rrh.care_rate
+        FROM rent_roll_history rrh
+        INNER JOIN locations loc
+          ON LOWER(loc.name) = LOWER(rrh.location)
+          AND loc.client_id = ${clientId}
+        WHERE (
+          rrh.care_level = '2'
+          OR rrh.care_level ILIKE '%level 2%'
+          OR rrh.care_level ILIKE '%lvl 2%'
+        )
+        AND rrh.care_rate > 0
+
+        UNION ALL
+
+        -- Source 2: rent_roll_data (directly client_id-scoped)
+        SELECT
+          rrd.location,
+          rrd.service_line,
+          rrd.upload_month,
+          rrd.care_rate
+        FROM rent_roll_data rrd
+        WHERE rrd.client_id = ${clientId}
+          AND (
+            rrd.care_level = '2'
+            OR rrd.care_level ILIKE '%level 2%'
+            OR rrd.care_level ILIKE '%lvl 2%'
+          )
+          AND rrd.care_rate > 0
+      ),
+      ranked_months AS (
+        SELECT
+          location,
+          service_line,
+          upload_month,
+          MAX(care_rate) AS max_care_rate,
+          ROW_NUMBER() OVER (
+            PARTITION BY location, service_line
+            ORDER BY upload_month DESC
+          ) AS rn
+        FROM combined
+        GROUP BY location, service_line, upload_month
+      )
+      SELECT location, service_line, max_care_rate
+      FROM ranked_months
+      WHERE rn = 1
+    `);
+
+    const rows = historyRows.rows as { location: string; service_line: string; max_care_rate: number }[];
+
+    // Get existing care_level_rates entries for this client to avoid overwriting them
+    const existingEntries = await db
+      .select({ locationId: careLevelRates.locationId, serviceLine: careLevelRates.serviceLine })
+      .from(careLevelRates)
+      .where(eq(careLevelRates.clientId, clientId));
+    const existingSet = new Set(existingEntries.map(e => `${e.locationId}|${e.serviceLine}`));
+
+    let upserted = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      const locationId = locationMap.get((row.location || '').toLowerCase().trim());
+      if (!locationId) {
+        skipped++;
+        continue;
+      }
+      const key = `${locationId}|${row.service_line}`;
+      if (existingSet.has(key)) {
+        // Admin entry already exists — preserve it
+        skipped++;
+        continue;
+      }
+      const rate = Number(row.max_care_rate);
+      if (!rate || rate <= 0) {
+        skipped++;
+        continue;
+      }
+      const inserted = await db
+        .insert(careLevelRates)
+        .values({ locationId, serviceLine: row.service_line, level2Rate: rate, clientId })
+        .onConflictDoNothing()
+        .returning({ id: careLevelRates.locationId });
+      // Only count rows that were actually written (not silently skipped by conflict guard)
+      if (inserted.length > 0) {
+        upserted++;
+      } else {
+        skipped++;
+      }
+    }
+
+    return { upserted, skipped };
   }
 }
 

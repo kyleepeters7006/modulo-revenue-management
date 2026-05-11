@@ -1530,6 +1530,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/admin/backfill-care-level-rates — harvest Level 2 care rates from rent_roll_history
+  // and persist them into care_level_rates so the competitor formula has the correct "our" rate.
+  // Only inserts rows that don't already have an admin-entered value (DO NOTHING on conflict).
+  app.post('/api/admin/backfill-care-level-rates', async (req: any, res) => {
+    // Require either a logged-in admin session OR the seed secret header (for automation)
+    const seedSecret = req.headers['x-seed-secret'];
+    const session = req.session as any;
+    const hasSeedSecret = seedSecret && seedSecret === process.env.SEED_SECRET;
+    if (!hasSeedSecret) {
+      if (!session?.userId || !session?.clientId) {
+        return res.status(403).json({ error: 'Unauthorized' });
+      }
+      try {
+        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+          return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+        }
+      } catch {
+        return res.status(500).json({ error: 'Failed to verify admin status' });
+      }
+    }
+
+    const clientId = hasSeedSecret
+      ? (req.body?.clientId || 'trilogy')
+      : (session.clientId as string);
+
+    try {
+      console.log(`[backfill-care-level-rates] Starting backfill for client: ${clientId}`);
+      const result = await storage.backfillCareLevelRatesFromHistory(clientId);
+      console.log(`[backfill-care-level-rates] Done — upserted: ${result.upserted}, skipped: ${result.skipped}`);
+      return res.json({
+        success: true,
+        upserted: result.upserted,
+        skipped: result.skipped,
+        message: `Backfill complete. Populated ${result.upserted} Level 2 care rate(s) from historical rent roll data. ${result.skipped} skipped (already set or no location match).`,
+      });
+    } catch (error: any) {
+      console.error('[backfill-care-level-rates] Error:', error);
+      return res.status(500).json({ error: 'Backfill failed', details: error.message });
+    }
+  });
+
   // Sync locations from rent roll data
   app.post('/api/admin/sync-locations', async (req, res) => {
     try {
@@ -5914,6 +5956,10 @@ Focus areas (in order):
       // Process and store data
       const processedRecords: any[] = [];
 
+      // Harvest Level 2 care rates for care_level_rates table.
+      // Key: "locationId|serviceLine", Value: max rate seen so far.
+      const level2HarvestedUpload = new Map<string, { locationId: string; serviceLine: string; rate: number }>();
+
       for (const row of jsonData) {
         // Get raw room type with attributes
         const rawRoomType = getRowValue(row, 'BedTypeDesc', 'Room Type', 'room type', 'RoomType', 'roomType') || '';
@@ -6026,6 +6072,40 @@ Focus areas (in order):
         };
 
         processedRecords.push(rentRollEntry);
+
+        // Harvest Level 2 care rates from this row.
+        // Check both the general careLevel field and MatrixCare-specific LOCDescription column.
+        const rowLocDesc = (getRowValue(row, 'LOCDescription', 'locDescription', 'LOC_Description') || '').toString().trim();
+        const rowLocRate = parseFloat((getRowValue(row, 'LOC_Rate', 'locRate', 'LOCRate', 'LOC Rate') || '0').toString().replace(/[$,]/g, '')) || 0;
+        const rowCareLevel = (rentRollEntry.careLevel || '').toString();
+        const rowCareRate = rentRollEntry.careRate || 0;
+
+        const isL2LocDesc = rowLocDesc && (
+          rowLocDesc.toLowerCase().includes('level 2') ||
+          rowLocDesc.toLowerCase().includes('lvl 2') ||
+          rowLocDesc === '2'
+        );
+        const isL2CareLevel = rowCareLevel && (
+          rowCareLevel.toLowerCase().includes('level 2') ||
+          rowCareLevel.toLowerCase().includes('lvl 2') ||
+          rowCareLevel === '2'
+        );
+
+        const harvestRate = (isL2LocDesc && rowLocRate > 0) ? rowLocRate
+          : (isL2CareLevel && rowCareRate > 0) ? rowCareRate
+          : 0;
+
+        if (harvestRate > 0 && rentRollEntry.locationId) {
+          const harvestKey = `${rentRollEntry.locationId}|${rentRollEntry.serviceLine}`;
+          const existing = level2HarvestedUpload.get(harvestKey);
+          if (!existing || harvestRate > existing.rate) {
+            level2HarvestedUpload.set(harvestKey, {
+              locationId: rentRollEntry.locationId,
+              serviceLine: rentRollEntry.serviceLine,
+              rate: harvestRate,
+            });
+          }
+        }
       }
 
       // Log for debugging
@@ -6065,6 +6145,22 @@ Focus areas (in order):
       // This prevents duplicates when re-uploading the same month
       console.log(`Deleting existing records for ${uploadMonth}...`);
       await storage.uploadRentRollData(uploadMonth, processedRecords);
+
+      // Upsert harvested Level 2 care rates into care_level_rates (DO NOTHING preserves admin values)
+      if (level2HarvestedUpload.size > 0) {
+        const { careLevelRates: clrTable } = await import('@shared/schema');
+        for (const { locationId, serviceLine, rate } of level2HarvestedUpload.values()) {
+          try {
+            await db
+              .insert(clrTable)
+              .values({ locationId, serviceLine, level2Rate: rate, clientId })
+              .onConflictDoNothing();
+          } catch (clrErr) {
+            console.warn(`[upload/rent-roll] care_level_rates insert failed for ${locationId}/${serviceLine}: ${clrErr}`);
+          }
+        }
+        console.log(`[upload/rent-roll] Harvested ${level2HarvestedUpload.size} Level 2 care rate(s) into care_level_rates for client ${clientId}`);
+      }
       
       // Track upload history
       await storage.createUploadHistory({
@@ -14363,7 +14459,7 @@ Respond in JSON format:
       console.log(`Importing rent roll for ${uploadMonth}, MatrixCare format: ${isMatrixCare}`);
       
       const importStats = isMatrixCare 
-        ? await importMatrixCareRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname)
+        ? await importMatrixCareRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname, (req as any).clientId)
         : await importRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname);
       
       // If this is the most recent month, sync to current rent roll

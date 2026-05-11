@@ -57,6 +57,31 @@ export default function DataManagement() {
     },
   });
 
+  const backfillCareLevelRatesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/admin/backfill-care-level-rates', { method: 'POST' });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Backfill failed');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Level 2 Care Rates Backfilled",
+        description: data.message || `Populated ${data.upserted} care rate(s).`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Backfill Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const cleanupOrphanedLocationsMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch('/api/admin/cleanup-orphaned-locations', { method: 'POST' });
@@ -1220,6 +1245,38 @@ export default function DataManagement() {
                     <>
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Regenerate Demo Data
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Admin: Backfill Level 2 Care Rates — visible to authenticated admins only */}
+          {isAdmin && (
+            <Card className="border-teal-200 bg-teal-50">
+              <CardHeader>
+                <CardTitle className="text-teal-900">Admin: Backfill Level 2 Care Rates</CardTitle>
+                <CardDescription className="text-teal-700">
+                  Scan all historical rent roll data for Level 2 LOC rows and populate the care rates table used by the competitor adjustment formula. Only fills in missing entries — existing manually-entered rates are preserved.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={() => backfillCareLevelRatesMutation.mutate()}
+                  disabled={backfillCareLevelRatesMutation.isPending}
+                  className="bg-teal-600 hover:bg-teal-700 text-white"
+                  data-testid="button-backfill-care-level-rates"
+                >
+                  {backfillCareLevelRatesMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Backfilling...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Backfill Level 2 Care Rates
                     </>
                   )}
                 </Button>

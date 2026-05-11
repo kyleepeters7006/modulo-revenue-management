@@ -8,6 +8,7 @@ import {
   competitiveSurveyData,
   rentRollData,
   locations,
+  careLevelRates,
   type InsertRentRollHistory,
   type InsertEnquireData,
   type InsertLocationMapping,
@@ -1008,7 +1009,8 @@ function parseBoolean(value: any): boolean {
 export async function importMatrixCareRentRollCSV(
   fileBuffer: Buffer,
   uploadMonth: string,
-  fileName: string
+  fileName: string,
+  clientId?: string
 ): Promise<ImportStats> {
   const stats: ImportStats = {
     totalRecords: 0,
@@ -1099,6 +1101,10 @@ export async function importMatrixCareRentRollCSV(
             // Track duplicates using location + serviceLine + roomNumber
             const seenUnits = new Set<string>();
 
+            // Harvest Level 2 care rates for care_level_rates table.
+            // Key: "locationId|serviceLine", Value: { locationId, serviceLine, clientId, rate }
+            const level2Harvested = new Map<string, { locationId: string; serviceLine: string; rate: number }>();
+
             for (const row of results.data as any[]) {
               try {
                 // Extract core fields
@@ -1147,11 +1153,37 @@ export async function importMatrixCareRentRollCSV(
                       console.warn(`[rent-roll-import] ${msg}`);
                       stats.errors.push(msg);
                     }
+                    // Also harvest into level2Harvested map (take max rate per location+SL)
+                    if (locationId) {
+                      const harvestKey = `${locationId}|${serviceLine}`;
+                      const existing = level2Harvested.get(harvestKey);
+                      if (!existing || locRate > existing.rate) {
+                        level2Harvested.set(harvestKey, { locationId, serviceLine, rate: locRate });
+                      }
+                    }
                   }
                   console.log(`Skipping duplicate: ${unitKey}`);
                   continue;
                 }
                 seenUnits.add(unitKey);
+
+                // Harvest Level 2 care rates from this row's LOCDescription + LOC_Rate
+                {
+                  const locDescMain = (row['LOCDescription'] || '').trim();
+                  const locRateMain = parseCurrency(row['LOC_Rate']);
+                  const isL2Main = locDescMain && (
+                    locDescMain.toLowerCase().includes('level 2') ||
+                    locDescMain.toLowerCase().includes('lvl 2') ||
+                    locDescMain === '2'
+                  );
+                  if (isL2Main && locRateMain > 0 && locationId) {
+                    const harvestKey = `${locationId}|${serviceLine}`;
+                    const existing = level2Harvested.get(harvestKey);
+                    if (!existing || locRateMain > existing.rate) {
+                      level2Harvested.set(harvestKey, { locationId, serviceLine, rate: locRateMain });
+                    }
+                  }
+                }
 
                 // Determine occupancy
                 const patientId = row['PatientID1'] || '';
@@ -1233,6 +1265,22 @@ export async function importMatrixCareRentRollCSV(
                 stats.failedImports++;
                 stats.errors.push(`Row ${stats.successfulImports + stats.failedImports}: ${error.message}`);
               }
+            }
+
+            // Upsert harvested Level 2 care rates into care_level_rates.
+            // Only insert when no existing entry exists (DO NOTHING preserves admin values).
+            if (clientId && level2Harvested.size > 0) {
+              for (const { locationId, serviceLine, rate } of level2Harvested.values()) {
+                try {
+                  await tx
+                    .insert(careLevelRates)
+                    .values({ locationId, serviceLine, level2Rate: rate, clientId })
+                    .onConflictDoNothing();
+                } catch (insertErr) {
+                  console.warn(`[rent-roll-import] care_level_rates insert failed for ${locationId}/${serviceLine}: ${insertErr}`);
+                }
+              }
+              console.log(`[rent-roll-import] Harvested ${level2Harvested.size} Level 2 care rate(s) into care_level_rates for client ${clientId}`);
             }
           });
         } catch (txError: any) {
