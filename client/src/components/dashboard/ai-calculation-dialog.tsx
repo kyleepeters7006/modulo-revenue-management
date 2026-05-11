@@ -623,8 +623,19 @@ export default function AICalculationDialog({
                       {/* Subtotal */}
                       <Separator />
                       {(() => {
-                        const effectiveAdj = baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0;
-                        const hasGuardrail = Math.abs(effectiveAdj - calcDetails.totalAdjustment) > 0.001;
+                        // v2: use the explicit fields stored by the endpoint so we never
+                        // infer guardrail application from a stale-rate vs fresh-adjustment
+                        // ratio, which previously showed a false -17% guardrail warning.
+                        const hasV2 = calcDetails.guardrailWasApplied !== undefined;
+                        const effectiveAdj = hasV2
+                          ? calcDetails.effectiveAdjustment
+                          : (baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0);
+                        const preGuardrailAdj = hasV2
+                          ? calcDetails.preGuardrailAdjustment
+                          : calcDetails.totalAdjustment;
+                        const hasGuardrail = hasV2
+                          ? calcDetails.guardrailWasApplied
+                          : Math.abs(effectiveAdj - preGuardrailAdj) > 0.001;
                         return (
                           <div className="py-2 font-medium space-y-1">
                             <div className="flex justify-between items-center">
@@ -635,7 +646,7 @@ export default function AICalculationDialog({
                             </div>
                             {hasGuardrail && (
                               <div className="text-xs text-amber-600 dark:text-amber-400">
-                                (Pre-guardrail: {calcDetails.totalAdjustment > 0 ? '+' : ''}{formatPercent(calcDetails.totalAdjustment)})
+                                (Pre-guardrail: {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)})
                               </div>
                             )}
                           </div>
@@ -712,23 +723,39 @@ export default function AICalculationDialog({
               <CardContent className="pt-4">
                 <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">Calculation Formula:</h3>
                 {(() => {
-                  const effectiveAdjustment = baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0;
-                  const hasGuardrailAdjustment = Math.abs(effectiveAdjustment - calcDetails.totalAdjustment) > 0.001;
+                  // v2: use explicit guardrail fields; fall back to ratio inference only for
+                  // legacy cached data that pre-dates the v2 endpoint format.
+                  const hasV2 = calcDetails.guardrailWasApplied !== undefined;
+                  const effectiveAdj = hasV2
+                    ? calcDetails.effectiveAdjustment
+                    : (baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0);
+                  const preGuardrailAdj = hasV2
+                    ? calcDetails.preGuardrailAdjustment
+                    : calcDetails.totalAdjustment;
+                  const hasGuardrail = hasV2
+                    ? calcDetails.guardrailWasApplied
+                    : Math.abs(effectiveAdj - preGuardrailAdj) > 0.001;
                   return (
                     <div className="space-y-2 text-sm font-mono">
                       <div className="text-gray-700 dark:text-gray-300">
                         Base Rate × (1 + Total Adjustments) = Final Rate
                       </div>
                       <div className="text-blue-700 dark:text-blue-300 font-medium">
-                        {formatCurrency(baseRate)} × (1 + {formatPercent(effectiveAdjustment)}) = {formatCurrency(aiSuggestedRate)}
+                        {formatCurrency(baseRate)} × (1 + {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}) = {formatCurrency(aiSuggestedRate)}
                       </div>
                       <div className="text-xs text-gray-500 mt-2">
-                        = {formatCurrency(baseRate)} × {(1 + effectiveAdjustment).toFixed(4)} = {formatCurrency(aiSuggestedRate)}
+                        = {formatCurrency(baseRate)} × {(1 + effectiveAdj).toFixed(4)} = {formatCurrency(aiSuggestedRate)}
                       </div>
-                      {hasGuardrailAdjustment && (
+                      {hasGuardrail && (
                         <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
                           <span>⚠️</span>
-                          <span>Guardrail applied: Algorithm suggested {formatPercent(calcDetails.totalAdjustment)}, adjusted to {formatPercent(effectiveAdjustment)}</span>
+                          <span>
+                            Guardrail applied: Algorithm suggested {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
+                            adjusted to {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
+                            {calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed
+                              ? ` (allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'})`
+                              : ''}
+                          </span>
                         </div>
                       )}
                     </div>

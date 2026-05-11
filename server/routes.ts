@@ -12508,19 +12508,26 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         liveRevenueTarget = { status: 'no_target' };
       }
       
-      // Use stored calculation details if available (like Modulo does)
+      // Use stored calculation details if available AND they include the guardrailWasApplied
+      // marker (added in the v2 format). Old cached entries lack this field and may have
+      // a stale aiSuggestedRate that is inconsistent with the stored totalAdjustment, which
+      // causes the dialog to show a false "guardrail applied" warning. Skipping them forces
+      // a fresh recompute and overwrites the stale cache.
       if (unit.aiCalculationDetails) {
         try {
           const storedDetails = JSON.parse(unit.aiCalculationDetails);
-          // Always inject the live revenue target (overrides any stale stored value)
-          storedDetails.revenueTarget = liveRevenueTarget;
-          return res.json({
-            unitId: unit.id,
-            roomType: unit.roomType,
-            streetRate: unit.streetRate,
-            aiSuggestedRate: unit.aiSuggestedRate,
-            calculation: storedDetails
-          });
+          if (storedDetails.guardrailWasApplied !== undefined) {
+            // v2 format — data is self-consistent, safe to return as-is
+            storedDetails.revenueTarget = liveRevenueTarget;
+            return res.json({
+              unitId: unit.id,
+              roomType: unit.roomType,
+              streetRate: unit.streetRate,
+              aiSuggestedRate: unit.aiSuggestedRate,
+              calculation: storedDetails
+            });
+          }
+          // else: old format — fall through to recompute
         } catch (e) {
           console.error('Error parsing stored AI calculation details:', e);
         }
@@ -12530,8 +12537,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const { calculateModuloPrice } = await import('./moduloPricingAlgorithm');
       const { getSentenceExplanation, generateOverallExplanation } = await import('./sentenceExplanations');
       
-      // Fallback to dynamic calculation if no stored details
-      const storedAiRate = unit.aiSuggestedRate;
+      // Fallback to dynamic calculation if no stored details (or old-format cache)
       const streetRate = unit.streetRate || 3185;
       
       // Get AI-specific weights - more aggressive than Modulo
@@ -12608,8 +12614,34 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       // Calculate using sophisticated algorithm
       const result = calculateModuloPrice(streetRate, algorithmWeights, aiInputs);
-      const aiSuggestedRate = storedAiRate || result.finalPrice;
-      
+
+      // ── Guardrail application ───────────────────────────────────────────────
+      // Always use result.finalPrice from the fresh calculation — never mix the
+      // stale stored rate with the freshly-computed totalAdjustment, which would
+      // cause the dialog to display a false "guardrail applied" warning.
+      const preGuardrailRate  = result.finalPrice;
+      const preGuardrailAdjustment = result.totalAdjustment;  // algorithm output before guardrails
+
+      const guardrailsData = await storage.getCurrentGuardrails();
+      let clampedRate = preGuardrailRate;
+      let guardrailWasApplied = false;
+      let guardrailMinAllowed = 0;
+      let guardrailMaxAllowed = Infinity;
+      if (guardrailsData) {
+        const minDec = (guardrailsData.minRateDecrease ?? 5) / 100;
+        const maxInc = (guardrailsData.maxRateIncrease ?? 15) / 100;
+        guardrailMinAllowed = streetRate * (1 - minDec);
+        guardrailMaxAllowed = streetRate * (1 + maxInc);
+        const bounded = Math.max(guardrailMinAllowed, Math.min(guardrailMaxAllowed, preGuardrailRate));
+        if (Math.abs(bounded - preGuardrailRate) > 0.5) {
+          clampedRate = bounded;
+          guardrailWasApplied = true;
+        }
+      }
+
+      const aiSuggestedRate = Math.round(clampedRate);
+      const effectiveAdjustment = streetRate > 0 ? (aiSuggestedRate / streetRate) - 1 : preGuardrailAdjustment;
+
       // Build adjustments with both formulas and sentence explanations
       const adjustments = result.adjustments?.map((adj: any) => ({
         ...adj,
@@ -12628,7 +12660,14 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           stockMarket: algorithmWeights.market,
           inquiryTourVolume: algorithmWeights.demand
         },
-        totalAdjustment: result.totalAdjustment,
+        // v2 guardrail fields — explicit flags so the dialog never has to infer
+        // guardrail application from a rate-ratio comparison across stale data.
+        preGuardrailAdjustment,
+        effectiveAdjustment,
+        guardrailWasApplied,
+        guardrailMinAllowed: Math.round(guardrailMinAllowed),
+        guardrailMaxAllowed: guardrailMaxAllowed === Infinity ? null : Math.round(guardrailMaxAllowed),
+        totalAdjustment: preGuardrailAdjustment,  // kept for backwards compat
         preOverrideTotalAdj: result.preOverrideTotalAdj,
         finalRate: aiSuggestedRate,
         signals: result.signals,
