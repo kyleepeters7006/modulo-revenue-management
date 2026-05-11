@@ -65,6 +65,28 @@ app.use((req, res, next) => {
     log(`[migration] lat/lng column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: create care_level_rates table if it does not exist.
+  // Defined in shared/schema.ts but never applied to the live database.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS care_level_rates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        location_id varchar NOT NULL REFERENCES locations(id),
+        service_line text NOT NULL,
+        level2_rate real NOT NULL,
+        client_id varchar NOT NULL REFERENCES clients(id),
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS care_level_rates_loc_sl_idx
+        ON care_level_rates (client_id, location_id, service_line)
+    `);
+    log("[migration] care_level_rates table ensured");
+  } catch (migErr) {
+    log(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background
