@@ -13,7 +13,7 @@
 
 import { db } from "./db";
 import { geocodeCache, geocodingJobs, locations, competitiveSurveyData, competitors } from "@shared/schema";
-import { and, eq, isNotNull, isNull, or, desc, sql, count } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, desc, sql, count } from "drizzle-orm";
 import { lookupCityCoords } from "./us-cities-data";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -268,6 +268,125 @@ export async function geocodeAddressNearLocation(
   };
 }
 
+// ── One-time stale geocode cleanup for zip-code fix ───────────────────────────
+
+/**
+ * Locations confirmed to have city-level (imprecise) coordinates because their
+ * street address was not resolvable by Nominatim without a zip code.
+ * Task #189: after adding zip codes to the address builder we must clear the old
+ * stale lat/lng so geocodeMissingLocations() re-geocodes them with the full address.
+ */
+const STALE_GEOCODE_LOCATION_NAMES = [
+  "Byron Center - 518",
+  "Bloomington HS - 5149",
+  "Bloomington SC - 5164",
+  "Lexington WH - 2146",
+  "Lexington WC - 2148",
+  "New Castle GO - 2153",
+  "New Castle SL - 2152",
+  "Romeo - 2512",
+  "Romeo SL - 527",
+];
+
+/**
+ * One-time cleanup: null out lat/lng and clear geocode_cache entries for the
+ * 9 locations that received city-level coordinates due to missing zip codes.
+ *
+ * Guard: uses the zip-inclusive cache key as the "already applied" marker.
+ * If geocode_cache already has an entry for the new address (with zip), the
+ * location has already been successfully re-geocoded — skip it. This makes the
+ * function safe to call on every startup with no churn after the first run.
+ *
+ * After clearing, geocodeMissingLocations() will re-geocode using the new
+ * zip-inclusive address string ("address, city, state ZIP"), producing
+ * street-accurate coordinates instead of the city-centroid fallback.
+ */
+export async function clearStaleGeocodeForAffectedLocations(): Promise<number> {
+  try {
+    // Fetch affected locations including zipCode so we can build the new cache key
+    const affected = await db
+      .select({
+        id: locations.id,
+        name: locations.name,
+        address: locations.address,
+        city: locations.city,
+        state: locations.state,
+        zipCode: locations.zipCode,
+        lat: locations.lat,
+        lng: locations.lng,
+      })
+      .from(locations)
+      .where(inArray(locations.name, STALE_GEOCODE_LOCATION_NAMES));
+
+    if (affected.length === 0) {
+      console.log("[geocode-fix] No affected locations found in DB — skipping stale cleanup.");
+      return 0;
+    }
+
+    let cleared = 0;
+
+    for (const loc of affected) {
+      // Build the NEW (zip-inclusive) cache key — this is what geocodeMissingLocations
+      // will use after the fix. If it's already in geocode_cache the location has been
+      // successfully re-geocoded and we must NOT clear it again.
+      const cityState = [loc.city, loc.state].filter(Boolean).join(", ");
+      const cityStateZip = loc.zipCode ? `${cityState} ${loc.zipCode}` : cityState;
+      const newAddressStr = [loc.address, cityStateZip].filter(Boolean).join(", ");
+      const newCacheKey = newAddressStr.trim().toLowerCase();
+
+      // Guard: if the new (zip-inclusive) key is already cached, the fix is done for this location
+      let alreadyFixed = false;
+      if (newCacheKey) {
+        try {
+          const [existing] = await db
+            .select({ address: geocodeCache.address })
+            .from(geocodeCache)
+            .where(eq(geocodeCache.address, newCacheKey))
+            .limit(1);
+          if (existing) alreadyFixed = true;
+        } catch {
+          // Non-fatal — assume not fixed yet
+        }
+      }
+
+      if (alreadyFixed) continue;
+
+      // Location hasn't been re-geocoded yet — clear the stale coordinates
+      if (loc.lat != null || loc.lng != null) {
+        await db
+          .update(locations)
+          .set({ lat: null, lng: null })
+          .where(eq(locations.id, loc.id));
+
+        // Also purge the old zip-less cache entry so it doesn't shadow the new lookup
+        const oldCacheKey = [loc.address, loc.city, loc.state].filter(Boolean).join(", ").trim().toLowerCase();
+        if (oldCacheKey && oldCacheKey !== newCacheKey) {
+          memCache.delete(oldCacheKey);
+          try {
+            await db.delete(geocodeCache).where(eq(geocodeCache.address, oldCacheKey));
+          } catch {
+            // Non-fatal — entry may not exist
+          }
+        }
+
+        console.log(`[geocode-fix] Cleared "${loc.name}" (was ${loc.lat}, ${loc.lng}) — awaiting re-geocode with zip.`);
+        cleared++;
+      }
+    }
+
+    if (cleared > 0) {
+      console.log(`[geocode-fix] Cleared ${cleared} location(s) with stale city-level coordinates (Task #189 zip-code fix).`);
+    } else {
+      console.log("[geocode-fix] All affected locations already re-geocoded with zip codes — no cleanup needed.");
+    }
+
+    return cleared;
+  } catch (err) {
+    console.warn("[geocode-fix] Stale geocode cleanup failed (non-fatal):", err);
+    return 0;
+  }
+}
+
 // ── Geocode locations missing coordinates ─────────────────────────────────────
 
 export interface GeocodeMissingResult {
@@ -293,6 +412,7 @@ export async function geocodeMissingLocations(): Promise<GeocodeMissingResult> {
       address: locations.address,
       city: locations.city,
       state: locations.state,
+      zipCode: locations.zipCode,
     })
     .from(locations)
     .where(or(isNull(locations.lat), isNull(locations.lng)));
@@ -312,7 +432,12 @@ export async function geocodeMissingLocations(): Promise<GeocodeMissingResult> {
       continue;
     }
 
-    const addressStr = parts.join(", ");
+    // Build address string: "123 Main St, City, ST 12345" when zip is available,
+    // otherwise "123 Main St, City, ST". Including the zip helps Nominatim resolve
+    // street names that are not in its index at city level.
+    const cityState = [loc.city, loc.state].filter(Boolean).join(", ");
+    const cityStateZip = loc.zipCode ? `${cityState} ${loc.zipCode}` : cityState;
+    const addressStr = [loc.address, cityStateZip].filter(Boolean).join(", ");
     const coords = await geocodeAddress(addressStr);
 
     if (coords) {
@@ -754,6 +879,7 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
       address: locations.address,
       city: locations.city,
       state: locations.state,
+      zipCode: locations.zipCode,
     })
     .from(locations);
 
@@ -761,7 +887,10 @@ export async function reGeocodeAll(): Promise<ReGeocodeResult> {
     const parts = [loc.address, loc.city, loc.state].filter(Boolean);
     if (parts.length === 0) continue;
 
-    const addressStr = parts.join(", ");
+    // Build address string with zip code when available (improves Nominatim accuracy)
+    const cityState = [loc.city, loc.state].filter(Boolean).join(", ");
+    const cityStateZip = loc.zipCode ? `${cityState} ${loc.zipCode}` : cityState;
+    const addressStr = [loc.address, cityStateZip].filter(Boolean).join(", ");
     const key = addressStr.trim().toLowerCase();
 
     // Clear stale cache so fresh Nominatim result is always persisted

@@ -106,7 +106,15 @@ app.use((req, res, next) => {
   // Rate-limited internally (1.1 s per Nominatim request).
   setTimeout(async () => {
     try {
-      const { geocodeMissingLocations } = await import('./geocoding');
+      const { clearStaleGeocodeForAffectedLocations, geocodeMissingLocations } = await import('./geocoding');
+
+      // Task #189: clear city-level coordinates for the 9 affected locations so
+      // they get re-geocoded with the new zip-inclusive address string.
+      const cleared = await clearStaleGeocodeForAffectedLocations();
+      if (cleared > 0) {
+        log(`[startup] Cleared stale city-level coords for ${cleared} location(s) — will re-geocode with zip codes.`);
+      }
+
       const result = await geocodeMissingLocations();
       if (result.updated > 0 || result.failed > 0) {
         log(`[startup] Geocoded missing locations: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
