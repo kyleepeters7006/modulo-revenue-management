@@ -841,11 +841,24 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                                 </button>
                               </ModuloCalculationDialog>
                               {(() => {
+                                const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
+                                if (unit.ruleAdjustedRate && unit.moduloSuggestedRate) {
+                                  // Rule applied: show the rule's impact vs the base Modulo rate
+                                  const displayFinal = convertToDisplayRate(unit.ruleAdjustedRate, unit.serviceLine) || 0;
+                                  const displayBase  = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
+                                  const change = Math.round(displayFinal - displayBase);
+                                  const changePercent = displayBase !== 0 ? Math.round((change / displayBase) * 100) : 0;
+                                  return (
+                                    <span className={`text-xs ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {change >= 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change >= 0 ? '+' : ''}{changePercent}%)
+                                    </span>
+                                  );
+                                }
+                                // No rule: show Modulo vs street rate
                                 const displayModulo = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
                                 const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
                                 const change = Math.round(displayModulo - displayStreet);
                                 const changePercent = Math.round((change / displayStreet) * 100);
-                                const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
                                 return (
                                   <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     {change > 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change > 0 ? '+' : ''}{changePercent}%)
