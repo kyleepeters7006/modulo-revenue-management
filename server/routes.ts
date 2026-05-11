@@ -3449,14 +3449,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         loc.division
       );
       
-      // Extract unique regions and divisions from filtered locations
-      const regions = [...new Set(filteredLocations.map(loc => loc.region).filter(Boolean))];
-      const divisions = [...new Set(filteredLocations.map(loc => loc.division).filter(Boolean))];
-      
+      // Extract unique regions and divisions — all sorted alphabetically
+      const regions = [...new Set(filteredLocations.map(loc => loc.region).filter(Boolean))].sort((a, b) => (a as string).localeCompare(b as string));
+      const divisions = [...new Set(filteredLocations.map(loc => loc.division).filter(Boolean))].sort((a, b) => (a as string).localeCompare(b as string));
+      const sortedLocations = [...filteredLocations].sort((a, b) => a.name.localeCompare(b.name));
+
       res.json({
-        locations: filteredLocations,
-        regions: regions,
-        divisions: divisions
+        locations: sortedLocations,
+        regions,
+        divisions
       });
     } catch (error) {
       console.error("Error fetching location filter data:", error);

@@ -84,7 +84,7 @@ import {
   type InsertRevenueGrowthTarget
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, isNull, inArray, or } from "drizzle-orm";
+import { eq, and, asc, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { calculateDistance } from "./geocoding";
@@ -393,16 +393,16 @@ export class DatabaseStorage implements IStorage {
 
   async getLocations(clientId?: string): Promise<Location[]> {
     if (clientId) {
-      return await db.select().from(locations).where(eq(locations.clientId, clientId));
+      return await db.select().from(locations).where(eq(locations.clientId, clientId)).orderBy(asc(locations.name));
     }
-    return await db.select().from(locations);
+    return await db.select().from(locations).orderBy(asc(locations.name));
   }
 
   async getAllCampuses(clientId?: string): Promise<Location[]> {
     if (clientId) {
-      return await db.select().from(locations).where(eq(locations.clientId, clientId));
+      return await db.select().from(locations).where(eq(locations.clientId, clientId)).orderBy(asc(locations.name));
     }
-    return await db.select().from(locations);
+    return await db.select().from(locations).orderBy(asc(locations.name));
   }
 
   async getLocationById(id: string): Promise<Location | undefined> {
