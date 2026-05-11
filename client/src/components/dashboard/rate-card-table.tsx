@@ -452,7 +452,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
         <CardContent>
           <div className="space-y-4">
             <div className="space-y-3">
-              <div className="flex space-x-4">
+              <div className="overflow-x-auto -mx-1 px-1">
+                <div className="flex space-x-4 min-w-max">
                 <Button
                   onClick={() => generateModuloMutation.mutate()}
                   disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
@@ -479,10 +480,12 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   )}
                   {generateAIMutation.isPending ? "Generating..." : "Generate AI Suggestions"}
                 </Button>
+                </div>
               </div>
 
               {/* Bulk Accept Actions */}
-              <div className="flex items-center gap-4 pt-2 border-t">
+              <div className="overflow-x-auto -mx-1 px-1">
+                <div className="flex items-center gap-4 pt-2 border-t min-w-max">
                 <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
                 <Button
                   onClick={() => {
@@ -533,6 +536,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
                 </Button>
+                </div>
               </div>
             </div>
             
