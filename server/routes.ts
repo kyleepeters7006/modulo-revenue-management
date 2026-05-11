@@ -3900,6 +3900,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Active service lines per location — derived from rent_roll_data
+  app.get("/api/locations/service-lines", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const rows = await db
+        .selectDistinct({ locationId: rentRollData.locationId, serviceLine: rentRollData.serviceLine })
+        .from(rentRollData)
+        .where(and(
+          eq(rentRollData.clientId, clientId),
+          sql`${rentRollData.locationId} IS NOT NULL`,
+          sql`${rentRollData.serviceLine} IS NOT NULL`
+        ));
+      // Build map: locationId → serviceLine[]
+      const map: Record<string, string[]> = {};
+      for (const r of rows) {
+        if (!r.locationId || !r.serviceLine) continue;
+        if (!map[r.locationId]) map[r.locationId] = [];
+        if (!map[r.locationId].includes(r.serviceLine)) {
+          map[r.locationId].push(r.serviceLine);
+        }
+      }
+      res.json(map);
+    } catch (error) {
+      console.error('Error fetching location service lines:', error);
+      res.status(500).json({ error: "Failed to get location service lines" });
+    }
+  });
+
+  // Care Level 2 Rates — admin config table for posted L2 care rates by location+service line
+  app.get("/api/care-level-rates", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const rows = await storage.getCareLevel2Rates(clientId);
+      // Join with location names for the UI
+      const allLocations = await storage.getLocations(clientId);
+      const locationMap = new Map(allLocations.map(l => [l.id, l.name]));
+      const enriched = rows.map(r => ({
+        ...r,
+        locationName: locationMap.get(r.locationId) ?? r.locationId,
+      }));
+      res.json(enriched);
+    } catch (error) {
+      console.error('Error fetching care level rates:', error);
+      res.status(500).json({ error: "Failed to get care level rates" });
+    }
+  });
+
+  app.post("/api/care-level-rates", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLine, level2Rate } = req.body;
+      if (!locationId || !serviceLine || level2Rate == null) {
+        return res.status(400).json({ error: "locationId, serviceLine, and level2Rate are required" });
+      }
+      const rate = parseFloat(String(level2Rate));
+      if (isNaN(rate) || rate < 0) {
+        return res.status(400).json({ error: "level2Rate must be a non-negative number" });
+      }
+      // Verify the location belongs to this client before writing
+      const allLocations = await storage.getLocations(clientId);
+      const ownsLocation = allLocations.some(l => l.id === locationId);
+      if (!ownsLocation) {
+        return res.status(403).json({ error: "Location does not belong to this client" });
+      }
+      const result = await storage.upsertCareLevel2Rate(locationId, serviceLine, rate, clientId);
+      res.json({ ok: true, careLevelRate: result });
+    } catch (error) {
+      console.error('Error saving care level rate:', error);
+      res.status(500).json({ error: "Failed to save care level rate" });
+    }
+  });
+
   // Pricing recommendations
   app.get("/api/recommendations", async (req: any, res) => {
     try {
@@ -8793,7 +8865,7 @@ Focus areas (in order):
           try {
             const [surveyRows, trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
               storage.getTopSurveyCompetitorForLocation(unit.location, unit.serviceLine, unit.roomType || undefined, clientId),
-              storage.getTrilogyCareLevel2Rate(unit.location, unit.serviceLine),
+              storage.getTrilogyCareLevel2Rate(unit.location, unit.serviceLine, clientId),
               storage.getTrilogyMedicationManagementFee(unit.location, unit.serviceLine)
             ]);
             ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
@@ -9313,7 +9385,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         const [campus, sl] = key.split('|');
         try {
           const [trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
-            storage.getTrilogyCareLevel2Rate(campus, sl),
+            storage.getTrilogyCareLevel2Rate(campus, sl, clientId),
             storage.getTrilogyMedicationManagementFee(campus, sl)
           ]);
           aiCareRateCache.set(key, { trilogyCareLevel2Rate, trilogyMedMgmtFee });

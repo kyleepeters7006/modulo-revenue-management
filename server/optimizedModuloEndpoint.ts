@@ -552,7 +552,7 @@ export async function generateModuloOptimized(req: any, res: any) {
       const [campus, serviceLine] = key.split('|');
       try {
         const [trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
-          storage.getTrilogyCareLevel2Rate(campus, serviceLine),
+          storage.getTrilogyCareLevel2Rate(campus, serviceLine, req.clientId || 'demo'),
           storage.getTrilogyMedicationManagementFee(campus, serviceLine)
         ]);
         careRateCache.set(key, { trilogyCareLevel2Rate, trilogyMedMgmtFee });

@@ -30,6 +30,9 @@ import {
   revenueGrowthTargets,
   aiRateOutcomes,
   roomTypeBasePrices,
+  careLevelRates,
+  type CareLevelRate,
+  type InsertCareLevelRate,
   type User, 
   type UpsertUser,
   type RentRollData,
@@ -182,7 +185,7 @@ export interface IStorage {
   clearCompetitors(): Promise<void>;
   clearCompetitorsByLocation(location: string): Promise<void>;
   getTopCompetitorByWeight(location: string, serviceLine?: string): Promise<Competitor | undefined>;
-  getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null>;
+  getTrilogyCareLevel2Rate(location: string, serviceLine: string, clientId?: string): Promise<number | null>;
   getTrilogyMedicationManagementFee(location: string, serviceLine: string): Promise<number>;
   getTopSurveyCompetitorForLocation(locationName: string, serviceLine: string, roomType: string | undefined, clientId: string): Promise<Array<{
     competitorName: string;
@@ -273,6 +276,10 @@ export interface IStorage {
   // Room Type Base Prices
   getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]>;
   upsertRoomTypeBasePrice(roomType: string, serviceLine: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice>;
+
+  // Care Level 2 Rates
+  getCareLevel2Rates(clientId: string): Promise<CareLevelRate[]>;
+  upsertCareLevel2Rate(locationId: string, serviceLine: string, level2Rate: number, clientId: string): Promise<CareLevelRate>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1543,23 +1550,47 @@ export class DatabaseStorage implements IStorage {
     return validCompetitors.sort((a, b) => (b.weight || 0) - (a.weight || 0))[0];
   }
 
-  async getTrilogyCareLevel2Rate(location: string, serviceLine: string): Promise<number | null> {
-    // Return most-recent non-zero care-level-2 rate for this location+service line.
-    // We push careRate > 0 into SQL so the DB returns exactly the best matching row
-    // without any application-side iteration or arbitrary row-count caps.
+  async getTrilogyCareLevel2Rate(location: string, serviceLine: string, clientId?: string): Promise<number | null> {
+    // Return the posted Level 2 care rate for this location + service line.
     //
-    // Pass 1: rentRollData (current state after sync).
-    // Pass 2: rentRollHistory (all uploaded months, most-recent first) — fallback so
-    //         the lookup works even before syncHistoryToCurrentRentRoll has run or
-    //         when data was imported before this fix was deployed.
+    // Priority order:
+    //   Pass 0: care_level_rates config table (admin-entered posted rate — preferred)
+    //   Pass 1: rentRollData (current state after sync)
+    //   Pass 2: rentRollHistory (all historical uploads, most-recent first)
 
-    // Pass 1 — rentRollData
+    // Pass 0 — care_level_rates config table (look up by locationId via locations join, scoped to tenant)
+    const [configRow] = await db
+      .select({ level2Rate: careLevelRates.level2Rate })
+      .from(careLevelRates)
+      .innerJoin(locations, eq(careLevelRates.locationId, locations.id))
+      .where(
+        clientId
+          ? and(
+              eq(locations.name, location),
+              eq(careLevelRates.serviceLine, serviceLine),
+              eq(careLevelRates.clientId, clientId),
+              eq(locations.clientId, clientId)
+            )
+          : and(
+              eq(locations.name, location),
+              eq(careLevelRates.serviceLine, serviceLine)
+            )
+      )
+      .limit(1);
+
+    // If a config row exists, always use it (even if $0 — admin is explicitly saying the rate is 0)
+    if (configRow !== undefined && configRow.level2Rate != null) {
+      return configRow.level2Rate;
+    }
+
+    // Pass 1 — rentRollData (tenant-scoped when clientId provided)
     const [currentRow] = await db.select({ careRate: rentRollData.careRate })
       .from(rentRollData)
       .where(
         and(
           eq(rentRollData.location, location),
           eq(rentRollData.serviceLine, serviceLine),
+          ...(clientId ? [eq(rentRollData.clientId, clientId)] : []),
           sql`(${rentRollData.careLevel} = '2' OR ${rentRollData.careLevel} ILIKE '%level 2%' OR ${rentRollData.careLevel} ILIKE '%L2%')`,
           sql`${rentRollData.careRate} > 0`
         )
@@ -1571,7 +1602,8 @@ export class DatabaseStorage implements IStorage {
       return currentRow.careRate;
     }
 
-    // Pass 2 — rentRollHistory (all historical uploads, no cap)
+    // Pass 2 — rentRollHistory (all historical uploads; rent_roll_history has no client_id column,
+    // scoping is implicit via location name which is seeded per-tenant)
     const [historyRow] = await db.select({ careRate: rentRollHistory.careRate })
       .from(rentRollHistory)
       .where(
@@ -2384,6 +2416,22 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoUpdate({
         target: [roomTypeBasePrices.roomType, roomTypeBasePrices.serviceLine],
         set: { basePrice, updatedAt: new Date() },
+      })
+      .returning();
+    return result;
+  }
+
+  async getCareLevel2Rates(clientId: string): Promise<CareLevelRate[]> {
+    return db.select().from(careLevelRates).where(eq(careLevelRates.clientId, clientId));
+  }
+
+  async upsertCareLevel2Rate(locationId: string, serviceLine: string, level2Rate: number, clientId: string): Promise<CareLevelRate> {
+    const [result] = await db
+      .insert(careLevelRates)
+      .values({ locationId, serviceLine, level2Rate, clientId })
+      .onConflictDoUpdate({
+        target: [careLevelRates.clientId, careLevelRates.locationId, careLevelRates.serviceLine],
+        set: { level2Rate },
       })
       .returning();
     return result;

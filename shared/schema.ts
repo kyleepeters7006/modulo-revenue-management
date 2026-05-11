@@ -1099,6 +1099,29 @@ export type InsertMlTrainingHistory = z.infer<typeof insertMlTrainingHistorySche
 export type RevenueGrowthTarget = typeof revenueGrowthTargets.$inferSelect;
 export type InsertRevenueGrowthTarget = z.infer<typeof insertRevenueGrowthTargetsSchema>;
 
+// Care Level 2 Rates — posted L2 care rate per location + service line.
+// Used only by the competitor adjustment formula so the pricing breakdown shows
+// "ours $X" even when rent-roll rows predate the care-level capture fix.
+// Never written back to rent roll or RevPOR calculations.
+export const careLevelRates = pgTable("care_level_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => locations.id).notNull(),
+  serviceLine: text("service_line").notNull(),
+  level2Rate: real("level2_rate").notNull(),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  locationServiceLineIdx: uniqueIndex("care_level_rates_loc_sl_idx").on(table.clientId, table.locationId, table.serviceLine),
+}));
+
+export const insertCareLevelRatesSchema = createInsertSchema(careLevelRates).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CareLevelRate = typeof careLevelRates.$inferSelect;
+export type InsertCareLevelRate = z.infer<typeof insertCareLevelRatesSchema>;
+
 // Persistent geocoding cache so Nominatim is only queried once per address
 export const geocodeCache = pgTable("geocode_cache", {
   address: text("address").primaryKey(),

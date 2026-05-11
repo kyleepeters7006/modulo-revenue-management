@@ -282,7 +282,7 @@ class PricingJobManager {
       const [location, serviceLine] = key.split('|');
       try {
         const [careLevel2Rate, medMgmtFee] = await Promise.all([
-          storage.getTrilogyCareLevel2Rate(location, serviceLine),
+          storage.getTrilogyCareLevel2Rate(location, serviceLine, clientId),
           storage.getTrilogyMedicationManagementFee(location, serviceLine)
         ]);
         if (careLevel2Rate) trilogyCareLevel2Cache.set(key, careLevel2Rate);

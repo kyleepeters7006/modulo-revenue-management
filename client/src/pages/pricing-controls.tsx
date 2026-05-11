@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, Info } from "lucide-react";
+import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, Info, HeartPulse } from "lucide-react";
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
@@ -982,8 +982,221 @@ export default function PricingControls() {
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
+          <CareLevel2RatesPanel />
         </div>
       </div>
     </div>
+  );
+}
+
+interface CareLevelRateRow {
+  id: string;
+  locationId: string;
+  locationName: string;
+  serviceLine: string;
+  level2Rate: number;
+  clientId: string | null;
+}
+
+const ALL_SERVICE_LINES = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const;
+
+function CareLevel2RatesPanel() {
+  const { toast } = useToast();
+
+  const { data: locationsData } = useQuery<{ locations?: Array<{ id: string; name: string }> }>({
+    queryKey: ["/api/locations"],
+  });
+
+  const { data: existingRates = [], isLoading } = useQuery<CareLevelRateRow[]>({
+    queryKey: ["/api/care-level-rates"],
+  });
+
+  // Active service lines per location: locationId → string[]
+  const { data: locationServiceLines = {} } = useQuery<Record<string, string[]>>({
+    queryKey: ["/api/locations/service-lines"],
+  });
+
+  // Map of "locationId|serviceLine" → rate value string (for in-progress edits)
+  const [pendingRates, setPendingRates] = useState<Record<string, string>>({});
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
+  const [filterLocation, setFilterLocation] = useState<string>("");
+  const [filterSL, setFilterSL] = useState<string>("All");
+
+  // Build a quick-lookup map for existing rates
+  const existingMap = new Map<string, number>(
+    existingRates.map(r => [`${r.locationId}|${r.serviceLine}`, r.level2Rate])
+  );
+
+  const allLocations = locationsData?.locations ?? [];
+  const filteredLocations = filterLocation
+    ? allLocations.filter(l => l.name.toLowerCase().includes(filterLocation.toLowerCase()))
+    : allLocations;
+
+  const getKey = (locationId: string, sl: string) => `${locationId}|${sl}`;
+
+  const getDisplayValue = (locationId: string, sl: string): string => {
+    const key = getKey(locationId, sl);
+    if (pendingRates[key] !== undefined) return pendingRates[key];
+    const existing = existingMap.get(key);
+    return existing != null ? String(existing) : "";
+  };
+
+  const handleChange = (locationId: string, sl: string, value: string) => {
+    const numVal = value.replace(/[^0-9.]/g, "");
+    setPendingRates(prev => ({ ...prev, [getKey(locationId, sl)]: numVal }));
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ locationId, serviceLine, level2Rate }: { locationId: string; serviceLine: string; level2Rate: number }) => {
+      const res = await apiRequest("/api/care-level-rates", "POST", { locationId, serviceLine, level2Rate });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/care-level-rates"] });
+    },
+  });
+
+  const handleSave = async (locationId: string, locationName: string, sl: string) => {
+    const key = getKey(locationId, sl);
+    const raw = pendingRates[key] ?? String(existingMap.get(key) ?? "");
+    const rate = parseFloat(raw);
+    if (isNaN(rate) || rate < 0) {
+      toast({ title: "Invalid rate", description: "Please enter a valid dollar amount.", variant: "destructive" });
+      return;
+    }
+    setSavingKeys(prev => new Set(prev).add(key));
+    try {
+      await saveMutation.mutateAsync({ locationId, serviceLine: sl, level2Rate: rate });
+      setPendingRates(prev => { const n = { ...prev }; delete n[key]; return n; });
+      toast({ title: "Saved", description: `Level 2 care rate for ${locationName} ${sl} set to $${rate.toFixed(0)}.` });
+    } catch {
+      toast({ title: "Save Failed", description: "Could not save rate. Please try again.", variant: "destructive" });
+    } finally {
+      setSavingKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
+
+  // Determine which service lines to show in the column filter buttons
+  const activeSLsAcrossAll = new Set<string>();
+  for (const sls of Object.values(locationServiceLines)) {
+    sls.forEach(sl => activeSLsAcrossAll.add(sl));
+  }
+  // Fall back to all if data not loaded yet
+  const displayableSLs = activeSLsAcrossAll.size > 0
+    ? ALL_SERVICE_LINES.filter(sl => activeSLsAcrossAll.has(sl))
+    : [...ALL_SERVICE_LINES];
+  const filterableSLs = filterSL === "All" ? displayableSLs : [filterSL];
+
+  return (
+    <Card data-testid="card-care-level-rates">
+      <CardHeader className="pb-4">
+        <div className="flex items-center gap-2">
+          <HeartPulse className="h-5 w-5 text-rose-500" />
+          <CardTitle className="text-lg">Level 2 Care Rates</CardTitle>
+        </div>
+        <CardDescription>
+          Set the posted Level 2 care rate per location and service line. These rates are used in the competitor adjustment formula (adjustedRate = base + theirCareL2 − ourCareL2 + …) so the pricing breakdown shows the correct "ours" value without re-uploading rent roll data.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Filters */}
+        <div className="flex flex-wrap gap-3 mb-4">
+          <Input
+            placeholder="Filter by location name…"
+            value={filterLocation}
+            onChange={e => setFilterLocation(e.target.value)}
+            className="max-w-xs text-sm"
+          />
+          <div className="flex flex-wrap gap-1">
+            {["All", ...displayableSLs].map(sl => (
+              <Button
+                key={sl}
+                variant={filterSL === sl ? "default" : "outline"}
+                size="sm"
+                className="text-xs"
+                onClick={() => setFilterSL(sl)}
+              >
+                {sl === "All" ? "All Service Lines" : sl}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading…
+          </div>
+        ) : filteredLocations.length === 0 ? (
+          <p className="text-sm text-gray-500 py-4">No locations found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-2 pr-4 font-medium text-gray-600 min-w-[200px]">Location</th>
+                  {filterableSLs.map(sl => (
+                    <th key={sl} className="text-center py-2 px-2 font-medium text-gray-600 min-w-[110px]">{sl}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLocations.map(loc => {
+                  // Only show columns for service lines active at this location
+                  const activeSLsForLoc = locationServiceLines[loc.id] ?? [...ALL_SERVICE_LINES];
+                  const colsToShow = filterableSLs.filter(sl => activeSLsForLoc.includes(sl));
+                  if (colsToShow.length === 0) return null;
+                  return (
+                    <tr key={loc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-2 pr-4 font-medium text-gray-800 truncate max-w-[220px]" title={loc.name}>
+                        {loc.name}
+                      </td>
+                      {filterableSLs.map(sl => {
+                        const isActive = activeSLsForLoc.includes(sl);
+                        if (!isActive) {
+                          return <td key={sl} className="py-2 px-2 text-center text-gray-300">—</td>;
+                        }
+                        const key = getKey(loc.id, sl);
+                        const isSaving = savingKeys.has(key);
+                        const displayVal = getDisplayValue(loc.id, sl);
+                        const isDirty = pendingRates[key] !== undefined;
+                        return (
+                          <td key={sl} className="py-2 px-2">
+                            <div className="flex items-center gap-1">
+                              <div className="relative flex-1">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                <Input
+                                  className="pl-5 pr-2 text-xs h-8 text-right"
+                                  value={displayVal}
+                                  onChange={e => handleChange(loc.id, sl, e.target.value)}
+                                  onKeyDown={e => { if (e.key === "Enter") handleSave(loc.id, loc.name, sl); }}
+                                  placeholder="—"
+                                  data-testid={`input-care-l2-${loc.id}-${sl}`}
+                                />
+                              </div>
+                              {isDirty && (
+                                <Button
+                                  size="sm"
+                                  className="h-8 px-2 text-xs"
+                                  onClick={() => handleSave(loc.id, loc.name, sl)}
+                                  disabled={isSaving}
+                                  data-testid={`button-save-care-l2-${loc.id}-${sl}`}
+                                >
+                                  {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
