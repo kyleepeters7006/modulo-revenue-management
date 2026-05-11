@@ -511,11 +511,11 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 
                 <Button
                   onClick={() => {
-                    const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate && !u.occupiedYN);
+                    const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate);
                     if (unitsWithAI.length === 0) {
                       toast({ 
                         title: "No AI suggestions", 
-                        description: "Generate AI suggestions first or all units are occupied",
+                        description: "Generate AI suggestions first",
                         variant: "destructive"
                       });
                       return;
@@ -531,7 +531,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-ai"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate && !u.occupiedYN).length})
+                  Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
                 </Button>
               </div>
             </div>
@@ -882,7 +882,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        {unit.aiSuggestedRate && !unit.occupiedYN ? (
+                        {unit.aiSuggestedRate ? (
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <button 
