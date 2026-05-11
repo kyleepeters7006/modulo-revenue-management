@@ -15,7 +15,7 @@ export default function Overview() {
           <img 
             src="/attached_assets/image_1756172904290.png" 
             alt="Modulo Revenue Management" 
-            className="mx-auto h-48 sm:h-52 md:h-60 object-contain"
+            className="mx-auto h-60 sm:h-68 md:h-80 object-contain"
             style={{ 
               objectPosition: 'center center',
               display: 'block'

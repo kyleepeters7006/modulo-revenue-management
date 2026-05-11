@@ -94,21 +94,21 @@ export default function Navigation({ className }: NavigationProps) {
 
       <nav className={cn("bg-white shadow-sm border-b border-gray-200", className)}>
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
-          <div className="flex items-center h-14 md:h-16">
+          <div className="flex flex-wrap items-center py-2 gap-y-1">
             {/* Logo */}
-            <div className="flex-shrink-0 mr-3 lg:mr-6">
+            <div className="flex-shrink-0 mr-3 lg:mr-5">
               <Link href="/overview" className="flex items-center" data-testid="link-home">
                 <img 
                   src="/attached_assets/image_1756817717051.png" 
                   alt="Modulo" 
-                  className="h-9 md:h-11 w-auto"
+                  className="h-11 md:h-14 w-auto"
                 />
               </Link>
             </div>
             
             {/* Main Navigation - Desktop */}
             <div className="hidden md:flex flex-1 min-w-0">
-              <div className="flex space-x-1 lg:space-x-4 xl:space-x-5 overflow-x-auto scrollbar-none">
+              <div className="flex flex-wrap gap-x-1 lg:gap-x-3 gap-y-0.5">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location === item.path || (location === "/" && item.path === "/overview");
@@ -118,7 +118,7 @@ export default function Navigation({ className }: NavigationProps) {
                       key={item.path}
                       href={item.path}
                       className={cn(
-                        "inline-flex items-center px-1.5 lg:px-2 pt-1 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 whitespace-nowrap flex-shrink-0",
+                        "inline-flex items-center px-1.5 lg:px-2 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 whitespace-nowrap",
                         isActive
                           ? "border-[var(--trilogy-blue)] text-[var(--trilogy-dark-blue)]"
                           : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
