@@ -686,15 +686,17 @@ export default function RoomAttributes() {
                           <TableCell className="text-right">{count}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
-                              <span className="text-gray-400 text-sm">$</span>
-                              <Input
-                                className="w-28 h-7 text-right font-mono text-sm px-1"
-                                value={inputVal}
-                                onFocus={() => setEditingBasePrices(prev => ({ ...prev, [roomType]: String(rawBasePrice) }))}
-                                onChange={e => setEditingBasePrices(prev => ({ ...prev, [roomType]: e.target.value }))}
-                                onBlur={handleSave}
-                                onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
-                              />
+                              <div className="inline-flex items-center border border-input rounded-md bg-background h-7 pl-2 pr-2 focus-within:ring-1 focus-within:ring-ring">
+                                <span className="text-gray-500 font-mono text-sm select-none">$</span>
+                                <input
+                                  className="w-20 h-full border-0 outline-none text-left font-mono text-sm bg-transparent pl-0.5 pr-0"
+                                  value={inputVal}
+                                  onFocus={() => setEditingBasePrices(prev => ({ ...prev, [roomType]: String(rawBasePrice) }))}
+                                  onChange={e => setEditingBasePrices(prev => ({ ...prev, [roomType]: e.target.value }))}
+                                  onBlur={handleSave}
+                                  onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
+                                />
+                              </div>
                               {isSaving && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
                               {isSaved && !isSaving && <Check className="h-4 w-4 text-green-500" />}
                             </div>
