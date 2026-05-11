@@ -114,7 +114,7 @@ const STREET_RATE_RANGES: Record<string, [number, number]> = {
   'AL':    [3800, 5800],
   'AL/MC': [5200, 7500],
   'SL':    [2900, 4200],
-  'VIL':   [3400, 5200],
+  'VIL':   [2600, 3600],
 };
 
 // Room size premium multipliers
