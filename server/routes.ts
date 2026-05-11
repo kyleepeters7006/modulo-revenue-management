@@ -8769,9 +8769,9 @@ Focus areas (in order):
           let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
           try {
             const [surveyRows, trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
-              storage.getTopSurveyCompetitorForLocation(unit.campus, unit.serviceLine, unit.roomType || undefined),
-              storage.getTrilogyCareLevel2Rate(unit.campus, unit.serviceLine),
-              storage.getTrilogyMedicationManagementFee(unit.campus, unit.serviceLine)
+              storage.getTopSurveyCompetitorForLocation(unit.location, unit.serviceLine, unit.roomType || undefined),
+              storage.getTrilogyCareLevel2Rate(unit.location, unit.serviceLine),
+              storage.getTrilogyMedicationManagementFee(unit.location, unit.serviceLine)
             ]);
             ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
               surveyRows, unit.roomType || '', trilogyCareLevel2Rate || 0, trilogyMedMgmtFee
@@ -9278,8 +9278,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
       const uniqueCampusServiceLineRooms = new Set<string>(); // campus|serviceLine|roomType triples
 
       for (const unit of units) {
-        if (unit.campus && unit.serviceLine) {
-          const slKey = `${unit.campus}|${unit.serviceLine}`;
+        if (unit.location && unit.serviceLine) {
+          const slKey = `${unit.location}|${unit.serviceLine}`;
           uniqueCampusServiceLines.add(slKey);
           uniqueCampusServiceLineRooms.add(`${slKey}|${unit.roomType || ''}`);
         }
@@ -9346,7 +9346,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         let competitorPrices: number[] = [];
         let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
         {
-          const competitorKey = `${unit.campus}|${unit.serviceLine}|${unit.roomType || ''}`;
+          const competitorKey = `${unit.location}|${unit.serviceLine}|${unit.roomType || ''}`;
           const cachedCompetitor = competitorCache.get(competitorKey);
           ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
             cachedCompetitor?.surveyRows || [],

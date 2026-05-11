@@ -270,8 +270,8 @@ class PricingJobManager {
     const uniqueLocationServiceRooms = new Set<string>(); // campus|serviceLine|roomType triples
 
     units.forEach(unit => {
-      if (unit.campus && unit.serviceLine) {
-        const slKey = `${unit.campus}|${unit.serviceLine}`;
+      if (unit.location && unit.serviceLine) {
+        const slKey = `${unit.location}|${unit.serviceLine}`;
         uniqueLocationServices.add(slKey);
         uniqueLocationServiceRooms.add(`${slKey}|${unit.roomType || ''}`);
       }
@@ -332,8 +332,8 @@ class PricingJobManager {
     // Default demand history for locations without specific data
     const defaultDemandHistory = [45, 42, 48, 50, 43, 46];
     units.forEach(unit => {
-      if (unit.campus && !demandHistoryCache.has(unit.campus)) {
-        demandHistoryCache.set(unit.campus, defaultDemandHistory);
+      if (unit.location && !demandHistoryCache.has(unit.location)) {
+        demandHistoryCache.set(unit.location, defaultDemandHistory);
       }
     });
     
@@ -746,8 +746,8 @@ class PricingJobManager {
         let competitorPrices: number[] = [];
         let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
 
-        if (unit.campus && unit.serviceLine) {
-          const slKey = `${unit.campus}|${unit.serviceLine}`;
+        if (unit.location && unit.serviceLine) {
+          const slKey = `${unit.location}|${unit.serviceLine}`;
           const surveyKey = `${slKey}|${unit.roomType || ''}`;
           const surveyRows: any[] = context.competitorsByLocationService.get(surveyKey) || [];
           const ourCareLevel2 = context.trilogyCareLevel2Cache.get(slKey) || 0;
@@ -758,8 +758,8 @@ class PricingJobManager {
         }
         
         // Get demand data from cache (O(1) lookup)
-        const demandHistory = context.demandHistoryCache.get(unit.campus) || [45, 42, 48, 50, 43, 46];
-        const inquiryMetric = context.inquiryMetricsCache.get(unit.campus);
+        const demandHistory = context.demandHistoryCache.get(unit.location) || [45, 42, 48, 50, 43, 46];
+        const inquiryMetric = context.inquiryMetricsCache.get(unit.location);
         const demandCurrent = inquiryMetric ? 
           (inquiryMetric.inquiries || 0) + (inquiryMetric.tours || 0) : 
           (unit.inquiryCount || 0) + (unit.tourCount || 0);

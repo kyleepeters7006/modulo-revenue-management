@@ -139,7 +139,7 @@ async function processUnitBatch(
         let competitorPrices: number[] = [];
         let competitorInfo: CompetitorInfo | undefined;
         {
-          const competitorKey = `${unit.campus}|${unit.serviceLine}|${unit.roomType || ''}`;
+          const competitorKey = `${unit.location}|${unit.serviceLine}|${unit.roomType || ''}`;
           const cachedCompetitorData = precomputedSignals.competitorCache.get(competitorKey);
           const ourCareLevel2 = cachedCompetitorData?.trilogyCareLevel2Rate || 0;
           const ourMedMgmt = cachedCompetitorData?.trilogyMedMgmtFee ?? 0;
@@ -540,8 +540,8 @@ export async function generateModuloOptimized(req: any, res: any) {
     const uniqueCampusServiceLineRooms = new Set<string>(); // campus|serviceLine|roomType triples
 
     units.forEach(unit => {
-      if (unit.campus && unit.serviceLine) {
-        const slKey = `${unit.campus}|${unit.serviceLine}`;
+      if (unit.location && unit.serviceLine) {
+        const slKey = `${unit.location}|${unit.serviceLine}`;
         uniqueCampusServiceLines.add(slKey);
         uniqueCampusServiceLineRooms.add(`${slKey}|${unit.roomType || ''}`);
       }
