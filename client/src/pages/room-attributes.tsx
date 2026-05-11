@@ -104,6 +104,18 @@ export default function RoomAttributes() {
   
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Sort state for the Base Pricing by Room Type table
+  const [bpSortCol, setBpSortCol] = useState<string>('roomType');
+  const [bpSortDir, setBpSortDir] = useState<'asc' | 'desc'>('asc');
+  const handleBpSort = (col: string) => {
+    if (bpSortCol === col) {
+      setBpSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setBpSortCol(col);
+      setBpSortDir('asc');
+    }
+  };
   
   // Column-level filters for the unit table
   const [columnFilters, setColumnFilters] = useState<{
@@ -496,6 +508,18 @@ export default function RoomAttributes() {
       avgAttributedPrice: avgAttributedPrice !== null ? Math.round(avgAttributedPrice) : null,
       lift: avgAttributedPrice !== null && effectiveBasePrice > 0 ? ((avgAttributedPrice - effectiveBasePrice) / effectiveBasePrice * 100).toFixed(1) : null
     };
+  }).sort((a, b) => {
+    const dir = bpSortDir === 'asc' ? 1 : -1;
+    switch (bpSortCol) {
+      case 'roomType':    return dir * a.roomType.localeCompare(b.roomType);
+      case 'serviceLine': return dir * a.serviceLine.localeCompare(b.serviceLine);
+      case 'count':       return dir * (a.count - b.count);
+      case 'avgStreetRate': return dir * (a.avgStreetRate - b.avgStreetRate);
+      case 'basePrice':   return dir * (a.displayBasePrice - b.displayBasePrice);
+      case 'attributedPrice': return dir * ((a.avgAttributedPrice ?? 0) - (b.avgAttributedPrice ?? 0));
+      case 'lift':        return dir * (parseFloat(a.lift ?? '0') - parseFloat(b.lift ?? '0'));
+      default: return 0;
+    }
   });
 
   const getScopeDescription = () => {
@@ -771,13 +795,30 @@ export default function RoomAttributes() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Room Type</TableHead>
-                    <TableHead>Service Line</TableHead>
-                    <TableHead className="text-right">Units</TableHead>
-                    <TableHead className="text-right">Avg. Street Rate</TableHead>
-                    <TableHead className="text-right">Base Price</TableHead>
-                    <TableHead className="text-right">Avg. Attributed Price</TableHead>
-                    <TableHead className="text-right">Avg. Attributed Lift</TableHead>
+                    {[
+                      { key: 'roomType',       label: 'Room Type',            align: 'left'  },
+                      { key: 'serviceLine',    label: 'Service Line',         align: 'left'  },
+                      { key: 'count',          label: 'Units',                align: 'right' },
+                      { key: 'avgStreetRate',  label: 'Avg. Street Rate',     align: 'right' },
+                      { key: 'basePrice',      label: 'Base Price',           align: 'right' },
+                      { key: 'attributedPrice',label: 'Avg. Attributed Price',align: 'right' },
+                      { key: 'lift',           label: 'Avg. Attributed Lift', align: 'right' },
+                    ].map(({ key, label, align }) => (
+                      <TableHead
+                        key={key}
+                        className={`${align === 'right' ? 'text-right' : ''} cursor-pointer select-none`}
+                        onClick={() => handleBpSort(key)}
+                      >
+                        <span className={`inline-flex items-center gap-1 ${align === 'right' ? 'justify-end w-full' : ''}`}>
+                          {label}
+                          {bpSortCol === key
+                            ? bpSortDir === 'asc'
+                              ? <ArrowUp className="h-3 w-3 shrink-0" />
+                              : <ArrowDown className="h-3 w-3 shrink-0" />
+                            : <ArrowUpDown className="h-3 w-3 shrink-0 opacity-40" />}
+                        </span>
+                      </TableHead>
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
