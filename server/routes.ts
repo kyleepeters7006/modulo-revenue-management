@@ -12183,11 +12183,85 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       if (unit.clientId && unit.clientId !== clientId) {
         return res.status(403).json({ error: 'Access denied' });
       }
+
+      // ── Live revenue-target lookup (always fresh, overrides any stale stored value) ──
+      let liveRevenueTarget: any = null;
+      try {
+        // Resolve locationId: prefer stored, fall back to name-based lookup
+        let resolvedLocationId = unit.locationId as string | null;
+        if (!resolvedLocationId && unit.location) {
+          const loc = await storage.getLocationByName(unit.location as string);
+          if (loc) resolvedLocationId = loc.id;
+        }
+
+        if (resolvedLocationId && unit.serviceLine) {
+          const targets = await storage.getRevenueGrowthTargets(resolvedLocationId);
+          const target = targets.find(
+            (t: any) => t.serviceLine === unit.serviceLine || t.serviceLine === 'All'
+          );
+
+          if (target) {
+            // Approximate actual YOY growth from rent roll monthly revenue trend
+            const allUnits = await storage.getRentRollData(clientId);
+            const locUnits = allUnits.filter(
+              (u: any) => (u.locationId === resolvedLocationId || u.location === unit.location)
+                && u.serviceLine === unit.serviceLine
+            );
+
+            // Group by uploadMonth and sum revenue
+            const monthRevenue: Record<string, number> = {};
+            for (const u of locUnits) {
+              if (!u.uploadMonth) continue;
+              const rate = u.occupiedYN ? (u.inHouseRate || u.streetRate || 0) : 0;
+              monthRevenue[u.uploadMonth] = (monthRevenue[u.uploadMonth] || 0) + rate;
+            }
+            const sortedMonths = Object.keys(monthRevenue).sort();
+            let actualYOYGrowth: number | undefined;
+            if (sortedMonths.length >= 2) {
+              const latest = monthRevenue[sortedMonths[sortedMonths.length - 1]];
+              const oldest = monthRevenue[sortedMonths[0]];
+              if (oldest > 0) {
+                // Scale to annual if we have less than 12 months
+                const monthSpan = sortedMonths.length;
+                const rawGrowth = ((latest - oldest) / oldest) * 100;
+                actualYOYGrowth = parseFloat((rawGrowth * (12 / Math.max(monthSpan - 1, 1))).toFixed(1));
+              }
+            }
+
+            const targetGrowthPercent = target.targetGrowthPercent;
+            const gap = actualYOYGrowth !== undefined
+              ? parseFloat((actualYOYGrowth - targetGrowthPercent).toFixed(1))
+              : undefined;
+            const status = gap === undefined ? 'no_target'
+              : gap >= 0 ? 'exceeding'
+              : gap >= -2 ? 'on_target'
+              : gap >= -5 ? 'slightly_behind'
+              : 'significantly_behind';
+
+            liveRevenueTarget = {
+              targetGrowthPercent,
+              actualYOYGrowth,
+              gap,
+              status,
+              adjustmentApplied: gap !== undefined && gap < 0 ? Math.min(Math.abs(gap) * 0.003, 0.02) : 0,
+            };
+          } else {
+            liveRevenueTarget = { status: 'no_target' };
+          }
+        } else {
+          liveRevenueTarget = { status: 'no_target' };
+        }
+      } catch (e) {
+        console.error('[ai-calculation] revenue target lookup error:', e);
+        liveRevenueTarget = { status: 'no_target' };
+      }
       
       // Use stored calculation details if available (like Modulo does)
       if (unit.aiCalculationDetails) {
         try {
           const storedDetails = JSON.parse(unit.aiCalculationDetails);
+          // Always inject the live revenue target (overrides any stale stored value)
+          storedDetails.revenueTarget = liveRevenueTarget;
           return res.json({
             unitId: unit.id,
             roomType: unit.roomType,
@@ -12320,6 +12394,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           explanation: generateOverallExplanation(result, aiInputs),
           actualOccupancyRate: serviceLineOcc,
           serviceLine: unit.serviceLine,
+          revenueTarget: liveRevenueTarget,
           unitData: {
             unitId: unit.id,
             isOccupied: unit.occupiedYN,
