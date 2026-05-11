@@ -118,15 +118,15 @@ export default function Navigation({ className }: NavigationProps) {
                       key={item.path}
                       href={item.path}
                       className={cn(
-                        "inline-flex items-start px-1 lg:px-1.5 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 max-w-[80px] lg:max-w-[100px]",
+                        "inline-flex flex-col items-center text-center px-1 lg:px-1.5 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 max-w-[72px] lg:max-w-[90px]",
                         isActive
                           ? "border-[var(--trilogy-blue)] text-[var(--trilogy-dark-blue)]"
                           : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                       )}
                       data-testid={`link-${item.path.slice(1)}`}
                     >
-                      <Icon className="h-3.5 w-3.5 mr-1 lg:mr-1.5 flex-shrink-0 mt-0.5" />
-                      <span>{item.label}</span>
+                      <Icon className="h-3.5 w-3.5 flex-shrink-0 mb-0.5" />
+                      <span className="leading-tight">{item.label}</span>
                     </Link>
                   );
                 })}
