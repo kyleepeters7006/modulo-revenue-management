@@ -157,7 +157,7 @@ export default function FloorPlansPage() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [bedroomsFilter, setBedroomsFilter] = useState<string>("any");
   const [floorPlanFilter, setFloorPlanFilter] = useState<string>("any");
-  const [careLevelFilter, setCareLevelFilter] = useState<string>(storedFilters?.serviceLine || "any");
+  const [careLevelFilter, setCareLevelFilter] = useState<string>("any");
   const [sqftFilter, setSqftFilter] = useState<string>("any"); // New square footage filter
   const [selectedFloor, setSelectedFloor] = useState<number>(1); // Floor selector
   const [highlightedUnitId, setHighlightedUnitId] = useState<string | null>(null);
