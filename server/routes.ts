@@ -6087,8 +6087,6 @@ Focus areas (in order):
           clientId: req.clientId || 'demo'
         };
 
-        processedRecords.push(rentRollEntry);
-
         // Harvest Level 2 care rates from this row.
         // Check both the general careLevel field and MatrixCare-specific LOCDescription column.
         const rowLocDesc = (getRowValue(row, 'LOCDescription', 'locDescription', 'LOC_Description') || '').toString().trim();
@@ -6106,6 +6104,16 @@ Focus areas (in order):
           rowCareLevel.toLowerCase().includes('lvl 2') ||
           rowCareLevel === '2'
         );
+
+        // Write LOCDescription Level 2 data back into the rent roll entry so
+        // rent_roll_data.care_level and care_rate are populated for MatrixCare files
+        // (which use LOCDescription/LOC_Rate instead of a "Care Level"/"Care Rate" column).
+        if (isL2LocDesc && rowLocRate > 0) {
+          rentRollEntry.careLevel = rowLocDesc;
+          rentRollEntry.careRate = rowLocRate;
+        }
+
+        processedRecords.push(rentRollEntry);
 
         const harvestRate = (isL2LocDesc && rowLocRate > 0) ? rowLocRate
           : (isL2CareLevel && rowCareRate > 0) ? rowCareRate
@@ -6162,7 +6170,7 @@ Focus areas (in order):
       console.log(`Deleting existing records for ${uploadMonth}...`);
       await storage.uploadRentRollData(uploadMonth, processedRecords);
 
-      // Upsert harvested Level 2 care rates into care_level_rates (DO NOTHING preserves admin values)
+      // Upsert harvested Level 2 care rates into care_level_rates (overwrite on conflict so re-uploads refresh stale rates)
       if (level2HarvestedUpload.size > 0) {
         const { careLevelRates: clrTable } = await import('@shared/schema');
         for (const { locationId, serviceLine, rate } of level2HarvestedUpload.values()) {
@@ -6170,7 +6178,10 @@ Focus areas (in order):
             await db
               .insert(clrTable)
               .values({ locationId, serviceLine, level2Rate: rate, clientId })
-              .onConflictDoNothing();
+              .onConflictDoUpdate({
+                target: [clrTable.clientId, clrTable.locationId, clrTable.serviceLine],
+                set: { level2Rate: rate },
+              });
           } catch (clrErr) {
             console.warn(`[upload/rent-roll] care_level_rates insert failed for ${locationId}/${serviceLine}: ${clrErr}`);
           }
