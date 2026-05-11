@@ -118,11 +118,12 @@ const STREET_RATE_RANGES: Record<string, [number, number]> = {
 };
 
 // Room size premium multipliers
+// Hierarchy enforced: Two Bedroom > One Bedroom > Studio, Companion > Studio
 const ROOM_PREMIUM: Record<string, number> = {
   Studio:       1.00,
-  Companion:    0.82,
-  'One Bedroom':1.00,
-  'Two Bedroom':1.28,
+  Companion:    1.18,
+  'One Bedroom':1.38,
+  'Two Bedroom':1.80,
 };
 
 // Occupancy rate ranges per service line
