@@ -272,7 +272,7 @@ export interface IStorage {
 
   // Room Type Base Prices
   getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]>;
-  upsertRoomTypeBasePrice(roomType: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice>;
+  upsertRoomTypeBasePrice(roomType: string, serviceLine: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2314,12 +2314,12 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(roomTypeBasePrices);
   }
 
-  async upsertRoomTypeBasePrice(roomType: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice> {
+  async upsertRoomTypeBasePrice(roomType: string, serviceLine: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice> {
     const [result] = await db
       .insert(roomTypeBasePrices)
-      .values({ roomType, basePrice, updatedAt: new Date() })
+      .values({ roomType, serviceLine, basePrice, updatedAt: new Date() })
       .onConflictDoUpdate({
-        target: roomTypeBasePrices.roomType,
+        target: [roomTypeBasePrices.roomType, roomTypeBasePrices.serviceLine],
         set: { basePrice, updatedAt: new Date() },
       })
       .returning();

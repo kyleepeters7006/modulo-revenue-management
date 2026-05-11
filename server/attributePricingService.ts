@@ -231,6 +231,35 @@ class AttributePricingService {
     console.log(`Base rates refreshed for ${this.baseRateCache.size} segments (${units.length} total units) for month: ${month}`);
   }
 
+  /**
+   * Lightweight cache update from pre-computed segment data — no DB fetch needed.
+   * Used by recalculate-base-rates endpoint to avoid a second 76K-row load.
+   */
+  updateCacheFromSegments(segments: Array<{ serviceLine: string; roomType: string; baseRate: number; unitCount: number }>, month: string): void {
+    for (const seg of segments) {
+      // Use a wildcard location key so getBaseRate falls back to this entry
+      const key = `*|${seg.serviceLine}|${seg.roomType}`;
+      this.baseRateCache.set(key, {
+        location: '*',
+        serviceLine: seg.serviceLine,
+        roomType: seg.roomType,
+        baseRate: seg.baseRate,
+        averageStreetRate: seg.baseRate,
+        averageMultiplier: 1,
+        unitCount: seg.unitCount,
+        lastUpdated: new Date(),
+        hasAttributes: false,
+        attributedUnitCount: 0,
+        nonAttributedUnitCount: seg.unitCount,
+        attributedBaseRate: null,
+        nonAttributedBaseRate: seg.baseRate
+      });
+    }
+    this.cacheTimestamp = new Date();
+    this.cacheMonth = month;
+    console.log(`[recalculate] Cache updated: ${segments.length} segments for month ${month}`);
+  }
+
   async getCampusServiceLineMedian(location: string, serviceLine: string): Promise<number | null> {
     const units = await db.select()
       .from(rentRollData)

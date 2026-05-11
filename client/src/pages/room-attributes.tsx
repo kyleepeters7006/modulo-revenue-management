@@ -17,8 +17,9 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DollarSign, Home, Layers, TrendingUp, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Filter, Check, Loader2 } from "lucide-react";
+import { DollarSign, Home, Layers, TrendingUp, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Filter, Check, Loader2, RefreshCw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
 interface UnitWithAttributes {
@@ -46,8 +47,25 @@ interface AttributeRating {
 
 interface RoomTypeBasePrice {
   roomType: string;
+  serviceLine: string;
   basePrice: number;
   updatedAt?: string;
+}
+
+interface PendingAttributeChange {
+  unitId: string;
+  roomNumber: string;
+  roomType: string;
+  serviceLine: string;
+  field: string;
+  attributeLabel: string;
+  oldValue: string | null;
+  newValue: string | null;
+  currentStreetRate: number;
+  newStreetRate: number;
+  baseRate: number;
+  oldAdj: number;
+  newAdj: number;
 }
 
 const saveFiltersToStorage = (filters: any) => {
@@ -77,10 +95,12 @@ export default function RoomAttributes() {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"]);
 
-  // Local editing state for base price inputs: { [roomType]: inputValue }
+  // Local editing state for base price inputs: { [roomType|serviceLine]: inputValue }
   const [editingBasePrices, setEditingBasePrices] = useState<Record<string, string>>({});
   // Track which room types have just been saved (for save indicator)
   const [savedRoomTypes, setSavedRoomTypes] = useState<Set<string>>(new Set());
+  // Pending attribute change waiting for street rate confirmation
+  const [pendingAttributeChange, setPendingAttributeChange] = useState<PendingAttributeChange | null>(null);
   
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -130,10 +150,17 @@ export default function RoomAttributes() {
     queryKey: ['/api/room-type-base-prices'],
   });
 
+  // Key: "${roomType}|${serviceLine}" → basePrice
   const basePriceMap: Record<string, number> = {};
   for (const entry of roomTypeBasePricesData) {
-    basePriceMap[entry.roomType] = entry.basePrice;
+    basePriceMap[`${entry.roomType}|${entry.serviceLine}`] = entry.basePrice;
+    // Fallback key for backward compat with 'All' service line entries
+    if (entry.serviceLine === 'All') basePriceMap[entry.roomType] = entry.basePrice;
   }
+
+  const getBasePrice = (roomType: string, serviceLine: string): number | undefined => {
+    return basePriceMap[`${roomType}|${serviceLine}`] ?? basePriceMap[roomType];
+  };
 
   const updateRatingMutation = useMutation({
     mutationFn: async ({ id, field, value }: { id: string; field: string; value: string | null }) => {
@@ -156,27 +183,58 @@ export default function RoomAttributes() {
     },
   });
 
+  const updateStreetRateMutation = useMutation({
+    mutationFn: async ({ id, streetRate }: { id: string; streetRate: number }) => {
+      return apiRequest(`/api/rent-roll/${id}/street-rate`, 'PATCH', { streetRate });
+    },
+    onMutate: async ({ id, streetRate }) => {
+      await queryClient.cancelQueries({ queryKey: ['/api/rent-roll'] });
+      const previous = queryClient.getQueryData(['/api/rent-roll']);
+      queryClient.setQueryData(['/api/rent-roll'], (old: UnitWithAttributes[] | undefined) =>
+        old?.map(unit => unit.id === id ? { ...unit, streetRate } : unit) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(['/api/rent-roll'], context.previous);
+      toast({ title: 'Failed to update street rate', variant: 'destructive' });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
+    },
+  });
+
   const saveBasePriceMutation = useMutation({
-    mutationFn: async ({ roomType, basePrice }: { roomType: string; basePrice: number }) => {
-      return apiRequest('/api/room-type-base-prices', 'PUT', { roomType, basePrice });
+    mutationFn: async ({ roomType, serviceLine, basePrice }: { roomType: string; serviceLine: string; basePrice: number }) => {
+      return apiRequest('/api/room-type-base-prices', 'PUT', { roomType, serviceLine, basePrice });
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['/api/room-type-base-prices'] });
-      setSavedRoomTypes(prev => {
-        const next = new Set(prev);
-        next.add(variables.roomType);
-        return next;
-      });
+      const key = `${variables.roomType}|${variables.serviceLine}`;
+      setSavedRoomTypes(prev => { const next = new Set(prev); next.add(key); return next; });
       setTimeout(() => {
-        setSavedRoomTypes(prev => {
-          const next = new Set(prev);
-          next.delete(variables.roomType);
-          return next;
-        });
+        setSavedRoomTypes(prev => { const next = new Set(prev); next.delete(key); return next; });
       }, 2000);
     },
     onError: () => {
       toast({ title: 'Failed to save base price', variant: 'destructive' });
+    },
+  });
+
+  const recalculateBaseRatesMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/attribute-pricing/recalculate-base-rates', 'POST', {});
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/room-type-base-prices'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
+      toast({
+        title: 'Base rates recalculated',
+        description: `${data.segmentsUpdated} room type/service line combinations updated, ${data.unitsUpdated} unit street rates refreshed.`,
+      });
+    },
+    onError: () => {
+      toast({ title: 'Failed to recalculate base rates', variant: 'destructive' });
     },
   });
 
@@ -209,30 +267,76 @@ export default function RoomAttributes() {
     setSelected([]);
   };
 
-  const calculateAttributedPrice = (unit: UnitWithAttributes): number | null => {
-    const storedBasePrice = basePriceMap[unit.roomType];
-    if (storedBasePrice === undefined) return null;
+  const getAttributeAdj = (type: string, rating: string | null | undefined): number => {
+    if (!rating) return 0;
+    return attributeRatings.find(r => r.attributeType === type && r.ratingLevel === rating)?.adjustmentPercent ?? 0;
+  };
 
-    let price = storedBasePrice;
-
+  const getUnitMultiplier = (unit: UnitWithAttributes, overrideField?: string, overrideValue?: string | null): number => {
     const attributeTypes = ['size', 'view', 'renovation', 'location', 'amenity'];
-    
+    let totalAdj = 0;
     attributeTypes.forEach(type => {
       const ratingKey = `${type}Rating` as keyof UnitWithAttributes;
-      const rating = unit[ratingKey] as string | undefined;
-      
-      if (rating) {
-        const ratingConfig = attributeRatings.find(
-          r => r.attributeType === type && r.ratingLevel === rating
-        );
-        
-        if (ratingConfig) {
-          price = price * (1 + ratingConfig.adjustmentPercent / 100);
-        }
-      }
+      const rating = overrideField === `${type}Rating` ? overrideValue : (unit[ratingKey] as string | undefined);
+      totalAdj += getAttributeAdj(type, rating);
     });
-    
-    return Math.ceil(price / 10) * 10 - 1;
+    return 1 + totalAdj / 100;
+  };
+
+  const calculateAttributedPrice = (unit: UnitWithAttributes): number | null => {
+    const storedBasePrice = getBasePrice(unit.roomType, unit.serviceLine);
+    if (storedBasePrice === undefined) return null;
+    const multiplier = getUnitMultiplier(unit);
+    return Math.ceil(storedBasePrice * multiplier / 10) * 10 - 1;
+  };
+
+  const fieldToLabel: Record<string, string> = {
+    sizeRating: 'Size', viewRating: 'View', renovationRating: 'Renovation',
+    locationRating: 'Location', amenityRating: 'Amenity',
+  };
+  const fieldToType: Record<string, string> = {
+    sizeRating: 'size', viewRating: 'view', renovationRating: 'renovation',
+    locationRating: 'location', amenityRating: 'amenity',
+  };
+
+  const handleAttributeChange = (unit: UnitWithAttributes, field: string, newVal: string | null) => {
+    const baseRate = getBasePrice(unit.roomType, unit.serviceLine);
+    if (baseRate === undefined) {
+      // No base rate → just update rating without street rate dialog
+      updateRatingMutation.mutate({ id: unit.id, field, value: newVal });
+      return;
+    }
+    const oldVal = unit[field as keyof UnitWithAttributes] as string | null | undefined;
+    const attrType = fieldToType[field];
+    const oldAdj = getAttributeAdj(attrType, oldVal ?? null);
+    const newAdj = getAttributeAdj(attrType, newVal);
+    const newMultiplier = getUnitMultiplier(unit, field, newVal);
+    const newStreetRate = Math.round(baseRate * newMultiplier);
+    setPendingAttributeChange({
+      unitId: unit.id,
+      roomNumber: unit.roomNumber,
+      roomType: unit.roomType,
+      serviceLine: unit.serviceLine,
+      field,
+      attributeLabel: fieldToLabel[field] ?? field,
+      oldValue: oldVal ?? null,
+      newValue: newVal,
+      currentStreetRate: unit.streetRate,
+      newStreetRate,
+      baseRate,
+      oldAdj,
+      newAdj,
+    });
+  };
+
+  const confirmAttributeChange = (updateStreetRate: boolean) => {
+    if (!pendingAttributeChange) return;
+    const { unitId, field, newValue, newStreetRate } = pendingAttributeChange;
+    updateRatingMutation.mutate({ id: unitId, field, value: newValue });
+    if (updateStreetRate) {
+      updateStreetRateMutation.mutate({ id: unitId, streetRate: newStreetRate });
+    }
+    setPendingAttributeChange(null);
   };
 
   const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
@@ -338,8 +442,8 @@ export default function RoomAttributes() {
         bValue = calculateAttributedPrice(b) ?? -Infinity;
         break;
       case 'basePrice': {
-        const bpA = basePriceMap[a.roomType];
-        const bpB = basePriceMap[b.roomType];
+        const bpA = getBasePrice(a.roomType, a.serviceLine);
+        const bpB = getBasePrice(b.roomType, b.serviceLine);
         aValue = bpA !== undefined ? bpA : -Infinity;
         bValue = bpB !== undefined ? bpB : -Infinity;
         break;
@@ -347,8 +451,8 @@ export default function RoomAttributes() {
       case 'difference': {
         const apA = calculateAttributedPrice(a);
         const apB = calculateAttributedPrice(b);
-        const bpA = basePriceMap[a.roomType];
-        const bpB = basePriceMap[b.roomType];
+        const bpA = getBasePrice(a.roomType, a.serviceLine);
+        const bpB = getBasePrice(b.roomType, b.serviceLine);
         aValue = apA !== null && bpA !== undefined ? apA - bpA : -Infinity;
         bValue = apB !== null && bpB !== undefined ? apB - bpB : -Infinity;
         break;
@@ -365,20 +469,25 @@ export default function RoomAttributes() {
     }
   });
 
-  const filteredRoomTypes = Array.from(new Set(filteredUnits.map(unit => unit.roomType))).filter(Boolean).sort();
+  // Group by (roomType, serviceLine) for granular base rate display
+  const filteredSegmentKeys = Array.from(new Set(
+    filteredUnits.map(unit => `${unit.roomType}|||${unit.serviceLine}`)
+  )).filter(Boolean).sort();
 
-  const roomTypePricing = filteredRoomTypes.map(roomType => {
-    const unitsOfType = filteredUnits.filter(unit => unit.roomType === roomType);
+  const roomTypePricing = filteredSegmentKeys.map(segKey => {
+    const [roomType, serviceLine] = segKey.split('|||');
+    const unitsOfType = filteredUnits.filter(unit => unit.roomType === roomType && unit.serviceLine === serviceLine);
     const avgStreetRate = unitsOfType.reduce((sum, u) => sum + (u.streetRate || 0), 0) / unitsOfType.length || 0;
-    const storedBasePrice = basePriceMap[roomType];
+    const storedBasePrice = getBasePrice(roomType, serviceLine);
     const effectiveBasePrice = storedBasePrice !== undefined ? storedBasePrice : avgStreetRate;
     const attributedPrices = unitsOfType.map(u => calculateAttributedPrice(u)).filter((v): v is number => v !== null);
     const avgAttributedPrice = attributedPrices.length > 0
       ? attributedPrices.reduce((sum, v) => sum + v, 0) / attributedPrices.length
       : null;
-    
     return {
+      segKey,
       roomType,
+      serviceLine,
       count: unitsOfType.length,
       storedBasePrice,
       avgStreetRate,
@@ -635,20 +744,37 @@ export default function RoomAttributes() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Home className="h-5 w-5" />
-                <span>Base Pricing by Room Type</span>
-              </CardTitle>
-              <CardDescription>
-                Set a base price per room type. The attributed price is calculated from the base price plus attribute adjustments.
-              </CardDescription>
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Home className="h-5 w-5" />
+                    <span>Base Pricing by Room Type</span>
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    Base price is back-calculated from avg street rate ÷ avg attribute multiplier per room type &amp; service line. Attributed price = Base × multiplier.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => recalculateBaseRatesMutation.mutate()}
+                  disabled={recalculateBaseRatesMutation.isPending}
+                  className="ml-4 shrink-0"
+                >
+                  {recalculateBaseRatesMutation.isPending
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Recalculating…</>
+                    : <><RefreshCw className="h-4 w-4 mr-2" />Recalculate Base Rates</>}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Room Type</TableHead>
+                    <TableHead>Service Line</TableHead>
                     <TableHead className="text-right">Units</TableHead>
+                    <TableHead className="text-right">Avg. Street Rate</TableHead>
                     <TableHead className="text-right">Base Price</TableHead>
                     <TableHead className="text-right">Avg. Attributed Price</TableHead>
                     <TableHead className="text-right">Avg. Attributed Lift</TableHead>
@@ -657,33 +783,40 @@ export default function RoomAttributes() {
                 <TableBody>
                   {roomTypePricing.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                         No room data available for selected filters
                       </TableCell>
                     </TableRow>
                   ) : (
-                    roomTypePricing.map(({ roomType, count, storedBasePrice, avgStreetRate, effectiveBasePrice, displayBasePrice, avgAttributedPrice, lift }) => {
+                    roomTypePricing.map(({ segKey, roomType, serviceLine, count, storedBasePrice, avgStreetRate, effectiveBasePrice, displayBasePrice, avgAttributedPrice, lift }) => {
                       const rawBasePrice = storedBasePrice !== undefined ? storedBasePrice : displayBasePrice;
-                      const isEditing = editingBasePrices[roomType] !== undefined;
+                      const editKey = segKey;
+                      const isEditing = editingBasePrices[editKey] !== undefined;
                       const inputVal = isEditing
-                        ? editingBasePrices[roomType]
+                        ? editingBasePrices[editKey]
                         : Number(rawBasePrice).toLocaleString();
-                      const isSaving = saveBasePriceMutation.isPending && saveBasePriceMutation.variables?.roomType === roomType;
-                      const isSaved = savedRoomTypes.has(roomType);
+                      const isSaving = saveBasePriceMutation.isPending && saveBasePriceMutation.variables?.roomType === roomType && saveBasePriceMutation.variables?.serviceLine === serviceLine;
+                      const isSaved = savedRoomTypes.has(editKey);
 
                       const handleSave = () => {
-                        const raw = editingBasePrices[roomType] ?? String(rawBasePrice);
+                        const raw = editingBasePrices[editKey] ?? String(rawBasePrice);
                         const parsed = parseFloat(raw.replace(/,/g, ''));
                         if (!isNaN(parsed) && parsed >= 0) {
-                          saveBasePriceMutation.mutate({ roomType, basePrice: parsed });
+                          saveBasePriceMutation.mutate({ roomType, serviceLine, basePrice: parsed });
                         }
-                        setEditingBasePrices(prev => { const next = { ...prev }; delete next[roomType]; return next; });
+                        setEditingBasePrices(prev => { const next = { ...prev }; delete next[editKey]; return next; });
                       };
 
                       return (
-                        <TableRow key={roomType}>
+                        <TableRow key={segKey}>
                           <TableCell className="font-medium">{roomType || 'Unknown'}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">{serviceLine}</Badge>
+                          </TableCell>
                           <TableCell className="text-right">{count}</TableCell>
+                          <TableCell className="text-right font-mono text-muted-foreground text-sm">
+                            ${Math.round(avgStreetRate).toLocaleString()}
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <div className="inline-flex items-center border border-input rounded-md bg-background h-7 pl-2 pr-2 focus-within:ring-1 focus-within:ring-ring">
@@ -691,8 +824,8 @@ export default function RoomAttributes() {
                                 <input
                                   className="w-20 h-full border-0 outline-none text-left font-mono text-sm bg-transparent pl-0.5 pr-0"
                                   value={inputVal}
-                                  onFocus={() => setEditingBasePrices(prev => ({ ...prev, [roomType]: String(rawBasePrice) }))}
-                                  onChange={e => setEditingBasePrices(prev => ({ ...prev, [roomType]: e.target.value }))}
+                                  onFocus={() => setEditingBasePrices(prev => ({ ...prev, [editKey]: String(rawBasePrice) }))}
+                                  onChange={e => setEditingBasePrices(prev => ({ ...prev, [editKey]: e.target.value }))}
                                   onBlur={handleSave}
                                   onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
                                 />
@@ -1000,7 +1133,7 @@ export default function RoomAttributes() {
                     ) : (
                       sortedUnits.slice(0, 100).map(unit => {
                         const attributedPrice = calculateAttributedPrice(unit);
-                        const basePrice = basePriceMap[unit.roomType];
+                        const basePrice = getBasePrice(unit.roomType, unit.serviceLine);
                         const difference = attributedPrice !== null && basePrice !== undefined ? attributedPrice - basePrice : null;
                         const percentDiff = difference !== null && basePrice !== undefined && basePrice > 0 ? (difference / basePrice * 100) : null;
                         
@@ -1011,12 +1144,9 @@ export default function RoomAttributes() {
                             <TableCell className="text-sm">{unit.roomType}</TableCell>
                             <TableCell className="text-sm">{unit.serviceLine}</TableCell>
                             <TableCell className="text-right font-mono text-sm">
-                              {(() => {
-                                const bp = basePriceMap[unit.roomType];
-                                return bp !== undefined
-                                  ? <span>${Math.round(bp).toLocaleString()}</span>
-                                  : <span className="text-muted-foreground">—</span>;
-                              })()}
+                              {basePrice !== undefined
+                                ? <span>${Math.round(basePrice).toLocaleString()}</span>
+                                : <span className="text-muted-foreground">—</span>}
                             </TableCell>
                             {(['sizeRating', 'viewRating', 'renovationRating', 'locationRating', 'amenityRating'] as const).map(field => {
                               const rating = unit[field] as string | undefined;
@@ -1024,11 +1154,7 @@ export default function RoomAttributes() {
                                 <TableCell key={field} className="text-center p-1">
                                   <Select
                                     value={rating || '__none__'}
-                                    onValueChange={val => updateRatingMutation.mutate({
-                                      id: unit.id,
-                                      field,
-                                      value: val === '__none__' ? null : val,
-                                    })}
+                                    onValueChange={val => handleAttributeChange(unit, field, val === '__none__' ? null : val)}
                                   >
                                     <SelectTrigger className="h-7 w-16 mx-auto text-xs border-dashed hover:border-solid focus:ring-0">
                                       <SelectValue>
@@ -1086,6 +1212,76 @@ export default function RoomAttributes() {
           </Card>
         </div>
       </div>
+
+      {/* Attribute Change Confirmation Dialog */}
+      <Dialog open={!!pendingAttributeChange} onOpenChange={open => { if (!open) setPendingAttributeChange(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update Street Rate?</DialogTitle>
+            <DialogDescription>
+              Changing this attribute will affect the attributed price for unit <strong>{pendingAttributeChange?.roomNumber}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          {pendingAttributeChange && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg bg-gray-50 p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">{pendingAttributeChange.attributeLabel} Rating</span>
+                  <span className="font-medium">
+                    <Badge variant="outline" className={getRatingColor(pendingAttributeChange.oldValue ?? '')}>
+                      {pendingAttributeChange.oldValue ?? '—'}
+                    </Badge>
+                    {' → '}
+                    <Badge variant="outline" className={getRatingColor(pendingAttributeChange.newValue ?? '')}>
+                      {pendingAttributeChange.newValue ?? '—'}
+                    </Badge>
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Attribute Premium Change</span>
+                  <span className="font-medium">
+                    {pendingAttributeChange.oldAdj > 0 ? '+' : ''}{pendingAttributeChange.oldAdj.toFixed(1)}%
+                    {' → '}
+                    {pendingAttributeChange.newAdj > 0 ? '+' : ''}{pendingAttributeChange.newAdj.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="border-t pt-2 flex justify-between">
+                  <span className="text-gray-600">Current Street Rate</span>
+                  <span className="font-mono">${pendingAttributeChange.currentStreetRate.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">New Street Rate</span>
+                  <span className="font-mono font-semibold">${pendingAttributeChange.newStreetRate.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Change</span>
+                  <span className={`font-semibold ${pendingAttributeChange.newStreetRate - pendingAttributeChange.currentStreetRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {pendingAttributeChange.newStreetRate - pendingAttributeChange.currentStreetRate >= 0 ? '+' : ''}
+                    ${Math.round(pendingAttributeChange.newStreetRate - pendingAttributeChange.currentStreetRate).toLocaleString()}
+                    {' '}
+                    ({((pendingAttributeChange.newStreetRate - pendingAttributeChange.currentStreetRate) / pendingAttributeChange.currentStreetRate * 100).toFixed(1)}%)
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Base Rate Used</span>
+                  <span>${Math.round(pendingAttributeChange.baseRate).toLocaleString()}</span>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600">
+                Would you like to push this street rate adjustment to the Rate Card?
+              </p>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => confirmAttributeChange(false)}>
+              Update Rating Only
+            </Button>
+            <Button onClick={() => confirmAttributeChange(true)} className="bg-teal-600 hover:bg-teal-700">
+              Yes, Update Street Rate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

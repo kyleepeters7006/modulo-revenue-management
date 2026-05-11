@@ -11720,18 +11720,167 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
 
   app.put("/api/room-type-base-prices", async (req, res) => {
     try {
-      const { roomType, basePrice } = req.body;
+      const { roomType, serviceLine = 'All', basePrice } = req.body;
       if (!roomType || typeof roomType !== 'string') {
         return res.status(400).json({ error: 'roomType is required' });
       }
       if (typeof basePrice !== 'number' || basePrice < 0) {
         return res.status(400).json({ error: 'basePrice must be a non-negative number' });
       }
-      const result = await storage.upsertRoomTypeBasePrice(roomType, basePrice);
+      const result = await storage.upsertRoomTypeBasePrice(roomType, serviceLine, basePrice);
       res.json(result);
     } catch (error) {
       console.error('Error upserting room type base price:', error);
       res.status(500).json({ error: 'Failed to save room type base price' });
+    }
+  });
+
+  // Recalculate base rates from avg street rate / avg multiplier per (roomType, serviceLine)
+  app.post("/api/attribute-pricing/recalculate-base-rates", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+
+      // Get latest upload month (raw pool query — avoids Drizzle template issues)
+      const monthResult = await pool.query(
+        `SELECT upload_month FROM rent_roll_data
+         WHERE client_id = $1 AND upload_month IS NOT NULL
+         ORDER BY upload_month DESC LIMIT 1`,
+        [clientId]
+      );
+      if (!monthResult.rows?.length) {
+        return res.status(404).json({ error: 'No data found for this client' });
+      }
+      const latestMonth = monthResult.rows[0].upload_month as string;
+
+      // Step 1: Aggregate base rates per (service_line, room_type).
+      //   base_rate = avg(street_rate) / avg(multiplier) — accounts for attribute premiums.
+      const segRows = await pool.query(
+        `SELECT rr.service_line, rr.room_type,
+           AVG(rr.street_rate) / NULLIF(AVG(1 + (
+             COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
+             COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
+             COALESCE(ar_am.adjustment_percent, 0)
+           ) / 100.0), 0) AS base_rate,
+           COUNT(*) AS unit_count
+         FROM rent_roll_data rr
+         LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = rr.size_rating
+         LEFT JOIN attribute_ratings ar_vw ON ar_vw.attribute_type = 'view'       AND ar_vw.rating_level = rr.view_rating
+         LEFT JOIN attribute_ratings ar_rv ON ar_rv.attribute_type = 'renovation' AND ar_rv.rating_level = rr.renovation_rating
+         LEFT JOIN attribute_ratings ar_lc ON ar_lc.attribute_type = 'location'   AND ar_lc.rating_level = rr.location_rating
+         LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = rr.amenity_rating
+         WHERE rr.client_id = $1
+           AND rr.street_rate > 0
+           AND rr.service_line IS NOT NULL
+           AND rr.room_type IS NOT NULL
+         GROUP BY rr.service_line, rr.room_type`,
+        [clientId]
+      );
+
+      // Persist base rates to room_type_base_prices
+      const segmentResults: Array<{ serviceLine: string; roomType: string; baseRate: number; unitCount: number }> = [];
+      for (const row of segRows.rows) {
+        const serviceLine = row.service_line as string;
+        const roomType = row.room_type as string;
+        const baseRate = Math.round(Number(row.base_rate));
+        const unitCount = Number(row.unit_count);
+        await storage.upsertRoomTypeBasePrice(roomType, serviceLine, baseRate);
+        segmentResults.push({ serviceLine, roomType, baseRate, unitCount });
+      }
+
+      // Step 2: Single-pass CTE UPDATE — sets each unit's street_rate to base_rate × unit_multiplier.
+      //   Updates all rows for this client in one SQL statement (~4-5 seconds).
+      const updateResult = await pool.query(
+        `WITH base_rates AS (
+           SELECT rr.service_line, rr.room_type,
+             AVG(rr.street_rate) / NULLIF(AVG(1 + (
+               COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
+               COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
+               COALESCE(ar_am.adjustment_percent, 0)
+             ) / 100.0), 0) AS base_rate
+           FROM rent_roll_data rr
+           LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = rr.size_rating
+           LEFT JOIN attribute_ratings ar_vw ON ar_vw.attribute_type = 'view'       AND ar_vw.rating_level = rr.view_rating
+           LEFT JOIN attribute_ratings ar_rv ON ar_rv.attribute_type = 'renovation' AND ar_rv.rating_level = rr.renovation_rating
+           LEFT JOIN attribute_ratings ar_lc ON ar_lc.attribute_type = 'location'   AND ar_lc.rating_level = rr.location_rating
+           LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = rr.amenity_rating
+           WHERE rr.client_id = $1
+             AND rr.street_rate > 0
+             AND rr.service_line IS NOT NULL AND rr.room_type IS NOT NULL
+           GROUP BY rr.service_line, rr.room_type
+         ),
+         new_rates AS (
+           SELECT r.id,
+             ROUND(br.base_rate * (1 + (
+               COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
+               COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
+               COALESCE(ar_am.adjustment_percent, 0)
+             ) / 100.0))::int AS new_rate
+           FROM rent_roll_data r
+           JOIN base_rates br ON r.service_line = br.service_line AND r.room_type = br.room_type
+           LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = r.size_rating
+           LEFT JOIN attribute_ratings ar_vw ON ar_vw.attribute_type = 'view'       AND ar_vw.rating_level = r.view_rating
+           LEFT JOIN attribute_ratings ar_rv ON ar_rv.attribute_type = 'renovation' AND ar_rv.rating_level = r.renovation_rating
+           LEFT JOIN attribute_ratings ar_lc ON ar_lc.attribute_type = 'location'   AND ar_lc.rating_level = r.location_rating
+           LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = r.amenity_rating
+           WHERE r.client_id = $1
+         )
+         UPDATE rent_roll_data SET street_rate = nr.new_rate
+         FROM new_rates nr WHERE rent_roll_data.id = nr.id`,
+        [clientId]
+      );
+
+      const updatedCount = updateResult.rowCount ?? 0;
+
+      // Update in-memory cache with computed segments (avoids reloading 76K rows)
+      attributePricingService.updateCacheFromSegments(segmentResults, latestMonth);
+
+      console.log(`[recalculate-base-rates] ${segmentResults.length} segments, ${updatedCount} units updated`);
+      res.json({
+        success: true,
+        month: latestMonth,
+        segmentsUpdated: segmentResults.length,
+        unitsUpdated: updatedCount,
+        segments: segmentResults.sort((a, b) => a.serviceLine.localeCompare(b.serviceLine) || a.roomType.localeCompare(b.roomType))
+      });
+    } catch (error) {
+      console.error('Error recalculating base rates:', error);
+      res.status(500).json({ error: 'Failed to recalculate base rates' });
+    }
+  });
+
+  // Update a single unit's street rate (after attribute change confirmation)
+  app.patch("/api/rent-roll/:id/street-rate", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = req.clientId || 'demo';
+      const { streetRate } = req.body;
+
+      if (typeof streetRate !== 'number' || streetRate < 0) {
+        return res.status(400).json({ error: 'streetRate must be a non-negative number' });
+      }
+
+      // Look up the room to update all months for same location+room
+      const rows = await db
+        .select({ location: rentRollData.location, roomNumber: rentRollData.roomNumber })
+        .from(rentRollData)
+        .where(and(eq(rentRollData.id, id), eq(rentRollData.clientId, clientId)))
+        .limit(1);
+
+      if (!rows.length) return res.status(404).json({ error: 'Unit not found' });
+
+      const { location, roomNumber } = rows[0];
+      await db.update(rentRollData)
+        .set({ streetRate })
+        .where(and(
+          eq(rentRollData.clientId, clientId),
+          eq(rentRollData.location, location!),
+          eq(rentRollData.roomNumber, roomNumber!)
+        ));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating street rate:', error);
+      res.status(500).json({ error: 'Failed to update street rate' });
     }
   });
 

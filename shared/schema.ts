@@ -4,6 +4,7 @@ import {
   uniqueIndex,
   jsonb,
   pgTable,
+  primaryKey,
   timestamp,
   varchar,
   text,
@@ -947,12 +948,15 @@ export const insertAiWeightVersionsSchema = createInsertSchema(aiWeightVersions)
   createdAt: true,
 });
 
-// Room Type Base Prices - One editable base price per room type name
+// Room Type Base Prices - One editable base price per (room type, service line)
 export const roomTypeBasePrices = pgTable("room_type_base_prices", {
-  roomType: text("room_type").primaryKey(),
+  roomType: text("room_type").notNull(),
+  serviceLine: text("service_line").notNull().default('All'),
   basePrice: real("base_price").notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  primaryKey({ columns: [table.roomType, table.serviceLine] }),
+]);
 
 export const insertRoomTypeBasePricesSchema = createInsertSchema(roomTypeBasePrices).omit({
   updatedAt: true,
