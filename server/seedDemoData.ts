@@ -283,6 +283,8 @@ export async function generateDemoData(): Promise<{
   // Competitor rate lookup: "locName|compType|roomType" -> average monthly rate
   // Used to pre-populate competitorFinalRate in rent roll records
   const competitorRateMap = new Map<string, number[]>();
+  // Tracks the first (primary) competitor name + base rate per loc|compType|roomType
+  const competitorInfoMap = new Map<string, { name: string; baseRate: number }>();
 
   const competitiveBatch: any[] = [];
 
@@ -344,6 +346,10 @@ export async function generateDemoData(): Promise<{
             competitorRateMap.set(mapKey, []);
           }
           competitorRateMap.get(mapKey)!.push(compRate);
+          // Store first (primary) competitor info for this key
+          if (!competitorInfoMap.has(mapKey)) {
+            competitorInfoMap.set(mapKey, { name: compName, baseRate: compRate });
+          }
         }
       }
     }
@@ -354,14 +360,11 @@ export async function generateDemoData(): Promise<{
     const compType = SL_TO_COMP_TYPE[sl];
     if (!compType) return null;
 
-    // Direct lookup
     const key = `${locName}|${compType}|${roomType}`;
     const rates = competitorRateMap.get(key);
     if (rates && rates.length > 0) {
       return Math.round(rates.reduce((a, b) => a + b, 0) / rates.length);
     }
-
-    // Fallback: try Studio for Companion (AL/MC companion -> AL studio)
     if (roomType === 'Companion') {
       const fallbackKey = `${locName}|${compType}|Studio`;
       const fallbackRates = competitorRateMap.get(fallbackKey);
@@ -369,8 +372,6 @@ export async function generateDemoData(): Promise<{
         return Math.round(fallbackRates.reduce((a, b) => a + b, 0) / fallbackRates.length * 0.85);
       }
     }
-
-    // Fallback: try One Bedroom for Two Bedroom
     if (roomType === 'Two Bedroom') {
       const fallbackKey = `${locName}|${compType}|One Bedroom`;
       const fallbackRates = competitorRateMap.get(fallbackKey);
@@ -378,14 +379,28 @@ export async function generateDemoData(): Promise<{
         return Math.round(fallbackRates.reduce((a, b) => a + b, 0) / fallbackRates.length * 1.25);
       }
     }
-
-    // Fallback: any room type for this location+compType
     for (const [k, r] of competitorRateMap) {
       if (k.startsWith(`${locName}|${compType}|`) && r.length > 0) {
         return Math.round(r.reduce((a, b) => a + b, 0) / r.length);
       }
     }
+    return null;
+  }
 
+  // Helper: look up the primary competitor name + base rate for a unit
+  function lookupCompetitorInfo(locName: string, sl: string, roomType: string): { name: string; baseRate: number } | null {
+    const compType = SL_TO_COMP_TYPE[sl];
+    if (!compType) return null;
+    const direct = competitorInfoMap.get(`${locName}|${compType}|${roomType}`);
+    if (direct) return direct;
+    const fallbackRt = roomType === 'Companion' ? 'Studio' : roomType === 'Two Bedroom' ? 'One Bedroom' : null;
+    if (fallbackRt) {
+      const fb = competitorInfoMap.get(`${locName}|${compType}|${fallbackRt}`);
+      if (fb) return fb;
+    }
+    for (const [k, info] of competitorInfoMap) {
+      if (k.startsWith(`${locName}|${compType}|`)) return info;
+    }
     return null;
   }
 
@@ -458,8 +473,9 @@ export async function generateDemoData(): Promise<{
         const streetRate = Math.round(baseRate * premium);
         const unitCount = unitCounts[sl]?.[roomSize] ?? 6;
 
-        // Pre-compute competitor rate for this location/sl/roomType (same for all months)
+        // Pre-compute competitor rate + name/baseRate for this location/sl/roomType (same for all months)
         const competitorFinalRate = lookupCompetitorRate(loc.name, sl, roomSize);
+        const competitorInfo = lookupCompetitorInfo(loc.name, sl, roomSize);
 
         for (let mIdx = monthStart; mIdx < months.length; mIdx++) {
           const month = months[mIdx];
@@ -546,6 +562,8 @@ export async function generateDemoData(): Promise<{
               // Pre-computed competitor rate from survey data
               competitorFinalRate,
               competitorRate: competitorFinalRate,
+              competitorName: competitorInfo?.name ?? null,
+              competitorBaseRate: competitorInfo?.baseRate ?? null,
               // Pre-computed Modulo suggestion based on occupancy trend
               moduloSuggestedRate,
               // Albany AL/MC: pre-seed guardrail indicator so rate card shows shield immediately

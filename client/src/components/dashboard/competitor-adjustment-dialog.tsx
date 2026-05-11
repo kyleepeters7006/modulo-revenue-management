@@ -1,8 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatRateByServiceLine } from "@/lib/formatters";
-import { ExternalLink, Calculator } from "lucide-react";
+import { formatRateByServiceLine } from "@/lib/formatters";
+import { ExternalLink, Calculator, Building2 } from "lucide-react";
 import { Link } from "wouter";
 
 interface CompetitorAdjustmentDialogProps {
@@ -28,12 +27,9 @@ export function CompetitorAdjustmentDialog({
   serviceLine,
   children
 }: CompetitorAdjustmentDialogProps) {
-  if (!competitorName || !competitorBaseRate) {
-    return <>{children}</>;
-  }
-  
   const totalAdjustment = competitorCareLevel2Adjustment + competitorMedManagementAdjustment;
-  
+  const hasBreakdown = !!(competitorName && competitorBaseRate);
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -43,77 +39,106 @@ export function CompetitorAdjustmentDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
-            Competitor Rate Adjustment
+            Competitor Rate
           </DialogTitle>
         </DialogHeader>
-        
+
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="font-medium text-lg">{competitorName}</p>
-              {competitorWeight && (
-                <Badge variant="secondary" className="text-xs">
-                  Weight: {competitorWeight}%
-                </Badge>
-              )}
-            </div>
-            <Link href="/competitors" className="inline-flex items-center gap-1 text-sm text-[var(--trilogy-teal)] hover:text-[var(--trilogy-teal-dark)]">
-              View Competitors
-              <ExternalLink className="h-3 w-3" />
-            </Link>
-          </div>
-          
-          <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-900/50">
-            <h4 className="font-medium mb-3">Rate Calculation</h4>
-            
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Base Competitor Rate</span>
-                <span className="font-medium">{formatRateByServiceLine(competitorBaseRate, serviceLine)}</span>
+          {hasBreakdown ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="font-medium text-lg">{competitorName}</p>
+                  {competitorWeight && (
+                    <Badge variant="secondary" className="text-xs">
+                      Weight: {competitorWeight}%
+                    </Badge>
+                  )}
+                </div>
+                <Link href="/competitors" className="inline-flex items-center gap-1 text-sm text-[var(--trilogy-teal)] hover:text-[var(--trilogy-teal-dark)]">
+                  View Competitors
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
               </div>
-              
-              {competitorCareLevel2Adjustment > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Care Level 2 Adjustment</span>
-                  <span className="font-medium text-green-600">
-                    +{formatRateByServiceLine(competitorCareLevel2Adjustment, serviceLine)}
-                  </span>
+
+              <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-900/50">
+                <h4 className="font-medium mb-3">Rate Calculation</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Base Competitor Rate</span>
+                    <span className="font-medium">{formatRateByServiceLine(competitorBaseRate!, serviceLine)}</span>
+                  </div>
+                  {competitorCareLevel2Adjustment > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Care Level 2 Adjustment</span>
+                      <span className="font-medium text-green-600">
+                        +{formatRateByServiceLine(competitorCareLevel2Adjustment, serviceLine)}
+                      </span>
+                    </div>
+                  )}
+                  {competitorMedManagementAdjustment > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Medication Management</span>
+                      <span className="font-medium text-green-600">
+                        +{formatRateByServiceLine(competitorMedManagementAdjustment, serviceLine)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="border-t pt-2 mt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">Adjusted Competitor Rate</span>
+                      <span className="font-bold text-lg text-[var(--trilogy-teal)]">
+                        {formatRateByServiceLine(adjustedRate || (competitorBaseRate! + totalAdjustment), serviceLine)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {competitorAdjustmentExplanation && (
+                <div className="border rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20">
+                  <h4 className="font-medium mb-2 text-sm">Adjustment Explanation</h4>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                    {competitorAdjustmentExplanation}
+                  </p>
                 </div>
               )}
-              
-              {competitorMedManagementAdjustment > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Medication Management</span>
-                  <span className="font-medium text-green-600">
-                    +{formatRateByServiceLine(competitorMedManagementAdjustment, serviceLine)}
-                  </span>
+
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                Note: Adjustments ensure fair comparison by accounting for differences in care level pricing and included services.
+                Trilogy includes medication management at no additional charge.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <Building2 className="h-4 w-4" />
+                  <span className="text-sm">Market Benchmark</span>
                 </div>
-              )}
-              
-              <div className="border-t pt-2 mt-2">
+                <Link href="/competitors" className="inline-flex items-center gap-1 text-sm text-[var(--trilogy-teal)] hover:text-[var(--trilogy-teal-dark)]">
+                  View Competitors
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              </div>
+
+              <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-900/50">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Adjusted Competitor Rate</span>
+                  <span className="font-medium">Weighted Competitor Rate</span>
                   <span className="font-bold text-lg text-[var(--trilogy-teal)]">
-                    {formatRateByServiceLine(adjustedRate || (competitorBaseRate + totalAdjustment), serviceLine)}
+                    {adjustedRate ? formatRateByServiceLine(adjustedRate, serviceLine) : '—'}
                   </span>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  This rate is a weighted average of nearby competitor rates, adjusted for care level and service differences.
+                </p>
               </div>
-            </div>
-          </div>
-          
-          {competitorAdjustmentExplanation && (
-            <div className="border rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20">
-              <h4 className="font-medium mb-2 text-sm">Adjustment Explanation</h4>
-              <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                {competitorAdjustmentExplanation}
-              </p>
-            </div>
+
+              <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                Run competitor matching to see the full breakdown by individual competitor.
+              </div>
+            </>
           )}
-          
-          <div className="text-sm text-gray-500 dark:text-gray-400 italic">
-            Note: Adjustments ensure fair comparison by accounting for differences in care level pricing and included services. 
-            Trilogy includes medication management at no additional charge.
-          </div>
         </div>
       </DialogContent>
     </Dialog>
