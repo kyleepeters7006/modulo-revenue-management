@@ -476,6 +476,20 @@ export async function generateDemoData(): Promise<{
             loc.name.charCodeAt(0) * 53 + sl.charCodeAt(0) * 37 + roomSize.charCodeAt(0) * 19
           );
 
+          // Helper: pick A/B/C given cumulative probability thresholds [pA, pA+pB]
+          const pickRating = (r: () => number, pA: number, pB: number): string => {
+            const roll = r();
+            if (roll < pA) return 'A';
+            if (roll < pA + pB) return 'B';
+            return 'C';
+          };
+
+          // sizeRating is fixed by room type (same for all units of same room size)
+          const sizeRating =
+            roomSize === 'Two Bedroom' ? 'A' :
+            roomSize === 'One Bedroom' ? 'B' :
+            roomSize === 'Studio'      ? 'B' : 'C'; // Companion → C
+
           for (let i = 0; i < unitCount; i++) {
             const isOccupied = i < occupiedCount;
             const unitNum = 100 + Math.floor(i / 2) * 10 + (i % 2);
@@ -491,6 +505,17 @@ export async function generateDemoData(): Promise<{
             const promotionAllowance = hasRra
               ? -Math.round(randBetween(unitRraSeed, 50, 350))
               : 0;
+
+            // Stable per-unit attribute seed (deterministic by location+sl+size+unit index)
+            const attrSeed = seededRand(
+              loc.name.charCodeAt(0) * 71 + sl.charCodeAt(0) * 43 + roomSize.charCodeAt(0) * 29 + i * 17
+            );
+            // Higher unit numbers get better location ratings (upper floors/better position)
+            const locBonus = i >= Math.floor(unitCount * 0.6) ? 0.15 : 0;
+            const viewRating      = pickRating(attrSeed, 0.20, 0.50);          // 20% A, 50% B, 30% C
+            const renovationRating = pickRating(attrSeed, 0.15, 0.55);         // 15% A, 55% B, 30% C
+            const locationRating  = pickRating(attrSeed, 0.20 + locBonus, 0.55); // top units skew A
+            const amenityRating   = pickRating(attrSeed, 0.20, 0.60);          // 20% A, 60% B, 20% C
 
             rentRollBatch.push({
               uploadMonth: month,
@@ -516,6 +541,12 @@ export async function generateDemoData(): Promise<{
               competitorRate: competitorFinalRate,
               // Pre-computed Modulo suggestion based on occupancy trend
               moduloSuggestedRate,
+              // Attribute ratings — stable per unit, deterministic by seed
+              sizeRating,
+              viewRating,
+              renovationRating,
+              locationRating,
+              amenityRating,
             });
           }
         }
