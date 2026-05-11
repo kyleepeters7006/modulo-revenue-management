@@ -1,6 +1,6 @@
 import { db } from './db';
-import { locations, rentRollData, competitiveSurveyData, inquiryMetrics, revenueGrowthTargets } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { locations, rentRollData, competitiveSurveyData, inquiryMetrics, revenueGrowthTargets, guardrails } from '@shared/schema';
+import { eq, and, sql as drizzleSql } from 'drizzle-orm';
 
 // ─────────────────────────────────────────────
 // LOCATION DEFINITIONS — 50 fictional senior living communities
@@ -434,13 +434,20 @@ export async function generateDemoData(): Promise<{
       const [rateMin, rateMax] = STREET_RATE_RANGES[sl];
       const baseRate = Math.round(randBetween(locSeed, rateMin, rateMax));
       const [occMin, occMax] = OCC_RATES[sl];
-      const targetOcc = randBetween(locSeed, occMin, occMax);
+
+      // Albany AL/MC: force high occupancy so Modulo suggests increases;
+      // a 4% guardrail cap will be seeded to demonstrate guardrail clipping.
+      const isAlbanyAlMc = loc.name === 'Albany - 215' && sl === 'AL/MC';
+      const targetOcc = isAlbanyAlMc ? 0.96 : randBetween(locSeed, occMin, occMax);
 
       // Calculate Modulo factor based on occupancy:
       // High occupancy (>90%) → suggest 5-8% increase
       // Mid occupancy (80-90%) → suggest 1-4% increase
       // Low occupancy (<80%) → suggest hold or tiny decrease
-      const rawModuloFactor = 1.0 + Math.min(0.08, Math.max(-0.03, (targetOcc - 0.83) * 0.15));
+      // Albany AL/MC: uncapped pre-guardrail factor = +8%, then capped to +4% by guardrail
+      const rawModuloFactor = isAlbanyAlMc
+        ? 1.04  // post-guardrail rate (+4% cap applied)
+        : 1.0 + Math.min(0.08, Math.max(-0.03, (targetOcc - 0.83) * 0.15));
       // Add small random variation ±1% to make suggestions look realistic
       const moduloVarianceSeed = seededRand(
         loc.name.charCodeAt(0) * 17 + sl.charCodeAt(0) * 31 + 99
@@ -541,6 +548,15 @@ export async function generateDemoData(): Promise<{
               competitorRate: competitorFinalRate,
               // Pre-computed Modulo suggestion based on occupancy trend
               moduloSuggestedRate,
+              // Albany AL/MC: pre-seed guardrail indicator so rate card shows shield immediately
+              ...(isAlbanyAlMc ? {
+                moduloCalculationDetails: JSON.stringify({
+                  guardrailsApplied: ['Maximum rate increase limit applied (4.0%)'],
+                  occupancyFactor: 0.96,
+                  preGuardrailRate: Math.round(monthStreetRate * 1.08),
+                  guardrailCap: '4.0%',
+                }),
+              } : {}),
               // Attribute ratings — stable per unit, deterministic by seed
               sizeRating,
               viewRating,
@@ -648,6 +664,23 @@ export async function generateDemoData(): Promise<{
       });
   }
   console.log(`[demo]   ✓ ${growthBatch.length} revenue growth targets`);
+
+  // ── 6. Guardrail for Albany AL/MC — cap increases at 4% to demo clipping ───
+  console.log('[demo] Seeding Albany AL/MC guardrail...');
+  const albanyLoc = insertedLocations.find(l => l.name === 'Albany - 215');
+  if (albanyLoc) {
+    await db.execute(drizzleSql.raw(
+      `DELETE FROM guardrails WHERE location_id = '${albanyLoc.id}' AND service_line = 'AL/MC'`
+    ));
+    await db.insert(guardrails).values({
+      locationId: albanyLoc.id,
+      serviceLine: 'AL/MC',
+      maxRateIncrease: 0.04,   // 4% cap — clips the 8% demand signal to 4%
+      minRateDecrease: 0.05,   // standard 5% floor
+      competitorVarianceLimit: 0.10,
+    });
+    console.log(`[demo]   ✓ Albany AL/MC guardrail: max +4% increase`);
+  }
 
   return stats;
 }
