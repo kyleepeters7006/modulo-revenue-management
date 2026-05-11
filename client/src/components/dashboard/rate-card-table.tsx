@@ -807,6 +807,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                               >
                                 <button 
                                   className="cursor-pointer flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
+                                  style={{ touchAction: 'manipulation' }}
                                   type="button"
                                   data-testid={`tooltip-modulo-${unit.roomNumber}`}
                                 >
@@ -941,7 +942,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                           >
                             <button
                               type="button"
-                              className="flex items-center gap-1 text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] font-medium min-h-[44px] px-1 focus:outline-none focus:ring-2 focus:ring-[var(--trilogy-teal)] rounded"
+                              className="flex items-center gap-1 text-[var(--trilogy-turquoise)] hover:text-[var(--trilogy-turquoise-dark)] font-medium min-h-[44px] px-2 focus:outline-none focus:ring-2 focus:ring-[var(--trilogy-teal)] rounded"
+                              style={{ touchAction: 'manipulation' }}
                               data-testid={`button-competitor-rate-${unit.roomNumber}`}
                             >
                               {formatRateByServiceLine(Math.round(unit.competitorFinalRate), unit.serviceLine)}
