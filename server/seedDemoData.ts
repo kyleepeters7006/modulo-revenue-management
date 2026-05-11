@@ -1,5 +1,5 @@
 import { db } from './db';
-import { locations, rentRollData, competitiveSurveyData, inquiryMetrics } from '@shared/schema';
+import { locations, rentRollData, competitiveSurveyData, inquiryMetrics, revenueGrowthTargets } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
 // ─────────────────────────────────────────────
@@ -594,6 +594,29 @@ export async function generateDemoData(): Promise<{
     stats.inquiry += Math.min(BATCH_SIZE, inquiryBatch.length - i);
   }
   console.log(`[demo]   ✓ ${stats.inquiry} inquiry metric records`);
+
+  // ── 5. Revenue Growth Targets — 5–9% per location × service line ───────────
+  console.log('[demo] Seeding revenue growth targets...');
+  const growthBatch: { locationId: string; serviceLine: string; targetGrowthPercent: number }[] = [];
+  for (const loc of insertedLocations) {
+    const locSeed = seededRand(
+      loc.name.split('').reduce((acc, c) => acc * 41 + c.charCodeAt(0), 17) & 0x7fffffff
+    );
+    const serviceLines = SIZE_SERVICE_LINES[loc.size];
+    for (const sl of serviceLines) {
+      const target = Math.round(randBetween(locSeed, 5, 9) * 10) / 10;
+      growthBatch.push({ locationId: loc.id, serviceLine: sl, targetGrowthPercent: target });
+    }
+  }
+  for (let i = 0; i < growthBatch.length; i += BATCH_SIZE) {
+    await db.insert(revenueGrowthTargets)
+      .values(growthBatch.slice(i, i + BATCH_SIZE))
+      .onConflictDoUpdate({
+        target: [revenueGrowthTargets.locationId, revenueGrowthTargets.serviceLine],
+        set: { targetGrowthPercent: revenueGrowthTargets.targetGrowthPercent },
+      });
+  }
+  console.log(`[demo]   ✓ ${growthBatch.length} revenue growth targets`);
 
   return stats;
 }
