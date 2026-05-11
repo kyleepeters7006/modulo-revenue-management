@@ -94,7 +94,7 @@ export default function Navigation({ className }: NavigationProps) {
 
       <nav className={cn("bg-white shadow-sm border-b border-gray-200", className)}>
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
-          <div className="flex flex-wrap items-center py-2 gap-y-1">
+          <div className="flex items-center py-2">
             {/* Logo */}
             <div className="flex-shrink-0 mr-3 lg:mr-5">
               <Link href="/overview" className="flex items-center" data-testid="link-home">
@@ -108,7 +108,7 @@ export default function Navigation({ className }: NavigationProps) {
             
             {/* Main Navigation - Desktop */}
             <div className="hidden md:flex flex-1 min-w-0">
-              <div className="flex flex-wrap gap-x-1 lg:gap-x-3 gap-y-0.5">
+              <div className="flex gap-x-0.5 lg:gap-x-2 xl:gap-x-3">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location === item.path || (location === "/" && item.path === "/overview");
@@ -118,15 +118,15 @@ export default function Navigation({ className }: NavigationProps) {
                       key={item.path}
                       href={item.path}
                       className={cn(
-                        "inline-flex items-center px-1.5 lg:px-2 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 whitespace-nowrap",
+                        "inline-flex items-start px-1 lg:px-1.5 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 max-w-[80px] lg:max-w-[100px]",
                         isActive
                           ? "border-[var(--trilogy-blue)] text-[var(--trilogy-dark-blue)]"
                           : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                       )}
                       data-testid={`link-${item.path.slice(1)}`}
                     >
-                      <Icon className="h-3.5 w-3.5 mr-1 lg:mr-1.5 flex-shrink-0" />
-                      {item.label}
+                      <Icon className="h-3.5 w-3.5 mr-1 lg:mr-1.5 flex-shrink-0 mt-0.5" />
+                      <span>{item.label}</span>
                     </Link>
                   );
                 })}
