@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Brain, Upload, Lightbulb, Activity, Filter, MapPin, Edit3, Save, X } from "lucide-react";
+import { Brain, Lightbulb, Filter, MapPin, Edit3, Save, X, RefreshCw, Clock, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,105 +14,158 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
-const AI_INSIGHTS_STORAGE_KEY = 'ai-insights-content';
 const AI_INSIGHTS_FILTERS_KEY = 'ai-insights-filters';
+
+const getInsightKey = (location: string, serviceLine: string) =>
+  `ai-insights::${location}::${serviceLine}`;
 
 interface StoredInsights {
   content: string;
   generatedAt: string;
-  filters: {
-    location: string;
-    serviceLine: string;
-  };
+  filters: { location: string; serviceLine: string };
 }
 
-const saveInsightsToStorage = (insights: StoredInsights) => {
-  if (typeof window === 'undefined') return;
+const saveInsights = (insights: StoredInsights) => {
   try {
-    localStorage.setItem(AI_INSIGHTS_STORAGE_KEY, JSON.stringify(insights));
-  } catch (error) {
-    console.warn('Failed to save AI insights to localStorage:', error);
-  }
+    const key = getInsightKey(insights.filters.location, insights.filters.serviceLine);
+    localStorage.setItem(key, JSON.stringify(insights));
+  } catch {}
 };
 
-const loadInsightsFromStorage = (): StoredInsights | null => {
-  if (typeof window === 'undefined') return null;
+const loadInsights = (location: string, serviceLine: string): StoredInsights | null => {
   try {
-    const stored = localStorage.getItem(AI_INSIGHTS_STORAGE_KEY);
+    const key = getInsightKey(location, serviceLine);
+    const stored = localStorage.getItem(key);
     return stored ? JSON.parse(stored) : null;
-  } catch (error) {
-    console.warn('Failed to load AI insights from localStorage:', error);
-    return null;
-  }
+  } catch { return null; }
 };
 
-const saveFiltersToStorage = (filters: { location: string; serviceLine: string }) => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(AI_INSIGHTS_FILTERS_KEY, JSON.stringify(filters));
-  } catch (error) {
-    console.warn('Failed to save filters to localStorage:', error);
-  }
+const saveFilters = (filters: { location: string; serviceLine: string }) => {
+  try { localStorage.setItem(AI_INSIGHTS_FILTERS_KEY, JSON.stringify(filters)); } catch {}
 };
 
-const loadFiltersFromStorage = (): { location: string; serviceLine: string } | null => {
-  if (typeof window === 'undefined') return null;
+const loadFilters = (): { location: string; serviceLine: string } | null => {
   try {
     const stored = localStorage.getItem(AI_INSIGHTS_FILTERS_KEY);
     return stored ? JSON.parse(stored) : null;
-  } catch (error) {
-    console.warn('Failed to load filters from localStorage:', error);
-    return null;
-  }
+  } catch { return null; }
 };
 
+function renderInline(text: string): (string | JSX.Element)[] {
+  const parts: (string | JSX.Element)[] = [];
+  const regex = /\*\*(.*?)\*\*/g;
+  let lastIdx = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIdx) parts.push(text.slice(lastIdx, match.index));
+    parts.push(<strong key={match.index} className="font-semibold text-gray-900">{match[1]}</strong>);
+    lastIdx = match.index + match[0].length;
+  }
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return parts;
+}
+
+function renderFormattedInsights(text: string) {
+  const placeholder = !text
+    || text === "AI insights will appear here after analysis..."
+    || text.startsWith("Analyzing")
+    || text.startsWith("Analysis failed");
+
+  if (placeholder) {
+    return <p className="text-sm text-gray-500 italic">{text}</p>;
+  }
+
+  const lines = text.split('\n');
+  const elements: JSX.Element[] = [];
+  let bulletGroup: string[] = [];
+
+  const flushBullets = (key: string) => {
+    if (bulletGroup.length === 0) return;
+    elements.push(
+      <ul key={key} className="list-disc pl-5 space-y-1 my-2">
+        {bulletGroup.map((b, i) => (
+          <li key={i} className="text-sm text-gray-700 leading-relaxed">{renderInline(b)}</li>
+        ))}
+      </ul>
+    );
+    bulletGroup = [];
+  };
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushBullets(`flush-${idx}`);
+      return;
+    }
+
+    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
+      bulletGroup.push(trimmed.slice(2));
+      return;
+    }
+
+    flushBullets(`flush-${idx}`);
+
+    const isHeader =
+      trimmed.startsWith('#') ||
+      (trimmed.endsWith(':') && trimmed.length < 80 && !trimmed.includes('.')) ||
+      /^[A-Z][A-Z\s&\/\-:]{4,}$/.test(trimmed);
+
+    if (isHeader) {
+      const headerText = trimmed.replace(/^#+\s*/, '').replace(/:$/, '');
+      elements.push(
+        <h4 key={idx} className="font-bold text-gray-900 text-sm mt-5 mb-1 first:mt-0 border-b border-gray-200 pb-0.5">
+          {renderInline(headerText)}
+        </h4>
+      );
+      return;
+    }
+
+    elements.push(
+      <p key={idx} className="text-sm text-gray-700 leading-relaxed my-1">
+        {renderInline(trimmed)}
+      </p>
+    );
+  });
+
+  flushBullets('final');
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
 export default function AiInsights() {
-  const [suggestions, setSuggestions] = useState(
-    "AI insights will appear here after analysis..."
-  );
+  const [suggestions, setSuggestions] = useState("AI insights will appear here after analysis...");
   const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState("AI insights will appear here after analysis...");
-  const [trainingStatus, setTrainingStatus] = useState("Upload data to begin training");
-  const [modelMetrics, setModelMetrics] = useState<{ r2?: number; rows?: number } | null>(null);
-  
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>("all");
   const [isHydrated, setIsHydrated] = useState(false);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const { toast } = useToast();
 
-  const { data: locationsData } = useQuery({
-    queryKey: ["/api/locations"],
-  });
-
-  const { data: authData } = useQuery({
-    queryKey: ["/api/auth/user"],
-  });
+  const { data: locationsData } = useQuery({ queryKey: ["/api/locations"] });
+  const { data: authData } = useQuery({ queryKey: ["/api/auth/user"] });
 
   const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a: string, b: string) => a.localeCompare(b));
   const serviceLines = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
+  const hasAnalysis = suggestions !== "AI insights will appear here after analysis..." && !suggestions.startsWith("Analyzing");
+
   useEffect(() => {
-    const savedFilters = loadFiltersFromStorage();
-    const savedInsights = loadInsightsFromStorage();
-    
+    const savedFilters = loadFilters();
     if (savedFilters) {
       setSelectedLocation(savedFilters.location || "all");
       setSelectedServiceLine(savedFilters.serviceLine || "all");
+      const saved = loadInsights(savedFilters.location || "all", savedFilters.serviceLine || "all");
+      if (saved) {
+        setSuggestions(saved.content);
+        setLastGeneratedAt(saved.generatedAt);
+        setEditedContent(saved.content);
+      }
     }
-    
-    if (savedInsights) {
-      setSuggestions(savedInsights.content || "AI insights will appear here after analysis...");
-      setLastGeneratedAt(savedInsights.generatedAt || null);
-      setEditedContent(savedInsights.content || "AI insights will appear here after analysis...");
-    }
-    
     setIsHydrated(true);
   }, []);
 
-  // Default to Albany - 215 in demo mode when no saved filter exists
   useEffect(() => {
     if (!isHydrated) return;
     if ((authData as any)?.clientId === 'demo' && selectedLocation === 'all') {
@@ -122,7 +175,17 @@ export default function AiInsights() {
 
   useEffect(() => {
     if (!isHydrated) return;
-    saveFiltersToStorage({ location: selectedLocation, serviceLine: selectedServiceLine });
+    saveFilters({ location: selectedLocation, serviceLine: selectedServiceLine });
+    const saved = loadInsights(selectedLocation, selectedServiceLine);
+    if (saved) {
+      setSuggestions(saved.content);
+      setLastGeneratedAt(saved.generatedAt);
+      setEditedContent(saved.content);
+    } else {
+      setSuggestions("AI insights will appear here after analysis...");
+      setLastGeneratedAt(null);
+      setEditedContent("AI insights will appear here after analysis...");
+    }
   }, [selectedLocation, selectedServiceLine, isHydrated]);
 
   const aiSuggestMutation = useMutation({
@@ -140,84 +203,22 @@ export default function AiInsights() {
           setSuggestions(data.text);
           setLastGeneratedAt(generatedAt);
           setEditedContent(data.text);
-          
-          saveInsightsToStorage({
-            content: data.text,
-            generatedAt,
-            filters: {
-              location: selectedLocation,
-              serviceLine: selectedServiceLine
-            }
-          });
-          
-          toast({
-            title: "Analysis Complete",
-            description: "New insights generated successfully",
-          });
+          saveInsights({ content: data.text, generatedAt, filters: { location: selectedLocation, serviceLine: selectedServiceLine } });
+          toast({ title: "Analysis Complete", description: "New insights generated successfully" });
         } else {
           setSuggestions(`Analysis failed: ${data.error || 'Unknown error'}`);
-          toast({
-            title: "Analysis Failed",
-            description: data.error || 'Unknown error',
-            variant: "destructive",
-          });
+          toast({ title: "Analysis Failed", description: data.error || 'Unknown error', variant: "destructive" });
         }
       } catch (err: any) {
         const msg = err?.message || 'Failed to process response';
         setSuggestions(`Analysis failed: ${msg}`);
-        toast({
-          title: "Analysis Failed",
-          description: msg,
-          variant: "destructive",
-        });
+        toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
       }
     },
     onError: (error: any) => {
       const msg = error?.message || 'Unknown error';
       setSuggestions(`Analysis failed: ${msg}`);
-      toast({
-        title: "Analysis Failed",
-        description: msg,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const trainModelMutation = useMutation({
-    mutationFn: async (file?: File) => {
-      if (file) {
-        const formData = new FormData();
-        formData.append('file', file);
-        return apiRequest('/api/ai/train', 'POST', formData);
-      } else {
-        return apiRequest('/api/ai/train', 'POST');
-      }
-    },
-    onSuccess: async (response) => {
-      const data = await response.json();
-      if (data.ok) {
-        setTrainingStatus(`Training completed successfully`);
-        setModelMetrics({ r2: data.r2, rows: data.rows });
-        toast({
-          title: "Model Training Complete",
-          description: `Trained on ${data.rows} records with accuracy score of ${Math.round(data.r2 * 100)}%`,
-        });
-      } else {
-        setTrainingStatus(`Training failed: ${data.error}`);
-        toast({
-          title: "Training Failed",
-          description: data.error,
-          variant: "destructive",
-        });
-      }
-    },
-    onError: (error) => {
-      setTrainingStatus(`Training failed: ${error.message}`);
-      toast({
-        title: "Training Failed",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
     },
   });
 
@@ -226,78 +227,28 @@ export default function AiInsights() {
     aiSuggestMutation.mutate();
   };
 
-  const handleFileUpload = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      toast({
-        title: "Invalid File",
-        description: "Please upload a CSV file",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setTrainingStatus("Training model with uploaded data...");
-    trainModelMutation.mutate(file);
-  };
-
-  const handleTrainWithCurrentData = () => {
-    setTrainingStatus("Training model with current rent roll data...");
-    trainModelMutation.mutate();
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileUpload(e.target.files[0]);
-    }
-  };
-
-  const handleEditClick = () => {
-    setEditedContent(suggestions);
-    setIsEditing(true);
-  };
+  const handleEditClick = () => { setEditedContent(suggestions); setIsEditing(true); };
 
   const handleSaveEdit = () => {
     setSuggestions(editedContent);
     setIsEditing(false);
-    
     const generatedAt = lastGeneratedAt || new Date().toISOString();
-    saveInsightsToStorage({
-      content: editedContent,
-      generatedAt,
-      filters: {
-        location: selectedLocation,
-        serviceLine: selectedServiceLine
-      }
-    });
-    
-    toast({
-      title: "Changes Saved",
-      description: "Your edits have been saved locally",
-    });
+    saveInsights({ content: editedContent, generatedAt, filters: { location: selectedLocation, serviceLine: selectedServiceLine } });
+    toast({ title: "Changes Saved", description: "Your edits have been saved locally" });
   };
 
-  const handleCancelEdit = () => {
-    setEditedContent(suggestions);
-    setIsEditing(false);
-  };
-
-  const getStatusColor = () => {
-    if (trainModelMutation.isPending) return "text-[var(--trilogy-warning)]";
-    if (modelMetrics) return "text-[var(--trilogy-success)]";
-    return "text-[var(--dashboard-text)]";
-  };
-
-  const getStatusIcon = () => {
-    if (trainModelMutation.isPending) return <div className="w-2 h-2 bg-[var(--trilogy-warning)] rounded-full animate-pulse" />;
-    if (modelMetrics) return <div className="w-2 h-2 bg-[var(--trilogy-success)] rounded-full" />;
-    return <div className="w-2 h-2 bg-gray-500 rounded-full" />;
-  };
+  const handleCancelEdit = () => { setEditedContent(suggestions); setIsEditing(false); };
 
   const getFilterDescription = () => {
     const parts = [];
     if (selectedLocation !== 'all') parts.push(selectedLocation);
     if (selectedServiceLine !== 'all') parts.push(selectedServiceLine);
-    return parts.length > 0 ? parts.join(' • ') : 'All locations and service lines';
+    return parts.length > 0 ? parts.join(' • ') : 'All locations & service lines';
+  };
+
+  const formatTimestamp = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   };
 
   return (
@@ -326,10 +277,12 @@ export default function AiInsights() {
             <CardDescription>AI-powered insights and suggestions</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-2 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <Filter className="w-4 h-4 text-slate-500" />
+
+            {/* Filter bar */}
+            <div className="flex flex-wrap items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <Filter className="w-4 h-4 text-slate-500 flex-shrink-0" />
               <span className="text-sm font-medium text-slate-600">Filters:</span>
-              
+
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
                 <SelectTrigger className="w-[200px]" data-testid="select-ai-location">
                   <MapPin className="w-4 h-4 mr-2 text-slate-400" />
@@ -342,7 +295,7 @@ export default function AiInsights() {
                   ))}
                 </SelectContent>
               </Select>
-              
+
               <Select value={selectedServiceLine} onValueChange={setSelectedServiceLine}>
                 <SelectTrigger className="w-[160px]" data-testid="select-ai-serviceline">
                   <SelectValue placeholder="All Service Lines" />
@@ -355,27 +308,44 @@ export default function AiInsights() {
                 </SelectContent>
               </Select>
             </div>
-            
-            <Button
-              onClick={handleGenerateInsights}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white"
-              disabled={aiSuggestMutation.isPending}
-              data-testid="button-generate-insights"
-            >
-              {aiSuggestMutation.isPending ? "Analyzing..." : "Generate AI Insights"}
-            </Button>
-            
-            {lastGeneratedAt && (
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>
-                  Last generated: {new Date(lastGeneratedAt).toLocaleString()}
-                </span>
-                <span className="text-slate-400">
-                  {getFilterDescription()}
-                </span>
+
+            {/* Timestamp + Refresh row — shown when analysis exists */}
+            {hasAnalysis && lastGeneratedAt && (
+              <div className="flex items-center justify-between gap-2 px-1">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Last run: <span className="font-medium text-slate-600">{formatTimestamp(lastGeneratedAt)}</span></span>
+                  <span className="text-slate-300 mx-1">|</span>
+                  <span className="text-slate-400">{getFilterDescription()}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateInsights}
+                  disabled={aiSuggestMutation.isPending}
+                  className="h-7 text-xs gap-1.5"
+                  data-testid="button-refresh-insights"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${aiSuggestMutation.isPending ? 'animate-spin' : ''}`} />
+                  {aiSuggestMutation.isPending ? 'Refreshing…' : 'Refresh'}
+                </Button>
               </div>
             )}
-            
+
+            {/* Primary Run Analysis button — shown when no analysis yet for this filter */}
+            {!hasAnalysis && (
+              <Button
+                onClick={handleGenerateInsights}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white gap-2"
+                disabled={aiSuggestMutation.isPending}
+                data-testid="button-generate-insights"
+              >
+                <PlayCircle className="w-4 h-4" />
+                {aiSuggestMutation.isPending ? "Analyzing…" : "Run Analysis"}
+              </Button>
+            )}
+
+            {/* Analysis content */}
             <div className="p-4 bg-[var(--dashboard-bg)] rounded-lg border border-[var(--dashboard-border)]">
               {isEditing ? (
                 <div className="space-y-3">
@@ -386,31 +356,18 @@ export default function AiInsights() {
                     data-testid="textarea-edit-insights"
                   />
                   <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCancelEdit}
-                      data-testid="button-cancel-edit"
-                    >
-                      <X className="w-4 h-4 mr-1" />
-                      Cancel
+                    <Button variant="outline" size="sm" onClick={handleCancelEdit} data-testid="button-cancel-edit">
+                      <X className="w-4 h-4 mr-1" />Cancel
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveEdit}
-                      data-testid="button-save-edit"
-                    >
-                      <Save className="w-4 h-4 mr-1" />
-                      Save
+                    <Button size="sm" onClick={handleSaveEdit} data-testid="button-save-edit">
+                      <Save className="w-4 h-4 mr-1" />Save
                     </Button>
                   </div>
                 </div>
               ) : (
-                <div className="relative group">
-                  <div className="text-xs text-[var(--dashboard-text)] whitespace-pre-wrap" data-testid="text-smart-suggestions">
-                    {suggestions}
-                  </div>
-                  {suggestions !== "AI insights will appear here after analysis..." && (
+                <div className="relative group" data-testid="text-smart-suggestions">
+                  {renderFormattedInsights(suggestions)}
+                  {hasAnalysis && (
                     <Button
                       variant="ghost"
                       size="sm"
