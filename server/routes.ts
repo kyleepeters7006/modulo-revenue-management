@@ -5005,122 +5005,220 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clientId = req.clientId || 'demo';
       const { location, serviceLine } = req.body || {};
 
-      // Use only the latest month to avoid loading all historical rows
+      // Latest month
       const latestMonthResult = await db
         .select({ uploadMonth: rentRollData.uploadMonth })
         .from(rentRollData)
-        .where(and(
-          sql`${rentRollData.uploadMonth} IS NOT NULL`,
-          eq(rentRollData.clientId, clientId)
-        ))
+        .where(and(sql`${rentRollData.uploadMonth} IS NOT NULL`, eq(rentRollData.clientId, clientId)))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`)
         .limit(1);
       const latestMonth = latestMonthResult[0]?.uploadMonth || '2026-05';
 
       let allRentRollData = await storage.getRentRollDataByMonth(latestMonth, clientId);
       let allCompetitors = await storage.getCompetitors(clientId);
-      
-      // Apply filters if provided
+
+      // Apply filters
       let filteredData = allRentRollData;
       let filteredCompetitors = allCompetitors;
-      
       if (location) {
         filteredData = filteredData.filter(u => u.location === location);
         filteredCompetitors = filteredCompetitors.filter(c => c.location === location);
       }
-      
       if (serviceLine) {
         filteredData = filteredData.filter(u => u.serviceLine === serviceLine);
-        // Competitors may not have service line, so we keep all for the location
       }
-      
-      // Calculate service line breakdown for context
-      const serviceLineBreakdown: Record<string, number> = {};
-      filteredData.forEach(u => {
-        const sl = u.serviceLine || 'Unknown';
-        serviceLineBreakdown[sl] = (serviceLineBreakdown[sl] || 0) + 1;
-      });
-      
-      // Calculate average rates by room type
-      const roomTypeRates: Record<string, { total: number; count: number }> = {};
-      filteredData.forEach(u => {
-        const rt = u.roomType || 'Unknown';
-        if (!roomTypeRates[rt]) {
-          roomTypeRates[rt] = { total: 0, count: 0 };
-        }
-        roomTypeRates[rt].total += u.baseRent || 0;
-        roomTypeRates[rt].count += 1;
-      });
-      
-      const roomTypeAvgRates = Object.entries(roomTypeRates)
-        .map(([type, data]) => `${type}: $${Math.round(data.total / data.count).toLocaleString()}`)
-        .join(', ');
-      
-      // Create context for AI with filtered data
+
+      if (filteredData.length === 0) {
+        return res.status(400).json({ error: 'No units found for the selected filters.' });
+      }
+
+      // ── Resolve location ID for weight/target lookups ──────────────────────
+      const locationId = filteredData[0]?.locationId || null;
+
+      // ── Pricing weights: 3-tier fallback (location+SL → location → global) ──
+      let weights = locationId && serviceLine
+        ? await storage.getWeightsByFilter(locationId, serviceLine)
+        : undefined;
+      if (!weights && locationId) weights = await storage.getWeightsByFilter(locationId, null);
+      if (!weights) weights = await storage.getWeightsByFilter(undefined, undefined);
+
+      // ── Revenue growth targets for this location ───────────────────────────
+      const revenueTargets = locationId
+        ? await storage.getRevenueGrowthTargets(locationId)
+        : [];
+
+      // ── Basic occupancy / rate stats ───────────────────────────────────────
       const totalUnits = filteredData.length;
       const occupiedUnits = filteredData.filter(u => u.occupiedYN).length;
+      const vacantUnits = totalUnits - occupiedUnits;
       const occupancyRate = totalUnits > 0 ? occupiedUnits / totalUnits : 0;
-      const avgRent = totalUnits > 0 
-        ? filteredData.reduce((sum, u) => sum + (u.baseRent || 0), 0) / totalUnits 
-        : 0;
-      
-      const context = {
-        totalUnits,
-        occupancyRate,
-        averageRent: avgRent,
-        vacantUnitsOver30Days: filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length,
-        competitorCount: filteredCompetitors.length,
-        marketSentiment: marketDataCache.lastMonthReturnPct > 1 ? "bullish" : marketDataCache.lastMonthReturnPct < -1 ? "bearish" : "neutral"
-      };
+      const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
 
-      // Build filter context string for the prompt
-      const filterContext = [];
-      if (location) filterContext.push(`Location: ${location}`);
-      if (serviceLine) filterContext.push(`Service Line: ${serviceLine}`);
-      const filterStr = filterContext.length > 0 
-        ? `\nFilters Applied: ${filterContext.join(', ')}`
-        : '\nScope: All locations and service lines';
-      
-      const serviceLineStr = Object.entries(serviceLineBreakdown)
-        .map(([sl, count]) => `${sl}: ${count} units`)
-        .join(', ');
+      const avgStreet = filteredData.reduce((s, u) => s + (u.streetRate || 0), 0) / totalUnits;
+      const avgInHouse = filteredData.reduce((s, u) => s + (u.inHouseRate || 0), 0) / totalUnits;
 
-      const prompt = `As a revenue management expert, analyze this senior living property data and provide 3-4 specific pricing recommendations:
+      // ── Modulo & AI rates already generated ───────────────────────────────
+      const withModulo = filteredData.filter(u => u.moduloSuggestedRate && u.moduloSuggestedRate > 0);
+      const withAI = filteredData.filter(u => u.aiSuggestedRate && u.aiSuggestedRate > 0);
+      const avgModulo = withModulo.length
+        ? withModulo.reduce((s, u) => s + u.moduloSuggestedRate!, 0) / withModulo.length : null;
+      const avgAI = withAI.length
+        ? withAI.reduce((s, u) => s + u.aiSuggestedRate!, 0) / withAI.length : null;
+      const moduloVsStreetPct = avgModulo && avgStreet
+        ? ((avgModulo - avgStreet) / avgStreet * 100) : null;
+      const aiVsStreetPct = avgAI && avgStreet
+        ? ((avgAI - avgStreet) / avgStreet * 100) : null;
+      const aiVsModuloPct = avgAI && avgModulo
+        ? ((avgAI - avgModulo) / avgModulo * 100) : null;
 
-Property Context:${filterStr}
-- Total Units: ${context.totalUnits}
-- Occupancy Rate: ${(context.occupancyRate * 100).toFixed(1)}%
-- Average Rent: $${context.averageRent.toFixed(0)}
-- Vacant Units (30+ days): ${context.vacantUnitsOver30Days}
-- Market Sentiment: ${context.marketSentiment}
-- Competitors Tracked: ${context.competitorCount}
-- Service Line Distribution: ${serviceLineStr || 'N/A'}
-- Avg Rates by Room Type: ${roomTypeAvgRates || 'N/A'}
-
-Provide actionable insights focusing on:
-1. Pricing strategy adjustments
-2. Occupancy optimization tactics
-3. Market positioning recommendations
-4. Risk mitigation suggestions
-
-Keep recommendations specific and quantitative when possible.${location ? ` Focus your analysis on ${location}.` : ''}${serviceLine ? ` Consider ${serviceLine}-specific market dynamics.` : ''}`;
-
-      const text = await callClaudeThenGPT(
-        'You are a senior living revenue management expert.',
-        prompt,
-        'Format the following analysis as 3-4 specific, quantitative pricing recommendations for a senior living portfolio dashboard. Be concise, actionable, and reference specific numbers from the data.',
-        { label: 'ai-insights', claudeMaxTokens: 1024, gptMaxTokens: 800 }
+      // Vacant units where Modulo suggests higher than current street rate
+      const vacantWithUpside = withModulo.filter(u =>
+        !u.occupiedYN && u.moduloSuggestedRate! > (u.streetRate || 0)
       );
 
-      res.json({ 
-        ok: true, 
+      // ── Attribute rating breakdown ─────────────────────────────────────────
+      const countRatings = (field: keyof typeof filteredData[0]) => {
+        const A = filteredData.filter(u => u[field] === 'A').length;
+        const B = filteredData.filter(u => u[field] === 'B').length;
+        const C = filteredData.filter(u => u[field] === 'C').length;
+        const unrated = filteredData.filter(u => !u[field]).length;
+        return { A, B, C, unrated };
+      };
+      const locRatings  = countRatings('locationRating');
+      const sizeRatings = countRatings('sizeRating');
+      const viewRatings = countRatings('viewRating');
+      const renRatings  = countRatings('renovationRating');
+      const amenRatings = countRatings('amenityRating');
+      const fullyUnrated = filteredData.filter(u =>
+        !u.locationRating && !u.sizeRating && !u.viewRating && !u.renovationRating && !u.amenityRating
+      ).length;
+      const heavilyC = filteredData.filter(u => {
+        const cs = [u.locationRating, u.sizeRating, u.viewRating, u.renovationRating, u.amenityRating]
+          .filter(Boolean);
+        return cs.length > 0 && cs.filter(r => r === 'C').length / cs.length >= 0.6;
+      }).length;
+
+      // ── Service line & room type breakdown ────────────────────────────────
+      const slBreakdown: Record<string, number> = {};
+      filteredData.forEach(u => { const sl = u.serviceLine || 'Unknown'; slBreakdown[sl] = (slBreakdown[sl] || 0) + 1; });
+      const rtRates: Record<string, { total: number; count: number; modulo: number; moduloCount: number }> = {};
+      filteredData.forEach(u => {
+        const rt = u.roomType || 'Unknown';
+        if (!rtRates[rt]) rtRates[rt] = { total: 0, count: 0, modulo: 0, moduloCount: 0 };
+        rtRates[rt].total += u.streetRate || 0;
+        rtRates[rt].count += 1;
+        if (u.moduloSuggestedRate) { rtRates[rt].modulo += u.moduloSuggestedRate; rtRates[rt].moduloCount += 1; }
+      });
+
+      // ── Competitor context ─────────────────────────────────────────────────
+      const competitorRates = filteredCompetitors.map(c => c.streetRate).filter(Boolean) as number[];
+      const avgCompRate = competitorRates.length
+        ? competitorRates.reduce((s, r) => s + r, 0) / competitorRates.length : null;
+      const marketSentiment = marketDataCache.lastMonthReturnPct > 1 ? 'bullish' : marketDataCache.lastMonthReturnPct < -1 ? 'bearish' : 'neutral';
+
+      // ── Build prompt sections ──────────────────────────────────────────────
+      const scopeStr = [location && `Location: ${location}`, serviceLine && `Service Line: ${serviceLine}`]
+        .filter(Boolean).join(' | ') || 'All locations & service lines';
+
+      const rateSection = [
+        `- Street rate avg: $${Math.round(avgStreet).toLocaleString()}`,
+        `- In-house rate avg: $${Math.round(avgInHouse).toLocaleString()}`,
+        avgModulo ? `- **Modulo suggested rate** (${withModulo.length}/${totalUnits} units): $${Math.round(avgModulo).toLocaleString()} (${moduloVsStreetPct! >= 0 ? '+' : ''}${moduloVsStreetPct!.toFixed(1)}% vs street)` : '- Modulo rates: not yet calculated',
+        avgAI ? `- **AI suggested rate** (${withAI.length}/${totalUnits} units): $${Math.round(avgAI).toLocaleString()} (${aiVsStreetPct! >= 0 ? '+' : ''}${aiVsStreetPct!.toFixed(1)}% vs street; ${aiVsModuloPct! >= 0 ? '+' : ''}${aiVsModuloPct!.toFixed(1)}% vs Modulo)` : '- AI rates: not yet calculated',
+        vacantWithUpside.length ? `- Vacant units where Modulo rate > current street: ${vacantWithUpside.length} (avg upside: $${Math.round(vacantWithUpside.reduce((s, u) => s + (u.moduloSuggestedRate! - (u.streetRate || 0)), 0) / vacantWithUpside.length).toLocaleString()}/unit)` : '',
+      ].filter(Boolean).join('\n');
+
+      const attrSection = [
+        `- Location ratings — A: ${locRatings.A}, B: ${locRatings.B}, C: ${locRatings.C}, unrated: ${locRatings.unrated}`,
+        `- Size ratings    — A: ${sizeRatings.A}, B: ${sizeRatings.B}, C: ${sizeRatings.C}, unrated: ${sizeRatings.unrated}`,
+        `- View ratings    — A: ${viewRatings.A}, B: ${viewRatings.B}, C: ${viewRatings.C}, unrated: ${viewRatings.unrated}`,
+        `- Renovation      — A: ${renRatings.A}, B: ${renRatings.B}, C: ${renRatings.C}, unrated: ${renRatings.unrated}`,
+        `- Amenity         — A: ${amenRatings.A}, B: ${amenRatings.B}, C: ${amenRatings.C}, unrated: ${amenRatings.unrated}`,
+        `- Units with NO attribute ratings at all: ${fullyUnrated} (these get zero attribute pricing lift)`,
+        heavilyC ? `- Units rated ≥60% C across attributes: ${heavilyC} (candidates for re-evaluation or discount positioning)` : '',
+      ].filter(Boolean).join('\n');
+
+      const weightsSection = weights ? [
+        `- Occupancy Pressure: ${weights.occupancyPressure}`,
+        `- Days Vacant Decay: ${weights.daysVacantDecay}`,
+        `- Room Attributes: ${weights.roomAttributes}`,
+        `- Seasonality: ${weights.seasonality}`,
+        `- Competitor Rates: ${weights.competitorRates}`,
+        `- Stock Market: ${weights.stockMarket}`,
+        `- Inquiry/Tour Volume: ${weights.inquiryTourVolume}`,
+      ].join('\n') : '- (No pricing weights configured — using defaults)';
+
+      const targetsSection = revenueTargets.length
+        ? revenueTargets.map(t => `- ${t.serviceLine || 'All SLs'}: ${t.targetGrowthPercent !== undefined && t.targetGrowthPercent !== null ? `${(Number(t.targetGrowthPercent) * 100).toFixed(1)}% growth target` : 'no target set'}`).join('\n')
+        : '- No revenue growth targets saved yet';
+
+      const roomTypeSection = Object.entries(rtRates)
+        .map(([rt, d]) => {
+          const avgSt = Math.round(d.total / d.count);
+          const avgMod = d.moduloCount ? Math.round(d.modulo / d.moduloCount) : null;
+          return `- ${rt}: street $${avgSt.toLocaleString()}${avgMod ? `, Modulo $${avgMod.toLocaleString()} (${((avgMod - avgSt) / avgSt * 100).toFixed(1)}%)` : ''}`;
+        }).join('\n');
+
+      const competitorSection = avgCompRate
+        ? `- ${filteredCompetitors.length} competitors tracked | avg market rate: $${Math.round(avgCompRate).toLocaleString()} | our street rate is ${avgStreet >= avgCompRate ? '+' : ''}${((avgStreet - avgCompRate) / avgCompRate * 100).toFixed(1)}% vs market`
+        : `- ${filteredCompetitors.length} competitors tracked (no rate data)`;
+
+      const prompt = `You are analyzing real data from the Modulo Revenue Management platform for a senior living portfolio. Your job is to provide specific, actionable recommendations grounded in the numbers below.
+
+**SCOPE: ${scopeStr}**
+Units: ${totalUnits} total | ${occupiedUnits} occupied (${(occupancyRate * 100).toFixed(1)}%) | ${vacantUnits} vacant (${longVacant} vacant 30+ days)
+
+---
+
+**MODULO & AI RATE PERFORMANCE**
+${rateSection}
+
+**ROOM TYPE BREAKDOWN**
+${roomTypeSection}
+
+**SERVICE LINE MIX**
+${Object.entries(slBreakdown).map(([sl, n]) => `- ${sl}: ${n} units`).join('\n')}
+
+**UNIT ATTRIBUTE RATINGS**
+${attrSection}
+
+**CURRENT PRICING WEIGHTS**
+${weightsSection}
+
+**REVENUE GROWTH TARGETS**
+${targetsSection}
+
+**COMPETITOR CONTEXT**
+${competitorSection}
+Market sentiment: ${marketSentiment}
+
+---
+
+Write 5 specific recommendations using this exact format:
+- Use **bold text** for each recommendation heading
+- Use "- " bullet points for supporting details under each heading
+- Be quantitative — reference the actual dollar amounts and percentages above
+- Do NOT be generic. Every recommendation must reference the specific data provided.
+
+Focus areas (in order):
+1. Whether to adopt the Modulo or AI suggested rates — which is more appropriate and why, given occupancy and market position
+2. Specific units or room types that should be re-attributed (change A/B/C ratings) to better capture pricing lift — call out the unrated units
+3. Attribute pricing range expansion — should the attributesMin/Max guardrail be widened or narrowed based on the rating spread?
+4. Pricing weight adjustments — which weights appear over- or under-calibrated given the current occupancy, vacancy, and competitor data?
+5. Revenue target alignment — are the current targets achievable given Modulo/AI rate levels, and what changes would close any gap?`;
+
+      const text = await callClaudeThenGPT(
+        'You are a senior living revenue management expert. Always respond in markdown with **bold** headers and "- " bullet points. Be specific and quantitative. Never give generic advice.',
+        prompt,
+        'Format your response using **bold** for each recommendation heading and "- " bullet points for supporting details. Reference specific dollar amounts and percentages from the data. Keep each section tight and actionable.',
+        { label: 'ai-insights', claudeMaxTokens: 1500, gptMaxTokens: 1200 }
+      );
+
+      res.json({
+        ok: true,
         text,
         filters: { location, serviceLine },
-        context: {
-          totalUnits: context.totalUnits,
-          occupancyRate: context.occupancyRate,
-          competitorCount: context.competitorCount
-        }
+        context: { totalUnits, occupancyRate, competitorCount: filteredCompetitors.length }
       });
 
     } catch (error) {
