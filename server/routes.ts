@@ -13021,8 +13021,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         });
       }
       
-      // Calculate estimated impact
-      const units = await storage.getRentRollData(clientId);
+      // Calculate estimated impact — use latest month only to avoid double-counting historical snapshots
+      const latestMonthRow = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+        [clientId]
+      );
+      const latestUploadMonth: string | null = latestMonthRow.rows[0]?.m ?? null;
+      const units = latestUploadMonth
+        ? await storage.getRentRollDataByMonth(latestUploadMonth, clientId)
+        : await storage.getRentRollData(clientId);
       let affectedUnits = 0;
       let totalImpact = 0;
       
@@ -13207,8 +13214,80 @@ Respond in JSON format:
     }
   });
   
-  app.get("/api/adjustment-rules", async (req, res) => {
+  // Helper: compute revenue impact for an adjustment rule using the latest month's data
+  async function computeRuleImpact(rule: any, clientId: string): Promise<{
+    monthlyImpact: number; annualImpact: number;
+    volumeAdjustedAnnualImpact: number; affectedUnits: number;
+  }> {
     try {
+      const action = rule.action as any;
+      const filters = action?.filters || {};
+      const adjustmentType: string = action?.adjustmentType || 'percentage';
+      const adjustmentValue: number = action?.adjustmentValue ?? 0;
+      const rateColumn = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
+
+      // Use only the latest upload month so we don't double-count historical snapshots
+      const latestRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+        [clientId]
+      );
+      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
+      if (!latestMonth) return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0 };
+
+      const whereParts: string[] = ['client_id = $1', 'upload_month = $2'];
+      const params: any[] = [clientId, latestMonth];
+      let idx = 3;
+
+      if (filters.roomType?.length) {
+        whereParts.push(`room_type = ANY($${idx}::text[])`);
+        params.push(filters.roomType); idx++;
+      }
+      if (filters.serviceLine?.length) {
+        whereParts.push(`service_line = ANY($${idx}::text[])`);
+        params.push(filters.serviceLine); idx++;
+      }
+      if (filters.occupancyStatus === 'vacant') {
+        whereParts.push(`(occupied_yn = false OR occupied_yn IS NULL)`);
+      } else if (filters.occupancyStatus === 'occupied') {
+        whereParts.push(`occupied_yn = true`);
+      }
+      if (filters.vacancyDuration) {
+        const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
+        whereParts.push(`days_vacant ${operator} $${idx}`);
+        params.push(days); idx++;
+      }
+
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS unit_count,
+                COALESCE(SUM(${rateColumn}), 0)::float AS total_rate
+         FROM rent_roll_data
+         WHERE ${whereParts.join(' AND ')}`,
+        params
+      );
+
+      const unitCount: number = rows[0]?.unit_count ?? 0;
+      const totalRate: number = rows[0]?.total_rate ?? 0;
+
+      let monthlyImpact = adjustmentType === 'percentage'
+        ? totalRate * (adjustmentValue / 100)
+        : unitCount * adjustmentValue;
+
+      const annualImpact = Math.round(monthlyImpact * 12);
+      return {
+        monthlyImpact: Math.round(monthlyImpact),
+        annualImpact,
+        volumeAdjustedAnnualImpact: Math.round(annualImpact * 1.05),
+        affectedUnits: unitCount,
+      };
+    } catch (err) {
+      console.error('computeRuleImpact error:', err);
+      return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0 };
+    }
+  }
+
+  app.get("/api/adjustment-rules", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
       const { locationId, serviceLine } = req.query;
       
       let query = db.select().from(adjustmentRules);
@@ -13233,7 +13312,28 @@ Respond in JSON format:
       }
       
       const rules = await query;
-      res.json(rules);
+
+      // For any rule stored with 0 impact (e.g. seeded directly), recalculate live
+      const enrichedRules = await Promise.all(rules.map(async (rule) => {
+        const action = rule.action as any;
+        const hasZeroImpact = (rule.monthlyImpact ?? 0) === 0 && (rule.annualImpact ?? 0) === 0;
+        const hasNonZeroAdjustment = (action?.adjustmentValue ?? 0) !== 0;
+        if (hasZeroImpact && hasNonZeroAdjustment) {
+          const impact = await computeRuleImpact(rule, clientId);
+          if (impact.monthlyImpact !== 0 || impact.affectedUnits > 0) {
+            // Persist updated values so next fetch returns them immediately
+            storage.updateAdjustmentRule(rule.id, {
+              monthlyImpact: impact.monthlyImpact,
+              annualImpact: impact.annualImpact,
+              volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
+            }).catch(() => {});
+            return { ...rule, ...impact };
+          }
+        }
+        return rule;
+      }));
+
+      res.json(enrichedRules);
     } catch (error) {
       console.error('Error fetching adjustment rules:', error);
       res.status(500).json({ error: "Failed to fetch adjustment rules" });
