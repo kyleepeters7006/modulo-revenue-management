@@ -87,6 +87,105 @@ app.use((req, res, next) => {
     log(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration (Task #212): purge the stale AL Companion $1,475 rows produced
+  // by the old AL_2ndPersonFee column mapping (pre-Task #202) and clear any matching
+  // stale competitor references in rent_roll_data. Both checks are combined so that a
+  // single async re-match job is triggered at most once per cold start.
+  //
+  // Guards make this a no-op on subsequent restarts once both tables are clean.
+  try {
+    type CountRow = { cnt: number };
+    type UploadMonthRow = { upload_month: string };
+
+    const surveyCheckResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS cnt
+      FROM competitive_survey_data
+      WHERE client_id = 'trilogy'
+        AND competitor_type = 'AL'
+        AND room_type = 'Companion'
+        AND ABS(CAST(monthly_rate_avg AS numeric) - 1475) < 1
+    `);
+    const staleSurveyCount = (surveyCheckResult.rows[0] as CountRow).cnt;
+
+    const rentRollCheckResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS cnt
+      FROM rent_roll_data
+      WHERE client_id = 'trilogy'
+        AND service_line = 'AL'
+        AND room_type = 'Companion'
+        AND competitor_name = 'Rivertown Ridge'
+        AND ABS(CAST(COALESCE(competitor_base_rate, competitor_final_rate, 0) AS numeric) - 1475) < 1
+    `);
+    const staleRentRollCount = (rentRollCheckResult.rows[0] as CountRow).cnt;
+
+    const needsCleanup = staleSurveyCount > 0 || staleRentRollCount > 0;
+
+    if (staleSurveyCount > 0) {
+      await db.execute(sql`
+        DELETE FROM competitive_survey_data
+        WHERE client_id = 'trilogy'
+          AND competitor_type = 'AL'
+          AND room_type = 'Companion'
+          AND ABS(CAST(monthly_rate_avg AS numeric) - 1475) < 1
+      `);
+      log(`[migration] Deleted ${staleSurveyCount} stale AL Companion $1,475 competitive_survey_data row(s).`);
+    }
+
+    if (staleRentRollCount > 0) {
+      await db.execute(sql`
+        UPDATE rent_roll_data
+        SET competitor_rate = NULL,
+            competitor_final_rate = NULL,
+            competitor_name = NULL,
+            competitor_base_rate = NULL,
+            competitor_weight = NULL,
+            competitor_care_level2_adjustment = NULL,
+            competitor_med_management_adjustment = NULL,
+            competitor_adjustment_explanation = NULL
+        WHERE client_id = 'trilogy'
+          AND service_line = 'AL'
+          AND room_type = 'Companion'
+          AND competitor_name = 'Rivertown Ridge'
+          AND ABS(CAST(COALESCE(competitor_base_rate, competitor_final_rate, 0) AS numeric) - 1475) < 1
+      `);
+      log(`[migration] Cleared stale Rivertown Ridge competitor fields on ${staleRentRollCount} rent_roll_data row(s).`);
+    }
+
+    if (needsCleanup) {
+      // Re-run competitor rate matching asynchronously (after server is listening) so the
+      // affected units receive the correct neutral competitor signal. processAllUnitsForCompetitorRates
+      // filters rent_roll_data by upload_month, so we use the most recent rent roll month
+      // (not the survey month) to capture the latest data (e.g. Byron Center 2026-03).
+      setTimeout(async () => {
+        try {
+          const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+          const latestMonthResult = await db.execute(sql`
+            SELECT upload_month FROM rent_roll_data
+            WHERE client_id = 'trilogy'
+            ORDER BY upload_month DESC
+            LIMIT 1
+          `);
+          const latestUploadMonth = latestMonthResult.rows.length > 0
+            ? (latestMonthResult.rows[0] as UploadMonthRow).upload_month
+            : null;
+          if (!latestUploadMonth) {
+            log('[migration] No rent roll data found for trilogy client — skipping competitor re-matching.');
+            return;
+          }
+          log(`[migration] Re-running competitor matching for trilogy / uploadMonth=${latestUploadMonth}...`);
+          const stats = await processAllUnitsForCompetitorRates(latestUploadMonth, 'trilogy');
+          log(`[migration] ✅ Competitor re-matching complete — processed=${stats.processed} updated=${stats.updated} errors=${stats.errors}`);
+        } catch (matchErr) {
+          log(`[migration] ❌ Competitor re-matching failed (non-fatal): ${matchErr instanceof Error ? matchErr.message : String(matchErr)}`);
+        }
+      }, 8000); // 8-second delay — after server starts listening
+    } else {
+      log('[migration] No stale AL Companion $1,475 rows found in either table — nothing to purge.');
+    }
+  } catch (purgeErr) {
+    log(`[migration] Stale AL Companion purge failed (non-fatal): ${purgeErr instanceof Error ? purgeErr.message : String(purgeErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background
