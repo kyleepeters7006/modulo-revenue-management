@@ -123,6 +123,93 @@ app.use((req, res, next) => {
     }
   }, 3000); // Check for interrupted jobs 3 seconds after server starts
 
+  // One-time migration (Task #229): Fix stale AL/MC care L2 & med mgmt rates.
+  // The wrong column priority (AL/MC_MedicationManagement instead of MC_MedicationManagement)
+  // was used in previous imports. This migration re-imports the competitive survey with the
+  // corrected column logic and re-runs competitor rate matching for all affected clients.
+  // A marker file (.local/survey_migration_229_done) prevents re-running on subsequent restarts.
+  setTimeout(async () => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const MARKER = path.resolve('.local/survey_migration_229_done');
+      if (fs.existsSync(MARKER)) {
+        log(`[survey-migration] Task #229 already applied — skipping.`);
+        return;
+      }
+
+      const { competitiveSurveyData: csd } = await import('@shared/schema');
+      const { eq, desc } = await import('drizzle-orm');
+      const { importCompetitiveSurveyExcel, importCompetitiveSurveyCSV } = await import('./dataImport');
+      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+
+      type SurveyFileEntry = { name: string; mtime: number };
+      let allDone = true;
+      for (const clientId of ['demo', 'trilogy']) {
+        const assetsDir = path.resolve('attached_assets');
+        const surveyFiles: SurveyFileEntry[] = fs.readdirSync(assetsDir)
+          .filter((f: string) => {
+            const lower = f.toLowerCase();
+            return lower.includes('competitive survey data') &&
+              (lower.endsWith('.xlsx') || lower.endsWith('.csv')) &&
+              !lower.includes('mapping') && !lower.includes('template');
+          })
+          .map((f: string): SurveyFileEntry => ({ name: f, mtime: fs.statSync(path.join(assetsDir, f)).mtimeMs }))
+          .sort((a: SurveyFileEntry, b: SurveyFileEntry) => b.mtime - a.mtime);
+
+        if (surveyFiles.length === 0) {
+          log(`[survey-migration] clientId=${clientId} — no survey file found, skipping.`);
+          allDone = false;
+          continue;
+        }
+
+        const latestRows = await db
+          .select({ surveyMonth: csd.surveyMonth })
+          .from(csd)
+          .where(eq(csd.clientId, clientId))
+          .orderBy(desc(csd.surveyMonth))
+          .limit(1);
+        if (latestRows.length === 0) {
+          log(`[survey-migration] clientId=${clientId} — no existing survey month, skipping.`);
+          allDone = false;
+          continue;
+        }
+        const surveyMonth = latestRows[0].surveyMonth;
+        const surveyFile = surveyFiles[0];
+        const isCsv = surveyFile.name.toLowerCase().endsWith('.csv');
+        const fileBuffer = fs.readFileSync(path.join(assetsDir, surveyFile.name));
+        log(`[survey-migration] clientId=${clientId} surveyMonth=${surveyMonth} — reimporting ${surveyFile.name} with corrected AL/MC column logic...`);
+        const importResult = isCsv
+          ? await importCompetitiveSurveyCSV(fileBuffer, surveyMonth, clientId)
+          : await importCompetitiveSurveyExcel(fileBuffer, surveyMonth, clientId);
+        log(`[survey-migration] clientId=${clientId} — import done: ${importResult.successfulImports} rows inserted.`);
+        if (importResult.successfulImports === 0) {
+          log(`[survey-migration] clientId=${clientId} — zero rows imported; skipping rate matching and not writing marker.`);
+          allDone = false;
+          continue;
+        }
+        log(`[survey-migration] clientId=${clientId} — running rate matching (awaited)...`);
+        try {
+          const stats = await processAllUnitsForCompetitorRates(surveyMonth, clientId);
+          log(`[survey-migration] clientId=${clientId} — rate matching complete: processed=${stats.processed} updated=${stats.updated} errors=${stats.errors}`);
+          if (stats.errors > 0) allDone = false;
+        } catch (matchErr: unknown) {
+          log(`[survey-migration] clientId=${clientId} — rate matching error: ${matchErr instanceof Error ? matchErr.message : String(matchErr)}`);
+          allDone = false;
+        }
+      }
+
+      if (allDone) {
+        fs.writeFileSync(MARKER, new Date().toISOString());
+        log(`[survey-migration] Task #229 complete — marker written to ${MARKER}. Both import and rate matching succeeded for all clients.`);
+      } else {
+        log(`[survey-migration] Task #229 — one or more clients failed; marker NOT written. Will retry on next restart.`);
+      }
+    } catch (err) {
+      log(`[survey-migration] Task #229 stale-data fix failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 15000); // 15-second delay — after server is fully initialized
+
   // Background job: geocode any locations that have an address but null lat/lng.
   // Runs after the server is already serving so it never blocks startup.
   // Rate-limited internally (1.1 s per Nominatim request).

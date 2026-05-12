@@ -466,10 +466,10 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                     type: 'AL/MC',
                     flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
                     careLevel1: parseNumeric(row['AL/MC_Level1'] ?? row['AL_Level1']),
-                    careLevel2: parseNumeric(row['AL/MC_Level2'] ?? row['AL_Level2']),
+                    careLevel2: parseNumeric(row['MC_Level2'] ?? row['AL/MC_Level2'] ?? 0),
                     careLevel3: parseNumeric(row['AL/MC_Level3'] ?? row['AL_Level3']),
                     careLevel4: parseNumeric(row['AL/MC_Level4'] ?? row['AL_Level4']),
-                    medicationManagement: parseNumeric(row['AL/MC_MedicationManagement'] ?? row['MC_MedicationManagement']),
+                    medicationManagement: parseNumeric(row['MC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['AL/MC_PrivateRate'] || row['AL/MC_StudioRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                       { name: 'Companion', rate: row['MC_ALCompanionRoomRate'] || row['AL/MC_CompanionRate'] || null, careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
@@ -481,7 +481,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                     type: 'HC/MC',
                     flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
                     careLevel1: parseNumeric(row['HC/MC_Level1'] ?? row['HC_Level1']),
-                    careLevel2: parseNumeric(row['HC/MC_Level2'] ?? row['HC_Level2']),
+                    careLevel2: parseNumeric(row['SMC_Level2'] ?? row['HC/MC_Level2'] ?? 0),
                     careLevel3: parseNumeric(row['HC/MC_Level3'] ?? row['HC_Level3']),
                     careLevel4: parseNumeric(row['HC/MC_Level4'] ?? row['HC_Level4']),
                     medicationManagement: parseNumeric(row['HC/MC_MedicationManagement'] ?? row['SMC_MedicationManagement']),
@@ -819,10 +819,10 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && 
                     (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               careLevel1: parseNumericExcel(row['AL/MC_Level1'] ?? row['AL_Level1']),
-              careLevel2: parseNumericExcel(row['AL/MC_Level2'] ?? row['AL_Level2']),
+              careLevel2: parseNumericExcel(row['MC_Level2'] ?? row['AL/MC_Level2'] ?? 0),
               careLevel3: parseNumericExcel(row['AL/MC_Level3'] ?? row['AL_Level3']),
               careLevel4: parseNumericExcel(row['AL/MC_Level4'] ?? row['AL_Level4']),
-              medicationManagement: parseNumericExcel(row['AL/MC_MedicationManagement'] ?? row['MC_MedicationManagement']),
+              medicationManagement: parseNumericExcel(row['MC_MedicationManagement']),
               roomTypes: [
                 { name: 'Studio', rate: row['AL/MC_StudioRate'] || row['AL/MC_PrivateRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                 { name: 'Companion', rate: row['MC_ALCompanionRoomRate'] || row['AL/MC_CompanionRate'] || null, careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
@@ -835,7 +835,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && 
                     (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               careLevel1: parseNumericExcel(row['HC/MC_Level1'] ?? row['HC_Level1']),
-              careLevel2: parseNumericExcel(row['HC/MC_Level2'] ?? row['HC_Level2']),
+              careLevel2: parseNumericExcel(row['SMC_Level2'] ?? row['HC/MC_Level2'] ?? 0),
               careLevel3: parseNumericExcel(row['HC/MC_Level3'] ?? row['HC_Level3']),
               careLevel4: parseNumericExcel(row['HC/MC_Level4'] ?? row['HC_Level4']),
               medicationManagement: parseNumericExcel(row['HC/MC_MedicationManagement'] ?? row['SMC_MedicationManagement']),
