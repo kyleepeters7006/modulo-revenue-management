@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Brain, Lightbulb, Filter, MapPin, Edit3, Save, X, RefreshCw, Clock, PlayCircle } from "lucide-react";
+import { Lightbulb, Filter, MapPin, Edit3, Save, X, RefreshCw, Clock, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -254,20 +254,6 @@ export default function AiInsights() {
 
   return (
     <div className="dashboard-card mb-8">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-[var(--trilogy-navy)]/10 rounded-lg flex items-center justify-center">
-          <Brain className="w-5 h-5 text-[var(--trilogy-navy)]" />
-        </div>
-        <div>
-          <h3 className="text-lg font-semibold text-[var(--dashboard-text)]" data-testid="text-ai-insights-title">
-            AI Insights & Analytics
-          </h3>
-          <p className="text-sm text-[var(--dashboard-muted)]">
-            AI-powered analytics and predictive insights for pricing optimization
-          </p>
-        </div>
-      </div>
-
       <div className="max-w-4xl">
         <Card>
           <CardHeader>
