@@ -9610,6 +9610,7 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         let batchGuardrailWasApplied = false;
         let batchGuardrailTrigger: string | null = null;
         let batchGuardrailLimitPct: number | null = null;
+        let existingAiRateMonthly = 0; // hoisted so guardrail display fields below can use it
 
         // Resolve previously stored AI rate for guardrail drift protection
         const storedAiRate = (unit.aiSuggestedRate && unit.aiSuggestedRate > 0)
@@ -9619,9 +9620,16 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         if (!unit.occupiedYN && defaultStrategyConfig.enableRevenueTargetStrategyLayer) {
           const sl = unit.serviceLine || '';
           // Use stored rate as guardrail reference (prevents drift across recalculations).
-          // If no prior rate exists, fall back to the current orchestrator result.
-          const existingAiRateMonthly = storedAiRate
-            ? toMonthlyRate(storedAiRate, sl)
+          // Safety check: if the stored AI rate is more than 50% above the current street
+          // rate, it is likely a corrupted value from a prior bad calculation. In that case
+          // fall back to the fresh Stage 1 result so the guardrail baseline is reset to a
+          // sensible level and the corrupted rate is not perpetuated.
+          const streetRateMonthly = toMonthlyRate(unit.streetRate || 0, sl);
+          const storedAiMonthly = storedAiRate ? toMonthlyRate(storedAiRate, sl) : null;
+          const storedRateIsValid = storedAiMonthly !== null &&
+            (streetRateMonthly === 0 || storedAiMonthly <= streetRateMonthly * 1.5);
+          existingAiRateMonthly = storedRateIsValid
+            ? storedAiMonthly!
             : toMonthlyRate(orchestratorResult.finalPrice, sl);
           const competitorMonthly = competitorAverageRateRaw !== undefined
             ? toMonthlyRate(competitorAverageRateRaw, sl)
@@ -9759,10 +9767,20 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           guardrailWasApplied: batchGuardrailWasApplied,
           guardrailTrigger: batchGuardrailTrigger,
           guardrailLimitPct: batchGuardrailLimitPct,
-          preGuardrailAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
-          effectiveAdjustment: (unit.streetRate || orchestratorResult.baseRate) > 0
-            ? (Math.round(finalAiRate) / (unit.streetRate || orchestratorResult.baseRate)) - 1
+          // preGuardrailAdjustment: the pre-guardrail AI rate change expressed relative to
+          // existingAiRateMonthly — the same base the guardrail uses — so the dialog text
+          // reads coherently: "algorithm wanted +10%, cap is 6%, after guardrail +6%."
+          // For occupied units (no strategy layer) falls back to the Stage 1 adjustment.
+          preGuardrailAdjustment: strategyLayerOutput && existingAiRateMonthly > 0
+            ? (strategyLayerOutput.targetAwareRateMonthly / existingAiRateMonthly) - 1
             : orchestratorResult.moduloDetails.totalAdjustment,
+          // effectiveAdjustment: the post-guardrail change from the same existingAiRate base
+          // so "After Guardrail" matches the guardrail limit percentage directly.
+          effectiveAdjustment: strategyLayerOutput && existingAiRateMonthly > 0
+            ? (strategyLayerOutput.finalGuardrailedRateMonthly / existingAiRateMonthly) - 1
+            : (unit.streetRate || orchestratorResult.baseRate) > 0
+              ? (Math.round(finalAiRate) / (unit.streetRate || orchestratorResult.baseRate)) - 1
+              : orchestratorResult.moduloDetails.totalAdjustment,
           signals: orchestratorResult.moduloDetails.signals,
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
