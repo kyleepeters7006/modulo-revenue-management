@@ -1733,9 +1733,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Re-run competitor rate matching so rent_roll_data reflects corrected rates
-      console.log('[reimport-competitive-survey] Running competitor rate matching...');
-      const matchingStats = await processAllUnitsForCompetitorRates(surveyMonth, clientId);
+      // Fire competitor rate matching asynchronously so the HTTP response returns
+      // immediately — matching 7 000+ units can take several minutes and would
+      // otherwise time out the connection.
+      const matchingQueuedAt = new Date().toISOString();
+      console.log(`[reimport-competitive-survey] Scheduling competitor rate matching (async) at ${matchingQueuedAt}...`);
+      processAllUnitsForCompetitorRates(surveyMonth, clientId)
+        .then(stats => {
+          console.log(
+            `[reimport-competitive-survey] ✅ Matching complete — clientId=${clientId} surveyMonth=${surveyMonth} ` +
+            `processed=${stats.processed} updated=${stats.updated} errors=${stats.errors} ` +
+            `queuedAt=${matchingQueuedAt} completedAt=${new Date().toISOString()}`
+          );
+        })
+        .catch(err => {
+          console.error(`[reimport-competitive-survey] ❌ Matching failed — clientId=${clientId} surveyMonth=${surveyMonth}:`, err);
+        });
 
       res.json({
         success: true,
@@ -1748,10 +1761,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           failed: importResult.failedImports,
           errors: importResult.errors.slice(0, 20),
         },
-        matchingStats: {
-          processed: matchingStats.processed,
-          updated: matchingStats.updated,
-          errors: matchingStats.errors,
+        matching: {
+          queued: true,
+          queuedAt: matchingQueuedAt,
+          note: 'Competitor rate matching is running in the background. Watch server logs for the ✅ Matching complete line.',
         },
       });
     } catch (error) {
