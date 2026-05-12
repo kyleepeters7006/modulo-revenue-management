@@ -505,15 +505,24 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The Revenue Target Strategy Layer is an add-on overlay to the AI Rate — not a replacement. It starts with the AI Rate, then evaluates whether a vacant unit should preserve that rate, discount modestly to accelerate leasing, or increase modestly to improve exit-rate value. Occupied units pass through unchanged to Guardrails.
+                This layer takes each vacant unit's AI Rate and asks one question: would a small price change generate more revenue between now and the end of the year than holding the current rate? Based on the answer, every vacant unit gets one of three outcomes:
               </p>
+
+              <ul className="text-sm list-disc list-outside ml-5 space-y-1">
+                <li><strong className="text-[var(--trilogy-dark-blue)]">Keep</strong> the AI Rate unchanged when no small adjustment improves expected revenue.</li>
+                <li><strong className="text-[var(--trilogy-dark-blue)]">Discount</strong> modestly when a faster lease — and more months of rent collected — outweighs the lower rate.</li>
+                <li><strong className="text-[var(--trilogy-dark-blue)]">Raise</strong> modestly when the unit can absorb a higher rate without meaningfully delaying the lease.</li>
+              </ul>
 
               <div className="bg-[var(--trilogy-orange)]/5 rounded-lg p-3 border border-[var(--trilogy-orange)]/20 text-sm flex items-start gap-2">
                 <Target className="h-4 w-4 text-[var(--trilogy-orange)] mt-0.5 flex-shrink-0" />
-                <span>
-                  If no revenue growth target exists for a location or service line, the AI Rate passes through this layer unchanged.
-                  If a unit is occupied, it passes through unchanged regardless of targets.
-                </span>
+                <div>
+                  <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Pass-through cases (AI Rate is forwarded unchanged):</p>
+                  <ul className="list-disc list-outside ml-5 space-y-0.5">
+                    <li>The unit is occupied — this layer only acts on vacant units.</li>
+                    <li>The location or service line has no revenue growth target configured.</li>
+                  </ul>
+                </div>
               </div>
 
               {/* Per-unit pipeline */}
@@ -525,7 +534,7 @@ export default function PricingAlgorithmDocs() {
                   {[
                     { label: "Compute Urgency", sub: "gap × months remaining" },
                     { label: "Classify Unit", sub: "Volume / Premium / Neutral" },
-                    { label: "Generate Candidates", sub: "discount, premium, or ±1%" },
+                    { label: "Generate Candidates", sub: "rates to test based on class" },
                     { label: "Score Each Candidate", sub: "expected revenue by Dec 31" },
                     { label: "Select Best Rate", sub: "highest score above threshold" },
                   ].map((step, i, arr) => (
