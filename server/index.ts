@@ -193,6 +193,122 @@ app.use((req, res, next) => {
     log(`[migration] Rivertown Ridge AL Companion purge failed (non-fatal): ${purgeErr instanceof Error ? purgeErr.message : String(purgeErr)}`);
   }
 
+  // Idempotent migration (Task #224): Fix stale care_level_2_rate for Rivertown Ridge AL.
+  // The source survey file shows $925 for care Level 2, but the live DB still holds $1,150
+  // from before Task #222's reimport ran only in the task agent's isolated environment.
+  // Also verifies the medication_management_fee matches the survey value of $350.
+  try {
+    type RivCheckRow = { care_level_2_rate: number | null; medication_management_fee: number | null };
+
+    // Fix care_level_2_rate — only updates rows that still have the wrong value.
+    // Use RETURNING id so affected row count is deterministic from rows.length, without
+    // relying on the driver-specific rowCount property.
+    const rivUpdateResult = await db.execute(sql`
+      UPDATE competitive_survey_data
+      SET care_level_2_rate = 925
+      WHERE client_id = 'trilogy'
+        AND competitor_name ILIKE '%Rivertown Ridge%'
+        AND competitor_type = 'AL'
+        AND care_level_2_rate != 925
+      RETURNING id
+    `);
+    const rivUpdatedCount = rivUpdateResult.rows.length;
+
+    if (rivUpdatedCount > 0) {
+      log(`[migration] Fixed Rivertown Ridge AL care_level_2_rate: ${rivUpdatedCount} row(s) updated → $925`);
+    } else {
+      log('[migration] Rivertown Ridge AL care_level_2_rate already correct — nothing to update.');
+    }
+
+    // Idempotently correct medication_management_fee (survey file shows $350).
+    // Use RETURNING id for deterministic count, same pattern as care_level_2_rate fix above.
+    const rivMedUpdateResult = await db.execute(sql`
+      UPDATE competitive_survey_data
+      SET medication_management_fee = 350
+      WHERE client_id = 'trilogy'
+        AND competitor_name ILIKE '%Rivertown Ridge%'
+        AND competitor_type = 'AL'
+        AND (medication_management_fee IS NULL OR ABS(medication_management_fee - 350) >= 1)
+      RETURNING id
+    `);
+    const rivMedUpdatedCount = rivMedUpdateResult.rows.length;
+    if (rivMedUpdatedCount > 0) {
+      log(`[migration] Fixed Rivertown Ridge AL medication_management_fee: ${rivMedUpdatedCount} row(s) updated → $350`);
+    } else {
+      log('[migration] Rivertown Ridge AL medication_management_fee already correct — nothing to update.');
+    }
+
+    // Post-check: log current values to confirm both fields are correct
+    const rivCheckResult = await db.execute(sql`
+      SELECT care_level_2_rate, medication_management_fee
+      FROM competitive_survey_data
+      WHERE client_id = 'trilogy'
+        AND competitor_name ILIKE '%Rivertown Ridge%'
+        AND competitor_type = 'AL'
+      LIMIT 1
+    `);
+    if (rivCheckResult.rows.length > 0) {
+      const row = rivCheckResult.rows[0] as RivCheckRow;
+      log(`[migration] Rivertown Ridge AL post-check: care_level_2_rate=$${row.care_level_2_rate} medication_management_fee=$${row.medication_management_fee}`);
+    }
+
+    // If either field was corrected, re-run competitor rate matching for trilogy so Byron
+    // Center AL units immediately reflect the corrected values without manual re-import.
+    if (rivUpdatedCount > 0 || rivMedUpdatedCount > 0) {
+      setTimeout(async () => {
+        try {
+          type UploadMonthRow2 = { upload_month: string };
+          const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+          const latestMonthResult = await db.execute(sql`
+            SELECT upload_month FROM rent_roll_data
+            WHERE client_id = 'trilogy'
+            ORDER BY upload_month DESC
+            LIMIT 1
+          `);
+          const latestUploadMonth = latestMonthResult.rows.length > 0
+            ? (latestMonthResult.rows[0] as UploadMonthRow2).upload_month
+            : null;
+          if (!latestUploadMonth) {
+            log('[migration] No rent roll data found for trilogy client — skipping competitor re-matching for care_level_2_rate fix.');
+            return;
+          }
+          log(`[migration] Re-running competitor matching for trilogy / uploadMonth=${latestUploadMonth} (care_level_2_rate fix)...`);
+          const stats = await processAllUnitsForCompetitorRates(latestUploadMonth, 'trilogy');
+          log(`[migration] ✅ Competitor re-matching complete (care_level_2_rate fix) — processed=${stats.processed} updated=${stats.updated} errors=${stats.errors}`);
+
+          // Spot-check: log competitor rate for one Byron Center AL Studio unit matched
+          // to Rivertown Ridge, to confirm the corrected care_level_2_rate flows through.
+          try {
+            type SpotCheckRow = { room_number: string; competitor_name: string | null; competitor_rate: number | null; competitor_base_rate: number | null; competitor_care_level2_adjustment: number | null; competitor_final_rate: number | null };
+            const spotResult = await db.execute(sql`
+              SELECT room_number, competitor_name, competitor_rate, competitor_base_rate,
+                     competitor_care_level2_adjustment, competitor_final_rate
+              FROM rent_roll_data
+              WHERE client_id = 'trilogy'
+                AND location ILIKE '%Byron Center%'
+                AND service_line = 'AL'
+                AND room_type = 'Studio'
+                AND competitor_name ILIKE '%Rivertown Ridge%'
+              LIMIT 1
+            `);
+            if (spotResult.rows.length > 0) {
+              const spot = spotResult.rows[0] as SpotCheckRow;
+              log(`[migration] Spot-check Byron Center AL Studio (Rivertown Ridge) unit=${spot.room_number} competitor_rate=$${spot.competitor_rate} base_rate=$${spot.competitor_base_rate} care_L2_adj=$${spot.competitor_care_level2_adjustment} final_rate=$${spot.competitor_final_rate}`);
+            } else {
+              log('[migration] Spot-check: No Byron Center AL Studio units matched to Rivertown Ridge found — competitor re-matching may not have assigned Rivertown Ridge as top comp.');
+            }
+          } catch (spotErr) {
+            log(`[migration] Spot-check failed (non-fatal): ${spotErr instanceof Error ? spotErr.message : String(spotErr)}`);
+          }
+        } catch (matchErr) {
+          log(`[migration] ❌ Competitor re-matching failed (non-fatal, care_level_2_rate fix): ${matchErr instanceof Error ? matchErr.message : String(matchErr)}`);
+        }
+      }, 8000); // 8-second delay — after server starts listening
+    }
+  } catch (rivErr) {
+    log(`[migration] Rivertown Ridge AL care_level_2_rate fix failed (non-fatal): ${rivErr instanceof Error ? rivErr.message : String(rivErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background
