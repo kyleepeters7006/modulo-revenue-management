@@ -677,7 +677,7 @@ export default function AICalculationDialog({
                         <div className="text-right">
                           <p className="text-xs text-muted-foreground">Positioning vs market</p>
                           <p className={`font-bold ${calcDetails.strategyLayer.competitorGapPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {calcDetails.strategyLayer.competitorGapPct >= 0 ? '+' : ''}{(calcDetails.strategyLayer.competitorGapPct * 100).toFixed(1)}%
+                            {calcDetails.strategyLayer.competitorGapPct >= 0 ? '+' : ''}{calcDetails.strategyLayer.competitorGapPct.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
                           </p>
                         </div>
                       )}
