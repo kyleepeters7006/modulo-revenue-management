@@ -896,7 +896,7 @@ export default function AICalculationDialog({
                           <div className="text-right">
                             <p className="font-mono font-bold">{formatCurrency(moduloRate)}</p>
                             <p className={`text-xs font-mono ${getAdjustmentColor(moduloDelta)}`}>
-                              {signDollars(moduloDelta)} (vs base)
+                              {signDollars(moduloDelta)} (vs Stage 1)
                             </p>
                           </div>
                         </div>
@@ -937,10 +937,11 @@ export default function AICalculationDialog({
                                   Guardrail Applied
                                 </p>
                                 <p className="text-xs text-amber-700 dark:text-amber-300">
-                                  Pre-guardrail adjustment {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
+                                  {preGuardrailAdj > effectiveAdj ? 'Increase cap' : preGuardrailAdj < effectiveAdj ? 'Decrease cap' : 'Competitor variance cap'} —
+                                  pre-guardrail {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
                                   clamped to {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
                                   {calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed
-                                    ? ` — allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'}`
+                                    ? ` (allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'})`
                                     : ''}
                                 </p>
                               </div>
