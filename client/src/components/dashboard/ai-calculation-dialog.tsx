@@ -295,8 +295,10 @@ export default function AICalculationDialog({
                 <div className="space-y-4">
                   {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
                     <>
-                      {calcDetails.adjustments.map((adj: any, index: number, allAdjustments: any[]) => {
-                        const isStrategicOverride = adj.weight === 0;
+                      {calcDetails.adjustments
+                        .filter((adj: any) => adj.weight !== 0)
+                        .map((adj: any, index: number, allAdjustments: any[]) => {
+                        const isStrategicOverride = false;
                         return (
                         <div key={index}>
                           <div className="flex items-start justify-between mb-2">
@@ -405,32 +407,26 @@ export default function AICalculationDialog({
                       );
                       })}
 
-                      {/* Pass 1 subtotal */}
+                      {/* Pass 1 subtotal — weighted signals only, before strategic overrides */}
                       <Separator />
                       {(() => {
-                        const hasV2 = calcDetails.guardrailWasApplied !== undefined;
-                        const effectiveAdj = hasV2
-                          ? calcDetails.effectiveAdjustment
-                          : (baseRate > 0 ? (aiSuggestedRate / baseRate) - 1 : 0);
-                        const preGuardrailAdj = hasV2
-                          ? calcDetails.preGuardrailAdjustment
-                          : calcDetails.totalAdjustment;
-                        const hasGuardrail = hasV2
-                          ? calcDetails.guardrailWasApplied
-                          : Math.abs(effectiveAdj - preGuardrailAdj) > 0.001;
+                        // preOverrideTotalAdj is the pure weighted-signal sum (excludes
+                        // RevenueTarget / RoomTypeTrend strategic overrides).
+                        // Fall back to summing the displayed (weight>0) adjustments.
+                        const pass1Total = calcDetails.preOverrideTotalAdj !== undefined
+                          ? calcDetails.preOverrideTotalAdj
+                          : (calcDetails.adjustments || [])
+                              .filter((a: any) => a.weight !== 0)
+                              .reduce((sum: number, a: any) => sum + (a.weightedAdjustment ?? 0), 0);
                         return (
-                          <div className="py-2 font-medium space-y-1">
+                          <div className="py-2 font-medium">
                             <div className="flex justify-between items-center">
                               <span>Pass 1 Total</span>
-                              <span className={getAdjustmentColor(preGuardrailAdj)}>
-                                {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)}
+                              <span className={getAdjustmentColor(pass1Total)}>
+                                {pass1Total > 0 ? '+' : ''}{formatPercent(pass1Total)}
                               </span>
                             </div>
-                            {hasGuardrail && (
-                              <div className="text-xs text-amber-600 dark:text-amber-400">
-                                (After guardrail: {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)})
-                              </div>
-                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5">Weighted signals only — strategic overrides applied in Pass 2</p>
                           </div>
                         );
                       })()}
