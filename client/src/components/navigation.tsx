@@ -67,7 +67,7 @@ export default function Navigation({ className }: NavigationProps) {
         <div className="bg-[var(--trilogy-teal)] text-white text-center py-1.5 px-3 text-xs sm:text-sm flex flex-wrap items-center justify-center gap-1.5 sm:gap-3">
           <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
           <span>
-            You are viewing <strong>Demo Mode</strong>. <span className="hidden sm:inline">Trilogy, GLM, and SSMG clients — </span>please log in to access your data.
+            You are viewing <strong>Demo Mode</strong>. Please log in to access your data.
           </span>
           <button
             onClick={() => setShowLoginModal(true)}

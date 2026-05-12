@@ -116,7 +116,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
           </Button>
 
           <p className="text-xs text-center text-gray-500">
-            For Trilogy, GLM, and SSMG clients only. Demo mode is available without login.
+            Please log in to access your data. Demo mode is available without login.
           </p>
         </form>
       </DialogContent>
