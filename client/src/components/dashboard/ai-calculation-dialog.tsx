@@ -842,8 +842,13 @@ export default function AICalculationDialog({
                     `${delta >= 0 ? '+' : '−'}${formatCurrency(Math.abs(delta))}`;
 
                   const showAttribute = Math.abs(attributeDelta) >= 1;
-                  const showStrategy = !!strategy && Math.abs(strategyDelta) >= 1;
-                  const strategyPreserved = !!strategy && !showStrategy;
+                  // Source of truth for "preserved" is the server's noImprovementFound flag.
+                  // Falling back to delta-based inference only when the flag is absent.
+                  const strategyPreserved = !!strategy && (
+                    strategy.noImprovementFound === true ||
+                    (strategy.noImprovementFound === undefined && Math.abs(strategyDelta) < 1)
+                  );
+                  const showStrategy = !!strategy && !strategyPreserved;
 
                   return (
                     <div className="space-y-3">
@@ -913,11 +918,21 @@ export default function AICalculationDialog({
                               </div>
                               <div className="text-right">
                                 <p className="font-mono font-bold">{formatCurrency(finalRate)}</p>
-                                <p className={`text-xs font-mono ${getAdjustmentColor(strategyDelta)}`}>
-                                  {strategyPreserved ? 'no change' : `${signDollars(strategyDelta)} (vs Modulo)`}
+                                <p className={`text-xs font-mono ${strategyPreserved ? 'text-muted-foreground' : getAdjustmentColor(strategyDelta)}`}>
+                                  {strategyPreserved
+                                    ? (Math.abs(strategyDelta) < 1
+                                        ? 'no change'
+                                        : 'stored rate kept (not Modulo recompute)')
+                                    : `${signDollars(strategyDelta)} (vs Modulo)`}
                                 </p>
                               </div>
                             </div>
+                            {strategyPreserved && Math.abs(strategyDelta) >= 1 && (
+                              <p className="text-xs text-muted-foreground pl-3 -mt-1">
+                                The Modulo Pass 1 above ({formatCurrency(moduloRate)}) is this session's recomputed signal.
+                                The strategy layer compared against the previously stored AI rate ({formatCurrency(finalRate)}) and found no improvement, so that stored rate becomes the final.
+                              </p>
+                            )}
                           </>
                         )}
 
@@ -943,9 +958,19 @@ export default function AICalculationDialog({
                           {formatCurrency(streetRate)} × (1 {effectiveAdj >= 0 ? '+' : '−'} {Math.abs(effectiveAdj * 100).toFixed(2)}%) = {formatCurrency(finalRate)}
                         </div>
                         <div className="text-xs text-gray-500">
-                          The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment is the
-                          combined result of {showAttribute ? 'attribute pricing, ' : ''}the Modulo Pass 1 weighted
-                          signals{strategy ? ', and the Revenue Target Strategy Layer' : ''} shown above.
+                          {strategyPreserved && Math.abs(strategyDelta) >= 1 ? (
+                            <>
+                              The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment reflects
+                              the previously stored AI rate carried forward — the Revenue Target Strategy Layer chose
+                              to preserve it rather than apply this session's Modulo Pass 1 recompute.
+                            </>
+                          ) : (
+                            <>
+                              The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment is the
+                              combined result of {showAttribute ? 'attribute pricing, ' : ''}the Modulo Pass 1 weighted
+                              signals{strategy ? ', and the Revenue Target Strategy Layer' : ''} shown above.
+                            </>
+                          )}
                         </div>
                       </div>
 
