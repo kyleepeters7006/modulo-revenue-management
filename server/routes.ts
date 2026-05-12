@@ -14856,43 +14856,91 @@ Respond in JSON format:
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
-      
+
       const { surveyMonth } = req.body;
       if (!surveyMonth) {
         return res.status(400).json({ error: "Survey month is required" });
       }
-      
+
+      if (!/^\d{4}-\d{2}$/.test(surveyMonth)) {
+        return res.status(400).json({ error: "Invalid surveyMonth format; expected YYYY-MM" });
+      }
+
       const clientId = req.clientId || 'demo';
-      const { importCompetitiveSurveyExcel } = await import('./dataImport');
-      
-      const importStats = await importCompetitiveSurveyExcel(
-        req.file.buffer,
-        surveyMonth,
-        clientId
-      );
-      
-      // Auto-trigger competitor rate matching after successful import
-      console.log('Triggering automatic competitor rate matching...');
-      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
-      
-      // Run in background - don't wait for completion
-      processAllUnitsForCompetitorRates(surveyMonth, clientId).then(matchingStats => {
-        console.log('Competitor rate matching completed:', {
-          processed: matchingStats.processed,
-          updated: matchingStats.updated,
-          errors: matchingStats.errors
+      const originalName = (req.file.originalname || '').toLowerCase();
+      const isCsv = originalName.endsWith('.csv') ||
+        (req.file.mimetype || '').toLowerCase().includes('csv');
+
+      console.log(`[import-competitive-survey] file="${req.file.originalname}" type=${isCsv ? 'CSV' : 'Excel'} surveyMonth=${surveyMonth} clientId=${clientId}`);
+
+      const { importCompetitiveSurveyExcel, importCompetitiveSurveyCSV } = await import('./dataImport');
+
+      const importResult = isCsv
+        ? await importCompetitiveSurveyCSV(req.file.buffer, surveyMonth, clientId)
+        : await importCompetitiveSurveyExcel(req.file.buffer, surveyMonth, clientId);
+
+      console.log(`[import-competitive-survey] Import complete: ${importResult.successfulImports} rows inserted`);
+
+      // Reject early if no rows were imported — signals a format/column mismatch.
+      if (importResult.successfulImports === 0) {
+        const zeroRowMsg = importResult.columnWarning
+          ? `Import produced zero rows: ${importResult.columnWarning}`
+          : 'Import produced zero rows. The file may not match the expected competitive survey format (expected columns: TrilogyCampusName, AL, HC, AL_StudioRate, etc.).';
+        return res.status(422).json({
+          error: zeroRowMsg,
+          message: zeroRowMsg,
+          surveyMonth,
+          clientId,
+          columnWarning: importResult.columnWarning,
+          parseErrors: importResult.errors.slice(0, 20),
+          totalRecords: importResult.totalRecords,
+          successfulImports: 0,
+          failedImports: importResult.failedImports,
         });
-      }).catch(error => {
-        console.error('Error in automatic competitor matching:', error);
-      });
-      
+      }
+
+      // Auto-trigger competitor rate matching in the background so the HTTP
+      // response returns immediately — matching thousands of units can take minutes.
+      const matchingQueuedAt = new Date().toISOString();
+      console.log(`[import-competitive-survey] Scheduling competitor rate matching (async) at ${matchingQueuedAt}...`);
+      const { processAllUnitsForCompetitorRates } = await import('./services/competitorRateMatching');
+      processAllUnitsForCompetitorRates(surveyMonth, clientId)
+        .then(matchingStats => {
+          console.log(
+            `[import-competitive-survey] ✅ Matching complete — clientId=${clientId} surveyMonth=${surveyMonth} ` +
+            `processed=${matchingStats.processed} updated=${matchingStats.updated} errors=${matchingStats.errors} ` +
+            `queuedAt=${matchingQueuedAt} completedAt=${new Date().toISOString()}`
+          );
+        })
+        .catch(err => {
+          console.error(`[import-competitive-survey] ❌ Matching failed — clientId=${clientId} surveyMonth=${surveyMonth}:`, err);
+        });
+
       res.json({
-        ...importStats,
-        message: 'Import successful. Competitor rate matching is running in the background.'
+        success: true,
+        surveyMonth,
+        clientId,
+        importStats: {
+          total: importResult.totalRecords,
+          inserted: importResult.successfulImports,
+          failed: importResult.failedImports,
+          errors: importResult.errors.slice(0, 20),
+          columnWarning: importResult.columnWarning,
+        },
+        // Keep flat fields for backwards-compat with existing frontend consumers.
+        totalRecords: importResult.totalRecords,
+        successfulImports: importResult.successfulImports,
+        failedImports: importResult.failedImports,
+        matching: {
+          queued: true,
+          queuedAt: matchingQueuedAt,
+          note: 'Competitor rate matching is running in the background. Watch server logs for the ✅ Matching complete line.',
+        },
+        message: 'Import successful. Competitor rate matching is running in the background.',
       });
     } catch (error) {
-      console.error('Error importing competitive survey:', error);
-      res.status(500).json({ error: "Failed to import competitive survey data" });
+      console.error('[import-competitive-survey] Error:', error);
+      res.status(500).json({ error: "Failed to import competitive survey data", details: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
   
