@@ -151,7 +151,7 @@ export default function PricingAlgorithmDocs() {
                   <div className="flex flex-col items-center gap-1">
                     {[
                       { label: "Base Unit Data", sub: "occupancy, rates, vacancy, attributes" },
-                      { label: "Modulo Core Engine", sub: "6 weighted signals + attribute multiplier" },
+                      { label: "Modulo Core Engine", sub: "6 weighted signals applied to attribute-inclusive base rate" },
                       { label: "Smart Adjustment Rules", sub: "operator-defined rules, stacked in priority order" },
                       { label: "Guardrails", sub: "max increase/decrease, competitor variance" },
                       { label: "Modulo Rate", sub: "deterministic recommendation", highlight: true },
@@ -221,7 +221,7 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The Modulo engine is a deterministic, multi-factor pricing model. It blends six weighted pricing signals into a single adjustment, applies a room attribute quality multiplier, then clamps the result with guardrails. The same inputs always produce the same output — making every recommendation fully auditable.
+                The Modulo engine is a deterministic, multi-factor pricing model. It blends six weighted pricing signals into a single adjustment applied to the unit's current street rate — a base that already reflects the room's physical attributes. The result is then clamped by guardrails. The same inputs always produce the same output — making every recommendation fully auditable.
               </p>
 
               {/* Formula */}
@@ -234,7 +234,7 @@ export default function PricingAlgorithmDocs() {
                   Where <strong>Blended Adjustment</strong> = Σ(Signal × Normalized Weight), capped at ±25%
                 </p>
                 <p className="text-sm mt-1 text-[var(--trilogy-grey)]/80">
-                  After blending, a room attribute multiplier of up to ±10% is applied separately based on unit quality.
+                  The Base Rate is the unit's current street rate, which already incorporates any room attribute premiums or discounts for that specific unit.
                 </p>
               </div>
 
@@ -769,7 +769,7 @@ export default function PricingAlgorithmDocs() {
             <CardContent className="text-[var(--trilogy-grey)]">
               <ol className="space-y-3 list-decimal list-inside">
                 <li className="pl-2">
-                  <strong>Modulo Rate:</strong> The Modulo engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals. Room attribute quality is applied separately as a multiplier, up to ±10%.
+                  <strong>Modulo Rate:</strong> The Modulo engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals — applied to the unit's current street rate. That street rate already reflects the room's physical attributes, so attribute quality is embedded in the starting base, not applied afterward.
                 </li>
                 <li className="pl-2">
                   <strong>Smart Adjustment Rules:</strong> Operator-defined rules modify the Modulo Rate only. They apply after the Modulo engine, before Guardrails, and stack in priority order. They do not affect the AI Rate.
