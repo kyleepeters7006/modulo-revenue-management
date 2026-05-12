@@ -9767,20 +9767,21 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           guardrailWasApplied: batchGuardrailWasApplied,
           guardrailTrigger: batchGuardrailTrigger,
           guardrailLimitPct: batchGuardrailLimitPct,
-          // preGuardrailAdjustment: the pre-guardrail AI rate change expressed relative to
-          // existingAiRateMonthly — the same base the guardrail uses — so the dialog text
-          // reads coherently: "algorithm wanted +10%, cap is 6%, after guardrail +6%."
-          // For occupied units (no strategy layer) falls back to the Stage 1 adjustment.
-          preGuardrailAdjustment: strategyLayerOutput && existingAiRateMonthly > 0
-            ? (strategyLayerOutput.targetAwareRateMonthly / existingAiRateMonthly) - 1
+          // preGuardrailAdjustment / effectiveAdjustment: both expressed as % vs street rate
+          // so the dialog text is coherent with the guardrail limit percentage:
+          // "algorithm wanted +X% above street, cap is Y% above street, after guardrail +Y%."
+          preGuardrailAdjustment: (() => {
+            const streetRef = unit.streetRate || orchestratorResult.baseRate;
+            if (strategyLayerOutput && streetRef > 0) {
+              // targetAwareRateMonthly → raw units → vs street rate
+              const preGuardrailRaw = fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, unit.serviceLine || '');
+              return preGuardrailRaw / streetRef - 1;
+            }
+            return orchestratorResult.moduloDetails.totalAdjustment;
+          })(),
+          effectiveAdjustment: (unit.streetRate || orchestratorResult.baseRate) > 0
+            ? (Math.round(finalAiRate) / (unit.streetRate || orchestratorResult.baseRate)) - 1
             : orchestratorResult.moduloDetails.totalAdjustment,
-          // effectiveAdjustment: the post-guardrail change from the same existingAiRate base
-          // so "After Guardrail" matches the guardrail limit percentage directly.
-          effectiveAdjustment: strategyLayerOutput && existingAiRateMonthly > 0
-            ? (strategyLayerOutput.finalGuardrailedRateMonthly / existingAiRateMonthly) - 1
-            : (unit.streetRate || orchestratorResult.baseRate) > 0
-              ? (Math.round(finalAiRate) / (unit.streetRate || orchestratorResult.baseRate)) - 1
-              : orchestratorResult.moduloDetails.totalAdjustment,
           signals: orchestratorResult.moduloDetails.signals,
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),

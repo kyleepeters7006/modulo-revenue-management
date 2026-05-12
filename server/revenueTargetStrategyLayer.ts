@@ -611,9 +611,15 @@ function applyGuardrails(
   let rate = rateMonthly;
   const reasons: string[] = [];
 
-  // Max increase / decrease from existing AI rate
-  const maxIncrease = existingAiRateMonthly * (1 + ctx.guardrailMaxIncreaseFraction);
-  const maxDecrease = existingAiRateMonthly * (1 - ctx.guardrailMaxDecreaseFraction);
+  // Max increase / decrease anchored to the STREET RATE (not the stored AI rate).
+  // Using the stored AI rate caused daily compounding: if the strategy layer always
+  // classified a unit as premium_driver and selected an increase, the guardrail would
+  // allow an additional +maxFrac% each cycle on top of the already-elevated stored rate,
+  // eventually producing rates 3-4× the street rate after ~20 daily runs.
+  // Anchoring to the street rate makes the bounds absolute per-cycle, not cumulative.
+  const guardrailBasis = ctx.streetRateMonthly > 0 ? ctx.streetRateMonthly : existingAiRateMonthly;
+  const maxIncrease = guardrailBasis * (1 + ctx.guardrailMaxIncreaseFraction);
+  const maxDecrease = guardrailBasis * (1 - ctx.guardrailMaxDecreaseFraction);
   if (rate > maxIncrease) {
     rate = maxIncrease;
     reasons.push(`capped at +${(ctx.guardrailMaxIncreaseFraction * 100).toFixed(0)}% max increase guardrail`);
