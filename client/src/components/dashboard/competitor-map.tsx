@@ -475,7 +475,7 @@ export function CompetitorMap({
         const bluePinIcon = window.L.divIcon({
           className: '',
           html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
-            <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22s14-12.667 14-22C28 6.268 21.732 0 14 0z" fill="#1d4ed8" stroke="#fff" stroke-width="1.5"/>
+            <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22s14-12.667 14-22C28 6.268 21.732 0 14 0z" fill="#1e3a8a" stroke="#fff" stroke-width="1.5"/>
             <circle cx="14" cy="14" r="5.5" fill="white"/>
           </svg>`,
           iconSize: [28, 36],
@@ -491,7 +491,7 @@ export function CompetitorMap({
 
         portfolioMarker.bindPopup(`
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 220px; max-width: 280px; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
-            <div style="background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%); color: white; padding: 16px;">
+            <div style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: 16px;">
               <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
                 <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;">${loc.name}</h3>
                 <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">PORTFOLIO</span>
