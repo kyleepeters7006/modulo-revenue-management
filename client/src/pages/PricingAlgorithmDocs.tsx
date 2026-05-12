@@ -100,7 +100,7 @@ export default function PricingAlgorithmDocs() {
                   <ul className="text-sm space-y-1 list-disc list-inside">
                     <li>Deterministic and fully auditable</li>
                     <li>Driven by six operator-configured weighted signals</li>
-                    <li>Room attributes applied as a separate quality multiplier</li>
+                    <li>Room attributes reflected in the base rate (the unit's current street rate)</li>
                     <li>Smart Adjustment Rules apply here — not to the AI Rate</li>
                     <li>Guardrails apply after Smart Adjustment Rules</li>
                   </ul>
@@ -315,8 +315,8 @@ export default function PricingAlgorithmDocs() {
                 <Home className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <span>
                   <strong className="text-[var(--trilogy-dark-blue)]">Room attributes</strong> (location within building, unit size, view quality, renovation status, amenity level)
-                  are applied as a <em>separate quality multiplier</em> after the six signals are blended — not as one of the weighted signals.
-                  Premium rooms earn up to ±10% relative to their base rate.
+                  are reflected in the base rate the algorithm starts from — the unit's current street rate, which already incorporates premiums or discounts for that room's specific features.
+                  They are not applied as a separate step after signal blending.
                 </span>
               </div>
 

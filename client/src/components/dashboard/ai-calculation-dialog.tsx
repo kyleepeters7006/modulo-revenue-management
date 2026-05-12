@@ -781,11 +781,14 @@ export default function AICalculationDialog({
                       AI Pricing Algorithm
                     </h4>
                     <p className="text-xs text-blue-800 dark:text-blue-200">
-                      The AI uses a two-pass pricing approach. The first pass (AI Algorithm Calculation) applies 
-                      weighted signals — occupancy, vacancy decay, seasonality, competitors — to derive a base rate. 
-                      The second pass (Revenue Target Strategy Layer) overlays your configured growth targets: it classifies 
-                      the unit into a strategy segment, projects expected revenue with and without target-aware pricing, 
-                      and selects the rate that best closes the revenue gap while respecting guardrail limits.
+                      The AI uses a two-pass pricing approach. Both passes start from the unit's current street rate as 
+                      the base — a rate that already reflects the room's physical attributes (location, size, view, 
+                      renovation, amenities) because it is what the operator currently charges for that specific unit. 
+                      The first pass adjusts that base using weighted signals — occupancy, vacancy decay, seasonality, 
+                      competitors, stock market, and inquiry/tour volume. The second pass (Revenue Target Strategy Layer) 
+                      overlays your configured growth targets: it classifies the unit into a strategy segment, projects 
+                      expected revenue with and without target-aware pricing, and selects the rate that best closes the 
+                      revenue gap while respecting guardrail limits.
                     </p>
                   </div>
                 </div>
