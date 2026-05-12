@@ -9657,7 +9657,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
             roomType: unit.roomType || '',
             roomNumber: unit.roomNumber || '',
             daysVacant: unit.daysVacant || 0,
-            existingAiRateMonthly,
+            existingAiRateMonthly,                    // stored AI rate — for display only
+            stage1RateMonthly: toMonthlyRate(orchestratorResult.finalPrice, sl), // Stage 1 fallback
             streetRateMonthly: toMonthlyRate(unit.streetRate || 0, sl),
             competitorAverageRateMonthly: competitorMonthly,
             serviceLineOccupancy: serviceLineOcc,
@@ -9808,9 +9809,9 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           // Revenue Target Strategy Layer (new enhanced layer)
           ...(strategyLayerOutput ? {
             strategyLayer: {
-              // existingAiRate = the rate the strategy layer actually compared against.
-              // When a stored AI rate exists that is what the layer uses as its
-              // baseline; otherwise it falls back to the fresh Modulo output.
+              // existingAiRate = previously stored AI rate, shown in dialog for reference only.
+              // Stage 2 no longer uses it as a calculation baseline — candidates are anchored
+              // to the street rate, and Stage 1 is the fallback when no improvement is found.
               existingAiRate: storedAiRate ?? orchestratorResult.finalPrice,
               moduloRateThisRun: orchestratorResult.finalPrice,
               targetAwareAiRate: fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, unit.serviceLine || ''),

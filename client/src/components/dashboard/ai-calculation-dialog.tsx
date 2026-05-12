@@ -617,9 +617,8 @@ export default function AICalculationDialog({
                       <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5">
                         <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
                         <span>
-                          The Modulo Pass 1 computed <strong>{formatCurrency(calcDetails.strategyLayer.moduloRateThisRun)}</strong> for this session,
-                          but the strategy layer compared the target-aware rate against the currently stored AI rate ({formatCurrency(calcDetails.strategyLayer.existingAiRate || 0)}) and found no improvement,
-                          so the stored rate is kept as the final rate.
+                          The Revenue Target strategy compared adjustments against the street rate and found no improvement,
+                          so the Stage 1 Modulo rate (<strong>{formatCurrency(calcDetails.strategyLayer.moduloRateThisRun)}</strong>) is used as the final rate.
                         </span>
                       </p>
                     )}

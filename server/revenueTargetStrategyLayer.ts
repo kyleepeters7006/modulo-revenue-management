@@ -114,8 +114,9 @@ export interface UnitStrategyContext {
   daysVacant: number;
 
   // Rates (all in monthly equivalent)
-  existingAiRateMonthly: number;
-  streetRateMonthly: number;
+  existingAiRateMonthly: number;   // stored AI rate — display only, not used as calculation baseline
+  stage1RateMonthly: number;       // fresh Stage 1 Modulo output — fallback when no improvement found
+  streetRateMonthly: number;       // operator street rate — baseline for candidate generation
   competitorAverageRateMonthly: number | undefined;
 
   // Occupancy
@@ -442,15 +443,15 @@ function segmentUnit(ctx: UnitStrategyContext, cfg: StrategyLayerConfig): Segmen
 
   // 4. Competitor position
   if (ctx.competitorAverageRateMonthly !== undefined) {
-    const compGapFraction = (ctx.existingAiRateMonthly - ctx.competitorAverageRateMonthly) / Math.max(ctx.competitorAverageRateMonthly, 1);
+    const compGapFraction = (ctx.streetRateMonthly - ctx.competitorAverageRateMonthly) / Math.max(ctx.competitorAverageRateMonthly, 1);
     if (compGapFraction > 0.10) {
       volumeScore += cfg.competitorGapWeight * 0.8;
-      reasons.push(`AI Rate ${(compGapFraction * 100).toFixed(1)}% above competitor avg`);
+      reasons.push(`Street rate ${(compGapFraction * 100).toFixed(1)}% above competitor avg`);
     } else if (compGapFraction > 0.05) {
       volumeScore += cfg.competitorGapWeight * 0.3;
     } else if (compGapFraction < -0.05) {
       premiumScore += cfg.competitorGapWeight * 0.8;
-      reasons.push(`AI Rate ${(Math.abs(compGapFraction) * 100).toFixed(1)}% below competitor avg — room for premium`);
+      reasons.push(`Street rate ${(Math.abs(compGapFraction) * 100).toFixed(1)}% below competitor avg — room for premium`);
     }
   }
 
@@ -521,7 +522,10 @@ function evaluateCandidateRate(
   ctx: UnitStrategyContext,
   cfg: StrategyLayerConfig
 ): CandidateRateResult {
-  const candidateMonthly = ctx.existingAiRateMonthly * (1 + adjustment);
+  // Candidates are anchored to the street rate, not the stored AI rate.
+  // This means Stage 2 asks "can we do better than the street rate?" rather than
+  // "can we do better than yesterday's stored AI rate?"
+  const candidateMonthly = ctx.streetRateMonthly * (1 + adjustment);
   const baseSaleWeeklyProb = ctx.velocity.baseSaleWeeklyProb;
   const reasonCodes: string[] = [];
 
@@ -722,17 +726,21 @@ export function applyRevenueTargetStrategyLayer(
   if (rulesPassed && bestCandidate.priceChangeFraction !== 0) {
     selectedRateMonthly = bestCandidate.candidateRateMonthly;
   } else {
-    selectedRateMonthly = existing;
+    // No improvement over street rate found — fall back to the fresh Stage 1 Modulo rate.
+    // The stored AI rate is NOT used here; Stage 2 is the only scenario comparison step,
+    // and when it finds no improvement the Stage 1 result is authoritative.
+    selectedRateMonthly = ctx.stage1RateMonthly;
     noImprovementFound = true;
-    reasonCodes.push('Existing AI Rate preserved: target-aware adjustment did not improve expected revenue');
+    reasonCodes.push('Stage 1 Modulo rate used: Revenue Target strategy did not find an improvement over street rate');
   }
 
   // Step 7: Apply guardrails to the target-aware rate
   const guardrailResult = applyGuardrails(selectedRateMonthly, existing, ctx);
   const finalGuardrailedRateMonthly = guardrailResult.rate;
 
+  // Competitor gap: street rate vs market (not stored AI rate)
   const compGapPct = ctx.competitorAverageRateMonthly !== undefined
-    ? ((existing - ctx.competitorAverageRateMonthly) / Math.max(ctx.competitorAverageRateMonthly, 1)) * 100
+    ? ((ctx.streetRateMonthly - ctx.competitorAverageRateMonthly) / Math.max(ctx.competitorAverageRateMonthly, 1)) * 100
     : undefined;
 
   if (ctx.urgencyScore > 0.5) {
@@ -772,8 +780,9 @@ export function applyRevenueTargetStrategyLayer(
 function buildPassthroughResult(ctx: UnitStrategyContext, reason: string): StrategyLayerResult {
   return {
     existingAiRateMonthly: ctx.existingAiRateMonthly,
-    targetAwareRateMonthly: ctx.existingAiRateMonthly,
-    finalGuardrailedRateMonthly: ctx.existingAiRateMonthly,
+    // Pass-through: use Stage 1 fresh rate as the output, not the stored AI rate
+    targetAwareRateMonthly: ctx.stage1RateMonthly,
+    finalGuardrailedRateMonthly: ctx.stage1RateMonthly,
     segment: 'neutral',
     segmentConfidence: 0,
     segmentReason: reason,
