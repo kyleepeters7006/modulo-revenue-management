@@ -5368,6 +5368,11 @@ Focus areas (in order):
         { label: 'ai-insights', claudeMaxTokens: 1500, gptMaxTokens: 1200 }
       );
 
+      // Persist the generated insight to the database
+      const loc = location || 'all';
+      const sl = serviceLine || 'all';
+      await storage.upsertAiInsight(clientId, loc, sl, text);
+
       res.json({
         ok: true,
         text,
@@ -5377,6 +5382,35 @@ Focus areas (in order):
 
     } catch (error) {
       res.status(500).json({ error: `AI analysis failed: ${error.message}` });
+    }
+  });
+
+  // Fetch stored AI insight for a given filter combination
+  app.get("/api/ai/insights", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const location = (req.query.location as string) || 'all';
+      const serviceLine = (req.query.serviceLine as string) || 'all';
+      const row = await storage.getAiInsight(clientId, location, serviceLine);
+      if (!row) return res.json({ found: false });
+      res.json({ found: true, content: row.content, generatedAt: row.generatedAt, updatedAt: row.updatedAt });
+    } catch (error) {
+      res.status(500).json({ error: `Failed to fetch insight: ${error.message}` });
+    }
+  });
+
+  // Save manually-edited AI insight content
+  app.put("/api/ai/insights", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { location, serviceLine, content } = req.body || {};
+      if (!content) return res.status(400).json({ error: 'content is required' });
+      const loc = location || 'all';
+      const sl = serviceLine || 'all';
+      const row = await storage.upsertAiInsight(clientId, loc, sl, content);
+      res.json({ ok: true, updatedAt: row.updatedAt });
+    } catch (error) {
+      res.status(500).json({ error: `Failed to save insight: ${error.message}` });
     }
   });
 

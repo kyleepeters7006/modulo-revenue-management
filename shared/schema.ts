@@ -1132,6 +1132,20 @@ export const geocodeCache = pgTable("geocode_cache", {
 export type GeocodeCache = typeof geocodeCache.$inferSelect;
 
 // Geocoding job progress tracker — survives server restarts
+export const aiInsights = pgTable("ai_insights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull().default('demo'),
+  location: text("location").notNull().default('all'),
+  serviceLine: text("service_line").notNull().default('all'),
+  content: text("content").notNull(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ai_insights_client_location_sl_idx").on(table.clientId, table.location, table.serviceLine),
+]);
+
+export type AiInsight = typeof aiInsights.$inferSelect;
+
 export const geocodingJobs = pgTable("geocoding_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   jobType: text("job_type").notNull().default('competitor_surveys'), // 'competitor_surveys' | 'locations'

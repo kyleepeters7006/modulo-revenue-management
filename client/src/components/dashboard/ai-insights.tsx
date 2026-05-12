@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Brain, Lightbulb, Filter, MapPin, Edit3, Save, X, RefreshCw, Clock, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,30 +15,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 const AI_INSIGHTS_FILTERS_KEY = 'ai-insights-filters';
-
-const getInsightKey = (location: string, serviceLine: string) =>
-  `ai-insights::${location}::${serviceLine}`;
-
-interface StoredInsights {
-  content: string;
-  generatedAt: string;
-  filters: { location: string; serviceLine: string };
-}
-
-const saveInsights = (insights: StoredInsights) => {
-  try {
-    const key = getInsightKey(insights.filters.location, insights.filters.serviceLine);
-    localStorage.setItem(key, JSON.stringify(insights));
-  } catch {}
-};
-
-const loadInsights = (location: string, serviceLine: string): StoredInsights | null => {
-  try {
-    const key = getInsightKey(location, serviceLine);
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : null;
-  } catch { return null; }
-};
 
 const saveFilters = (filters: { location: string; serviceLine: string }) => {
   try { localStorage.setItem(AI_INSIGHTS_FILTERS_KEY, JSON.stringify(filters)); } catch {}
@@ -133,15 +109,16 @@ function renderFormattedInsights(text: string) {
 }
 
 export default function AiInsights() {
-  const [suggestions, setSuggestions] = useState("AI insights will appear here after analysis...");
-  const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editedContent, setEditedContent] = useState("AI insights will appear here after analysis...");
+  const [editedContent, setEditedContent] = useState("");
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>("all");
   const [isHydrated, setIsHydrated] = useState(false);
+  // Optimistic display while generating
+  const [pendingText, setPendingText] = useState<string | null>(null);
 
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: locationsData } = useQuery({ queryKey: ["/api/locations"] });
   const { data: authData } = useQuery({ queryKey: ["/api/auth/user"] });
@@ -149,23 +126,40 @@ export default function AiInsights() {
   const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a: string, b: string) => a.localeCompare(b));
   const serviceLines = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
-  const hasAnalysis = suggestions !== "AI insights will appear here after analysis..." && !suggestions.startsWith("Analyzing");
+  // Fetch persisted insight from DB
+  const insightQueryKey = ["/api/ai/insights", selectedLocation, selectedServiceLine];
+  const { data: insightData, isLoading: insightLoading } = useQuery({
+    queryKey: insightQueryKey,
+    queryFn: async () => {
+      const loc = selectedLocation !== 'all' ? selectedLocation : 'all';
+      const sl = selectedServiceLine !== 'all' ? selectedServiceLine : 'all';
+      const res = await fetch(`/api/ai/insights?location=${encodeURIComponent(loc)}&serviceLine=${encodeURIComponent(sl)}`);
+      return res.json();
+    },
+    enabled: isHydrated,
+  });
 
+  const storedContent: string | null = insightData?.found ? insightData.content : null;
+  const storedGeneratedAt: string | null = insightData?.found ? insightData.generatedAt : null;
+
+  // Displayed content: pending (optimistic) → DB → placeholder
+  const displayText = pendingText
+    ?? storedContent
+    ?? "AI insights will appear here after analysis...";
+
+  const hasAnalysis = !!storedContent && !pendingText?.startsWith("Analyzing");
+
+  // ── Hydration: restore filters from localStorage ──────────────────────────
   useEffect(() => {
     const savedFilters = loadFilters();
     if (savedFilters) {
       setSelectedLocation(savedFilters.location || "all");
       setSelectedServiceLine(savedFilters.serviceLine || "all");
-      const saved = loadInsights(savedFilters.location || "all", savedFilters.serviceLine || "all");
-      if (saved) {
-        setSuggestions(saved.content);
-        setLastGeneratedAt(saved.generatedAt);
-        setEditedContent(saved.content);
-      }
     }
     setIsHydrated(true);
   }, []);
 
+  // ── Demo default: Albany - 215 ────────────────────────────────────────────
   useEffect(() => {
     if (!isHydrated) return;
     if ((authData as any)?.clientId === 'demo' && selectedLocation === 'all') {
@@ -173,21 +167,14 @@ export default function AiInsights() {
     }
   }, [isHydrated, (authData as any)?.clientId]);
 
+  // ── Persist filter changes & clear optimistic state ───────────────────────
   useEffect(() => {
     if (!isHydrated) return;
     saveFilters({ location: selectedLocation, serviceLine: selectedServiceLine });
-    const saved = loadInsights(selectedLocation, selectedServiceLine);
-    if (saved) {
-      setSuggestions(saved.content);
-      setLastGeneratedAt(saved.generatedAt);
-      setEditedContent(saved.content);
-    } else {
-      setSuggestions("AI insights will appear here after analysis...");
-      setLastGeneratedAt(null);
-      setEditedContent("AI insights will appear here after analysis...");
-    }
+    setPendingText(null);
   }, [selectedLocation, selectedServiceLine, isHydrated]);
 
+  // ── Generate insights mutation ────────────────────────────────────────────
   const aiSuggestMutation = useMutation({
     mutationFn: async () => {
       return apiRequest('/api/ai/suggest', 'POST', {
@@ -199,45 +186,59 @@ export default function AiInsights() {
       try {
         const data = await response.json();
         if (data.ok) {
-          const generatedAt = new Date().toISOString();
-          setSuggestions(data.text);
-          setLastGeneratedAt(generatedAt);
-          setEditedContent(data.text);
-          saveInsights({ content: data.text, generatedAt, filters: { location: selectedLocation, serviceLine: selectedServiceLine } });
+          setPendingText(null);
+          // Invalidate DB cache so it re-fetches the newly saved insight
+          await queryClient.invalidateQueries({ queryKey: insightQueryKey });
           toast({ title: "Analysis Complete", description: "New insights generated successfully" });
         } else {
-          setSuggestions(`Analysis failed: ${data.error || 'Unknown error'}`);
+          setPendingText(`Analysis failed: ${data.error || 'Unknown error'}`);
           toast({ title: "Analysis Failed", description: data.error || 'Unknown error', variant: "destructive" });
         }
       } catch (err: any) {
         const msg = err?.message || 'Failed to process response';
-        setSuggestions(`Analysis failed: ${msg}`);
+        setPendingText(`Analysis failed: ${msg}`);
         toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
       }
     },
     onError: (error: any) => {
       const msg = error?.message || 'Unknown error';
-      setSuggestions(`Analysis failed: ${msg}`);
+      setPendingText(`Analysis failed: ${msg}`);
       toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
     },
   });
 
+  // ── Save edited content to DB ─────────────────────────────────────────────
+  const saveEditMutation = useMutation({
+    mutationFn: async (content: string) => {
+      const res = await fetch('/api/ai/insights', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: selectedLocation !== 'all' ? selectedLocation : 'all',
+          serviceLine: selectedServiceLine !== 'all' ? selectedServiceLine : 'all',
+          content,
+        }),
+      });
+      return res.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: insightQueryKey });
+      setIsEditing(false);
+      toast({ title: "Changes Saved", description: "Your edits have been saved" });
+    },
+    onError: () => {
+      toast({ title: "Save Failed", description: "Could not save edits", variant: "destructive" });
+    },
+  });
+
   const handleGenerateInsights = () => {
-    setSuggestions("Analyzing property data and market conditions...");
+    setPendingText("Analyzing property data and market conditions...");
     aiSuggestMutation.mutate();
   };
 
-  const handleEditClick = () => { setEditedContent(suggestions); setIsEditing(true); };
-
-  const handleSaveEdit = () => {
-    setSuggestions(editedContent);
-    setIsEditing(false);
-    const generatedAt = lastGeneratedAt || new Date().toISOString();
-    saveInsights({ content: editedContent, generatedAt, filters: { location: selectedLocation, serviceLine: selectedServiceLine } });
-    toast({ title: "Changes Saved", description: "Your edits have been saved locally" });
-  };
-
-  const handleCancelEdit = () => { setEditedContent(suggestions); setIsEditing(false); };
+  const handleEditClick = () => { setEditedContent(displayText); setIsEditing(true); };
+  const handleSaveEdit = () => saveEditMutation.mutate(editedContent);
+  const handleCancelEdit = () => { setEditedContent(displayText); setIsEditing(false); };
 
   const getFilterDescription = () => {
     const parts = [];
@@ -310,11 +311,11 @@ export default function AiInsights() {
             </div>
 
             {/* Timestamp + Refresh row — shown when analysis exists */}
-            {hasAnalysis && lastGeneratedAt && (
+            {hasAnalysis && storedGeneratedAt && (
               <div className="flex items-center justify-between gap-2 px-1">
                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
                   <Clock className="w-3.5 h-3.5" />
-                  <span>Last run: <span className="font-medium text-slate-600">{formatTimestamp(lastGeneratedAt)}</span></span>
+                  <span>Last run: <span className="font-medium text-slate-600">{formatTimestamp(storedGeneratedAt)}</span></span>
                   <span className="text-slate-300 mx-1">|</span>
                   <span className="text-slate-400">{getFilterDescription()}</span>
                 </div>
@@ -332,16 +333,16 @@ export default function AiInsights() {
               </div>
             )}
 
-            {/* Primary Run Analysis button — shown when no analysis yet for this filter */}
-            {!hasAnalysis && (
+            {/* Primary Run Analysis button — shown when no stored analysis for this filter */}
+            {!hasAnalysis && !pendingText && (
               <Button
                 onClick={handleGenerateInsights}
                 className="w-full bg-blue-500 hover:bg-blue-600 text-white gap-2"
-                disabled={aiSuggestMutation.isPending}
+                disabled={aiSuggestMutation.isPending || insightLoading}
                 data-testid="button-generate-insights"
               >
                 <PlayCircle className="w-4 h-4" />
-                {aiSuggestMutation.isPending ? "Analyzing…" : "Run Analysis"}
+                {insightLoading ? "Loading…" : aiSuggestMutation.isPending ? "Analyzing…" : "Run Analysis"}
               </Button>
             )}
 
@@ -359,14 +360,14 @@ export default function AiInsights() {
                     <Button variant="outline" size="sm" onClick={handleCancelEdit} data-testid="button-cancel-edit">
                       <X className="w-4 h-4 mr-1" />Cancel
                     </Button>
-                    <Button size="sm" onClick={handleSaveEdit} data-testid="button-save-edit">
-                      <Save className="w-4 h-4 mr-1" />Save
+                    <Button size="sm" onClick={handleSaveEdit} disabled={saveEditMutation.isPending} data-testid="button-save-edit">
+                      <Save className="w-4 h-4 mr-1" />{saveEditMutation.isPending ? 'Saving…' : 'Save'}
                     </Button>
                   </div>
                 </div>
               ) : (
                 <div className="relative group" data-testid="text-smart-suggestions">
-                  {renderFormattedInsights(suggestions)}
+                  {renderFormattedInsights(displayText)}
                   {hasAnalysis && (
                     <Button
                       variant="ghost"

@@ -273,6 +273,10 @@ export interface IStorage {
   bulkUpsertRevenueGrowthTargets(data: InsertRevenueGrowthTarget[]): Promise<number>;
   getRevenueGrowthTargets(locationId?: string): Promise<RevenueGrowthTarget[]>;
 
+  // AI Insights persistence
+  getAiInsight(clientId: string, location: string, serviceLine: string): Promise<import("@shared/schema").AiInsight | null>;
+  upsertAiInsight(clientId: string, location: string, serviceLine: string, content: string): Promise<import("@shared/schema").AiInsight>;
+
   // Room Type Base Prices
   getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]>;
   upsertRoomTypeBasePrice(roomType: string, serviceLine: string, basePrice: number): Promise<import("@shared/schema").RoomTypeBasePrice>;
@@ -2404,6 +2408,32 @@ export class DatabaseStorage implements IStorage {
       return db.select().from(revenueGrowthTargets).where(eq(revenueGrowthTargets.locationId, locationId));
     }
     return db.select().from(revenueGrowthTargets);
+  }
+
+  async getAiInsight(clientId: string, location: string, serviceLine: string): Promise<import("@shared/schema").AiInsight | null> {
+    const { aiInsights } = await import("@shared/schema");
+    const [row] = await db.select().from(aiInsights).where(
+      and(
+        eq(aiInsights.clientId, clientId),
+        eq(aiInsights.location, location),
+        eq(aiInsights.serviceLine, serviceLine),
+      )
+    ).limit(1);
+    return row ?? null;
+  }
+
+  async upsertAiInsight(clientId: string, location: string, serviceLine: string, content: string): Promise<import("@shared/schema").AiInsight> {
+    const { aiInsights } = await import("@shared/schema");
+    const now = new Date();
+    const [row] = await db
+      .insert(aiInsights)
+      .values({ clientId, location, serviceLine, content, generatedAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [aiInsights.clientId, aiInsights.location, aiInsights.serviceLine],
+        set: { content, updatedAt: now },
+      })
+      .returning();
+    return row;
   }
 
   async getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]> {
