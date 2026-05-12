@@ -9607,6 +9607,9 @@ Ensure all weights are positive integers and sum to exactly 100.`;
         // Falls back to the current orchestrator output on first calculation.
         let finalAiRate = orchestratorResult.finalPrice;
         let strategyLayerOutput: ReturnType<typeof applyRevenueTargetStrategyLayer> | null = null;
+        let batchGuardrailWasApplied = false;
+        let batchGuardrailTrigger: string | null = null;
+        let batchGuardrailLimitPct: number | null = null;
 
         // Resolve previously stored AI rate for guardrail drift protection
         const storedAiRate = (unit.aiSuggestedRate && unit.aiSuggestedRate > 0)
@@ -9681,6 +9684,16 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           // Convert back to original storage unit (daily for HC/HC-MC, monthly for rest)
           finalAiRate = fromMonthlyRate(strategyLayerOutput.finalGuardrailedRateMonthly, sl);
 
+          // Capture guardrail info from strategy layer
+          if (strategyLayerOutput.guardrailApplied) {
+            batchGuardrailWasApplied = true;
+            const targetAwareRate = fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, sl);
+            batchGuardrailTrigger = finalAiRate < targetAwareRate ? 'max_increase' : 'max_decrease';
+            batchGuardrailLimitPct = batchGuardrailTrigger === 'max_increase'
+              ? (guardrailsData?.maxRateIncrease ?? 0.15) * 100
+              : (guardrailsData?.minRateDecrease ?? 0.05) * 100;
+          }
+
           // Collect for portfolio projection
           unitProjections.push({
             isVacant: true,
@@ -9702,8 +9715,14 @@ Ensure all weights are positive integers and sum to exactly 100.`;
             const rateCeiling = storedAiRate * (1 + maxIncreaseFrac);
             if (finalAiRate > rateCeiling) {
               finalAiRate = Math.round(rateCeiling);
+              batchGuardrailWasApplied = true;
+              batchGuardrailTrigger = 'max_increase';
+              batchGuardrailLimitPct = (guardrailsData.maxRateIncrease ?? 0.15) * 100;
             } else if (finalAiRate < rateFloor) {
               finalAiRate = Math.round(rateFloor);
+              batchGuardrailWasApplied = true;
+              batchGuardrailTrigger = 'max_decrease';
+              batchGuardrailLimitPct = (guardrailsData.minRateDecrease ?? 0.05) * 100;
             }
           }
           unitProjections.push({
@@ -9733,8 +9752,17 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           aiReasoning: aiReasoning,
           totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
           preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
-          finalRate: orchestratorResult.finalPrice,
+          finalRate: Math.round(finalAiRate),
           moduloRate: orchestratorResult.moduloRate,
+          // v2 guardrail fields — presence of guardrailWasApplied signals v2 format
+          // so the dialog's click-through returns stored data without recomputing.
+          guardrailWasApplied: batchGuardrailWasApplied,
+          guardrailTrigger: batchGuardrailTrigger,
+          guardrailLimitPct: batchGuardrailLimitPct,
+          preGuardrailAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
+          effectiveAdjustment: (unit.streetRate || orchestratorResult.baseRate) > 0
+            ? (Math.round(finalAiRate) / (unit.streetRate || orchestratorResult.baseRate)) - 1
+            : orchestratorResult.moduloDetails.totalAdjustment,
           signals: orchestratorResult.moduloDetails.signals,
           blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
           explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
@@ -12834,17 +12862,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const result = calculateModuloPrice(streetRate, algorithmWeights, aiInputs);
 
       // ── Guardrail application ───────────────────────────────────────────────
-      // Always use result.finalPrice from the fresh calculation — never mix the
-      // stale stored rate with the freshly-computed totalAdjustment, which would
-      // cause the dialog to display a false "guardrail applied" warning.
       const preGuardrailRate  = result.finalPrice;
-      const preGuardrailAdjustment = result.totalAdjustment;  // algorithm output before guardrails
+      const preGuardrailAdjustment = result.totalAdjustment;
 
       const guardrailsData = await storage.getCurrentGuardrails();
       let clampedRate = preGuardrailRate;
-      let guardrailWasApplied = false;
+      let freshGuardrailWasApplied = false;
       let guardrailMinAllowed = 0;
       let guardrailMaxAllowed = Infinity;
+      let guardrailLimitPct: number | null = null;
       if (guardrailsData) {
         const minDec = (guardrailsData.minRateDecrease ?? 5) / 100;
         const maxInc = (guardrailsData.maxRateIncrease ?? 15) / 100;
@@ -12853,17 +12879,37 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         const bounded = Math.max(guardrailMinAllowed, Math.min(guardrailMaxAllowed, preGuardrailRate));
         if (Math.abs(bounded - preGuardrailRate) > 0.5) {
           clampedRate = bounded;
-          guardrailWasApplied = true;
+          freshGuardrailWasApplied = true;
+          guardrailLimitPct = preGuardrailRate > guardrailMaxAllowed
+            ? (guardrailsData.maxRateIncrease ?? 15)
+            : (guardrailsData.minRateDecrease ?? 5);
         }
       }
 
-      const aiSuggestedRate = Math.round(clampedRate);
-      const effectiveAdjustment = streetRate > 0 ? (aiSuggestedRate / streetRate) - 1 : preGuardrailAdjustment;
+      // ── Use stored DB rate as the authoritative displayed rate ──────────────
+      // The fresh recompute uses mock demand inputs that may differ from the
+      // original batch inputs, so its rate can legitimately differ from the
+      // stored value.  Always show the stored rate so the dialog matches the
+      // rate card.  The fresh computation still drives the algorithm breakdown.
+      const storedRate = (unit.aiSuggestedRate && unit.aiSuggestedRate > 0) ? unit.aiSuggestedRate : null;
+      const displayRate = storedRate ?? Math.round(clampedRate);
+
+      // Derive guardrail fields relative to stored rate vs fresh pre-guardrail rate
+      const displayGuardrailWasApplied = Math.abs(displayRate - preGuardrailRate) > 1;
+      let displayGuardrailTrigger: string | null = null;
+      let displayGuardrailLimitPct: number | null = null;
+      if (displayGuardrailWasApplied && guardrailsData) {
+        displayGuardrailTrigger = displayRate < preGuardrailRate ? 'max_increase' : 'max_decrease';
+        displayGuardrailLimitPct = displayGuardrailTrigger === 'max_increase'
+          ? (guardrailsData.maxRateIncrease ?? 15)
+          : (guardrailsData.minRateDecrease ?? 5);
+      }
+      const displayEffectiveAdj = streetRate > 0 ? (displayRate / streetRate) - 1 : preGuardrailAdjustment;
 
       // Build adjustments with both formulas and sentence explanations
       const adjustments = result.adjustments?.map((adj: any) => ({
         ...adj,
-        formula: adj.calculation, // This comes from getCalculationString in the algorithm
+        formula: adj.calculation,
         description: getSentenceExplanation(adj.factor.toLowerCase(), aiInputs, adj)
       })) || [];
       
@@ -12878,16 +12924,17 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           stockMarket: algorithmWeights.market,
           inquiryTourVolume: algorithmWeights.demand
         },
-        // v2 guardrail fields — explicit flags so the dialog never has to infer
-        // guardrail application from a rate-ratio comparison across stale data.
+        // v2 guardrail fields
         preGuardrailAdjustment,
-        effectiveAdjustment,
-        guardrailWasApplied,
+        effectiveAdjustment: displayEffectiveAdj,
+        guardrailWasApplied: displayGuardrailWasApplied,
+        guardrailTrigger: displayGuardrailTrigger,
+        guardrailLimitPct: displayGuardrailLimitPct,
         guardrailMinAllowed: Math.round(guardrailMinAllowed),
         guardrailMaxAllowed: guardrailMaxAllowed === Infinity ? null : Math.round(guardrailMaxAllowed),
-        totalAdjustment: preGuardrailAdjustment,  // kept for backwards compat
+        totalAdjustment: preGuardrailAdjustment,
         preOverrideTotalAdj: result.preOverrideTotalAdj,
-        finalRate: aiSuggestedRate,
+        finalRate: displayRate,
         signals: result.signals,
         blendedSignal: result.blendedSignal,
         explanation: generateOverallExplanation(result, aiInputs),
@@ -12902,17 +12949,17 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         }
       };
 
-      // Persist the computed details so future requests are instant (fire-and-forget)
+      // Persist — keep stored rate unchanged so rate card stays consistent
       pool.query(
-        `UPDATE rent_roll_data SET ai_calculation_details = $1, ai_suggested_rate = $2 WHERE id = $3`,
-        [JSON.stringify(calculationPayload), aiSuggestedRate, unit.id]
+        `UPDATE rent_roll_data SET ai_calculation_details = $1 WHERE id = $2`,
+        [JSON.stringify(calculationPayload), unit.id]
       ).catch((e: any) => console.error('[ai-calculation] persist error:', e.message));
 
       res.json({
         unitId: unit.id,
         roomType: unit.roomType,
         streetRate: streetRate,
-        aiSuggestedRate: aiSuggestedRate,
+        aiSuggestedRate: displayRate,
         calculation: calculationPayload
       });
     } catch (error) {

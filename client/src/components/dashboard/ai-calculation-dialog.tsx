@@ -690,27 +690,60 @@ export default function AICalculationDialog({
               const hasV2Guardrail = calcDetails.guardrailWasApplied === true;
               const hasLegacyGuardrail = Array.isArray(calcDetails.guardrailsApplied) && calcDetails.guardrailsApplied.length > 0;
               if (!hasV2Guardrail && !hasLegacyGuardrail) return null;
+
+              const trigger: string | null = calcDetails.guardrailTrigger ?? null;
+              const limitPct: number | null = calcDetails.guardrailLimitPct ?? null;
+              const guardrailName = trigger === 'max_increase'
+                ? `Maximum Rate Increase Limit${limitPct != null ? ` (${limitPct}%)` : ''}`
+                : trigger === 'max_decrease'
+                ? `Maximum Rate Decrease Limit${limitPct != null ? ` (${limitPct}%)` : ''}`
+                : 'Guardrail Limit';
+              const guardrailExplanation = trigger === 'max_increase'
+                ? `The algorithm wanted to raise the rate by ${formatPercent(calcDetails.preGuardrailAdjustment ?? 0)}, but the configured maximum increase is ${limitPct != null ? `${limitPct}%` : 'capped'}. The rate was capped at the ceiling.`
+                : trigger === 'max_decrease'
+                ? `The algorithm wanted to lower the rate by ${formatPercent(Math.abs(calcDetails.preGuardrailAdjustment ?? 0))}, but the configured maximum decrease is ${limitPct != null ? `${limitPct}%` : 'limited'}. The rate was floored at the minimum.`
+                : `Algorithm output (${formatPercent(calcDetails.preGuardrailAdjustment ?? 0)}) exceeded the guardrail bounds and was clamped to ${formatPercent(calcDetails.effectiveAdjustment ?? 0)}.`;
+
               return (
                 <Card className="border-amber-200 dark:border-amber-800">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <Shield className="h-4 w-4 text-amber-500" />
-                      Step 5 — Guardrails Applied
+                      Step 5 — Guardrail Applied
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2" data-testid="ai-guardrails-list">
+                    <div className="space-y-3" data-testid="ai-guardrails-list">
                       {hasV2Guardrail && (
-                        <div className="p-2 bg-amber-50 dark:bg-amber-950/20 rounded text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
-                          <Shield className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                          <span>
-                            Rate clamped by guardrail: algorithm output ({formatPercent(calcDetails.preGuardrailAdjustment ?? 0)}) was
-                            adjusted to {formatPercent(calcDetails.effectiveAdjustment ?? 0)}.
-                            {(calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed)
-                              ? ` Allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'}.`
-                              : ''}
-                          </span>
-                        </div>
+                        <>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase">Rule Fired</span>
+                            <span className="text-sm font-bold text-amber-900 dark:text-amber-100">{guardrailName}</span>
+                          </div>
+                          <div className="p-3 bg-amber-50 dark:bg-amber-950/20 rounded text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
+                            <Shield className="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" />
+                            <span>{guardrailExplanation}</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3 text-xs">
+                            <div className="bg-gray-50 dark:bg-gray-900/50 rounded p-2 text-center">
+                              <p className="text-muted-foreground mb-1">Algorithm Suggested</p>
+                              <p className="font-bold">{formatPercent(calcDetails.preGuardrailAdjustment ?? 0)}</p>
+                            </div>
+                            <div className="bg-amber-50 dark:bg-amber-950/30 rounded p-2 text-center">
+                              <p className="text-muted-foreground mb-1">After Guardrail</p>
+                              <p className="font-bold text-amber-700 dark:text-amber-300">{formatPercent(calcDetails.effectiveAdjustment ?? 0)}</p>
+                            </div>
+                            <div className="bg-gray-50 dark:bg-gray-900/50 rounded p-2 text-center">
+                              <p className="text-muted-foreground mb-1">Final Rate</p>
+                              <p className="font-bold">{formatCurrency(aiSuggestedRate)}</p>
+                            </div>
+                          </div>
+                          {(calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed) && (
+                            <p className="text-xs text-muted-foreground">
+                              Allowed range: {formatCurrency(calcDetails.guardrailMinAllowed)} – {calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'}
+                            </p>
+                          )}
+                        </>
                       )}
                       {hasLegacyGuardrail && calcDetails.guardrailsApplied.map((guardrail: string, index: number) => (
                         <div key={index} className="p-2 bg-amber-50 dark:bg-amber-950/20 rounded text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
