@@ -426,7 +426,7 @@ export default function AICalculationDialog({
                                 {pass1Total > 0 ? '+' : ''}{formatPercent(pass1Total)}
                               </span>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">Weighted signals only — strategic overrides applied in Pass 2</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">This is the Modulo Rate adjustment — for vacant units, the Revenue Target Strategy Layer (Step 4) is applied next.</p>
                           </div>
                         );
                       })()}
@@ -775,14 +775,11 @@ export default function AICalculationDialog({
               );
             })()}
 
-            {/* ── STEP 6: Calculation Formula (final math) ──────────────────── */}
-            {/* Calculation Formula */}
+            {/* ── STEP 6: Calculation Formula (final math, layer-by-layer) ─── */}
             <Card className="bg-gray-50 dark:bg-gray-800">
               <CardContent className="pt-4">
-                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase">Calculation Formula:</h3>
+                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase">Calculation Walk-Through</h3>
                 {(() => {
-                  // v2: use explicit guardrail fields; fall back to ratio inference only for
-                  // legacy cached data that pre-dates the v2 endpoint format.
                   const hasV2 = calcDetails.guardrailWasApplied !== undefined;
                   const effectiveAdj = hasV2
                     ? calcDetails.effectiveAdjustment
@@ -793,26 +790,146 @@ export default function AICalculationDialog({
                   const hasGuardrail = hasV2
                     ? calcDetails.guardrailWasApplied
                     : Math.abs(effectiveAdj - preGuardrailAdj) > 0.001;
+
+                  // Pull layer rates from stored data
+                  const streetRate = baseRate;
+                  const orchestratorBase = calcDetails.baseRate ?? streetRate;
+                  const attributedRate = calcDetails.attributedRate ?? orchestratorBase;
+                  const moduloPass1Adj = calcDetails.totalAdjustment ?? 0;
+                  const moduloRate = calcDetails.moduloRate
+                    ?? Math.round(attributedRate * (1 + moduloPass1Adj));
+                  const strategy = calcDetails.strategyLayer;
+                  const finalRate = aiSuggestedRate;
+
+                  // Compute per-layer deltas (vs street rate, in dollars)
+                  const attributeDelta = attributedRate - streetRate;
+                  const moduloDelta = moduloRate - attributedRate;
+                  const strategyDelta = finalRate - moduloRate;
+
+                  const signPct = (rateA: number, rateB: number) => {
+                    const pct = rateB > 0 ? (rateA / rateB - 1) : 0;
+                    return `${pct >= 0 ? '+' : ''}${(pct * 100).toFixed(2)}%`;
+                  };
+                  const signDollars = (delta: number) =>
+                    `${delta >= 0 ? '+' : '−'}${formatCurrency(Math.abs(delta))}`;
+
+                  const showAttribute = Math.abs(attributeDelta) >= 1;
+                  const showStrategy = !!strategy && Math.abs(strategyDelta) >= 1;
+                  const strategyPreserved = !!strategy && !showStrategy;
+
                   return (
-                    <div className="space-y-2 text-sm font-mono">
-                      <div className="text-gray-700 dark:text-gray-300">
-                        Base Rate × (1 + Total Adjustments) = Final Rate
+                    <div className="space-y-3">
+                      {/* Layer-by-layer build-up */}
+                      <div className="space-y-2 text-sm">
+                        {/* Street rate baseline */}
+                        <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-md px-3 py-2">
+                          <div>
+                            <p className="font-medium">Street Rate</p>
+                            <p className="text-xs text-muted-foreground">Operator's published rate (starting point)</p>
+                          </div>
+                          <p className="font-mono font-bold">{formatCurrency(streetRate)}</p>
+                        </div>
+
+                        {/* Attribute pricing layer (only if it moved the rate) */}
+                        {showAttribute && (
+                          <>
+                            <div className="text-xs text-muted-foreground pl-3">↓ attribute pricing</div>
+                            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-md px-3 py-2">
+                              <div>
+                                <p className="font-medium">Attributed Base Rate</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Adjusted for unit attributes (view, renovation, size, etc.)
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-mono font-bold">{formatCurrency(attributedRate)}</p>
+                                <p className={`text-xs font-mono ${getAdjustmentColor(attributeDelta)}`}>
+                                  {signDollars(attributeDelta)} ({signPct(attributedRate, streetRate)})
+                                </p>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Modulo Pass 1 layer */}
+                        <div className="text-xs text-muted-foreground pl-3">↓ Modulo Pass 1 — 6 weighted signals (see Step 3)</div>
+                        <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-md px-3 py-2">
+                          <div>
+                            <p className="font-medium">Modulo Rate</p>
+                            <p className="text-xs text-muted-foreground">
+                              Pass 1 weighted-signal adjustment: {moduloPass1Adj >= 0 ? '+' : ''}{formatPercent(moduloPass1Adj)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-mono font-bold">{formatCurrency(moduloRate)}</p>
+                            <p className={`text-xs font-mono ${getAdjustmentColor(moduloDelta)}`}>
+                              {signDollars(moduloDelta)} (vs base)
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Strategy Layer (vacant units) */}
+                        {strategy && (
+                          <>
+                            <div className="text-xs text-muted-foreground pl-3">↓ Revenue Target Strategy Layer (vacant unit, see Step 4)</div>
+                            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-md px-3 py-2">
+                              <div>
+                                <p className="font-medium">After Strategy Layer</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {strategyPreserved
+                                    ? 'Existing AI Rate preserved — target-aware rate did not improve expected revenue'
+                                    : strategy.guardrailApplied
+                                    ? 'Target-aware rate selected, then clamped by drift guardrail'
+                                    : 'Target-aware rate selected (best expected revenue)'}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-mono font-bold">{formatCurrency(finalRate)}</p>
+                                <p className={`text-xs font-mono ${getAdjustmentColor(strategyDelta)}`}>
+                                  {strategyPreserved ? 'no change' : `${signDollars(strategyDelta)} (vs Modulo)`}
+                                </p>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Final rate row (only show separately if no strategy layer above) */}
+                        {!strategy && (
+                          <>
+                            <div className="text-xs text-muted-foreground pl-3">↓ final</div>
+                            <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2">
+                              <div>
+                                <p className="font-medium text-blue-900 dark:text-blue-100">Final AI Rate</p>
+                              </div>
+                              <p className="font-mono font-bold text-blue-700 dark:text-blue-300">{formatCurrency(finalRate)}</p>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <div className="text-blue-700 dark:text-blue-300 font-medium">
-                        {formatCurrency(baseRate)} × (1 + {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}) = {formatCurrency(aiSuggestedRate)}
+
+                      {/* Effective end-to-end formula */}
+                      <Separator />
+                      <div className="space-y-1 text-sm font-mono">
+                        <div className="text-xs text-muted-foreground uppercase">End-to-End</div>
+                        <div className="text-blue-700 dark:text-blue-300 font-medium">
+                          {formatCurrency(streetRate)} × (1 {effectiveAdj >= 0 ? '+' : '−'} {Math.abs(effectiveAdj * 100).toFixed(2)}%) = {formatCurrency(finalRate)}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment is the
+                          combined result of {showAttribute ? 'attribute pricing, ' : ''}the Modulo Pass 1 weighted
+                          signals{strategy ? ', and the Revenue Target Strategy Layer' : ''} shown above.
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500 mt-2">
-                        = {formatCurrency(baseRate)} × {(1 + effectiveAdj).toFixed(4)} = {formatCurrency(aiSuggestedRate)}
-                      </div>
+
                       {hasGuardrail && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
+                        <div className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1">
                           <span>⚠️</span>
                           <span>
-                            Guardrail applied: Algorithm suggested {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
-                            adjusted to {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
+                            Guardrail applied: pre-guardrail adjustment was {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
+                            clamped to {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
                             {calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed
                               ? ` (allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'})`
-                              : ''}
+                              : ''}.
                           </span>
                         </div>
                       )}
