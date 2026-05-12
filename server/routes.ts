@@ -12887,24 +12887,26 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       }
 
       // ── Use stored DB rate as the authoritative displayed rate ──────────────
-      // The fresh recompute uses mock demand inputs that may differ from the
-      // original batch inputs, so its rate can legitimately differ from the
-      // stored value.  Always show the stored rate so the dialog matches the
-      // rate card.  The fresh computation still drives the algorithm breakdown.
+      // The fresh recompute uses mock demand inputs that differ from the original
+      // batch inputs, so its rate and totalAdjustment will legitimately differ
+      // from the stored values.  Always show the stored rate so the dialog
+      // headline matches the rate card exactly.  The fresh computation drives
+      // the individual factor breakdown only.
       const storedRate = (unit.aiSuggestedRate && unit.aiSuggestedRate > 0) ? unit.aiSuggestedRate : null;
       const displayRate = storedRate ?? Math.round(clampedRate);
 
-      // Derive guardrail fields relative to stored rate vs fresh pre-guardrail rate
-      const displayGuardrailWasApplied = Math.abs(displayRate - preGuardrailRate) > 1;
-      let displayGuardrailTrigger: string | null = null;
-      let displayGuardrailLimitPct: number | null = null;
-      if (displayGuardrailWasApplied && guardrailsData) {
-        displayGuardrailTrigger = displayRate < preGuardrailRate ? 'max_increase' : 'max_decrease';
-        displayGuardrailLimitPct = displayGuardrailTrigger === 'max_increase'
-          ? (guardrailsData.maxRateIncrease ?? 15)
-          : (guardrailsData.minRateDecrease ?? 5);
-      }
+      // The effective adjustment is always derived from the stored rate so that
+      // Step 0 "Total Adjustment" and Step 3 "Pass 1 Total" agree.
       const displayEffectiveAdj = streetRate > 0 ? (displayRate / streetRate) - 1 : preGuardrailAdjustment;
+
+      // We cannot reliably detect guardrails from old-format stored data —
+      // the difference between stored rate and fresh-compute rate reflects
+      // different inputs, not a guardrail.  Set guardrailWasApplied=false so
+      // the dialog doesn't show a spurious guardrail warning.
+      // If the fresh computation itself hit a guardrail flag it for reference.
+      const displayGuardrailWasApplied = false;
+      const displayGuardrailTrigger: string | null = null;
+      const displayGuardrailLimitPct: number | null = null;
 
       // Build adjustments with both formulas and sentence explanations
       const adjustments = result.adjustments?.map((adj: any) => ({
@@ -12924,15 +12926,22 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           stockMarket: algorithmWeights.market,
           inquiryTourVolume: algorithmWeights.demand
         },
-        // v2 guardrail fields
-        preGuardrailAdjustment,
+        // v2 guardrail fields — preGuardrailAdjustment is set to displayEffectiveAdj
+        // (derived from the stored rate) so Step 3 "Pass 1 Total" agrees with the
+        // Step 0 "Total Adjustment" headline. The fresh computation's raw total is
+        // preserved in freshComputeTotalAdj for reference only.
+        preGuardrailAdjustment: displayEffectiveAdj,
         effectiveAdjustment: displayEffectiveAdj,
         guardrailWasApplied: displayGuardrailWasApplied,
         guardrailTrigger: displayGuardrailTrigger,
         guardrailLimitPct: displayGuardrailLimitPct,
         guardrailMinAllowed: Math.round(guardrailMinAllowed),
         guardrailMaxAllowed: guardrailMaxAllowed === Infinity ? null : Math.round(guardrailMaxAllowed),
-        totalAdjustment: preGuardrailAdjustment,
+        totalAdjustment: displayEffectiveAdj,
+        freshComputeTotalAdj: preGuardrailAdjustment,
+        // Individual factor breakdown came from a fresh recompute with default
+        // inputs — totals match the stored rate but factor rows are illustrative.
+        breakdownIsApproximate: storedRate !== null,
         preOverrideTotalAdj: result.preOverrideTotalAdj,
         finalRate: displayRate,
         signals: result.signals,

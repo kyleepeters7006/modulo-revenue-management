@@ -286,18 +286,32 @@ export default function AICalculationDialog({
                 <CardTitle className="text-sm">Step 3 — Weighted Signal Calculation (Pass 1)</CardTitle>
               </CardHeader>
               <CardContent>
+                {calcDetails.breakdownIsApproximate && (
+                  <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-950/30 rounded text-xs text-blue-700 dark:text-blue-300 flex items-start gap-1.5">
+                    <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                    <span>Factor breakdown is <strong>illustrative</strong> — individual rows reflect algorithm defaults. The Pass 1 Total matches the actual stored rate.</span>
+                  </div>
+                )}
                 <div className="space-y-4">
                   {calcDetails.adjustments && calcDetails.adjustments.length > 0 ? (
                     <>
-                      {calcDetails.adjustments.map((adj: any, index: number, allAdjustments: any[]) => (
+                      {calcDetails.adjustments.map((adj: any, index: number, allAdjustments: any[]) => {
+                        const isStrategicOverride = adj.weight === 0;
+                        return (
                         <div key={index}>
                           <div className="flex items-start justify-between mb-2">
                             <div className="space-y-1 flex-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h4 className="text-sm font-medium">{adj.factor}</h4>
-                                <Badge variant="outline" className="text-xs">
-                                  Weight: {adj.weight}%
-                                </Badge>
+                                {isStrategicOverride ? (
+                                  <Badge variant="outline" className="text-xs border-orange-300 text-orange-700 dark:text-orange-300">
+                                    Strategic Override
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs">
+                                    Weight: {adj.weight}%
+                                  </Badge>
+                                )}
                               </div>
                             </div>
                             <div className="text-right">
@@ -329,18 +343,25 @@ export default function AICalculationDialog({
                                       {adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)}
                                     </span>
                                   </div>
-                                  <span className="text-muted-foreground">×</span>
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-muted-foreground">Weight:</span>
-                                    <span className="font-medium">{adj.weight}%</span>
-                                  </div>
-                                  <span className="text-muted-foreground">=</span>
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-muted-foreground">Weighted:</span>
-                                    <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
-                                      {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
-                                    </span>
-                                  </div>
+                                  {!isStrategicOverride && (
+                                    <>
+                                      <span className="text-muted-foreground">×</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-muted-foreground">Weight:</span>
+                                        <span className="font-medium">{adj.weight}%</span>
+                                      </div>
+                                      <span className="text-muted-foreground">=</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-muted-foreground">Weighted:</span>
+                                        <span className={`font-medium ${getAdjustmentColor(adj.weightedAdjustment)}`}>
+                                          {adj.weightedAdjustment > 0 ? '+' : ''}{formatPercent(adj.weightedAdjustment)}
+                                        </span>
+                                      </div>
+                                    </>
+                                  )}
+                                  {isStrategicOverride && (
+                                    <span className="text-orange-600 dark:text-orange-400 font-medium">applied directly (not weight-scaled)</span>
+                                  )}
                                 </div>
                                 <span className="text-xs text-muted-foreground italic hidden sm:inline">Click for details</span>
                               </div>
@@ -381,7 +402,8 @@ export default function AICalculationDialog({
 
                           {index < allAdjustments.length - 1 && <Separator className="mt-3" />}
                         </div>
-                      ))}
+                      );
+                      })}
 
                       {/* Pass 1 subtotal */}
                       <Separator />
