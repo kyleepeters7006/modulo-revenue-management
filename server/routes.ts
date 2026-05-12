@@ -1650,6 +1650,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to import competitive survey', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
+
+  // POST /api/admin/reimport-competitive-survey — re-process the most recent competitive survey
+  // file already on disk using the corrected import logic, then re-run competitor rate matching.
+  // Protected by x-seed-secret header.
+  app.post('/api/admin/reimport-competitive-survey', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    try {
+      const { clientId: bodyClientId, surveyMonth: bodyMonth } = req.body || {};
+      const clientId = bodyClientId || 'demo';
+
+      if (bodyMonth && !/^\d{4}-\d{2}$/.test(bodyMonth)) {
+        return res.status(400).json({ error: 'Invalid surveyMonth format; expected YYYY-MM' });
+      }
+
+      // Find the most recent competitive survey DATA Excel file on disk.
+      // Exclude known non-data files (mapping guides, templates) by requiring the
+      // filename to contain "competitive survey data" (case-insensitive) and
+      // explicitly excluding "mapping" and "template" filenames.
+      const assetsDir = path.resolve('attached_assets');
+      const allFiles = fs.readdirSync(assetsDir);
+      const surveyFiles = allFiles
+        .filter(f => {
+          const lower = f.toLowerCase();
+          return lower.includes('competitive survey data') &&
+            lower.endsWith('.xlsx') &&
+            !lower.includes('mapping') &&
+            !lower.includes('template');
+        })
+        .map(f => ({ name: f, mtime: fs.statSync(path.join(assetsDir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+
+      if (surveyFiles.length === 0) {
+        return res.status(404).json({
+          error: 'No competitive survey data Excel file found in attached_assets/. ' +
+            'File must match "competitive survey data*.xlsx" and not contain "mapping" or "template".',
+        });
+      }
+
+      const surveyFile = surveyFiles[0];
+      const surveyFilePath = path.join(assetsDir, surveyFile.name);
+      console.log(`[reimport-competitive-survey] Using file: ${surveyFile.name} for clientId=${clientId}`);
+
+      // Determine survey month: body param → latest month already in DB for this client → error.
+      // We require an explicit month or a DB match so we never accidentally write to the wrong month.
+      let surveyMonth = bodyMonth;
+      if (!surveyMonth) {
+        const latestRows = await db
+          .select({ surveyMonth: competitiveSurveyData.surveyMonth })
+          .from(competitiveSurveyData)
+          .where(eq(competitiveSurveyData.clientId, clientId))
+          .orderBy(desc(competitiveSurveyData.surveyMonth))
+          .limit(1);
+        if (latestRows.length === 0) {
+          return res.status(400).json({
+            error: 'surveyMonth is required when no competitive survey data exists for this client yet.',
+          });
+        }
+        surveyMonth = latestRows[0].surveyMonth;
+        console.log(`[reimport-competitive-survey] Derived surveyMonth from DB: ${surveyMonth}`);
+      }
+
+      const fileBuffer = fs.readFileSync(surveyFilePath);
+      const { importCompetitiveSurveyExcel } = await import('./dataImport');
+      const importResult = await importCompetitiveSurveyExcel(fileBuffer, surveyMonth, clientId);
+
+      console.log(`[reimport-competitive-survey] Import complete: ${importResult.successfulImports} rows inserted`);
+
+      // Fail early if the import produced no rows — indicates a bad source file or format mismatch.
+      if (importResult.successfulImports === 0) {
+        return res.status(422).json({
+          error: 'Import produced zero rows. The file may not match the expected competitive survey format.',
+          surveyFile: surveyFile.name,
+          surveyMonth,
+          clientId,
+          columnWarning: importResult.columnWarning,
+          parseErrors: importResult.errors.slice(0, 20),
+        });
+      }
+
+      // Re-run competitor rate matching so rent_roll_data reflects corrected rates
+      console.log('[reimport-competitive-survey] Running competitor rate matching...');
+      const matchingStats = await processAllUnitsForCompetitorRates(surveyMonth, clientId);
+
+      res.json({
+        success: true,
+        surveyFile: surveyFile.name,
+        surveyMonth,
+        clientId,
+        importStats: {
+          total: importResult.totalRecords,
+          inserted: importResult.successfulImports,
+          failed: importResult.failedImports,
+          errors: importResult.errors.slice(0, 20),
+        },
+        matchingStats: {
+          processed: matchingStats.processed,
+          updated: matchingStats.updated,
+          errors: matchingStats.errors,
+        },
+      });
+    } catch (error) {
+      console.error('[reimport-competitive-survey] Error:', error);
+      res.status(500).json({
+        error: 'Failed to re-import competitive survey',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
   
   // Status endpoint - get dashboard overview
   app.get("/api/status", async (req: any, res) => {

@@ -411,7 +411,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                       { name: 'One Bedroom', rate: row['AL_OneBedRate'] || row['AL_1BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                       { name: 'Two Bedroom', rate: row['AL_TwoBedRate'] || row['AL_2BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                      { name: 'Companion', rate: row['AL_StudioDeluxePrivateRoomRate'] || row['AL_StudioRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                      { name: 'Companion', rate: (() => { const a = parseFloat(String(row['AL_StudioDeluxePrivateRoomRate'] || '0')) || 0; const b = parseFloat(String(row['AL_StudioCompanionRoomRate'] || '0')) || 0; return (a === 0 && b === 0) ? null : String(Math.max(a, b)); })(), careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                     ],
                     occupancy: row['AL_Occupancy'],
                     totalUnits: row['AL_TotalUnits'],
@@ -427,7 +427,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                     roomTypes: [
                       { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
                       { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'] || row['HC_PrivateDlxRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
-                      { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'] || row['HC_2ndPersonFee'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'] || null, careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
                     ],
                     occupancy: row['HC_Occupancy'],
                     totalUnits: row['HC_TotalUnits'],
@@ -472,7 +472,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                     medicationManagement: parseNumeric(row['AL/MC_MedicationManagement'] ?? row['MC_MedicationManagement']),
                     roomTypes: [
                       { name: 'Studio', rate: row['AL/MC_PrivateRate'] || row['AL/MC_StudioRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
-                      { name: 'Companion', rate: row['AL/MC_CompanionRate'] || row['MC_ALCompanionRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: row['MC_ALCompanionRoomRate'] || row['AL/MC_CompanionRate'] || null, careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                     ],
                     occupancy: null,
                     totalUnits: null,
@@ -761,7 +761,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 { name: 'Studio Dlx', rate: row['AL_StudioDlxRate'] || row['AL_StudioDeluxeRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                 { name: 'One Bedroom', rate: row['AL_OneBedRate'] || row['AL_1BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
                 { name: 'Two Bedroom', rate: row['AL_TwoBedRate'] || row['AL_2BRPrivateRoomRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
-                { name: 'Companion', rate: row['AL_StudioDeluxePrivateRoomRate'] || row['AL_StudioRate'], careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
+                { name: 'Companion', rate: (() => { const a = parseNumericExcel(row['AL_StudioDeluxePrivateRoomRate']) || 0; const b = parseNumericExcel(row['AL_StudioCompanionRoomRate']) || 0; return (a === 0 && b === 0) ? null : String(Math.max(a, b)); })(), careLevel: row['AL_Comp_Care_Adj'], otherAdj: row['AL_Comp_Other_Adj'], weight: row['AL_Comp_Weight'] },
               ],
               occupancy: row['AL_Occupancy'],
               totalUnits: row['AL_TotalUnits'],
@@ -778,7 +778,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
                 // Support both old and new column name formats
                 { name: 'Studio', rate: row['HC_PrivateRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
                 { name: 'Studio Dlx', rate: row['HC_PrivateDeluxeRoomRate'] || row['HC_PrivateDlxRoomRate'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
-                { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'] || row['HC_2ndPersonFee'], careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
+                { name: 'Companion', rate: row['HC_CompanionSemiPrivateRoomRate'] || null, careLevel: row['HC_Comp_Care_Adj'], otherAdj: row['HC_Comp_Other_Adj'], weight: row['HC_Comp_Weight'] },
               ],
               occupancy: row['HC_Occupancy'],
               totalUnits: row['HC_TotalUnits'],
@@ -824,7 +824,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
               medicationManagement: parseNumericExcel(row['AL/MC_MedicationManagement'] ?? row['MC_MedicationManagement']),
               roomTypes: [
                 { name: 'Studio', rate: row['AL/MC_StudioRate'] || row['AL/MC_PrivateRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
-                { name: 'Companion', rate: row['AL/MC_CompanionRate'] || row['MC_ALCompanionRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                { name: 'Companion', rate: row['MC_ALCompanionRoomRate'] || row['AL/MC_CompanionRate'] || null, careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
               ],
               occupancy: null,
               totalUnits: null,
