@@ -87,36 +87,43 @@ app.use((req, res, next) => {
     log(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
-  // Idempotent migration (Task #212): purge the stale AL Companion $1,475 rows produced
-  // by the old AL_2ndPersonFee column mapping (pre-Task #202) and clear any matching
-  // stale competitor references in rent_roll_data. Both checks are combined so that a
-  // single async re-match job is triggered at most once per cold start.
+  // Idempotent migration (Task #212 / Task #214): purge stale Rivertown Ridge AL Companion
+  // rows from competitive_survey_data and clear matching stale competitor references in
+  // rent_roll_data. The source CSV has a blank AL_StudioCompanionRoomRate for Rivertown
+  // Ridge, so any such row is invalid regardless of the stored rate value.
+  //
+  // Fixes over Task #212:
+  //   - Use Number(row.cnt) instead of ::int cast — Neon serverless driver returns COUNT(*)
+  //     as a JavaScript string (bigint), so the old cast produced a string comparison that
+  //     always evaluated unexpectedly, making the migration a silent no-op.
+  //   - Drop the ABS(monthly_rate_avg - 1475) < 1 rate-value guard from both the check and
+  //     the DELETE/UPDATE — any Rivertown Ridge AL Companion row is stale regardless of what
+  //     value happened to be stored, so name-based matching is sufficient and more robust.
+  //   - Always emit a [migration] log line in every code path (deleted, cleared, nothing).
   //
   // Guards make this a no-op on subsequent restarts once both tables are clean.
   try {
-    type CountRow = { cnt: number };
+    type CountRow = { cnt: string | number };
     type UploadMonthRow = { upload_month: string };
 
     const surveyCheckResult = await db.execute(sql`
-      SELECT COUNT(*)::int AS cnt
+      SELECT COUNT(*) AS cnt
       FROM competitive_survey_data
       WHERE client_id = 'trilogy'
-        AND competitor_type = 'AL'
+        AND competitor_name ILIKE '%Rivertown Ridge%'
         AND room_type = 'Companion'
-        AND ABS(CAST(monthly_rate_avg AS numeric) - 1475) < 1
     `);
-    const staleSurveyCount = (surveyCheckResult.rows[0] as CountRow).cnt;
+    const staleSurveyCount = Number((surveyCheckResult.rows[0] as CountRow).cnt);
 
     const rentRollCheckResult = await db.execute(sql`
-      SELECT COUNT(*)::int AS cnt
+      SELECT COUNT(*) AS cnt
       FROM rent_roll_data
       WHERE client_id = 'trilogy'
         AND service_line = 'AL'
         AND room_type = 'Companion'
-        AND competitor_name = 'Rivertown Ridge'
-        AND ABS(CAST(COALESCE(competitor_base_rate, competitor_final_rate, 0) AS numeric) - 1475) < 1
+        AND competitor_name ILIKE '%Rivertown Ridge%'
     `);
-    const staleRentRollCount = (rentRollCheckResult.rows[0] as CountRow).cnt;
+    const staleRentRollCount = Number((rentRollCheckResult.rows[0] as CountRow).cnt);
 
     const needsCleanup = staleSurveyCount > 0 || staleRentRollCount > 0;
 
@@ -124,11 +131,12 @@ app.use((req, res, next) => {
       await db.execute(sql`
         DELETE FROM competitive_survey_data
         WHERE client_id = 'trilogy'
-          AND competitor_type = 'AL'
+          AND competitor_name ILIKE '%Rivertown Ridge%'
           AND room_type = 'Companion'
-          AND ABS(CAST(monthly_rate_avg AS numeric) - 1475) < 1
       `);
-      log(`[migration] Deleted ${staleSurveyCount} stale AL Companion $1,475 competitive_survey_data row(s).`);
+      log(`[migration] Deleted ${staleSurveyCount} stale Rivertown Ridge AL Companion competitive_survey_data row(s).`);
+    } else {
+      log('[migration] No stale Rivertown Ridge AL Companion rows found in competitive_survey_data — nothing to purge.');
     }
 
     if (staleRentRollCount > 0) {
@@ -145,10 +153,11 @@ app.use((req, res, next) => {
         WHERE client_id = 'trilogy'
           AND service_line = 'AL'
           AND room_type = 'Companion'
-          AND competitor_name = 'Rivertown Ridge'
-          AND ABS(CAST(COALESCE(competitor_base_rate, competitor_final_rate, 0) AS numeric) - 1475) < 1
+          AND competitor_name ILIKE '%Rivertown Ridge%'
       `);
       log(`[migration] Cleared stale Rivertown Ridge competitor fields on ${staleRentRollCount} rent_roll_data row(s).`);
+    } else {
+      log('[migration] No stale Rivertown Ridge competitor fields found in rent_roll_data — nothing to clear.');
     }
 
     if (needsCleanup) {
@@ -179,11 +188,9 @@ app.use((req, res, next) => {
           log(`[migration] ❌ Competitor re-matching failed (non-fatal): ${matchErr instanceof Error ? matchErr.message : String(matchErr)}`);
         }
       }, 8000); // 8-second delay — after server starts listening
-    } else {
-      log('[migration] No stale AL Companion $1,475 rows found in either table — nothing to purge.');
     }
   } catch (purgeErr) {
-    log(`[migration] Stale AL Companion purge failed (non-fatal): ${purgeErr instanceof Error ? purgeErr.message : String(purgeErr)}`);
+    log(`[migration] Rivertown Ridge AL Companion purge failed (non-fatal): ${purgeErr instanceof Error ? purgeErr.message : String(purgeErr)}`);
   }
 
   const server = await registerRoutes(app);
