@@ -31,8 +31,9 @@ export interface CompetitorContext {
  * adjustments.  Returns { competitorPrices, competitorInfo }.
  *
  * Room-type fallback chain:
- *   Companion  → Companion → Studio Dlx → Studio
- *   All others → exact room type → Studio
+ *   Companion (AL / AL/MC) → Companion only (no Studio fallback for AL companion)
+ *   Companion (other SLs)  → Companion → Studio Dlx → Studio
+ *   All others             → exact room type → Studio
  *
  * Neutral state: when no room-type row has a usable rate, competitorPrices stays
  * empty and competitorInfo is a stub that names the selected competitor (from
@@ -42,7 +43,8 @@ export function matchAndAdjustCompetitor(
   surveyRows: SurveyRow[] | null | undefined,
   roomType: string,
   ourCareLevel2: number,
-  ourMedMgmt: number
+  ourMedMgmt: number,
+  serviceLine?: string
 ): CompetitorContext {
   const competitorPrices: number[] = [];
   let competitorInfo: CompetitorInfo | undefined;
@@ -52,8 +54,10 @@ export function matchAndAdjustCompetitor(
   }
 
   const originalRoomType = roomType;
+  const isAlCompanion = originalRoomType === 'Companion' &&
+    (serviceLine === 'AL' || serviceLine === 'AL/MC');
   const fallbackChain = originalRoomType === 'Companion'
-    ? ['Companion', 'Studio Dlx', 'Studio']
+    ? (isAlCompanion ? ['Companion'] : ['Companion', 'Studio Dlx', 'Studio'])
     : [originalRoomType, 'Studio'];
 
   let matchedRow: SurveyRow | null = null;

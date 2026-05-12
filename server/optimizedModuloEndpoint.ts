@@ -144,7 +144,7 @@ async function processUnitBatch(
           const ourCareLevel2 = cachedCompetitorData?.trilogyCareLevel2Rate || 0;
           const ourMedMgmt = cachedCompetitorData?.trilogyMedMgmtFee ?? 0;
           ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
-            cachedCompetitorData?.surveyRows || [], unit.roomType || '', ourCareLevel2, ourMedMgmt
+            cachedCompetitorData?.surveyRows || [], unit.roomType || '', ourCareLevel2, ourMedMgmt, unit.serviceLine || undefined
           ));
         }
         

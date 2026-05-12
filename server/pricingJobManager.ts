@@ -753,7 +753,7 @@ class PricingJobManager {
           const ourCareLevel2 = context.trilogyCareLevel2Cache.get(slKey) || 0;
           const ourMedMgmt = context.trilogyMedMgmtCache?.get(slKey) ?? 0;
           ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
-            surveyRows, unit.roomType || '', ourCareLevel2, ourMedMgmt
+            surveyRows, unit.roomType || '', ourCareLevel2, ourMedMgmt, unit.serviceLine || undefined
           ));
         }
         

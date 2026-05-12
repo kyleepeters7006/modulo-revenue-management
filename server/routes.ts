@@ -1668,7 +1668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid surveyMonth format; expected YYYY-MM' });
       }
 
-      // Find the most recent competitive survey DATA Excel file on disk.
+      // Find the most recent competitive survey DATA file on disk (xlsx or csv).
       // Exclude known non-data files (mapping guides, templates) by requiring the
       // filename to contain "competitive survey data" (case-insensitive) and
       // explicitly excluding "mapping" and "template" filenames.
@@ -1678,7 +1678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(f => {
           const lower = f.toLowerCase();
           return lower.includes('competitive survey data') &&
-            lower.endsWith('.xlsx') &&
+            (lower.endsWith('.xlsx') || lower.endsWith('.csv')) &&
             !lower.includes('mapping') &&
             !lower.includes('template');
         })
@@ -1687,14 +1687,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (surveyFiles.length === 0) {
         return res.status(404).json({
-          error: 'No competitive survey data Excel file found in attached_assets/. ' +
-            'File must match "competitive survey data*.xlsx" and not contain "mapping" or "template".',
+          error: 'No competitive survey data file found in attached_assets/. ' +
+            'File must match "competitive survey data*.xlsx" or "*.csv" and not contain "mapping" or "template".',
         });
       }
 
       const surveyFile = surveyFiles[0];
       const surveyFilePath = path.join(assetsDir, surveyFile.name);
-      console.log(`[reimport-competitive-survey] Using file: ${surveyFile.name} for clientId=${clientId}`);
+      const isCsv = surveyFile.name.toLowerCase().endsWith('.csv');
+      console.log(`[reimport-competitive-survey] Using file: ${surveyFile.name} (${isCsv ? 'CSV' : 'Excel'}) for clientId=${clientId}`);
 
       // Determine survey month: body param → latest month already in DB for this client → error.
       // We require an explicit month or a DB match so we never accidentally write to the wrong month.
@@ -1716,8 +1717,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const fileBuffer = fs.readFileSync(surveyFilePath);
-      const { importCompetitiveSurveyExcel } = await import('./dataImport');
-      const importResult = await importCompetitiveSurveyExcel(fileBuffer, surveyMonth, clientId);
+      const { importCompetitiveSurveyExcel, importCompetitiveSurveyCSV } = await import('./dataImport');
+      const importResult = isCsv
+        ? await importCompetitiveSurveyCSV(fileBuffer, surveyMonth, clientId)
+        : await importCompetitiveSurveyExcel(fileBuffer, surveyMonth, clientId);
 
       console.log(`[reimport-competitive-survey] Import complete: ${importResult.successfulImports} rows inserted`);
 
@@ -9151,7 +9154,7 @@ Focus areas (in order):
               storage.getTrilogyMedicationManagementFee(unit.location, unit.serviceLine)
             ]);
             ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
-              surveyRows, unit.roomType || '', trilogyCareLevel2Rate || 0, trilogyMedMgmtFee
+              surveyRows, unit.roomType || '', trilogyCareLevel2Rate || 0, trilogyMedMgmtFee, unit.serviceLine || undefined
             ));
             if (isDebugUnit && competitorInfo) console.log('Survey competitor:', competitorInfo.name, competitorInfo.adjustedRate);
           } catch (error) {
@@ -9729,7 +9732,8 @@ Ensure all weights are positive integers and sum to exactly 100.`;
             cachedCompetitor?.surveyRows || [],
             unit.roomType || '',
             cachedCompetitor?.trilogyCareLevel2Rate || 0,
-            cachedCompetitor?.trilogyMedMgmtFee ?? 0
+            cachedCompetitor?.trilogyMedMgmtFee ?? 0,
+            unit.serviceLine || undefined
           ));
           if (competitorPrices.length > 0) competitorAverageRateRaw = competitorPrices[0];
         }

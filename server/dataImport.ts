@@ -280,7 +280,7 @@ export async function importEnquireCSV(
   });
 }
 
-export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth: string): Promise<ImportStats> {
+export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth: string, clientId: string = 'demo'): Promise<ImportStats> {
   const stats: ImportStats = {
     totalRecords: 0,
     successfulImports: 0,
@@ -538,6 +538,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                       lat: latitude ? parseFloat(latitude) : null,
                       lng: longitude ? parseFloat(longitude) : null,
                       medicationManagementFee: serviceLine.medicationManagement ?? null,
+                      clientId,
                       notes: JSON.stringify({
                         weight: roomType.weight || 0,
                         latitude,
@@ -562,7 +563,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
 
           // Now do a single batch insert in a transaction
           await db.transaction(async (tx) => {
-            await tx.delete(competitiveSurveyData).where(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+            await tx.delete(competitiveSurveyData).where(and(eq(competitiveSurveyData.surveyMonth, surveyMonth), eq(competitiveSurveyData.clientId, clientId)));
             console.log('Deleted old survey data');
 
             // Insert in batches of 1000 to avoid memory issues
