@@ -603,56 +603,134 @@ export default function PricingAlgorithmDocs() {
               <div>
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 3 — Expected Revenue Model</h4>
                 <p className="text-sm mb-3">
-                  For each candidate rate, an adjusted weekly sale probability is estimated and used to project expected revenue by December 31.
+                  For each candidate rate, the system estimates how likely the unit is to lease by December 31 and projects the revenue that lease would generate. A discount that pushes the sale probability high enough can produce more total revenue than holding the current rate — even though the rate itself is lower.
                 </p>
-                <div className="space-y-1 font-mono text-xs bg-gray-50 border border-gray-200 rounded p-3">
-                  <div>adjustedWeeklyProb = baseProb × elasticityMult × daysVacantFactor × occupancyFactor × competitorFactor × attributeFactor</div>
-                  <div>expectedSaleProb = 1 − exp(−adjustedWeeklyProb × weeksRemaining)</div>
-                  <div>expectedRevenue = expectedSaleProb × candidateRate × revenueMonthsRemaining</div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div className="bg-white rounded border border-gray-200 p-3">
-                    <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Sales velocity source</h6>
-                    <p className="text-xs text-[var(--trilogy-grey)]">Base probability is drawn from recent move-in dates in the current rent roll. Fallback chain: room type → service line → campus → 10%/week default.</p>
+                    <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Sale probability inputs</h6>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Base weekly lease rate comes from recent move-ins in the rent roll (fallback: room type → service line → campus → 10%/week). Price changes, days-vacant staleness, campus occupancy, competitor position, and unit attributes all adjust that base probability up or down.</p>
                   </div>
                   <div className="bg-white rounded border border-gray-200 p-3">
-                    <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Price elasticity</h6>
-                    <p className="text-xs text-[var(--trilogy-grey)]">Each 1% discount multiplies weekly sale probability by (1 + 0.8×discount). Each 1% premium reduces it by (1 − 0.8×increase). Stale vacant units are more responsive to discounts.</p>
+                    <h6 className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Expected revenue</h6>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Expected revenue = sale probability × candidate rate × months remaining after the expected move-in date. The candidate with the highest expected revenue wins — provided it clears the minimum improvement threshold.</p>
                   </div>
                 </div>
               </div>
 
-              {/* Selection rules */}
-              <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4 border border-[var(--trilogy-dark-blue)]/20">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Step 4 — Best Candidate Selection</h4>
-                <ul className="text-sm space-y-1 list-disc list-inside">
-                  <li><strong>Volume Driver:</strong> Discount selected only if expected revenue improves by ≥ 0.5%</li>
-                  <li><strong>Premium Driver:</strong> Increase selected if revenue improves, or if exit-rate value rises and sale probability drops by less than 15 percentage points</li>
-                  <li><strong>Neutral:</strong> Only applied if revenue improvement exceeds the 0.5% minimum threshold</li>
-                  <li><strong>No improvement:</strong> If no candidate clears the threshold, the existing AI Rate is preserved unchanged</li>
-                  <li><strong>No target:</strong> If no revenue growth target exists, the AI Rate passes through untouched</li>
-                </ul>
+              {/* Step 4 */}
+              <div>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 4 — Best Candidate Selection</h4>
+                <p className="text-sm mb-3">All scored candidates are compared. The one with the highest expected revenue is selected — but only if it improves on the existing AI Rate by at least 0.5%. If no candidate clears that bar, the existing AI Rate is kept unchanged.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <div className="bg-[var(--trilogy-orange)]/5 rounded border border-[var(--trilogy-orange)]/30 p-3">
+                    <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Volume Driver</p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Discount selected if expected revenue improves by ≥ 0.5% over the existing AI Rate.</p>
+                  </div>
+                  <div className="bg-[var(--trilogy-teal)]/5 rounded border border-[var(--trilogy-teal)]/30 p-3">
+                    <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Premium Driver</p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Increase selected if revenue improves, or if exit-rate value rises and sale probability drops by less than 15 percentage points.</p>
+                  </div>
+                  <div className="bg-gray-50 rounded border border-gray-200 p-3">
+                    <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Neutral / No improvement</p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">±1% only if it clears the 0.5% threshold. If nothing improves, the existing AI Rate passes through unchanged.</p>
+                  </div>
+                </div>
               </div>
 
-              {/* Stored fields */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">What Gets Stored</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                  {[
-                    { field: "targetAwareAiRate", desc: "Rate chosen by strategy layer" },
-                    { field: "unitStrategySegment", desc: "volume_driver / premium_driver / neutral" },
-                    { field: "urgencyScore", desc: "0–1 urgency from gap × time" },
-                    { field: "expectedRevenueExistingAi", desc: "Projected revenue at existing AI Rate" },
-                    { field: "expectedRevenueTargetAware", desc: "Projected revenue at new rate" },
-                    { field: "incrementalExpectedRevenue", desc: "Difference between the two" },
-                    { field: "strategyLayerDetails", desc: "Full audit trail (JSON)" },
-                    { field: "strategyLayerProjection", desc: "Portfolio summary in API response" },
-                  ].map(({ field, desc }) => (
-                    <div key={field} className="bg-white rounded border border-gray-200 p-2">
-                      <div className="font-mono text-[var(--trilogy-teal)] mb-0.5">{field}</div>
-                      <div className="text-[var(--trilogy-grey)]/80">{desc}</div>
+              {/* Worked example */}
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1 flex items-center gap-2">
+                  <Calculator className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                  Worked Example — Volume Driver
+                </h4>
+                <p className="text-xs text-[var(--trilogy-grey)]/70 mb-4 italic">
+                  Illustrative values. Sunrise Gardens · AL · 7 months remaining · campus 6% behind revenue target
+                </p>
+                <div className="space-y-3">
+                  {/* Unit context */}
+                  <div className="bg-white rounded border border-gray-200 p-3">
+                    <p className="text-xs font-medium text-[var(--trilogy-dark-blue)] mb-2">Unit context</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-[var(--trilogy-grey)]">
+                      <div>AI Rate: <strong className="text-[var(--trilogy-dark-blue)]">$4,800/mo</strong></div>
+                      <div>Vacant: <strong className="text-[var(--trilogy-dark-blue)]">45 days</strong></div>
+                      <div>Competitor median: <strong className="text-[var(--trilogy-dark-blue)]">$4,200/mo</strong></div>
+                      <div>Occupancy: <strong className="text-[var(--trilogy-dark-blue)]">81%</strong></div>
                     </div>
-                  ))}
+                  </div>
+                  {/* Steps 1-2 inline */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="bg-white rounded border border-[var(--trilogy-orange)]/30 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-xs font-bold text-white bg-[var(--trilogy-orange)] px-2 py-0.5 rounded">Step 1</span>
+                        <span className="text-xs font-medium text-[var(--trilogy-dark-blue)]">Urgency Score</span>
+                      </div>
+                      <p className="font-mono text-xs text-[var(--trilogy-grey)]">|6| ÷ (7 × 2.0) = <strong className="text-[var(--trilogy-dark-blue)]">0.43</strong> — moderate</p>
+                    </div>
+                    <div className="bg-white rounded border border-[var(--trilogy-orange)]/30 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-xs font-bold text-white bg-[var(--trilogy-orange)] px-2 py-0.5 rounded">Step 2</span>
+                        <span className="text-xs font-medium text-[var(--trilogy-dark-blue)]">Classification → Volume Driver</span>
+                      </div>
+                      <p className="text-xs text-[var(--trilogy-grey)]">Moderate urgency · AI Rate 14% above competitor median · vacant 25 days over campus average · low occupancy → <strong>discount candidates at 3–8% generated</strong></p>
+                    </div>
+                  </div>
+                  {/* Step 3 table */}
+                  <div className="bg-white rounded border border-[var(--trilogy-orange)]/30 p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="text-xs font-bold text-white bg-[var(--trilogy-orange)] px-2 py-0.5 rounded">Step 3</span>
+                      <span className="text-xs font-medium text-[var(--trilogy-dark-blue)]">Expected Revenue Scoring</span>
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left py-1 text-[var(--trilogy-dark-blue)]">Candidate</th>
+                          <th className="text-left py-1 text-[var(--trilogy-dark-blue)]">Rate</th>
+                          <th className="text-left py-1 text-[var(--trilogy-dark-blue)]">Sale prob by Dec</th>
+                          <th className="text-left py-1 text-[var(--trilogy-dark-blue)]">Expected revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-gray-100">
+                          <td className="py-1.5 text-[var(--trilogy-grey)]">No change</td>
+                          <td className="py-1.5">$4,800</td>
+                          <td className="py-1.5">81%</td>
+                          <td className="py-1.5">$9,200</td>
+                        </tr>
+                        <tr className="border-b border-gray-100">
+                          <td className="py-1.5 text-[var(--trilogy-grey)]">−3%</td>
+                          <td className="py-1.5">$4,656</td>
+                          <td className="py-1.5">95%</td>
+                          <td className="py-1.5">$18,700</td>
+                        </tr>
+                        <tr className="border-b border-gray-100 bg-[var(--trilogy-teal)]/5">
+                          <td className="py-1.5 font-semibold text-[var(--trilogy-teal)]">−5% ✓ selected</td>
+                          <td className="py-1.5 font-semibold">$4,560</td>
+                          <td className="py-1.5 font-semibold">97%</td>
+                          <td className="py-1.5 font-semibold text-[var(--trilogy-teal)]">$19,600</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 text-[var(--trilogy-grey)]">−8%</td>
+                          <td className="py-1.5">$4,416</td>
+                          <td className="py-1.5">97%</td>
+                          <td className="py-1.5">$19,200</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
+                      At $4,800, the unit is priced above the market and unlikely to lease quickly — most of the year passes before a tenant moves in, leaving little time to generate revenue. At −5% ($4,560) the lease probability jumps to 97%, locking in revenue across most of the remaining months. The −8% rate has a similar probability but the lower rate isn't offset by the tiny additional probability gain.
+                    </p>
+                  </div>
+                  {/* Step 4 result */}
+                  <div className="bg-[var(--trilogy-teal)]/5 rounded border border-[var(--trilogy-teal)]/30 p-3">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="text-xs font-bold text-white bg-[var(--trilogy-teal)] px-2 py-0.5 rounded">Step 4</span>
+                      <span className="text-xs font-medium text-[var(--trilogy-dark-blue)]">Selection</span>
+                    </div>
+                    <p className="text-xs text-[var(--trilogy-grey)]">
+                      The −5% candidate ($4,560) produces the highest expected revenue at $19,600 — a 113% improvement over no change ($9,200). This far exceeds the 0.5% minimum threshold.{" "}
+                      <strong className="text-[var(--trilogy-teal)]">Final AI Rate: $4,560/mo.</strong>
+                    </p>
+                  </div>
                 </div>
               </div>
             </CardContent>
