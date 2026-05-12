@@ -207,105 +207,61 @@ async function getBestCompetitorRate(
       .where(and(...conditions));
     
     if (surveyRecords.length === 0) {
-      // Try without room type filter as fallback
-      const fallbackConditions: any[] = [
-        eq(competitiveSurveyData.keyStatsLocation, location),
-        eq(competitiveSurveyData.competitorType, competitorType),
-        sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-      ];
-      
-      if (surveyMonth) {
-        fallbackConditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
-      }
-      
-      const fallbackRecords = await db.select()
-        .from(competitiveSurveyData)
-        .where(and(...fallbackConditions));
-      
-      if (fallbackRecords.length === 0) {
-        // Try fallback competitor type if available (e.g., IL -> AL for SL/VIL)
-        const fallbackType = COMPETITOR_TYPE_FALLBACK[competitorType];
-        if (fallbackType) {
-          console.log(`No ${competitorType} data found for ${location}, trying fallback to ${fallbackType}`);
-          const fallbackTypeConditions: any[] = [
-            eq(competitiveSurveyData.keyStatsLocation, location),
-            eq(competitiveSurveyData.competitorType, fallbackType),
-            sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-          ];
-          
-          if (surveyMonth) {
-            fallbackTypeConditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
-          }
-          
-          const fallbackTypeRecords = await db.select()
-            .from(competitiveSurveyData)
-            .where(and(...fallbackTypeConditions));
-          
-          if (fallbackTypeRecords.length > 0) {
-            // Use first available record from fallback type
-            const record = fallbackTypeRecords[0];
-            console.log(`✓ Using ${fallbackType} fallback competitor: ${record.competitorName} for ${serviceLine}`);
-            
-            // Apply daily→monthly conversion for daily-rate types (HC, HC/MC, SMC)
-            const DAYS_PER_MONTH_FB = 30.44;
-            const isFallbackDailyRate = fallbackType === 'HC' || fallbackType === 'HC/MC' || fallbackType === 'SMC';
-            let fallbackBaseRate = record.monthlyRateAvg || 0;
-            let fallbackCareLevel2Rate = record.careLevel2Rate;
-            let fallbackMedMgmtFee = record.medicationManagementFee;
-            if (isFallbackDailyRate && fallbackBaseRate > 0 && fallbackBaseRate < 1000) {
-              fallbackBaseRate = fallbackBaseRate * DAYS_PER_MONTH_FB;
-              if (fallbackCareLevel2Rate && fallbackCareLevel2Rate < 500) {
-                fallbackCareLevel2Rate = fallbackCareLevel2Rate * DAYS_PER_MONTH_FB;
-              }
-              if (fallbackMedMgmtFee && fallbackMedMgmtFee < 100) {
-                fallbackMedMgmtFee = fallbackMedMgmtFee * DAYS_PER_MONTH_FB;
-              }
+      // No survey row for this location + competitor type + room type.
+      // Try competitor-type fallback (e.g. HC/MC → SMC) — this is a valid
+      // cross-type fallback and is intentional. Room-type-agnostic fallback
+      // is intentionally NOT done here: returning a rate from a different room
+      // type would produce a spurious competitor benchmark.
+      const fallbackType = COMPETITOR_TYPE_FALLBACK[competitorType];
+      if (fallbackType) {
+        console.log(`No ${competitorType} data found for ${location} / ${mappedRoomType}, trying competitor-type fallback to ${fallbackType}`);
+        const fallbackTypeConditions: any[] = [
+          eq(competitiveSurveyData.keyStatsLocation, location),
+          eq(competitiveSurveyData.competitorType, fallbackType),
+          sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
+        ];
+
+        if (surveyMonth) {
+          fallbackTypeConditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
+        }
+
+        const fallbackTypeRecords = await db.select()
+          .from(competitiveSurveyData)
+          .where(and(...fallbackTypeConditions));
+
+        if (fallbackTypeRecords.length > 0) {
+          const record = fallbackTypeRecords[0];
+          console.log(`✓ Using ${fallbackType} fallback competitor: ${record.competitorName} for ${serviceLine}`);
+
+          const DAYS_PER_MONTH_FB = 30.44;
+          const isFallbackDailyRate = fallbackType === 'HC' || fallbackType === 'HC/MC' || fallbackType === 'SMC';
+          let fallbackBaseRate = record.monthlyRateAvg || 0;
+          let fallbackCareLevel2Rate = record.careLevel2Rate;
+          let fallbackMedMgmtFee = record.medicationManagementFee;
+          if (isFallbackDailyRate && fallbackBaseRate > 0 && fallbackBaseRate < 1000) {
+            fallbackBaseRate = fallbackBaseRate * DAYS_PER_MONTH_FB;
+            if (fallbackCareLevel2Rate && fallbackCareLevel2Rate < 500) {
+              fallbackCareLevel2Rate = fallbackCareLevel2Rate * DAYS_PER_MONTH_FB;
             }
-            
-            return {
-              competitorName: record.competitorName,
-              baseRate: fallbackBaseRate,
-              weight: extractWeight(record.notes),
-              careLevel2Rate: fallbackCareLevel2Rate,
-              medicationManagementFee: fallbackMedMgmtFee,
-              distanceMiles: record.distanceMiles,
-              surveyData: record
-            };
+            if (fallbackMedMgmtFee && fallbackMedMgmtFee < 100) {
+              fallbackMedMgmtFee = fallbackMedMgmtFee * DAYS_PER_MONTH_FB;
+            }
           }
-        }
-        return null;
-      }
-      
-      // Use first available record as fallback
-      const record = fallbackRecords[0];
-      
-      // Convert rates from daily to monthly for HC/HC/MC/SMC competitor types
-      const DAYS_PER_MONTH = 30.44;
-      const isHCOrSMC = competitorType === 'HC' || competitorType === 'HC/MC' || competitorType === 'SMC';
-      
-      let baseRate = record.monthlyRateAvg || 0;
-      let careLevel2Rate = record.careLevel2Rate;
-      let medicationManagementFee = record.medicationManagementFee;
-      
-      if (isHCOrSMC && baseRate > 0 && baseRate < 1000) {
-        baseRate = baseRate * DAYS_PER_MONTH;
-        if (careLevel2Rate && careLevel2Rate < 500) {
-          careLevel2Rate = careLevel2Rate * DAYS_PER_MONTH;
-        }
-        if (medicationManagementFee && medicationManagementFee < 100) {
-          medicationManagementFee = medicationManagementFee * DAYS_PER_MONTH;
+
+          return {
+            competitorName: record.competitorName,
+            baseRate: fallbackBaseRate,
+            weight: extractWeight(record.notes),
+            careLevel2Rate: fallbackCareLevel2Rate,
+            medicationManagementFee: fallbackMedMgmtFee,
+            distanceMiles: record.distanceMiles,
+            surveyData: record
+          };
         }
       }
-      
-      return {
-        competitorName: record.competitorName,
-        baseRate,
-        weight: extractWeight(record.notes),
-        careLevel2Rate,
-        medicationManagementFee,
-        distanceMiles: record.distanceMiles,
-        surveyData: record
-      };
+
+      // No match for this room type — return null (no competitor signal)
+      return null;
     }
     
     // Top Comp Selection Logic:
