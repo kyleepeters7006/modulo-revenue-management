@@ -426,7 +426,7 @@ export default function AICalculationDialog({
                                 {pass1Total > 0 ? '+' : ''}{formatPercent(pass1Total)}
                               </span>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">This is the Modulo Rate adjustment — for vacant units, the Revenue Target Strategy Layer (Step 4) is applied next.</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">This is the Stage 1 adjustment — for vacant units, the Revenue Target Strategy Layer (Step 4) is applied next.</p>
                           </div>
                         );
                       })()}
@@ -884,13 +884,13 @@ export default function AICalculationDialog({
                           </>
                         )}
 
-                        {/* Modulo Pass 1 layer */}
-                        <div className="text-xs text-muted-foreground pl-3">↓ Modulo Pass 1 — 6 weighted signals (see Step 3)</div>
+                        {/* Stage 1 layer */}
+                        <div className="text-xs text-muted-foreground pl-3">↓ Stage 1 — 6 weighted signals (see Step 3)</div>
                         <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-md px-3 py-2">
                           <div>
-                            <p className="font-medium">Modulo Rate</p>
+                            <p className="font-medium">Stage 1 Rate</p>
                             <p className="text-xs text-muted-foreground">
-                              Pass 1 weighted-signal adjustment: {moduloPass1Adj >= 0 ? '+' : ''}{formatPercent(moduloPass1Adj)}
+                              Stage 1 weighted-signal adjustment: {moduloPass1Adj >= 0 ? '+' : ''}{formatPercent(moduloPass1Adj)}
                             </p>
                           </div>
                           <div className="text-right">
@@ -910,7 +910,7 @@ export default function AICalculationDialog({
                                 <p className="font-medium">After Strategy Layer</p>
                                 <p className="text-xs text-muted-foreground">
                                   {strategyPreserved
-                                    ? 'Existing AI Rate preserved — target-aware rate did not improve expected revenue'
+                                    ? 'No improvement found — rate unchanged from Stage 1'
                                     : strategy.guardrailApplied
                                     ? 'Target-aware rate selected, then clamped by drift guardrail'
                                     : 'Target-aware rate selected (best expected revenue)'}
@@ -919,25 +919,38 @@ export default function AICalculationDialog({
                               <div className="text-right">
                                 <p className="font-mono font-bold">{formatCurrency(finalRate)}</p>
                                 <p className={`text-xs font-mono ${strategyPreserved ? 'text-muted-foreground' : getAdjustmentColor(strategyDelta)}`}>
-                                  {strategyPreserved
-                                    ? (Math.abs(strategyDelta) < 1
-                                        ? 'no change'
-                                        : 'stored rate kept (not Modulo recompute)')
-                                    : `${signDollars(strategyDelta)} (vs Modulo)`}
+                                  {strategyPreserved ? 'no change' : `${signDollars(strategyDelta)} (vs Stage 1)`}
                                 </p>
                               </div>
                             </div>
-                            {strategyPreserved && Math.abs(strategyDelta) >= 1 && (
-                              <p className="text-xs text-muted-foreground pl-3 -mt-1">
-                                The Modulo Pass 1 above ({formatCurrency(moduloRate)}) is this session's recomputed signal.
-                                The strategy layer compared against the previously stored AI rate ({formatCurrency(finalRate)}) and found no improvement, so that stored rate becomes the final.
-                              </p>
-                            )}
+                          </>
+                        )}
+
+                        {/* Guardrails row — only shown when a guardrail clamped the rate */}
+                        {hasGuardrail && (
+                          <>
+                            <div className="text-xs text-muted-foreground pl-3">↓ Guardrails</div>
+                            <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                              <div>
+                                <p className="font-medium text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
+                                  <Shield className="h-3.5 w-3.5" />
+                                  Guardrail Applied
+                                </p>
+                                <p className="text-xs text-amber-700 dark:text-amber-300">
+                                  Pre-guardrail adjustment {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
+                                  clamped to {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
+                                  {calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed
+                                    ? ` — allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'}`
+                                    : ''}
+                                </p>
+                              </div>
+                              <p className="font-mono font-bold text-amber-700 dark:text-amber-300">{formatCurrency(finalRate)}</p>
+                            </div>
                           </>
                         )}
 
                         {/* Final rate row (only show separately if no strategy layer above) */}
-                        {!strategy && (
+                        {!strategy && !hasGuardrail && (
                           <>
                             <div className="text-xs text-muted-foreground pl-3">↓ final</div>
                             <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2">
@@ -958,34 +971,11 @@ export default function AICalculationDialog({
                           {formatCurrency(streetRate)} × (1 {effectiveAdj >= 0 ? '+' : '−'} {Math.abs(effectiveAdj * 100).toFixed(2)}%) = {formatCurrency(finalRate)}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {strategyPreserved && Math.abs(strategyDelta) >= 1 ? (
-                            <>
-                              The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment reflects
-                              the previously stored AI rate carried forward — the Revenue Target Strategy Layer chose
-                              to preserve it rather than apply this session's Modulo Pass 1 recompute.
-                            </>
-                          ) : (
-                            <>
-                              The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment is the
-                              combined result of {showAttribute ? 'attribute pricing, ' : ''}the Modulo Pass 1 weighted
-                              signals{strategy ? ', and the Revenue Target Strategy Layer' : ''} shown above.
-                            </>
-                          )}
+                          The {effectiveAdj >= 0 ? '+' : ''}{formatPercent(effectiveAdj)} effective adjustment is the
+                          combined result of {showAttribute ? 'attribute pricing, ' : ''}the Stage 1 weighted
+                          signals{strategy ? ', and the Revenue Target Strategy Layer' : ''} shown above.
                         </div>
                       </div>
-
-                      {hasGuardrail && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1">
-                          <span>⚠️</span>
-                          <span>
-                            Guardrail applied: pre-guardrail adjustment was {preGuardrailAdj > 0 ? '+' : ''}{formatPercent(preGuardrailAdj)},
-                            clamped to {effectiveAdj > 0 ? '+' : ''}{formatPercent(effectiveAdj)}
-                            {calcDetails.guardrailMinAllowed || calcDetails.guardrailMaxAllowed
-                              ? ` (allowed range: ${formatCurrency(calcDetails.guardrailMinAllowed)} – ${calcDetails.guardrailMaxAllowed ? formatCurrency(calcDetails.guardrailMaxAllowed) : 'no max'})`
-                              : ''}.
-                          </span>
-                        </div>
-                      )}
                     </div>
                   );
                 })()}
