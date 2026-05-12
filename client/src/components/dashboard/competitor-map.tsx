@@ -16,6 +16,24 @@ interface CompetitorMapProps {
   selectedServiceLines?: string[];
 }
 
+interface PortfolioLocation {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  lat: number | null;
+  lng: number | null;
+  region: string | null;
+  division: string | null;
+}
+
+interface PortfolioLocationsResponse {
+  locations: PortfolioLocation[];
+  regions: string[];
+  divisions: string[];
+}
+
 export function CompetitorMap({ 
   selectedRegions = [], 
   selectedDivisions = [], 
@@ -40,6 +58,13 @@ export function CompetitorMap({
       if (!response.ok) throw new Error('Failed to fetch competitors');
       return response.json();
     }
+  });
+
+  const isAllLocations = selectedLocations.length === 0;
+
+  const { data: portfolioLocationsData } = useQuery<PortfolioLocationsResponse>({
+    queryKey: ["/api/locations"],
+    enabled: isAllLocations,
   });
 
   useEffect(() => {
@@ -439,20 +464,61 @@ export function CompetitorMap({
         Number.isFinite(comp.lat) && Number.isFinite(comp.lng)
       );
 
-      console.log(`Added ${validCompItems.length + (currentLocation ? 1 : 0)} markers to map`);
+      // In All Locations mode, render blue pins for each portfolio location with coordinates
+      const portfolioLocations: PortfolioLocation[] = portfolioLocationsData?.locations || [];
+      const validPortfolioLocations = isAllLocations
+        ? portfolioLocations.filter((loc) => Number.isFinite(loc.lat) && Number.isFinite(loc.lng))
+        : [];
 
-      // Set map view: fit bounds when competitors exist, otherwise center on location
-      if (validCompItems.length > 0 && mapInstanceRef.current) {
-        const startPoint = Number.isFinite(currentProperty.lat) && Number.isFinite(currentProperty.lng)
+      validPortfolioLocations.forEach((loc) => {
+        if (!mounted) return;
+        const bluePinIcon = window.L.divIcon({
+          className: '',
+          html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+            <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22s14-12.667 14-22C28 6.268 21.732 0 14 0z" fill="#1d4ed8" stroke="#fff" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="5.5" fill="white"/>
+          </svg>`,
+          iconSize: [28, 36],
+          iconAnchor: [14, 36],
+          popupAnchor: [0, -36]
+        });
+
+        const addressParts = [loc.address, loc.city, loc.state].filter(Boolean);
+        const fullAddress = addressParts.join(', ');
+
+        const portfolioMarker = window.L.marker([loc.lat, loc.lng], { icon: bluePinIcon })
+          .addTo(mapInstanceRef.current);
+
+        portfolioMarker.bindPopup(`
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 220px; max-width: 280px; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
+            <div style="background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%); color: white; padding: 16px;">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;">${loc.name}</h3>
+                <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">PORTFOLIO</span>
+              </div>
+              ${fullAddress ? `<p style="margin: 0; font-size: 12px; opacity: 0.85; font-weight: 300;">${fullAddress}</p>` : ''}
+            </div>
+          </div>
+        `);
+      });
+
+      console.log(`Added ${validCompItems.length + (currentLocation ? 1 : 0)} markers to map` + (isAllLocations ? ` + ${validPortfolioLocations.length} portfolio pins` : ''));
+
+      // Collect all rendered points for bounds fitting
+      const portfolioPoints = validPortfolioLocations.map((loc: any) => [loc.lat, loc.lng]);
+
+      // Set map view: fit bounds when competitors or portfolio pins exist
+      if ((validCompItems.length > 0 || portfolioPoints.length > 0) && mapInstanceRef.current) {
+        const startPoint = !isAllLocations && Number.isFinite(currentProperty.lat) && Number.isFinite(currentProperty.lng)
           ? [[currentProperty.lat, currentProperty.lng]]
           : [];
         const compPoints = validCompItems.map((comp: any) => [comp.lat, comp.lng]);
-        const allPoints = [...startPoint, ...compPoints];
+        const allPoints = [...startPoint, ...compPoints, ...portfolioPoints];
         if (allPoints.length > 0) {
           const bounds = window.L.latLngBounds(allPoints);
           mapInstanceRef.current.fitBounds(bounds, {
             padding: [50, 50],
-            maxZoom: 13
+            maxZoom: isAllLocations ? 8 : 13
           });
         }
       } else if (Number.isFinite(currentProperty.lat) && Number.isFinite(currentProperty.lng)) {
@@ -477,7 +543,7 @@ export function CompetitorMap({
         }
       }
     };
-  }, [competitors]);
+  }, [competitors, portfolioLocationsData]);
 
   if (isLoading) {
     return (
