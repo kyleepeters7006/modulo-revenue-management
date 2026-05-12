@@ -9789,7 +9789,11 @@ Ensure all weights are positive integers and sum to exactly 100.`;
           // Revenue Target Strategy Layer (new enhanced layer)
           ...(strategyLayerOutput ? {
             strategyLayer: {
-              existingAiRate: orchestratorResult.finalPrice,
+              // existingAiRate = the rate the strategy layer actually compared against.
+              // When a stored AI rate exists that is what the layer uses as its
+              // baseline; otherwise it falls back to the fresh Modulo output.
+              existingAiRate: storedAiRate ?? orchestratorResult.finalPrice,
+              moduloRateThisRun: orchestratorResult.finalPrice,
               targetAwareAiRate: fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, unit.serviceLine || ''),
               finalGuardrailedAiRate: finalAiRate,
               unitStrategySegment: strategyLayerOutput.segment,

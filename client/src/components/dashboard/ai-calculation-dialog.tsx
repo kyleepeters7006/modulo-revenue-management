@@ -575,7 +575,7 @@ export default function AICalculationDialog({
                     <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Rate Progression</p>
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <div className="bg-gray-100 dark:bg-gray-800 rounded px-2 py-1 text-center min-w-[90px]">
-                        <p className="text-xs text-muted-foreground">Base AI</p>
+                        <p className="text-xs text-muted-foreground">Stored AI Rate</p>
                         <p className="font-medium">{formatCurrency(calcDetails.strategyLayer.existingAiRate || 0)}</p>
                       </div>
                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -586,15 +586,43 @@ export default function AICalculationDialog({
                         </p>
                       </div>
                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                      <div className={`rounded px-2 py-1 text-center min-w-[90px] ${calcDetails.strategyLayer.guardrailApplied ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-green-50 dark:bg-green-950/30'}`}>
+                      <div className={`rounded px-2 py-1 text-center min-w-[90px] ${
+                        calcDetails.strategyLayer.guardrailApplied
+                          ? 'bg-amber-50 dark:bg-amber-950/30'
+                          : calcDetails.strategyLayer.noImprovementFound
+                          ? 'bg-gray-100 dark:bg-gray-800'
+                          : 'bg-green-50 dark:bg-green-950/30'
+                      }`}>
                         <p className="text-xs text-muted-foreground">
-                          Final {calcDetails.strategyLayer.guardrailApplied ? '(Guardrailed)' : ''}
+                          {calcDetails.strategyLayer.guardrailApplied
+                            ? 'Final (Guardrailed)'
+                            : calcDetails.strategyLayer.noImprovementFound
+                            ? 'Final (Unchanged)'
+                            : 'Final'}
                         </p>
-                        <p className={`font-bold ${calcDetails.strategyLayer.guardrailApplied ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}`}>
+                        <p className={`font-bold ${
+                          calcDetails.strategyLayer.guardrailApplied
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : calcDetails.strategyLayer.noImprovementFound
+                            ? 'text-gray-700 dark:text-gray-300'
+                            : 'text-green-700 dark:text-green-300'
+                        }`}>
                           {formatCurrency(calcDetails.strategyLayer.finalGuardrailedAiRate || 0)}
                         </p>
                       </div>
                     </div>
+                    {/* Explain why Final differs from Modulo when rate was preserved */}
+                    {calcDetails.strategyLayer.noImprovementFound && calcDetails.strategyLayer.moduloRateThisRun &&
+                      Math.abs((calcDetails.strategyLayer.moduloRateThisRun) - (calcDetails.strategyLayer.finalGuardrailedAiRate || 0)) >= 1 && (
+                      <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
+                        <span>
+                          The Modulo Pass 1 computed <strong>{formatCurrency(calcDetails.strategyLayer.moduloRateThisRun)}</strong> for this session,
+                          but the strategy layer compared the target-aware rate against the currently stored AI rate ({formatCurrency(calcDetails.strategyLayer.existingAiRate || 0)}) and found no improvement,
+                          so the stored rate is kept as the final rate.
+                        </span>
+                      </p>
+                    )}
                     {calcDetails.strategyLayer.guardrailApplied && calcDetails.strategyLayer.guardrailReason && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
                         <Shield className="h-3 w-3 shrink-0" />
