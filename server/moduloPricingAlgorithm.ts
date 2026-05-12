@@ -428,26 +428,16 @@ export function calculateModuloPrice(
   }
   
   totalAdj = clamp(totalAdj, cfg.minTotalAdj, cfg.maxTotalAdj);
-  
-  // Revenue Growth Target - Strategic Override (NOT part of normalized weights)
-  // This applies additional pricing pressure based on revenue target gap
-  const revenueGrowthSignal = signalRevenueGrowthTarget(inputs.revenueGrowthGap, cfg);
-  const revenueGrowthAdjustment = revenueGrowthSignal * cfg.revenueGrowthSpan;
 
-  // Room Type Occupancy Trend - Informational override (NOT part of normalized weights)
-  // Applies a small nudge when this room type fills faster/slower than the service-line average
-  const roomTypeOccSpan = 0.03; // ±3% max effect
-  let roomTypeOccSignal = 0;
-  let roomTypeOccAdjustment = 0;
-  if (inputs.roomTypeOccTrend !== undefined && inputs.roomTypeOccTrend !== null) {
-    roomTypeOccSignal = signalRoomTypeOccTrend(inputs.roomTypeOccTrend, inputs.occupancy);
-    roomTypeOccAdjustment = roomTypeOccSignal * roomTypeOccSpan;
-  }
+  // Per the documented two-path model, the Modulo engine uses six weighted
+  // signals only.  Revenue-target pricing pressure lives in the dedicated
+  // Revenue Target Strategy Layer (server/revenueTargetStrategyLayer.ts) and
+  // is applied downstream of the AI Rate for vacant units only — it is NOT
+  // part of the per-unit Modulo calculation.  Room-type occupancy trend
+  // information is preserved for future use in Smart Adjustment Rules but is
+  // no longer mixed into the core engine.
+  const finalTotalAdj = totalAdj;
 
-  // Add revenue growth and room type occ trend adjustments on top of the blended adjustment
-  const totalAdjWithOverrides = totalAdj + revenueGrowthAdjustment + roomTypeOccAdjustment;
-  const finalTotalAdj = clamp(totalAdjWithOverrides, cfg.minTotalAdj, cfg.maxTotalAdj);
-  
   const finalPrice = basePrice * (1.0 + finalTotalAdj);
   
   // Create detailed adjustments array for UI
@@ -494,72 +484,12 @@ export function calculateModuloPrice(
     };
   });
   
-  // Add revenue growth target adjustment if applicable (strategic override, not weighted)
-  if (inputs.revenueGrowthGap !== undefined && inputs.revenueGrowthGap !== null) {
-    const gap = inputs.revenueGrowthGap;
-    const targetGrowth = inputs.targetRevenueGrowth || 0;
-    const actualYOY = targetGrowth + gap;
-    
-    adjustments.push({
-      factor: 'RevenueTarget',
-      adjustment: revenueGrowthAdjustment,
-      weight: 0, // Not part of weighted system
-      weightedAdjustment: revenueGrowthAdjustment,
-      impact: basePrice * revenueGrowthAdjustment,
-      description: gap >= 0 
-        ? `Revenue target: ${actualYOY.toFixed(1)}% YOY vs ${targetGrowth.toFixed(1)}% target (${gap.toFixed(1)}% ahead)`
-        : `Revenue target: ${actualYOY.toFixed(1)}% YOY vs ${targetGrowth.toFixed(1)}% target (${Math.abs(gap).toFixed(1)}% behind)`,
-      calculation: gap >= 0
-        ? `Ahead of target by ${gap.toFixed(1)}% → +${(revenueGrowthAdjustment * 100).toFixed(2)}% adjustment`
-        : `Behind target by ${Math.abs(gap).toFixed(1)}% → +${(revenueGrowthAdjustment * 100).toFixed(2)}% adjustment`,
-      signal: revenueGrowthSignal,
-      rawData: {
-        'Target Growth': `${targetGrowth.toFixed(1)}%`,
-        'Actual YOY': `${actualYOY.toFixed(1)}%`,
-        'Gap': `${gap.toFixed(1)}%`,
-        'Status': gap >= 0 ? 'On Track / Exceeding' : 'Behind Target',
-        'Max Effect': '±5%',
-        'Note': 'Strategic override - not part of weighted signals'
-      },
-      signalExplanation: `Revenue growth target adjustment applies strategic pricing pressure. When behind target (gap=${gap.toFixed(1)}%), upward pricing pressure is applied to help achieve revenue goals. Signal of ${revenueGrowthSignal.toFixed(3)} translates to ${(revenueGrowthAdjustment * 100).toFixed(2)}% adjustment (max ±5%).`
-    });
-  }
-  
-  // Room Type Occupancy Trend - add as informational adjustment entry if data is available
-  if (inputs.roomTypeOccTrend !== undefined && inputs.roomTypeOccTrend !== null) {
-    const rtOccPct = Math.round(inputs.roomTypeOccTrend * 100);
-    const slOccPct = Math.round(inputs.occupancy * 100);
-    const divergencePts = rtOccPct - slOccPct;
-    const direction = divergencePts > 0 ? 'above' : 'below';
-    const pressureWord = divergencePts > 0 ? 'upward' : 'downward';
+  // Per the documented two-path model, RevenueTarget and RoomTypeTrend are
+  // no longer surfaced as per-unit Modulo adjustments.  Revenue-target
+  // pricing pressure is handled exclusively by the dedicated Revenue Target
+  // Strategy Layer applied to the AI Rate downstream of this engine.
 
-    adjustments.push({
-      factor: 'RoomTypeTrend',
-      adjustment: roomTypeOccAdjustment,
-      weight: 0,
-      weightedAdjustment: roomTypeOccAdjustment,
-      impact: basePrice * roomTypeOccAdjustment,
-      description: `Room type T3 occ: ${rtOccPct}% (${Math.abs(divergencePts)}pts ${direction} service-line avg of ${slOccPct}%)`,
-      calculation: `Room type T3 avg ${rtOccPct}% vs service-line ${slOccPct}% → ${divergencePts > 0 ? '+' : ''}${(roomTypeOccAdjustment * 100).toFixed(2)}% adjustment`,
-      signal: roomTypeOccSignal,
-      rawData: {
-        'Room Type T3 Avg Occ': `${rtOccPct}%`,
-        'Service-Line Avg Occ': `${slOccPct}%`,
-        'Divergence': `${divergencePts > 0 ? '+' : ''}${divergencePts}pp`,
-        'Pricing Pressure': `${pressureWord} (${Math.abs(divergencePts)}pp from avg)`,
-        'Max Effect': '±3%',
-        'Note': 'Informational override — room type demand signal, not part of weighted factors'
-      },
-      signalExplanation: `Room type occupancy trend: this specific room type has a trailing 3-month average occupancy of ${rtOccPct}%, which is ${Math.abs(divergencePts)} percentage points ${direction} the service-line average of ${slOccPct}%. This ${Math.abs(divergencePts)}pp divergence applies ${pressureWord} pricing pressure of ${(roomTypeOccAdjustment * 100).toFixed(2)}% (capped at ±3%) to reflect room-type-level demand.`
-    });
-  }
-
-  // Include revenue growth signal in signals object for visibility
-  const allSignals = {
-    ...sigs,
-    revenueTarget: revenueGrowthSignal,
-    roomTypeTrend: roomTypeOccSignal
-  };
+  const allSignals = { ...sigs };
   
   return {
     signals: allSignals,

@@ -440,66 +440,6 @@ export default function AICalculationDialog({
               </CardContent>
             </Card>
 
-            {/* ── STEP 3.5: Pass 2 Math — strategic overrides + clamp ──────── */}
-            {calcDetails.preOverrideTotalAdj !== undefined && calcDetails.totalAdjustment !== undefined && (() => {
-              const pass1 = calcDetails.preOverrideTotalAdj;
-              const allAdj = calcDetails.adjustments || [];
-              const revTargetAdj = allAdj.find((a: any) => a.factor === 'RevenueTarget')?.weightedAdjustment ?? 0;
-              const roomTrendAdj = allAdj.find((a: any) => a.factor === 'RoomTypeTrend')?.weightedAdjustment ?? 0;
-              const finalAdj = calcDetails.totalAdjustment;
-              const preClamp = pass1 + revTargetAdj + roomTrendAdj;
-              const clampApplied = Math.abs(finalAdj - preClamp) > 0.0005;
-              const residual = finalAdj - pass1 - revTargetAdj - roomTrendAdj;
-              const fmt = (v: number) => `${v > 0 ? '+' : ''}${formatPercent(v)}`;
-              return (
-                <Card className="border-indigo-200 dark:border-indigo-800">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <ChevronRight className="h-4 w-4 text-indigo-500" />
-                      Pass 2 Math — From Pass 1 Total to Final Adjustment
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1.5 font-mono text-xs">
-                      <div className="flex justify-between items-center py-1">
-                        <span className="text-muted-foreground">Pass 1 Total (weighted signals)</span>
-                        <span className={getAdjustmentColor(pass1)}>{fmt(pass1)}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1">
-                        <span className="text-muted-foreground">+ RevenueTarget override</span>
-                        <span className={getAdjustmentColor(revTargetAdj)}>{fmt(revTargetAdj)}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1">
-                        <span className="text-muted-foreground">+ RoomTypeTrend override</span>
-                        <span className={getAdjustmentColor(roomTrendAdj)}>{fmt(roomTrendAdj)}</span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between items-center py-1">
-                        <span className="text-muted-foreground">= Pre-clamp subtotal</span>
-                        <span className={getAdjustmentColor(preClamp)}>{fmt(preClamp)}</span>
-                      </div>
-                      {clampApplied && (
-                        <div className="flex justify-between items-center py-1 text-amber-600 dark:text-amber-400">
-                          <span>Total-adjustment clamp{Math.abs(residual) > 0.0005 ? ` (Δ ${fmt(residual - revTargetAdj - roomTrendAdj)})` : ''}</span>
-                          <span>→ {fmt(finalAdj)}</span>
-                        </div>
-                      )}
-                      <Separator />
-                      <div className="flex justify-between items-center py-1.5 font-semibold text-sm">
-                        <span>= Final Adjustment</span>
-                        <span className={getAdjustmentColor(finalAdj)}>{fmt(finalAdj)}</span>
-                      </div>
-                    </div>
-                    {clampApplied && (
-                      <p className="text-xs text-muted-foreground mt-2 italic">
-                        The pre-clamp subtotal exceeded the algorithm's allowed total-adjustment range, so it was clamped before being applied to the base rate.
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })()}
-
             {/* ── STEP 4a: Revenue Target context (Pass 2 inputs) ──────────── */}
             {calcDetails.revenueTarget && (
               <Card className="border-purple-200 dark:border-purple-800">
