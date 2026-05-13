@@ -330,8 +330,27 @@ export async function processJob(jobId: string): Promise<void> {
   // Load competitive survey data into memory for fast lookup
   // For each location+type+roomType, keep the best competitor (by weight, then distance)
   console.log('[CompetitorJob] Loading competitive survey data...');
-  const surveyRecords = await db.select().from(competitiveSurveyData);
-  
+  const allSurveyRecords = await db.select().from(competitiveSurveyData);
+
+  // Determine the most recent surveyMonth per clientId so stale months cannot
+  // override a fresh upload from the same client.
+  const latestMonthPerClient = new Map<string, string>();
+  for (const record of allSurveyRecords) {
+    const cid = record.clientId || 'demo';
+    const existing = latestMonthPerClient.get(cid);
+    if (!existing || record.surveyMonth > existing) {
+      latestMonthPerClient.set(cid, record.surveyMonth);
+    }
+  }
+
+  const surveyRecords = allSurveyRecords.filter(record => {
+    const cid = record.clientId || 'demo';
+    return record.surveyMonth === latestMonthPerClient.get(cid);
+  });
+
+  console.log(`[CompetitorJob] Most recent survey months per client: ${JSON.stringify(Object.fromEntries(latestMonthPerClient))}`);
+  console.log(`[CompetitorJob] Filtered to ${surveyRecords.length} records from ${allSurveyRecords.length} total (latest month only)`);
+
   const surveyData = new Map<string, any>();
   for (const record of surveyRecords) {
     const key = `${record.keyStatsLocation}|${record.competitorType}|${record.roomType}`;
