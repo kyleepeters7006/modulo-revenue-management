@@ -1723,6 +1723,17 @@ export class DatabaseStorage implements IStorage {
 
     if (!rows.length) return null;
 
+    // Restrict to the single most recent survey month across all rows for this
+    // client/location/type. No multi-month lookback — stale prior-month values
+    // must not bleed into competitor selection or rate extraction.
+    const latestSurveyMonth = [...new Set(rows.map(r => r.surveyMonth).filter(Boolean) as string[])]
+      .sort().reverse()[0];
+    if (latestSurveyMonth) {
+      rows = rows.filter(r => r.surveyMonth === latestSurveyMonth);
+    }
+    // If no rows carry a surveyMonth (legacy data with null months), rows is unchanged — all
+    // legacy rows are treated as a single implicit month so behaviour is preserved.
+
     // Parse weights from notes JSON; first occurrence per competitor name wins.
     // If distanceMiles is null but lat/lng are present, compute it on-the-fly
     // so the distance-based fallback always has something to work with.
@@ -1801,11 +1812,9 @@ export class DatabaseStorage implements IStorage {
     const topWeight = competitorMeta.get(topName)?.weight ?? 0;
     const topDist = competitorMeta.get(topName)?.distanceMiles ?? null;
 
-    // Collect rows for the selected competitor across current + up to 3 prior months (4 total)
-    const topRows = rows.filter(r => r.competitorName === topName);
-    const uniqueMonths = [...new Set(topRows.map(r => r.surveyMonth).filter(Boolean) as string[])]
-      .sort().reverse().slice(0, 4);
-    const recentRows = topRows.filter(r => uniqueMonths.includes(r.surveyMonth || ''));
+    // rows is already restricted to the single most recent survey month (see above).
+    // Simply filter to the selected competitor's rows from that month.
+    const recentRows = rows.filter(r => r.competitorName === topName);
 
     // Competitor-level care/med data (shared across room types)
     let sharedCareLevel2Rate: number | null = null;
