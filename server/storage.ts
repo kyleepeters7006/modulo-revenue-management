@@ -1772,10 +1772,17 @@ export class DatabaseStorage implements IStorage {
       rows.some(r => r.competitorName === name && coreRoomTypes.has(r.roomType) && r.monthlyRateAvg && r.monthlyRateAvg > 0);
 
     // Weight pass — pick highest-weight competitor (weight must be > 0)
+    // Ties are broken by distance: the nearest competitor wins.
     let topName: string | null = null;
     let maxWeight = 0;
-    for (const [name, { weight }] of competitorMeta) {
-      if (weight > maxWeight) { maxWeight = weight; topName = name; }
+    let bestDist = Infinity;
+    for (const [name, { weight, distanceMiles }] of competitorMeta) {
+      const d = distanceMiles ?? Infinity;
+      if (weight > maxWeight || (weight === maxWeight && weight > 0 && d < bestDist)) {
+        maxWeight = weight;
+        bestDist = d;
+        topName = name;
+      }
     }
 
     // Distance fallback — only runs when no competitor has weight > 0
