@@ -551,26 +551,41 @@ export default function CompetitorForm({
                           </div>
                         )}
                         
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
-                          {competitor.streetRate && (
-                            <div className="whitespace-nowrap">Street Rate: ${competitor.streetRate}</div>
-                          )}
-                          {competitor.avgCareRate && (
-                            <div className="whitespace-nowrap">Care Rate: ${competitor.avgCareRate}</div>
-                          )}
-                          {competitor.rating && (
-                            <div className="whitespace-nowrap">Rating: ⭐ {competitor.rating}/5</div>
-                          )}
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
-                          {competitor.rank && (
-                            <div className="whitespace-nowrap">Rank: #{competitor.rank}</div>
-                          )}
-                          {competitor.roomType && (
-                            <div className="whitespace-nowrap">Room: {competitor.roomType}</div>
-                          )}
-                        </div>
+                        {/* Per-room-type rate breakdown */}
+                        {competitor.roomRates && competitor.roomRates.length > 0 ? (
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
+                            {competitor.roomRates.map((rr: { roomType: string; streetRate: number | null; careRate: number | null }) => (
+                              <div key={rr.roomType} className="whitespace-nowrap">
+                                <span className="font-medium">{rr.roomType}:</span>{' '}
+                                {rr.streetRate != null ? `$${Math.round(rr.streetRate).toLocaleString()}` : '—'}
+                                {rr.careRate != null && rr.careRate > 0 ? ` | Care: $${Math.round(rr.careRate).toLocaleString()}` : ''}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
+                            {competitor.streetRate && (
+                              <div className="whitespace-nowrap">Street Rate: ${competitor.streetRate}</div>
+                            )}
+                            {competitor.avgCareRate && (
+                              <div className="whitespace-nowrap">Care Rate: ${competitor.avgCareRate}</div>
+                            )}
+                            {competitor.roomType && (
+                              <div className="whitespace-nowrap">Room: {competitor.roomType}</div>
+                            )}
+                          </div>
+                        )}
+
+                        {(competitor.rating || competitor.rank) && (
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
+                            {competitor.rating && (
+                              <div className="whitespace-nowrap">Rating: ⭐ {competitor.rating}/5</div>
+                            )}
+                            {competitor.rank && (
+                              <div className="whitespace-nowrap">Rank: #{competitor.rank}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
                         <Button

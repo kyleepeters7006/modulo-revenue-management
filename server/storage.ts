@@ -47,6 +47,7 @@ import {
   type InsertPricingWeights,
   type Competitor,
   type InsertCompetitor,
+  type CompetitorWithRates,
   type Guardrails,
   type InsertGuardrails,
   type AdjustmentRanges,
@@ -177,7 +178,7 @@ export interface IStorage {
     locations?: string[];
     serviceLines?: string[];
     clientId?: string;
-  }): Promise<{ competitors: Competitor[]; usingDistanceFallback: boolean }>;
+  }): Promise<{ competitors: CompetitorWithRates[]; usingDistanceFallback: boolean }>;
   createCompetitor(data: InsertCompetitor): Promise<Competitor>;
   updateCompetitor(id: string, data: InsertCompetitor): Promise<Competitor>;
   deleteCompetitor(id: string): Promise<void>;
@@ -1372,6 +1373,22 @@ export class DatabaseStorage implements IStorage {
       workingData = finalData;
     }
 
+    // Filter to only the most recent survey month per keyStatsLocation
+    const latestMonthByLocation = new Map<string, string>();
+    for (const record of workingData) {
+      const loc = record.keyStatsLocation || '';
+      const month = record.surveyMonth || '';
+      const current = latestMonthByLocation.get(loc);
+      if (!current || month > current) {
+        latestMonthByLocation.set(loc, month);
+      }
+    }
+    workingData = workingData.filter(record => {
+      const loc = record.keyStatsLocation || '';
+      const latest = latestMonthByLocation.get(loc);
+      return !latest || !record.surveyMonth || record.surveyMonth === latest;
+    });
+
     // Group by competitor and location to aggregate room types
     const competitorMap = new Map<string, any>();
     
@@ -1380,6 +1397,7 @@ export class DatabaseStorage implements IStorage {
       const recordWeight = parseRecordWeight(record);
       
       if (!competitorMap.has(key)) {
+        // Use Studio as the primary/fallback rate for backward compat
         competitorMap.set(key, {
           id: record.id,
           name: record.competitorName,
@@ -1400,11 +1418,16 @@ export class DatabaseStorage implements IStorage {
           attributes: null,
           careLevel2Rate: record.careLevel2Rate,
           medicationManagementFee: record.medicationManagementFee,
-          createdAt: null
+          createdAt: null,
+          roomRates: record.roomType ? [{
+            roomType: record.roomType,
+            streetRate: record.monthlyRateAvg,
+            careRate: record.careFeesAvg,
+          }] : []
         });
       } else {
-        // Update with better data if available
         const existing = competitorMap.get(key);
+        // Update fallback single-rate fields only if not yet set
         if (!existing.streetRate && record.monthlyRateAvg) {
           existing.streetRate = record.monthlyRateAvg;
         }
@@ -1418,10 +1441,33 @@ export class DatabaseStorage implements IStorage {
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
         }
+        // Accumulate per-room-type rates — one entry per distinct room type
+        if (record.roomType) {
+          const alreadyHas = existing.roomRates.some((r: any) => r.roomType === record.roomType);
+          if (!alreadyHas) {
+            existing.roomRates.push({
+              roomType: record.roomType,
+              streetRate: record.monthlyRateAvg,
+              careRate: record.careFeesAvg,
+            });
+          }
+        }
       }
     }
     
-    const results = Array.from(competitorMap.values());
+    // Post-process: derive top-level streetRate/roomType/avgCareRate from Studio row
+    // if present, for deterministic backward-compat across consumers.
+    for (const comp of competitorMap.values()) {
+      if (comp.roomRates && comp.roomRates.length > 0) {
+        const studioRow = comp.roomRates.find((r: any) => r.roomType === 'Studio');
+        const preferred = studioRow ?? comp.roomRates[0];
+        comp.streetRate = preferred.streetRate ?? comp.streetRate;
+        comp.avgCareRate = preferred.careRate ?? comp.avgCareRate;
+        comp.roomType = preferred.roomType ?? comp.roomType;
+      }
+    }
+
+    const results = Array.from(competitorMap.values()) as CompetitorWithRates[];
     
     return { competitors: results, usingDistanceFallback };
   }

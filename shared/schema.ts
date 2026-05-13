@@ -1047,6 +1047,16 @@ export type PricingWeights = typeof pricingWeights.$inferSelect;
 export type InsertPricingWeights = z.infer<typeof insertPricingWeightsSchema>;
 export type Competitor = typeof competitors.$inferSelect;
 export type InsertCompetitor = z.infer<typeof insertCompetitorSchema>;
+
+export interface CompetitorRoomRate {
+  roomType: string;
+  streetRate: number | null;
+  careRate: number | null;
+}
+
+export type CompetitorWithRates = Competitor & {
+  roomRates: CompetitorRoomRate[];
+};
 export type StockMarketCache = typeof stockMarketCache.$inferSelect;
 export type InsertStockMarketCache = z.infer<typeof insertStockMarketCacheSchema>;
 export type AdjustmentRanges = typeof adjustmentRanges.$inferSelect;
