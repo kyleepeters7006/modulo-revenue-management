@@ -221,12 +221,6 @@ async function processBatch(
       progress.processed++;
       lastProcessedId = unit.id;
 
-      // Skip if unit already has competitor data
-      if (unit.competitorName && unit.competitorFinalRate && unit.competitorFinalRate > 0) {
-        progress.skipped++;
-        continue;
-      }
-
       // Find matching competitor data
       const location = unit.location || '';
       const serviceLine = unit.serviceLine || 'AL';
@@ -313,6 +307,8 @@ async function processBatch(
           .where(eq(rentRollData.id, unit.id));
 
         progress.updated++;
+      } else {
+        progress.skipped++;
       }
     } catch (error) {
       progress.errors++;
