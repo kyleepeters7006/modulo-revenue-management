@@ -829,6 +829,7 @@ export const insertInquiryMetricsSchema = createInsertSchema(inquiryMetrics).omi
 export const competitorRateJobs = pgTable("competitor_rate_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   uploadMonth: text("upload_month").notNull(),
+  clientId: text("client_id"), // Optional: when set, job is scoped to this client only
   status: text("status").notNull().default('pending'), // pending, running, completed, failed
   totalUnits: integer("total_units").default(0),
   processedUnits: integer("processed_units").default(0),

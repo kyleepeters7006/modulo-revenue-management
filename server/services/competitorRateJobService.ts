@@ -76,13 +76,18 @@ function convertToStoredRate(monthlyRate: number, serviceLine: string | null): n
 
 /**
  * Create a new competitor rate job
+ * @param uploadMonth - The month to process (e.g. '2025-11')
+ * @param clientId - Optional: when provided, only that client's data is processed
  */
-export async function createCompetitorRateJob(uploadMonth: string): Promise<string> {
-  // Check for existing running job for this month
+export async function createCompetitorRateJob(uploadMonth: string, clientId?: string): Promise<string> {
+  // Check for existing running job for this month (and same clientId scope)
   const existingJob = await db.select()
     .from(competitorRateJobs)
     .where(and(
       eq(competitorRateJobs.uploadMonth, uploadMonth),
+      clientId
+        ? eq(competitorRateJobs.clientId, clientId)
+        : isNull(competitorRateJobs.clientId),
       or(
         eq(competitorRateJobs.status, 'pending'),
         eq(competitorRateJobs.status, 'running')
@@ -91,14 +96,18 @@ export async function createCompetitorRateJob(uploadMonth: string): Promise<stri
     .limit(1);
 
   if (existingJob.length > 0) {
-    console.log(`[CompetitorJob] Existing job found for ${uploadMonth}, returning job ID: ${existingJob[0].id}`);
+    console.log(`[CompetitorJob] Existing job found for ${uploadMonth}${clientId ? ` (client: ${clientId})` : ''}, returning job ID: ${existingJob[0].id}`);
     return existingJob[0].id;
   }
 
-  // Count total units for this month
+  // Count total units for this month (scoped to clientId when provided)
+  const unitCountConditions = clientId
+    ? and(eq(rentRollData.uploadMonth, uploadMonth), eq(rentRollData.clientId, clientId))
+    : eq(rentRollData.uploadMonth, uploadMonth);
+
   const unitCount = await db.select({ count: sql<number>`count(*)::int` })
     .from(rentRollData)
-    .where(eq(rentRollData.uploadMonth, uploadMonth));
+    .where(unitCountConditions);
 
   const totalUnits = unitCount[0]?.count || 0;
 
@@ -106,6 +115,7 @@ export async function createCompetitorRateJob(uploadMonth: string): Promise<stri
   const [newJob] = await db.insert(competitorRateJobs)
     .values({
       uploadMonth,
+      clientId: clientId || null,
       status: 'pending',
       totalUnits,
       processedUnits: 0,
@@ -115,7 +125,7 @@ export async function createCompetitorRateJob(uploadMonth: string): Promise<stri
     })
     .returning();
 
-  console.log(`[CompetitorJob] Created new job ${newJob.id} for ${uploadMonth} with ${totalUnits} units`);
+  console.log(`[CompetitorJob] Created new job ${newJob.id} for ${uploadMonth}${clientId ? ` (client: ${clientId})` : ' (all clients)'} with ${totalUnits} units`);
   return newJob.id;
 }
 
@@ -166,21 +176,34 @@ async function processBatch(
 ): Promise<JobProgress> {
   const progress: JobProgress = { processed: 0, updated: 0, skipped: 0, errors: 0 };
 
+  // Build base conditions - always filter by uploadMonth, optionally by clientId
+  const baseConditions = job.clientId
+    ? and(eq(rentRollData.uploadMonth, job.uploadMonth), eq(rentRollData.clientId, job.clientId))
+    : eq(rentRollData.uploadMonth, job.uploadMonth);
+
   // Build query to get next batch of units
   let query = db.select()
     .from(rentRollData)
-    .where(eq(rentRollData.uploadMonth, job.uploadMonth))
+    .where(baseConditions)
     .orderBy(rentRollData.id)
     .limit(BATCH_SIZE);
 
   // Resume from last processed ID if available
   if (job.lastProcessedId) {
+    const resumeConditions = job.clientId
+      ? and(
+          eq(rentRollData.uploadMonth, job.uploadMonth),
+          eq(rentRollData.clientId, job.clientId),
+          gt(rentRollData.id, job.lastProcessedId)
+        )
+      : and(
+          eq(rentRollData.uploadMonth, job.uploadMonth),
+          gt(rentRollData.id, job.lastProcessedId)
+        );
+
     query = db.select()
       .from(rentRollData)
-      .where(and(
-        eq(rentRollData.uploadMonth, job.uploadMonth),
-        gt(rentRollData.id, job.lastProcessedId)
-      ))
+      .where(resumeConditions)
       .orderBy(rentRollData.id)
       .limit(BATCH_SIZE);
   }
@@ -318,19 +341,30 @@ async function processBatch(
 export async function processJob(jobId: string): Promise<void> {
   console.log(`[CompetitorJob] Starting job ${jobId}`);
 
-  // Mark job as running
-  await db.update(competitorRateJobs)
+  // Mark job as running and fetch the job row to read clientId and other fields
+  const [currentJobRow] = await db.update(competitorRateJobs)
     .set({ 
       status: 'running',
       startedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(competitorRateJobs.id, jobId));
+    .where(eq(competitorRateJobs.id, jobId))
+    .returning();
+
+  if (!currentJobRow) {
+    console.error(`[CompetitorJob] Job ${jobId} not found, cannot process`);
+    return;
+  }
 
   // Load competitive survey data into memory for fast lookup
   // For each location+type+roomType, keep the best competitor (by weight, then distance)
-  console.log('[CompetitorJob] Loading competitive survey data...');
-  const allSurveyRecords = await db.select().from(competitiveSurveyData);
+  const jobClientId = currentJobRow.clientId;
+  console.log(`[CompetitorJob] Loading competitive survey data${jobClientId ? ` (scoped to client: ${jobClientId})` : ' (all clients)'}...`);
+
+  // When the job is scoped to a client, only fetch that client's survey data
+  const allSurveyRecords = jobClientId
+    ? await db.select().from(competitiveSurveyData).where(eq(competitiveSurveyData.clientId, jobClientId))
+    : await db.select().from(competitiveSurveyData);
 
   // Determine the most recent surveyMonth per clientId so stale months cannot
   // override a fresh upload from the same client.
@@ -458,9 +492,11 @@ export async function resumeInterruptedJobs(): Promise<void> {
 
 /**
  * Start a new job and process it in the background
+ * @param uploadMonth - The month to process (e.g. '2025-11')
+ * @param clientId - Optional: when provided, only that client's data is processed
  */
-export async function startCompetitorRateJob(uploadMonth: string): Promise<{ jobId: string; status: string }> {
-  const jobId = await createCompetitorRateJob(uploadMonth);
+export async function startCompetitorRateJob(uploadMonth: string, clientId?: string): Promise<{ jobId: string; status: string }> {
+  const jobId = await createCompetitorRateJob(uploadMonth, clientId);
   
   // Start processing in background
   setImmediate(() => {

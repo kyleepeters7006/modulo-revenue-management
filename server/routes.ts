@@ -6368,10 +6368,11 @@ Focus areas (in order):
       console.log(`Attribute pricing cache invalidated for month: ${uploadMonth}`);
 
       // Auto-trigger competitor rate matching using the job-based system
-      // This is resumable and won't be interrupted by server restarts
-      console.log(`Triggering automatic competitor rate matching for ${uploadMonth}...`);
-      startCompetitorRateJob(uploadMonth).then(result => {
-        console.log(`✅ Competitor rate job started: ${result.jobId} for ${uploadMonth}`);
+      // This is resumable and won't be interrupted by server restarts.
+      // Scope to the uploading client so only their units/survey data are processed.
+      console.log(`Triggering automatic competitor rate matching for ${uploadMonth} (client: ${clientId})...`);
+      startCompetitorRateJob(uploadMonth, clientId).then(result => {
+        console.log(`✅ Competitor rate job started: ${result.jobId} for ${uploadMonth} (client: ${clientId})`);
       }).catch(error => {
         console.error('❌ Error starting competitor rate job:', error);
       });
@@ -11643,18 +11644,34 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
 
   // Job-based competitor rate matching - Start a new job
-  app.post("/api/competitor-rates/job/start", async (req, res) => {
+  app.post("/api/competitor-rates/job/start", async (req: any, res) => {
     try {
-      const { uploadMonth } = req.body;
+      const { uploadMonth, clientId: bodyClientId } = req.body;
       const targetMonth = uploadMonth || '2025-11';
       
-      const result = await startCompetitorRateJob(targetMonth);
+      // Default to the session's clientId so the job is always scoped to the caller's tenant.
+      // Admins may override with an explicit clientId in the request body to run cross-tenant.
+      // Omitting clientId entirely (e.g. scheduled portfolio-wide runs) leaves it unscoped.
+      let scopedClientId: string | undefined = req.clientId || undefined;
+      if (bodyClientId && bodyClientId !== scopedClientId) {
+        const session = req.session as any;
+        if (!session?.userId) {
+          return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
+        }
+        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+          return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
+        }
+        scopedClientId = bodyClientId;
+      }
+
+      const result = await startCompetitorRateJob(targetMonth, scopedClientId);
       
       res.json({
         success: true,
         jobId: result.jobId,
         status: result.status,
-        message: `Competitor rate job started for ${targetMonth}. Processing in background.`
+        message: `Competitor rate job started for ${targetMonth}${scopedClientId ? ` (client: ${scopedClientId})` : ' (all clients)'}. Processing in background.`
       });
     } catch (error) {
       console.error('Error starting competitor rate job:', error);
