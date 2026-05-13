@@ -87,6 +87,7 @@ import {
   type RevenueGrowthTarget,
   type InsertRevenueGrowthTarget
 } from "@shared/schema";
+import { compareRoomTypes } from "@shared/roomTypes";
 import { db } from "./db";
 import { eq, and, asc, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
@@ -1459,6 +1460,8 @@ export class DatabaseStorage implements IStorage {
     // if present, for deterministic backward-compat across consumers.
     for (const comp of competitorMap.values()) {
       if (comp.roomRates && comp.roomRates.length > 0) {
+        // Sort room types into canonical order before any consumer reads them
+        comp.roomRates.sort((a: any, b: any) => compareRoomTypes(a.roomType ?? '', b.roomType ?? ''));
         const studioRow = comp.roomRates.find((r: any) => r.roomType === 'Studio');
         const preferred = studioRow ?? comp.roomRates[0];
         comp.streetRate = preferred.streetRate ?? comp.streetRate;

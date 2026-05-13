@@ -209,3 +209,25 @@ export function isStandardRoomType(roomType: string): roomType is StandardRoomTy
 export function getAllStandardRoomTypes(): StandardRoomType[] {
   return Object.values(STANDARD_ROOM_TYPES);
 }
+
+/**
+ * Canonical display order for room types (smallest → largest unit).
+ * Unknown room types receive rank 99 and sort alphabetically among themselves.
+ */
+export const ROOM_TYPE_DISPLAY_ORDER: Record<string, number> = {
+  [STANDARD_ROOM_TYPES.STUDIO]: 0,
+  [STANDARD_ROOM_TYPES.STUDIO_DLX]: 1,
+  [STANDARD_ROOM_TYPES.COMPANION]: 2,
+  [STANDARD_ROOM_TYPES.ONE_BEDROOM]: 3,
+  [STANDARD_ROOM_TYPES.TWO_BEDROOM]: 4,
+};
+
+/**
+ * Comparator for sorting room types in canonical display order.
+ * Use with Array.prototype.sort().
+ */
+export function compareRoomTypes(a: string, b: string): number {
+  const ra = ROOM_TYPE_DISPLAY_ORDER[a] !== undefined ? ROOM_TYPE_DISPLAY_ORDER[a] : 99;
+  const rb = ROOM_TYPE_DISPLAY_ORDER[b] !== undefined ? ROOM_TYPE_DISPLAY_ORDER[b] : 99;
+  return ra !== rb ? ra - rb : a.localeCompare(b);
+}

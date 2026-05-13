@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Trash2, Plus, Edit2, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { compareRoomTypes } from "@shared/roomTypes";
 
 const competitorFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -554,7 +555,9 @@ export default function CompetitorForm({
                         {/* Per-room-type rate breakdown */}
                         {competitor.roomRates && competitor.roomRates.length > 0 ? (
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
-                            {competitor.roomRates.map((rr: { roomType: string; streetRate: number | null; careRate: number | null }) => (
+                            {[...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
+                              compareRoomTypes(a.roomType, b.roomType)
+                            ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null }) => (
                               <div key={rr.roomType} className="whitespace-nowrap">
                                 <span className="font-medium">{rr.roomType}:</span>{' '}
                                 {rr.streetRate != null ? `$${Math.round(rr.streetRate).toLocaleString()}` : '—'}
