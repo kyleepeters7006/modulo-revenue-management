@@ -887,7 +887,7 @@ export default function RoomAttributes() {
                                 variant={parseFloat(lift) > 5 ? "default" : "secondary"}
                                 className={parseFloat(lift) > 5 ? "bg-green-600" : ""}
                               >
-                                +{lift}%
+                                {parseFloat(lift) >= 0 ? '+' : ''}{lift}%
                               </Badge>
                             ) : (
                               <span className="text-muted-foreground text-sm">—</span>

@@ -603,10 +603,10 @@ export async function generateDemoData(): Promise<{
             );
             // Higher unit numbers get better location ratings (upper floors/better position)
             const locBonus = i >= Math.floor(unitCount * 0.6) ? 0.15 : 0;
-            const viewRating      = pickRating(attrSeed, 0.20, 0.50);          // 20% A, 50% B, 30% C
-            const renovationRating = pickRating(attrSeed, 0.15, 0.55);         // 15% A, 55% B, 30% C
-            const locationRating  = pickRating(attrSeed, 0.20 + locBonus, 0.55); // top units skew A
-            const amenityRating   = pickRating(attrSeed, 0.20, 0.60);          // 20% A, 60% B, 20% C
+            const viewRating      = pickRating(attrSeed, 0.35, 0.50);          // 35% A, 50% B, 15% C
+            const renovationRating = pickRating(attrSeed, 0.30, 0.52);         // 30% A, 52% B, 18% C
+            const locationRating  = pickRating(attrSeed, 0.35 + locBonus, 0.50); // top units skew A
+            const amenityRating   = pickRating(attrSeed, 0.35, 0.50);          // 35% A, 50% B, 15% C
 
             rentRollBatch.push({
               uploadMonth: month,
