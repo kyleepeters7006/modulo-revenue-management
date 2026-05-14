@@ -476,10 +476,10 @@ export function Analytics() {
           title: 'Revenue Opportunity Calculation',
           formula: '(Potential Revenue at 95% Occupancy - Current Revenue) × 12 months',
           steps: [
-            { label: 'Current monthly revenue', value: `$${(currentMonthlyRevenue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-            { label: 'Potential monthly revenue at 95% occupancy', value: `$${(potentialMonthlyRevenue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-            { label: 'Monthly opportunity', value: `$${(monthlyOpportunity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-            { label: 'Annual revenue opportunity', value: `$${(annualOpportunity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, highlight: true },
+            { label: 'Current monthly revenue', value: `$${Math.round(currentMonthlyRevenue).toLocaleString('en-US')}` },
+            { label: 'Potential monthly revenue at 95% occupancy', value: `$${Math.round(potentialMonthlyRevenue).toLocaleString('en-US')}` },
+            { label: 'Monthly opportunity', value: `$${Math.round(monthlyOpportunity).toLocaleString('en-US')}` },
+            { label: 'Annual revenue opportunity', value: `$${Math.round(annualOpportunity).toLocaleString('en-US')}`, highlight: true },
           ],
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,
