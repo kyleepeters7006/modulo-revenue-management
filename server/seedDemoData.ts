@@ -309,7 +309,6 @@ export async function generateDemoData(): Promise<{
       if (!compName) compName = `${COMPETITOR_NAMES[ci % COMPETITOR_NAMES.length]} - ${loc.name.split(' - ')[0]}`;
       locCompNames.push(compName);
 
-      const rateVariance = randBetween(locSeed, 0.88, 1.18);
       const distanceMiles = Math.round(randBetween(locSeed, 0.4, 8.5) * 10) / 10;
 
       for (const compType of compTypes) {
@@ -317,6 +316,18 @@ export async function generateDemoData(): Promise<{
         const matchingSL = locServiceLines.find(sl => SL_TO_COMP_TYPE[sl] === compType) || 'AL';
         const [rateMin, rateMax] = STREET_RATE_RANGES[matchingSL];
         const locBaseRate = Math.round(randBetween(locSeed, rateMin, rateMax));
+
+        // Calibrate competitor rate variance based on occupancy for this service line:
+        // High occ (>90%): we price at a premium — competitors are 7-15% below our street rate
+        // Medium occ (82-90%): close to market — competitors within ±5%
+        // Low occ (<82%): below-market occupancy — competitors are 2-9% above our street rate
+        const [occMin, occMax] = OCC_RATES[matchingSL] || [0.80, 0.90];
+        const midOcc = (occMin + occMax) / 2;
+        const [rateVarLow, rateVarHigh] =
+          midOcc > 0.90 ? [0.85, 0.93] :
+          midOcc > 0.82 ? [0.93, 1.02] :
+                          [0.98, 1.07];
+        const rateVariance = randBetween(locSeed, rateVarLow, rateVarHigh);
 
         for (const roomSize of roomSizes) {
           const premium = ROOM_PREMIUM[roomSize] || 1.0;

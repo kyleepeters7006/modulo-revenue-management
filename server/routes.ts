@@ -7151,21 +7151,14 @@ Focus areas (in order):
         const avgRate = roomTypeUnits.length > 0 ? 
           roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
         
-        // Calculate competitor rate - normalize HC daily rates to monthly before averaging
-        // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
+        // Calculate competitor rate - use raw stored values (same units as avgRate above)
+        // HC competitor rates are stored as daily (matching HC streetRate daily), AL/SL/VIL as monthly
+        // No conversion applied here so the comparison is apples-to-apples with avgRate
         let avgCompetitorRate = 0;
         if (roomTypeUnits.length > 0) {
           const unitsWithCompetitorData = roomTypeUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
           if (unitsWithCompetitorData.length > 0) {
-            const normalizedRates = unitsWithCompetitorData.map(u => {
-              let rate = u.competitorFinalRate || 0;
-              // Convert HC daily rates to monthly (HC rates below $1000 are daily)
-              if ((u.serviceLine === 'HC' || u.serviceLine === 'HC/MC') && rate > 0 && rate < 1000) {
-                rate = rate * 30.44; // Convert daily to monthly
-              }
-              return rate;
-            });
-            avgCompetitorRate = normalizedRates.reduce((sum, rate) => sum + rate, 0) / normalizedRates.length;
+            avgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + (u.competitorFinalRate || 0), 0) / unitsWithCompetitorData.length;
           }
         }
         
@@ -7198,29 +7191,14 @@ Focus areas (in order):
           const slUnits = roomTypeUnits.filter(u => u.serviceLine === serviceLine);
           const slAvgRate = slUnits.length > 0 ?
             slUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / slUnits.length : 0;
-          // Calculate competitor rate - ONLY average units that have competitor data
-          // Use competitorFinalRate which is the adjusted rate from the competitor rate matching job
+          // Calculate competitor rate - raw stored values only (same units as slAvgRate)
+          // HC is stored as daily to match HC streetRate; AL/SL/VIL is monthly
           let slAvgCompetitorRate = 0;
           if (slUnits.length > 0) {
-            // Filter to only units with actual competitor rates
             const unitsWithCompetitorData = slUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
-            
             if (unitsWithCompetitorData.length > 0) {
-              const competitorRates = unitsWithCompetitorData.map(u => {
-                let rate = u.competitorFinalRate || 0;
-                
-                // Convert HC/SMC daily rates to monthly (multiply by 30.44)
-                // HC rates below $1000 are likely daily rates that need conversion
-                if ((serviceLine === 'HC' || serviceLine === 'HC/MC' || serviceLine === 'SMC') && rate > 0 && rate < 1000) {
-                  rate = rate * 30.44; // Convert daily to monthly
-                }
-                
-                return rate;
-              });
-              
-              slAvgCompetitorRate = competitorRates.reduce((sum, rate) => sum + rate, 0) / competitorRates.length;
+              slAvgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + (u.competitorFinalRate || 0), 0) / unitsWithCompetitorData.length;
             }
-            // If no units have competitor data, slAvgCompetitorRate remains 0
           }
           
           // Calculate modulo rate for this service line
