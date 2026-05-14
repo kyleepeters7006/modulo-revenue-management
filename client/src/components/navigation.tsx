@@ -27,13 +27,13 @@ const menuItems = [
   { path: "/overview", label: "Overview", icon: BarChart3 },
   { path: "/rate-card", label: "Rate Card", icon: CreditCard },
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
-  { path: "/competitor-analysis", label: "Competitors", icon: Map },
   { path: "/analytics", label: "Pricing Analytics", icon: ScatterChart },
   { path: "/room-attributes", label: "Room Attributes", icon: Layers },
+  { path: "/competitor-analysis", label: "Competitors", icon: Map },
+  { path: "/ai-insights", label: "AI Insights", icon: Brain },
   { path: "/floor-plans", label: "Floor Plans", icon: LayoutTemplate },
   { path: "/about", label: "About Us", icon: Info },
   { path: "/data-management", label: "Data Management", icon: Upload },
-  { path: "/ai-insights", label: "AI Insights", icon: Brain },
 ];
 
 interface NavigationProps {
