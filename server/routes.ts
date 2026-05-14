@@ -7171,7 +7171,7 @@ Focus areas (in order):
         let avgModuloSuggested = 0;
         if (roomTypeUnits.length > 0) {
           const moduloRates = roomTypeUnits
-            .map(u => u.moduloSuggestedRate || 0)
+            .map(u => toMonthly(u.moduloSuggestedRate || 0, u.serviceLine))
             .filter(rate => rate > 0); // Only include units that have modulo rates
           
           if (moduloRates.length > 0) {
