@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lightbulb, Filter, MapPin, Edit3, Save, X, RefreshCw, Clock, PlayCircle } from "lucide-react";
+import { Lightbulb, Filter, MapPin, Edit3, Save, X, RefreshCw, Clock, PlayCircle, MessageSquare, Send, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { 
   Select, 
   SelectContent, 
@@ -108,14 +109,25 @@ function renderFormattedInsights(text: string) {
   return <div className="space-y-0.5">{elements}</div>;
 }
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  suggestClearFilters?: boolean;
+}
+
 export default function AiInsights() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState("");
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>("all");
   const [isHydrated, setIsHydrated] = useState(false);
-  // Optimistic display while generating
   const [pendingText, setPendingText] = useState<string | null>(null);
+
+  // Chat state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -231,6 +243,45 @@ export default function AiInsights() {
     },
   });
 
+  // ── Chat mutation ─────────────────────────────────────────────────────────
+  const chatMutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiRequest('/api/ai/chat', 'POST', {
+        message,
+        location: selectedLocation !== 'all' ? selectedLocation : undefined,
+        serviceLine: selectedServiceLine !== 'all' ? selectedServiceLine : undefined,
+        history: chatMessages.slice(-8).map(m => ({ role: m.role, content: m.content })),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setChatMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: data.reply, suggestClearFilters: data.suggestClearFilters },
+      ]);
+      setTimeout(() => {
+        chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
+      }, 50);
+    },
+    onError: (err: any) => {
+      setChatMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
+      ]);
+    },
+  });
+
+  const handleSendChat = () => {
+    const msg = chatInput.trim();
+    if (!msg || chatMutation.isPending) return;
+    setChatMessages(prev => [...prev, { role: 'user', content: msg }]);
+    setChatInput('');
+    setTimeout(() => {
+      chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
+    }, 50);
+    chatMutation.mutate(msg);
+  };
+
   const handleGenerateInsights = () => {
     setPendingText("Analyzing property data and market conditions...");
     aiSuggestMutation.mutate();
@@ -294,6 +345,106 @@ export default function AiInsights() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* ── Chat Panel ─────────────────────────────────────────────────── */}
+            <div className="rounded-lg border border-slate-200 overflow-hidden">
+              {/* Toggle button */}
+              <button
+                onClick={() => setChatOpen(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                data-testid="button-toggle-chat"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-blue-500" />
+                  <span className="text-sm font-medium text-slate-700">Ask AI about this data</span>
+                  {chatMessages.length > 0 && (
+                    <span className="text-xs bg-blue-100 text-blue-700 rounded-full px-2 py-0.5">
+                      {chatMessages.length} message{chatMessages.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+                {chatOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+
+              {chatOpen && (
+                <div className="border-t border-slate-200">
+                  {/* Context badge */}
+                  <div className="px-4 pt-2.5 pb-1 text-xs text-slate-500 flex items-center gap-1.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+                    Responding with data for: <span className="font-medium text-slate-600">{getFilterDescription()}</span>
+                  </div>
+
+                  {/* Message history */}
+                  <div
+                    ref={chatScrollRef}
+                    className="flex flex-col gap-3 px-4 py-3 max-h-80 overflow-y-auto"
+                  >
+                    {chatMessages.length === 0 && (
+                      <p className="text-xs text-slate-400 italic text-center py-4">
+                        Ask a question about occupancy, rates, competitors, or pricing strategy.
+                      </p>
+                    )}
+                    {chatMessages.map((msg, i) => (
+                      <div key={i} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                            msg.role === 'user'
+                              ? 'bg-blue-500 text-white rounded-br-sm'
+                              : 'bg-slate-100 text-slate-800 rounded-bl-sm'
+                          }`}
+                        >
+                          {msg.role === 'assistant'
+                            ? <div className="space-y-1">{renderFormattedInsights(msg.content)}</div>
+                            : msg.content
+                          }
+                        </div>
+                        {msg.suggestClearFilters && (
+                          <div className="flex items-start gap-1.5 max-w-[85%] bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-500" />
+                            <span>
+                              For a full portfolio view, try setting both filters to <strong>All</strong> — this response is scoped to {getFilterDescription()}.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {chatMutation.isPending && (
+                      <div className="flex items-start">
+                        <div className="bg-slate-100 rounded-2xl rounded-bl-sm px-3.5 py-2.5">
+                          <div className="flex gap-1 items-center h-4">
+                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input bar */}
+                  <div className="flex items-center gap-2 px-4 pb-3 pt-1 border-t border-slate-100">
+                    <Input
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                      placeholder="Ask about rates, occupancy, competitors…"
+                      className="flex-1 h-9 text-sm"
+                      disabled={chatMutation.isPending}
+                      data-testid="input-chat"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleSendChat}
+                      disabled={!chatInput.trim() || chatMutation.isPending}
+                      className="h-9 w-9 p-0 bg-blue-500 hover:bg-blue-600"
+                      data-testid="button-send-chat"
+                    >
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Timestamp + Refresh row — shown when analysis exists */}

@@ -5541,6 +5541,95 @@ Focus areas (in order):
     }
   });
 
+  // ── AI Chat endpoint ─────────────────────────────────────────────────────
+  app.post("/api/ai/chat", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { message, location, serviceLine, history = [] } = req.body || {};
+      if (!message?.trim()) return res.status(400).json({ error: 'message is required' });
+
+      // Detect portfolio-wide questions asked while a specific filter is active
+      const broadKeywords = /\b(portfolio|all locations|across all|every campus|overall|company.wide|enterprise|all campuses|entire portfolio|whole portfolio|all facilities)\b/i;
+      const filtersActive = (location && location !== 'all') || (serviceLine && serviceLine !== 'all');
+      const suggestClearFilters = filtersActive && broadKeywords.test(message);
+
+      // ── Fetch data (same as /api/ai/suggest) ─────────────────────────────
+      const latestMonthResult = await db
+        .select({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(and(sql`${rentRollData.uploadMonth} IS NOT NULL`, eq(rentRollData.clientId, clientId)))
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+        .limit(1);
+      const latestMonth = latestMonthResult[0]?.uploadMonth || '2026-05';
+
+      let allData = await storage.getRentRollDataByMonth(latestMonth, clientId);
+      let filteredData = allData;
+      if (location && location !== 'all') filteredData = filteredData.filter(u => u.location === location);
+      if (serviceLine && serviceLine !== 'all') filteredData = filteredData.filter(u => u.serviceLine === serviceLine);
+
+      const totalUnits = filteredData.length;
+      const occupiedUnits = filteredData.filter(u => u.occupiedYN).length;
+      const vacantUnits = totalUnits - occupiedUnits;
+      const occupancyRate = totalUnits > 0 ? occupiedUnits / totalUnits : 0;
+      const avgStreet = totalUnits > 0 ? filteredData.reduce((s, u) => s + (u.streetRate || 0), 0) / totalUnits : 0;
+      const avgInHouse = totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).reduce((s, u) => s + (u.inHouseRate || 0), 0) / Math.max(1, occupiedUnits) : 0;
+
+      const withModulo = filteredData.filter(u => u.moduloSuggestedRate && u.moduloSuggestedRate > 0);
+      const withAI = filteredData.filter(u => u.aiSuggestedRate && u.aiSuggestedRate > 0);
+      const avgModulo = withModulo.length ? withModulo.reduce((s, u) => s + u.moduloSuggestedRate!, 0) / withModulo.length : null;
+      const avgAI = withAI.length ? withAI.reduce((s, u) => s + u.aiSuggestedRate!, 0) / withAI.length : null;
+
+      const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
+      const slBreakdown: Record<string, number> = {};
+      filteredData.forEach(u => { const sl = u.serviceLine || 'Unknown'; slBreakdown[sl] = (slBreakdown[sl] || 0) + 1; });
+
+      let allCompetitors = await storage.getCompetitors(clientId);
+      let filteredCompetitors = location && location !== 'all'
+        ? allCompetitors.filter(c => c.location === location) : allCompetitors;
+      const competitorRates = filteredCompetitors.map(c => c.streetRate).filter(Boolean) as number[];
+      const avgCompRate = competitorRates.length
+        ? competitorRates.reduce((s, r) => s + r, 0) / competitorRates.length : null;
+
+      const scopeStr = [location && location !== 'all' && `Location: ${location}`, serviceLine && serviceLine !== 'all' && `Service Line: ${serviceLine}`]
+        .filter(Boolean).join(' | ') || 'All locations & service lines (portfolio-wide)';
+
+      const dataContext = `
+**DATA SCOPE: ${scopeStr}**
+Units: ${totalUnits} total | ${occupiedUnits} occupied (${(occupancyRate * 100).toFixed(1)}%) | ${vacantUnits} vacant (${longVacant} vacant 30+ days)
+Avg street rate: $${Math.round(avgStreet).toLocaleString()} | Avg in-house rate: $${Math.round(avgInHouse).toLocaleString()}
+${avgModulo ? `Modulo suggested avg: $${Math.round(avgModulo).toLocaleString()} (${withModulo.length} units)` : 'Modulo rates: not calculated'}
+${avgAI ? `AI suggested avg: $${Math.round(avgAI).toLocaleString()} (${withAI.length} units)` : 'AI rates: not calculated'}
+${avgCompRate ? `Market avg competitor rate: $${Math.round(avgCompRate).toLocaleString()} (${filteredCompetitors.length} competitors)` : 'No competitor rate data'}
+Service line mix: ${Object.entries(slBreakdown).map(([sl, n]) => `${sl}: ${n}`).join(', ')}
+`.trim();
+
+      const systemPrompt = `You are an expert revenue management advisor for senior living facilities, working inside the Modulo platform. Answer the user's question conversationally and specifically, grounded in the data context provided. Be concise (2-5 sentences unless a detailed breakdown is asked for). Use **bold** for key figures. Never give generic advice — always reference the actual numbers.`;
+
+      const userTurn = `Here is the current portfolio data for your reference:\n${dataContext}\n\nUser question: ${message}`;
+
+      // Build messages array for multi-turn conversation
+      const messages: any[] = [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-8).map((h: any) => ({ role: h.role, content: h.content })),
+        { role: 'user', content: userTurn },
+      ];
+
+      const openai = (await import('openai')).default;
+      const client = new openai();
+      const completion = await client.chat.completions.create({
+        model: 'gpt-4o',
+        messages,
+        max_tokens: 600,
+        temperature: 0.7,
+      });
+      const reply = completion.choices[0]?.message?.content?.trim() || 'Sorry, I could not generate a response.';
+
+      res.json({ reply, suggestClearFilters });
+    } catch (error: any) {
+      res.status(500).json({ error: `Chat failed: ${error.message}` });
+    }
+  });
+
   // Save manually-edited AI insight content
   app.put("/api/ai/insights", async (req: any, res) => {
     try {
