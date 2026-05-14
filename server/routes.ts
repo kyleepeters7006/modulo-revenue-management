@@ -709,6 +709,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { generateDemoData } = await import('./seedDemoData');
       const result = await generateDemoData();
 
+      // Clear analytics cache so the fresh data is visible immediately
+      for (const key of [...analyticsCache.keys()]) {
+        if (key.startsWith('overview_demo') || key.startsWith('analytics_demo')) {
+          analyticsCache.delete(key);
+        }
+      }
+
       res.json({
         success: true,
         stats: result,
@@ -769,6 +776,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { generateDemoData } = await import('./seedDemoData');
       const result = await generateDemoData();
+
+      // Clear analytics cache so the fresh data is visible immediately
+      for (const key of [...analyticsCache.keys()]) {
+        if (key.startsWith('overview_demo') || key.startsWith('analytics_demo')) {
+          analyticsCache.delete(key);
+        }
+      }
 
       res.json({
         success: true,
