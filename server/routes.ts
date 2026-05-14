@@ -11608,8 +11608,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         const trilogyRate = trilogyRates[trilogyServiceLine]?.[record.roomType || ''] || 
                           trilogyRates[trilogyServiceLine]?.['Studio'] || 0;
         
-        // Calculate market position (Trilogy rate / Competitor rate * 100)
-        const marketPosition = adjustedRate > 0 ? Math.round((trilogyRate / adjustedRate) * 100) : 0;
+        // Calculate market position (Trilogy rate / Competitor rate * 100), 1 decimal place
+        // so 99.6% doesn't round to 100% and incorrectly show as "at/above market"
+        const marketPosition = adjustedRate > 0 ? parseFloat((trilogyRate / adjustedRate * 100).toFixed(1)) : 0;
         
         return {
           id: record.id,

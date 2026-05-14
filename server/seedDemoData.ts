@@ -311,6 +311,14 @@ export async function generateDemoData(): Promise<{
 
       const distanceMiles = Math.round(randBetween(locSeed, 0.4, 8.5) * 10) / 10;
 
+      // Generate realistic lat/lng for this competitor based on the location's coordinates.
+      // Pick a random bearing (0–2π) and offset by distanceMiles.
+      const bearing = randBetween(locSeed, 0, 2 * Math.PI);
+      const locLat = (loc as any).lat ?? 41.0;
+      const locLng = (loc as any).lng ?? -74.0;
+      const compLat = parseFloat((locLat + distanceMiles * Math.cos(bearing) / 69).toFixed(6));
+      const compLng = parseFloat((locLng + distanceMiles * Math.sin(bearing) / (69 * Math.cos(locLat * Math.PI / 180))).toFixed(6));
+
       for (const compType of compTypes) {
         const roomSizes = COMP_ROOM_SIZES[compType] || ['Studio'];
         const matchingSL = locServiceLines.find(sl => SL_TO_COMP_TYPE[sl] === compType) || 'AL';
@@ -350,6 +358,8 @@ export async function generateDemoData(): Promise<{
             occupancyRate: Math.round(randBetween(locSeed, 0.68, 0.94) * 100) / 100,
             totalUnits: randInt(locSeed, 40, 160),
             clientId: 'demo',
+            lat: compLat,
+            lng: compLng,
           });
 
           // Accumulate rates for the lookup map

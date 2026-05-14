@@ -567,7 +567,7 @@ export default function CompetitorAnalysis() {
                         : row.marketPosition >= 90 
                         ? "text-yellow-600" 
                         : "text-red-600";
-                      const PositionIcon = row.marketPosition >= 100 
+                      const PositionIcon = row.marketPosition > 100 
                         ? TrendingUp 
                         : row.marketPosition >= 90 
                         ? Minus 
@@ -600,7 +600,7 @@ export default function CompetitorAnalysis() {
                           <TableCell className="text-right">
                             <div className={`flex items-center justify-end gap-1 ${positionColor}`}>
                               <PositionIcon className="h-4 w-4" />
-                              <span className="font-semibold">{row.marketPosition}%</span>
+                              <span className="font-semibold">{row.marketPosition.toFixed(1)}%</span>
                             </div>
                           </TableCell>
                         </TableRow>
