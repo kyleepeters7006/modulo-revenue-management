@@ -730,16 +730,16 @@ export function Analytics() {
 
       {/* Scatter Plots */}
       <Tabs defaultValue="rate-growth" className="space-y-4">
-        <TabsList className="grid grid-cols-3 lg:grid-cols-9 w-full">
-          <TabsTrigger value="rate-growth">Rate Growth</TabsTrigger>
-          <TabsTrigger value="price-position">Price vs Market</TabsTrigger>
-          <TabsTrigger value="occupancy-rate">Occupancy vs Rate</TabsTrigger>
-          <TabsTrigger value="occupancy-position">Occ vs Position</TabsTrigger>
-          <TabsTrigger value="revenue-impact">Revenue Impact</TabsTrigger>
-          <TabsTrigger value="market-share">Market Position</TabsTrigger>
-          <TabsTrigger value="vacancy-analysis">Vacancy Analysis</TabsTrigger>
-          <TabsTrigger value="rra-discounts">RRA Discounts</TabsTrigger>
-          <TabsTrigger value="room-type-trends">Room Type Trends</TabsTrigger>
+        <TabsList className="flex w-full overflow-x-auto flex-nowrap justify-start h-auto">
+          <TabsTrigger value="rate-growth" className="flex-shrink-0 text-xs sm:text-sm">Rate Growth</TabsTrigger>
+          <TabsTrigger value="price-position" className="flex-shrink-0 text-xs sm:text-sm">Price vs Market</TabsTrigger>
+          <TabsTrigger value="occupancy-rate" className="flex-shrink-0 text-xs sm:text-sm">Occupancy vs Rate</TabsTrigger>
+          <TabsTrigger value="occupancy-position" className="flex-shrink-0 text-xs sm:text-sm">Occ vs Position</TabsTrigger>
+          <TabsTrigger value="revenue-impact" className="flex-shrink-0 text-xs sm:text-sm">Revenue Impact</TabsTrigger>
+          <TabsTrigger value="market-share" className="flex-shrink-0 text-xs sm:text-sm">Market Position</TabsTrigger>
+          <TabsTrigger value="vacancy-analysis" className="flex-shrink-0 text-xs sm:text-sm">Vacancy Analysis</TabsTrigger>
+          <TabsTrigger value="rra-discounts" className="flex-shrink-0 text-xs sm:text-sm">RRA Discounts</TabsTrigger>
+          <TabsTrigger value="room-type-trends" className="flex-shrink-0 text-xs sm:text-sm">Room Type Trends</TabsTrigger>
         </TabsList>
 
         {/* Occupancy vs T6 Rate Growth */}
