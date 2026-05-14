@@ -58,6 +58,8 @@ export default function RateCardTable({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
+  const [activeModuloJobId, setActiveModuloJobId] = useState<string | null>(null);
+  const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -142,6 +144,41 @@ export default function RateCardTable({
     }
   }, [rateCardData, selectedUnit, selectedServiceLine, isLoading]);
 
+  // Poll background Modulo job until it completes, then refresh rates
+  useEffect(() => {
+    if (!activeModuloJobId) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/pricing/job-status/${activeModuloJobId}`);
+        if (!res.ok || cancelled) return;
+        const job = await res.json();
+        const pct = job.progress?.percentage ?? 0;
+        setModuloJobProgress(pct);
+        if (job.status === 'completed') {
+          if (!cancelled) {
+            setActiveModuloJobId(null);
+            setModuloJobProgress(0);
+            toast({ title: "Modulo rates saved", description: "Pricing recommendations have been calculated and saved" });
+            queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+          }
+        } else if (job.status === 'failed') {
+          if (!cancelled) {
+            setActiveModuloJobId(null);
+            setModuloJobProgress(0);
+            toast({ title: "Modulo calculation failed", description: job.error || "Unknown error", variant: "destructive" });
+          }
+        } else {
+          setTimeout(poll, 2000);
+        }
+      } catch {
+        if (!cancelled) setTimeout(poll, 3000);
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, [activeModuloJobId]);
+
   const generateModuloMutation = useMutation({
     mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { 
       month: selectedMonth,
@@ -150,12 +187,21 @@ export default function RateCardTable({
       divisions: selectedDivisions,
       locations: selectedLocations
     }),
-    onSuccess: () => {
-      toast({
-        title: "Modulo suggestions generated",
-        description: "Pricing recommendations have been calculated"
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+    onSuccess: async (response: any) => {
+      let jobId: string | null = null;
+      try {
+        const data = typeof response?.json === 'function' ? await response.json() : response;
+        jobId = data?.jobId ?? null;
+      } catch { /* ignore */ }
+      if (jobId) {
+        setActiveModuloJobId(jobId);
+        setModuloJobProgress(1);
+        toast({ title: "Modulo calculation started", description: "Rates will update automatically when complete" });
+      } else {
+        // Fallback: no job ID means synchronous response — just refresh
+        toast({ title: "Modulo rates saved", description: "Pricing recommendations have been calculated and saved" });
+        queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -456,15 +502,19 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                 <div className="flex space-x-4 min-w-max">
                 <Button
                   onClick={() => generateModuloMutation.mutate()}
-                  disabled={generateModuloMutation.isPending || filteredUnits.length === 0}
+                  disabled={generateModuloMutation.isPending || !!activeModuloJobId || filteredUnits.length === 0}
                   data-testid="button-generate-modulo"
                 >
-                  {generateModuloMutation.isPending ? (
+                  {(generateModuloMutation.isPending || activeModuloJobId) ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <Calculator className="h-4 w-4 mr-2" />
                   )}
-                  {generateModuloMutation.isPending ? "Generating..." : "Generate Modulo Suggestions"}
+                  {(generateModuloMutation.isPending || activeModuloJobId)
+                    ? "Calculating..."
+                    : filteredUnits.some((u: any) => u.moduloSuggestedRate)
+                      ? "Recalculate Modulo"
+                      : "Generate Modulo Suggestions"}
                 </Button>
                 
                 <Button
@@ -478,10 +528,46 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   ) : (
                     <Brain className="h-4 w-4 mr-2" />
                   )}
-                  {generateAIMutation.isPending ? "Generating..." : "Generate AI Suggestions"}
+                  {generateAIMutation.isPending
+                    ? "Generating..."
+                    : filteredUnits.some((u: any) => u.aiSuggestedRate)
+                      ? "Recalculate AI Suggestions"
+                      : "Generate AI Suggestions"}
                 </Button>
                 </div>
               </div>
+
+              {/* Saved rates status — shows previously persisted rates are the current default */}
+              {filteredUnits.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {(() => {
+                    const moduloCount = filteredUnits.filter((u: any) => u.ruleAdjustedRate || u.moduloSuggestedRate).length;
+                    const aiCount = filteredUnits.filter((u: any) => u.aiSuggestedRate).length;
+                    return (
+                      <>
+                        {moduloCount > 0 && (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3 text-green-500" />
+                            {moduloCount} unit{moduloCount !== 1 ? 's' : ''} have saved Modulo rates
+                          </span>
+                        )}
+                        {aiCount > 0 && (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3 text-blue-500" />
+                            {aiCount} unit{aiCount !== 1 ? 's' : ''} have saved AI rates
+                          </span>
+                        )}
+                        {moduloCount === 0 && aiCount === 0 && (
+                          <span className="flex items-center gap-1">
+                            <Info className="h-3 w-3" />
+                            No rates calculated yet — click Generate to create recommendations
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
 
               {/* Bulk Accept Actions */}
               <div className="overflow-x-auto -mx-1 px-1">
@@ -540,15 +626,20 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
               </div>
             </div>
             
-            {/* Progress bars for loading states - show both when running concurrently */}
+            {/* Progress bars for loading states */}
             <div className="space-y-3">
-              {generateModuloMutation.isPending && (
+              {(generateModuloMutation.isPending || activeModuloJobId) && (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Calculator className="h-4 w-4 text-primary animate-pulse" />
-                    <div className="text-sm text-muted-foreground">Calculating Modulo pricing recommendations...</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Calculator className="h-4 w-4 text-primary animate-pulse" />
+                      <div className="text-sm text-muted-foreground">Calculating Modulo pricing recommendations...</div>
+                    </div>
+                    {moduloJobProgress > 0 && (
+                      <span className="text-xs text-muted-foreground tabular-nums">{Math.round(moduloJobProgress)}%</span>
+                    )}
                   </div>
-                  <Progress value={33} className="h-2" />
+                  <Progress value={generateModuloMutation.isPending ? 5 : moduloJobProgress} className="h-2" />
                 </div>
               )}
               
