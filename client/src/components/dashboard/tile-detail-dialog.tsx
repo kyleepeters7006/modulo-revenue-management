@@ -566,14 +566,20 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
                             fontSize={10}
                             tickLine={false}
                             axisLine={{ stroke: 'var(--dashboard-border)', strokeWidth: 1 }}
-                            tickFormatter={(value) => `${value}%`}
-                            domain={[
-                              (dataMin: number) => Math.max(0, Math.floor((dataMin - 3) / 5) * 5),
-                              (dataMax: number) => Math.min(100, Math.ceil((dataMax + 3) / 5) * 5)
-                            ]}
+                            tickFormatter={(value) => {
+                              if (tileType === 'occupancy') return `${value}%`;
+                              if (value >= 1000000000) return `$${(value/1000000000).toFixed(1)}B`;
+                              if (value >= 1000000) return `$${(value/1000000).toFixed(0)}M`;
+                              if (value >= 1000) return `$${(value/1000).toFixed(0)}K`;
+                              return `$${value}`;
+                            }}
+                            domain={['auto', 'auto']}
                           />
                           <Tooltip 
-                            formatter={(value: number) => value.toLocaleString()}
+                            formatter={(value: number, name: string) => [
+                              tileType === 'occupancy' ? `${value}%` : formatCurrency(Math.round(value)),
+                              name
+                            ]}
                             contentStyle={{
                               backgroundColor: 'var(--dashboard-surface)',
                               border: '1px solid var(--dashboard-border)',
