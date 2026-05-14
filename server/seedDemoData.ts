@@ -367,8 +367,53 @@ export async function generateDemoData(): Promise<{
     }
   }
 
-  // Helper: look up the average competitor rate for a location/serviceLine/roomType combination
+  // Derive AL/MC competitor rates from AL rates.
+  // AL/MC is priced at a memory-care premium over AL; the average mid-range ratio is:
+  //   AL/MC mid = (5200+7500)/2 = 6350 ; AL mid = (3800+5800)/2 = 4800 → ratio ≈ 1.323
+  // We also generate a Companion entry (AL has no direct Companion in COMP_ROOM_SIZES,
+  // so Companion = Studio × 1.18, matching ROOM_PREMIUM['Companion']).
+  {
+    const AL_MC_RATIO = ((5200 + 7500) / 2) / ((3800 + 5800) / 2); // ≈ 1.323
+    const AL_MC_ROOM_SIZES = ['Studio', 'One Bedroom', 'Companion'];
+    for (const loc of insertedLocations) {
+      const locServiceLines = SIZE_SERVICE_LINES[loc.size];
+      if (!locServiceLines.includes('AL/MC')) continue;
+
+      const alStudioKey = `${loc.name}|AL|Studio`;
+      const alStudioRates = competitorRateMap.get(alStudioKey);
+      if (!alStudioRates || alStudioRates.length === 0) continue;
+
+      for (const roomSize of AL_MC_ROOM_SIZES) {
+        const alMcKey = `${loc.name}|AL/MC|${roomSize}`;
+        if (competitorRateMap.has(alMcKey)) continue;
+
+        // Base = AL Studio rates scaled to AL/MC range, then apply room premium
+        const roomPremium = ROOM_PREMIUM[roomSize] || 1.0;
+        const alMcRates = alStudioRates.map(r => Math.round(r * AL_MC_RATIO * roomPremium));
+        competitorRateMap.set(alMcKey, alMcRates);
+
+        const alStudioInfo = competitorInfoMap.get(alStudioKey);
+        if (alStudioInfo && !competitorInfoMap.has(alMcKey)) {
+          competitorInfoMap.set(alMcKey, {
+            name: alStudioInfo.name,
+            baseRate: Math.round(alStudioInfo.baseRate * AL_MC_RATIO * roomPremium),
+          });
+        }
+      }
+    }
+  }
+
+  // Helper: look up the average competitor rate for a location/serviceLine/roomType combination.
+  // Checks for a direct service-line key first (e.g. 'AL/MC' has its own derived entries),
+  // then falls back to the compType key.
   function lookupCompetitorRate(locName: string, sl: string, roomType: string): number | null {
+    // 1. Direct service-line key (e.g. AL/MC has rates separate from AL)
+    const directKey = `${locName}|${sl}|${roomType}`;
+    const directRates = competitorRateMap.get(directKey);
+    if (directRates && directRates.length > 0) {
+      return Math.round(directRates.reduce((a, b) => a + b, 0) / directRates.length);
+    }
+
     const compType = SL_TO_COMP_TYPE[sl];
     if (!compType) return null;
 
@@ -381,7 +426,8 @@ export async function generateDemoData(): Promise<{
       const fallbackKey = `${locName}|${compType}|Studio`;
       const fallbackRates = competitorRateMap.get(fallbackKey);
       if (fallbackRates && fallbackRates.length > 0) {
-        return Math.round(fallbackRates.reduce((a, b) => a + b, 0) / fallbackRates.length * 0.85);
+        // Companion premium = 1.18× Studio (matches ROOM_PREMIUM)
+        return Math.round(fallbackRates.reduce((a, b) => a + b, 0) / fallbackRates.length * 1.18);
       }
     }
     if (roomType === 'Two Bedroom') {
