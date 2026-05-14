@@ -101,29 +101,9 @@ export default function SimplifiedFloorPlanViewer({
       }
     }
 
-    setUnitShapes(prev => {
-      if (Object.keys(prev).length > 0) return prev;
-      const shapes: {[key: string]: UnitShape} = {};
-      const cols = Math.ceil(Math.sqrt(units.length));
-      const rows = Math.ceil(units.length / cols);
-      units.forEach((unit, index) => {
-        const col = index % cols;
-        const row = Math.floor(index / cols);
-        shapes[unit.id] = {
-          id: unit.id,
-          roomNumber: unit.roomNumber,
-          type: 'circle',
-          center: {
-            x: (col * 100 / cols) + (50 / cols),
-            y: (row * 100 / rows) + (50 / rows)
-          },
-          radius: DEFAULT_RADIUS,
-          status: unit.occupiedYN ? 'occupied' : 'available',
-          serviceLine: unit.serviceLine
-        };
-      });
-      return shapes;
-    });
+    // No saved layout — start with a blank canvas.
+    // Users place circles/polygons manually in Edit mode; positions are then saved.
+    setUnitShapes({});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [units, campusMap?.svgContent]);
 

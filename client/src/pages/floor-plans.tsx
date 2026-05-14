@@ -761,7 +761,7 @@ export default function FloorPlansPage() {
         <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Left Column - Floor Plan Viewer (60% width on desktop) */}
-            <div className="flex-1 lg:flex-[1.5] order-2 lg:order-1">
+            <div className="flex-1 lg:flex-[1.5] order-1 lg:order-1">
               <Card className="shadow-sm h-full min-h-[400px] lg:min-h-[calc(100vh-12rem)]">
                 {/* Edit Mode Toggle Button */}
                 {!isLoadingMap && (
@@ -813,7 +813,7 @@ export default function FloorPlansPage() {
             </div>
 
             {/* Right Column - Filters and Unit List (40% width on desktop) */}
-            <div className="flex-1 lg:w-[450px] lg:max-w-[450px] order-1 lg:order-2">
+            <div className="flex-1 lg:w-[450px] lg:max-w-[450px] order-2 lg:order-2">
               <div className="sticky top-4 space-y-4 max-h-[calc(100vh-6rem)]">
                 {/* Desktop Filter Section - Collapsible */}
                 <div className="hidden lg:block">
