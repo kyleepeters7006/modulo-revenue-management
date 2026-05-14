@@ -7144,21 +7144,26 @@ Focus areas (in order):
         return acc;
       }, {});
 
+      // HC and HC/MC store rates as $/day; all other service lines store as $/month.
+      // When a room type blends HC with senior-housing service lines, convert HC to monthly
+      // (×30.44) so the averaged figure is a true monthly equivalent on all cards.
+      const HC_DAILY_SL = new Set(['HC', 'HC/MC']);
+      const toMonthly = (rate: number, serviceLine: string) =>
+        HC_DAILY_SL.has(serviceLine) ? rate * 30.44 : rate;
+
       const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
         const roomTypeUnits = rentRollDataFiltered.filter(u => u.roomType === roomType);
         
-        // Calculate overall stats for the room type
+        // Calculate overall stats for the room type — HC rates converted to monthly equivalent
         const avgRate = roomTypeUnits.length > 0 ? 
-          roomTypeUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / roomTypeUnits.length : 0;
+          roomTypeUnits.reduce((sum, u) => sum + toMonthly(u.streetRate || u.inHouseRate || 0, u.serviceLine), 0) / roomTypeUnits.length : 0;
         
-        // Calculate competitor rate - use raw stored values (same units as avgRate above)
-        // HC competitor rates are stored as daily (matching HC streetRate daily), AL/SL/VIL as monthly
-        // No conversion applied here so the comparison is apples-to-apples with avgRate
+        // Competitor rate — same monthly-equivalent normalisation as avgRate
         let avgCompetitorRate = 0;
         if (roomTypeUnits.length > 0) {
           const unitsWithCompetitorData = roomTypeUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
           if (unitsWithCompetitorData.length > 0) {
-            avgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + (u.competitorFinalRate || 0), 0) / unitsWithCompetitorData.length;
+            avgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + toMonthly(u.competitorFinalRate || 0, u.serviceLine), 0) / unitsWithCompetitorData.length;
           }
         }
         
@@ -7187,17 +7192,17 @@ Focus areas (in order):
         const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
         // Calculate service line breakdown for this room type
+        // All rates normalised to monthly equivalent (HC daily × 30.44)
         const serviceLineBreakdown = Object.entries(stats.byServiceLine).map(([serviceLine, slStats]: [string, any]) => {
           const slUnits = roomTypeUnits.filter(u => u.serviceLine === serviceLine);
           const slAvgRate = slUnits.length > 0 ?
-            slUnits.reduce((sum, u) => sum + (u.streetRate || u.inHouseRate || 0), 0) / slUnits.length : 0;
-          // Calculate competitor rate - raw stored values only (same units as slAvgRate)
-          // HC is stored as daily to match HC streetRate; AL/SL/VIL is monthly
+            slUnits.reduce((sum, u) => sum + toMonthly(u.streetRate || u.inHouseRate || 0, serviceLine), 0) / slUnits.length : 0;
+          // Competitor rate — monthly-equivalent normalisation
           let slAvgCompetitorRate = 0;
           if (slUnits.length > 0) {
             const unitsWithCompetitorData = slUnits.filter(u => u.competitorFinalRate && u.competitorFinalRate > 0);
             if (unitsWithCompetitorData.length > 0) {
-              slAvgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + (u.competitorFinalRate || 0), 0) / unitsWithCompetitorData.length;
+              slAvgCompetitorRate = unitsWithCompetitorData.reduce((sum, u) => sum + toMonthly(u.competitorFinalRate || 0, serviceLine), 0) / unitsWithCompetitorData.length;
             }
           }
           
@@ -7205,7 +7210,7 @@ Focus areas (in order):
           let slAvgModuloSuggested = 0;
           if (slUnits.length > 0) {
             const slModuloRates = slUnits
-              .map(u => u.moduloSuggestedRate || 0)
+              .map(u => toMonthly(u.moduloSuggestedRate || 0, serviceLine))
               .filter(rate => rate > 0);
             
             if (slModuloRates.length > 0) {
