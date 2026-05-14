@@ -11637,6 +11637,21 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         }
       }
       
+      // Filter to only the most recent survey month (mirrors getCompetitorsWithFilters logic)
+      if (surveyData.length > 0) {
+        let latestSurveyMonth = '';
+        for (const record of surveyData) {
+          const month = record.surveyMonth || '';
+          if (month > latestSurveyMonth) {
+            latestSurveyMonth = month;
+          }
+        }
+        if (latestSurveyMonth) {
+          // Keep rows from the latest month OR rows with no survey month (mirrors getCompetitorsWithFilters)
+          surveyData.splice(0, surveyData.length, ...surveyData.filter(r => !r.surveyMonth || r.surveyMonth === latestSurveyMonth));
+        }
+      }
+
       // Apply weight-based filtering to the survey data
       const parseNoteWeight = (notes: string | null): number => {
         if (!notes) return 0;
