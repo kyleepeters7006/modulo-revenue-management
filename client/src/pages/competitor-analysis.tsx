@@ -586,7 +586,11 @@ export default function CompetitorAnalysis() {
                             ${row.baseRate?.toLocaleString() || 0}
                           </TableCell>
                           <TableCell className="text-right">
-                            {row.careLevel2Adjustment > 0 ? `+$${row.careLevel2Adjustment.toLocaleString()}` : '-'}
+                            {row.careLevel2Adjustment > 0
+                              ? `+$${row.careLevel2Adjustment.toLocaleString()}`
+                              : row.careLevel2Adjustment < 0
+                              ? `-$${Math.abs(row.careLevel2Adjustment).toLocaleString()}`
+                              : '-'}
                           </TableCell>
                           <TableCell className="text-right">
                             {row.medMgmtAdjustment > 0 ? `+$${row.medMgmtAdjustment.toLocaleString()}` : '-'}

@@ -8,12 +8,12 @@
  * 1. Map Trilogy's service line + room type to competitor type + room type
  * 2. Select top competitor using weight (if available) or closest distance
  * 3. Get base rate from the matched competitor
- * 4. Adjust for care level 2 differences (HC/AL only, Trilogy default $55/day)
+ * 4. Adjust for care level 2 differences (HC/AL only, differential vs Trilogy's actual rate)
  * 5. Adjust for medication management (AL only, Trilogy is $0)
  */
 
 import { db } from "../db";
-import { competitiveSurveyData, rentRollData } from "@shared/schema";
+import { competitiveSurveyData, rentRollData, locations, careLevelRates } from "@shared/schema";
 import type { CompetitiveSurveyData, RentRollData } from "@shared/schema";
 import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { isDailyRateServiceLine, normalizeToMonthlyRate } from "./rateNormalization";
@@ -93,18 +93,14 @@ const ROOM_TYPE_MAPPING: Record<string, Record<string, string>> = {
 };
 
 // Service lines that should apply care level 2 adjustments
-// From "Trilogy Campus Care Level 2" column - "Default to $55" for HC/AL, "Does not apply" for SL/VIL
 const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
-  'HC': true,      // Default to $55/day
-  'HC/MC': true,   // Default to $55/day
-  'AL': true,      // Default to $55/day
-  'AL/MC': true,   // Default to $55/day
+  'HC': true,      // Apply differential
+  'HC/MC': true,   // Apply differential
+  'AL': true,      // Apply differential
+  'AL/MC': true,   // Apply differential
   'SL': false,     // Does not apply, no adjustment
   'VIL': false     // Does not apply, no adjustment
 };
-
-// Default Trilogy care level 2 rate (daily) when applicable
-const TRILOGY_CARE_LEVEL_2_DEFAULT = 55; // $55/day
 
 // Service lines that should apply medication management adjustments
 // From "Competitor Medication Management" column - "Do not apply" for HC, add fee for AL
@@ -342,7 +338,7 @@ async function getBestCompetitorRate(
  * Adjusted Rate = Base Rate + Care Level 2 Adjustment + Medication Management Adjustment
  * 
  * Care Level 2 Adjustment (HC/AL only):
- *   = Competitor Care Level 2 - Trilogy Care Level 2 (default $55/day)
+ *   = Competitor Care Level 2 - Trilogy Care Level 2
  *   
  * Medication Management Adjustment (AL only):
  *   = Competitor Med Mgmt Fee - Trilogy Med Mgmt Fee ($0)
@@ -353,7 +349,7 @@ function calculateAdjustedRate(
   baseRate: number,
   competitorCareLevel2Rate: number | null,
   competitorMedicationManagementFee: number | null,
-  trilogyCareLevel2Rate: number = TRILOGY_CARE_LEVEL_2_DEFAULT
+  trilogyCareLevel2Rate: number | null = null
 ): {
   adjustedRate: number;
   careLevel2Adjustment: number;
@@ -368,7 +364,10 @@ function calculateAdjustedRate(
   
   // Care Level 2 Adjustment (only for HC/AL service lines)
   if (CARE_LEVEL_2_APPLIES[serviceLine]) {
-    if (competitorCareLevel2Rate !== null && competitorCareLevel2Rate > 0) {
+    if (trilogyCareLevel2Rate === null) {
+      // No Trilogy care rate on record — apply no adjustment
+      explanationParts.push(`Care Level 2: No Trilogy rate on record — no adjustment applied`);
+    } else if (competitorCareLevel2Rate !== null && competitorCareLevel2Rate > 0) {
       // Calculate difference: Competitor - Trilogy
       // A positive value means competitor charges more, so we add it to make comparison fair
       careLevel2Adjustment = competitorCareLevel2Rate - trilogyCareLevel2Rate;
@@ -383,7 +382,7 @@ function calculateAdjustedRate(
         );
       }
     } else {
-      explanationParts.push(`Care Level 2: No competitor data (Trilogy default $${trilogyCareLevel2Rate})`);
+      explanationParts.push(`Care Level 2: No competitor data`);
     }
   } else {
     explanationParts.push(`Care Level 2: Does not apply for ${serviceLine}`);
@@ -457,12 +456,36 @@ export async function calculateCompetitorRateForUnit(
     result.competitorBaseRate = competitorData.baseRate;
     result.competitorWeight = competitorData.weight;
     
+    // Look up Trilogy's actual care level 2 rate from care_level_rates for this location/service line.
+    // If no entry exists, pass null so calculateAdjustedRate applies no care adjustment.
+    let trilogyCareLevel2Rate: number | null = null;
+    if (CARE_LEVEL_2_APPLIES[unit.serviceLine]) {
+      const locationRecord = await db.select({ id: locations.id })
+        .from(locations)
+        .where(and(eq(locations.name, unit.location), eq(locations.clientId, unit.clientId || 'demo')))
+        .limit(1);
+      if (locationRecord.length > 0) {
+        const careRow = await db.select({ level2Rate: careLevelRates.level2Rate })
+          .from(careLevelRates)
+          .where(and(
+            eq(careLevelRates.locationId, locationRecord[0].id),
+            eq(careLevelRates.clientId, unit.clientId || 'demo'),
+            eq(careLevelRates.serviceLine, unit.serviceLine)
+          ))
+          .limit(1);
+        if (careRow.length > 0) {
+          trilogyCareLevel2Rate = careRow[0].level2Rate;
+        }
+      }
+    }
+
     // Calculate adjusted rate using the mapping document logic
     const adjustment = calculateAdjustedRate(
       unit.serviceLine,
       competitorData.baseRate,
       competitorData.careLevel2Rate,
-      competitorData.medicationManagementFee
+      competitorData.medicationManagementFee,
+      trilogyCareLevel2Rate
     );
     
     result.competitorAdjustedRate = adjustment.adjustedRate;

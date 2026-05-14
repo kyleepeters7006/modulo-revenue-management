@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates } from "@shared/schema";
 import { sql, and, eq, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -11637,6 +11637,30 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         }
       }
       
+      // Fetch Trilogy's care level 2 rates from care_level_rates for this location
+      // Build a map keyed by service line so we can compute the differential in the transformed data
+      const trilogyCareRateMap: Record<string, number> = {};
+      {
+        const locationRecord = await db.select({ id: locations.id })
+          .from(locations)
+          .where(and(eq(locations.name, locationName), eq(locations.clientId, clientId)))
+          .limit(1);
+        if (locationRecord.length > 0) {
+          const careRates = await db.select({
+            serviceLine: careLevelRates.serviceLine,
+            level2Rate: careLevelRates.level2Rate
+          })
+            .from(careLevelRates)
+            .where(and(
+              eq(careLevelRates.locationId, locationRecord[0].id),
+              eq(careLevelRates.clientId, clientId)
+            ));
+          for (const rate of careRates) {
+            trilogyCareRateMap[rate.serviceLine] = rate.level2Rate;
+          }
+        }
+      }
+
       // Filter to only the most recent survey month (mirrors getCompetitorsWithFilters logic)
       if (surveyData.length > 0) {
         let latestSurveyMonth = '';
@@ -11691,6 +11715,11 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       // Convert daily rates to monthly for HC/SMC
       const DAYS_PER_MONTH = 30.44;
       
+      // Service lines where care level 2 adjustment applies
+      const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
+        'HC': true, 'HC/MC': true, 'AL': true, 'AL/MC': true, 'SL': false, 'VIL': false
+      };
+
       const transformedData = filteredSurveyData.map(record => {
         const serviceLine = COMPETITOR_TYPE_TO_SERVICE_LINE[record.competitorType || ''] || record.competitorType;
         let baseRate = record.monthlyRateAvg || 0;
@@ -11705,7 +11734,18 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           if (medMgmt > 0 && medMgmt < 100) medMgmt = medMgmt * DAYS_PER_MONTH;
         }
         
-        const adjustedRate = baseRate + careLevel2 + medMgmt;
+        // Compute care adjustment as differential: competitor care L2 − Trilogy care L2
+        // If no entry exists in care_level_rates for this location/service line, apply no care adjustment
+        let careAdj = 0;
+        if (CARE_LEVEL_2_APPLIES[serviceLine]) {
+          const trilogyCareL2 = trilogyCareRateMap[serviceLine];
+          if (trilogyCareL2 !== undefined) {
+            careAdj = careLevel2 - trilogyCareL2;
+          }
+          // else: no care_level_rates entry for this service line — no adjustment applied
+        }
+
+        const adjustedRate = baseRate + careAdj + medMgmt;
         
         // Get Trilogy rate for comparison
         const trilogyServiceLine = serviceLine === 'AL' ? 'AL' : serviceLine;
@@ -11724,7 +11764,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           roomType: record.roomType,
           distanceMiles: record.distanceMiles,
           baseRate: Math.round(baseRate),
-          careLevel2Adjustment: Math.round(careLevel2),
+          careLevel2Adjustment: Math.round(careAdj),
           medMgmtAdjustment: Math.round(medMgmt),
           adjustedRate: Math.round(adjustedRate),
           trilogyRate: Math.round(trilogyRate),
