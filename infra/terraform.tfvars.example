@@ -1,0 +1,42 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored by default.
+# For real deploys, prefer passing secrets via `-var` from your CI secrets store
+# rather than committing them anywhere.
+
+name_prefix = "modulo"
+environment = "prod"
+location    = "eastus2"
+
+# Tags applied to every resource.
+tags = {
+  Project    = "modulo-revenue-management"
+  CostCenter = "engineering"
+  Owner      = "platform-team"
+}
+
+# Sizing.
+app_service_sku = "P1v3"      # B1 for dev, P1v3+ for prod
+app_instance_count = 1         # >1 requires Redis-backed sessions + cron lock
+
+postgres_sku        = "B_Standard_B2ms"        # GP_Standard_D2ds_v5 for prod
+postgres_storage_mb = 65536
+postgres_version    = "16"
+
+redis_sku      = "Basic"
+redis_family   = "C"
+redis_capacity = 0
+
+# Object IDs (GUIDs from Entra ID) that get Key Vault Administrator.
+# Use `az ad signed-in-user show --query id -o tsv` to find your own.
+kv_admin_object_ids = [
+  # "00000000-0000-0000-0000-000000000000",
+]
+
+# Leave the secret variables empty here and seed them after apply with:
+#   az keyvault secret set --vault-name <kv> --name anthropic-api-key --value <value>
+# The TF resources have `ignore_changes = [value]` so out-of-band rotations
+# stick.
+anthropic_api_key     = ""
+openai_api_key        = ""
+openai_base_url       = ""
+alpha_vantage_api_key = ""
+session_secret        = ""  # blank → terraform generates a 64-char random secret
