@@ -348,7 +348,22 @@ async function checkAndInitializeDatabase() {
     if (unitCount === 0) {
       console.log('⚠️  Database is empty. Please import production data via POST /api/admin/import-production-data');
     }
-    
+
+    // Idempotent coordinate fixes for 4 locations whose pins were off on the map
+    const coordinateFixes = [
+      { name: 'Muskegon - 525',        lat: 43.241791,             lng: -86.247113           },
+      { name: 'Hudsonville - 524',      lat: 42.837898,             lng: -85.860086           },
+      { name: 'Bowling Green - 443',    lat: 41.367407373617645,    lng: -83.61031965366192   },
+      { name: 'Liberty Township - 441', lat: 39.41943308020579,     lng: -84.45836148092965   },
+    ];
+    for (const fix of coordinateFixes) {
+      await db.execute(sql`
+        UPDATE locations SET lat = ${fix.lat}, lng = ${fix.lng}
+        WHERE name = ${fix.name}
+          AND (lat IS DISTINCT FROM ${fix.lat} OR lng IS DISTINCT FROM ${fix.lng})
+      `);
+    }
+
     // Location sync is now only done when rent roll data is uploaded, not on every startup
     // This saves 50+ seconds on startup by avoiding 544+ database queries
   } catch (error) {
