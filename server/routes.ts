@@ -3497,7 +3497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.get("/api/competitors", async (req: any, res) => {
     try {
-      const { regions, divisions, locations, serviceLines } = req.query;
+      const { regions, divisions, locations: locationsParam, serviceLines } = req.query;
       const clientId = req.clientId || 'demo';
       
       // Build filters object
@@ -3516,8 +3516,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (divisions && divisions !== '') {
         filters.divisions = (divisions as string).split(',');
       }
-      if (locations && locations !== '') {
-        filters.locations = (locations as string).split(',');
+      if (locationsParam && locationsParam !== '') {
+        filters.locations = (locationsParam as string).split(',');
       }
       if (serviceLines && serviceLines !== '') {
         filters.serviceLines = (serviceLines as string).split(',');
@@ -3590,8 +3590,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get current location info for map centering
       let currentLocation = null;
-      if (locations) {
-        const locList = (locations as string).split(',');
+      if (locationsParam) {
+        const locList = (locationsParam as string).split(',');
         if (locList.length === 1) {
           // Match by id OR name so both filter formats work
           const loc = locationData.find(l => l.id === locList[0] || l.name === locList[0]);
@@ -3609,6 +3609,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Compute careAdj per competitor: competitor careLevel2 − location careLevel2 for the matching service line.
+      // This mirrors the Competitor Rate Comparison table calculation.
+      if (topCompetitors.length > 0) {
+        const COMP_TYPE_TO_SL: Record<string, string> = {
+          'HC': 'HC', 'HC/MC': 'HC/MC', 'SMC': 'HC/MC',
+          'AL': 'AL', 'AL/MC': 'AL/MC', 'IL_IL': 'SL', 'IL_Villa': 'VIL'
+        };
+        const CARE_APPLIES_SL = new Set(['HC', 'HC/MC', 'AL', 'AL/MC']);
+        const DAYS_PER_MONTH_ADJ = 30.44;
+
+        // Gather unique location names from competitors
+        const uniqueLocNames = [...new Set(topCompetitors.map((c: any) => c.location).filter(Boolean))];
+        if (uniqueLocNames.length > 0) {
+          const locRecords = await db.select({ id: locations.id, name: locations.name })
+            .from(locations)
+            .where(and(inArray(locations.name, uniqueLocNames), eq(locations.clientId, clientId)));
+
+          if (locRecords.length > 0) {
+            const locIds = locRecords.map(l => l.id);
+            const careRateRows = await db.select({
+              locationId: careLevelRates.locationId,
+              serviceLine: careLevelRates.serviceLine,
+              level2Rate: careLevelRates.level2Rate,
+            })
+              .from(careLevelRates)
+              .where(and(inArray(careLevelRates.locationId, locIds), eq(careLevelRates.clientId, clientId)));
+
+            // Build map: locationName -> serviceLine -> level2Rate
+            const locIdToName = new Map(locRecords.map(l => [l.id, l.name]));
+            const careMap = new Map<string, Map<string, number>>();
+            for (const row of careRateRows) {
+              const locName = locIdToName.get(row.locationId) ?? '';
+              if (!careMap.has(locName)) careMap.set(locName, new Map());
+              careMap.get(locName)!.set(row.serviceLine, row.level2Rate);
+            }
+
+            for (const comp of topCompetitors) {
+              const locName: string = comp.location || '';
+              const primaryType: string = (comp.serviceLines && comp.serviceLines[0]) || '';
+              const sl = COMP_TYPE_TO_SL[primaryType] || '';
+              if (!sl || !CARE_APPLIES_SL.has(sl)) { comp.careAdj = 0; continue; }
+
+              let compCareL2: number = comp.careLevel2Rate || 0;
+              const isHCType = primaryType === 'HC' || primaryType === 'HC/MC' || primaryType === 'SMC';
+              if (isHCType && compCareL2 > 0 && compCareL2 < 500) {
+                compCareL2 = compCareL2 * DAYS_PER_MONTH_ADJ;
+              }
+
+              const locCareL2 = careMap.get(locName)?.get(sl);
+              comp.careAdj = locCareL2 !== undefined ? Math.round(compCareL2 - locCareL2) : 0;
+            }
+          }
+        }
+      }
+
       res.json({ 
         items: topCompetitors,
         currentLocation,

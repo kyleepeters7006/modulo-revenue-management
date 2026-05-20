@@ -194,7 +194,7 @@ export default function CompetitorForm({
     form.setValue("lat", competitor.lat || 38.2527);
     form.setValue("lng", competitor.lng || -85.7585);
     form.setValue("streetRate", competitor.streetRate || undefined);
-    form.setValue("avgCareRate", competitor.avgCareRate || undefined);
+    form.setValue("avgCareRate", competitor.avgCareRate ?? competitor.computedAvgCareRate ?? undefined);
     form.setValue("roomType", competitor.roomType || "");
     form.setValue("address", competitor.address || "");
     form.setValue("rank", competitor.rank || undefined);
@@ -586,7 +586,6 @@ export default function CompetitorForm({
                                   {slLabel ? `${slLabel} – ` : ''}{rr.roomType}:
                                 </span>{' '}
                                 {rr.streetRate != null ? `$${Math.round(rr.streetRate).toLocaleString()}` : '—'}
-                                {rr.careRate != null && rr.careRate > 0 ? ` | Care: $${Math.round(rr.careRate).toLocaleString()}` : ''}
                               </div>
                               );
                             })}
@@ -595,9 +594,6 @@ export default function CompetitorForm({
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
                             {competitor.streetRate && (
                               <div className="whitespace-nowrap">Street Rate: ${competitor.streetRate}</div>
-                            )}
-                            {competitor.avgCareRate && (
-                              <div className="whitespace-nowrap">Care Rate: ${competitor.avgCareRate}</div>
                             )}
                             {competitor.roomType && (
                               <div className="whitespace-nowrap">Room: {competitor.roomType}</div>

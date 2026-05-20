@@ -312,23 +312,28 @@ export function CompetitorMap({
         // Calculate comparison to portfolio
         const avgPortfolioRate = currentProperty.avgRate || 3500;
         let avgCompetitorRate = competitor.streetRate || competitor.avgRate || 3500;
-        const avgCareRate = competitor.avgCareRate || 500;
+        // careAdj is the differential (competitor careL2 − location careL2), always in monthly terms.
+        // This matches exactly what the Competitor Rate Comparison table shows.
+        const careAdj: number = competitor.careAdj ?? 0;
         
-        // For HC, convert monthly rate to daily for display
+        // For HC, convert monthly rate to daily for display.
+        // careAdj is kept in monthly terms (matches Rate Comparison table), so TOTAL is computed
+        // from monthly base + monthly care adj, then converted to daily for HC.
         let displayRate = avgCompetitorRate;
-        let displayCareRate = avgCareRate;
-        let displayTotalRate = avgCompetitorRate + avgCareRate;
         let rateLabel = isHC ? 'Daily' : 'Monthly';
+        let displayTotalRate: number;
         
         if (isHC) {
-          // Convert monthly to daily for HC display
+          // Convert monthly base rate to daily for the RATE cell
           displayRate = Math.round(avgCompetitorRate / 30.44);
-          displayCareRate = Math.round(avgCareRate / 30.44);
-          displayTotalRate = displayRate + displayCareRate;
+          // TOTAL: combine monthly values then convert to daily
+          displayTotalRate = Math.round((avgCompetitorRate + careAdj) / 30.44);
+        } else {
+          displayTotalRate = displayRate + careAdj;
         }
         
         // Keep comparison in monthly terms for consistency
-        const totalRate = avgCompetitorRate + avgCareRate;
+        const totalRate = avgCompetitorRate + careAdj;
         const totalPortfolioRate = avgPortfolioRate + (currentProperty.avgCareRate || 500);
         const comparison = totalRate - totalPortfolioRate;
         const comparisonText = comparison > 0 ? `+$${comparison.toLocaleString()}` : comparison < 0 ? `-$${Math.abs(comparison).toLocaleString()}` : 'Same';
@@ -424,11 +429,14 @@ export function CompetitorMap({
                   <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${roomTypeLabel}</p>
                 </div>
                 
-                <!-- Care Rate -->
+                <!-- Care Adjustment -->
                 <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
                   <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">CARE</p>
-                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${displayCareRate.toLocaleString()}</p>
-                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${rateLabel}</p>
+                  ${careAdj !== 0
+                    ? `<p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: ${careAdj > 0 ? '#10b981' : '#ef4444'};">${careAdj > 0 ? '+' : '-'}$${Math.abs(careAdj).toLocaleString()}</p>`
+                    : `<p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #94a3b8;">—</p>`
+                  }
+                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Care Adj.</p>
                 </div>
                 
                 <!-- Total -->

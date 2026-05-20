@@ -1153,6 +1153,8 @@ export class DatabaseStorage implements IStorage {
       ? await db.select().from(competitiveSurveyData).where(eq(competitiveSurveyData.clientId, clientId))
       : await db.select().from(competitiveSurveyData);
     
+    const CARE_ELIGIBLE_GC = new Set(['HC', 'HC/MC', 'SMC', 'AL', 'AL/MC']);
+
     // Group by competitor and location to aggregate room types
     const competitorMap = new Map<string, any>();
     
@@ -1160,6 +1162,12 @@ export class DatabaseStorage implements IStorage {
       const key = `${record.keyStatsLocation}|${record.competitorName}`;
       
       if (!competitorMap.has(key)) {
+        const initCareLevels: number[] = [];
+        if (record.competitorType && CARE_ELIGIBLE_GC.has(record.competitorType)) {
+          for (const v of [record.careLevel1Rate, record.careLevel2Rate, record.careLevel3Rate, record.careLevel4Rate]) {
+            if (v != null && v > 0) initCareLevels.push(v);
+          }
+        }
         competitorMap.set(key, {
           id: record.id,
           name: record.competitorName,
@@ -1180,7 +1188,8 @@ export class DatabaseStorage implements IStorage {
           attributes: null,
           careLevel2Rate: record.careLevel2Rate,
           medicationManagementFee: record.medicationManagementFee,
-          createdAt: null
+          createdAt: null,
+          _careLevelValues: initCareLevels,
         });
       } else {
         // Update with better data if available
@@ -1195,7 +1204,24 @@ export class DatabaseStorage implements IStorage {
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
         }
+        // Accumulate care level values
+        if (record.competitorType && CARE_ELIGIBLE_GC.has(record.competitorType)) {
+          for (const v of [record.careLevel1Rate, record.careLevel2Rate, record.careLevel3Rate, record.careLevel4Rate]) {
+            if (v != null && v > 0) existing._careLevelValues.push(v);
+          }
+        }
       }
+    }
+
+    // Compute computedAvgCareRate for each competitor
+    for (const comp of competitorMap.values()) {
+      const vals: number[] = comp._careLevelValues || [];
+      if (vals.length > 0) {
+        comp.computedAvgCareRate = Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length);
+      } else {
+        comp.computedAvgCareRate = null;
+      }
+      delete comp._careLevelValues;
     }
     
     return Array.from(competitorMap.values());
@@ -1403,6 +1429,14 @@ export class DatabaseStorage implements IStorage {
         if (record.competitorType && recordWeight > 0) {
           initWeightsByServiceLine[record.competitorType] = recordWeight;
         }
+        // Collect care level values for computing average (care-eligible types only)
+        const CARE_ELIGIBLE_TYPES = new Set(['HC', 'HC/MC', 'SMC', 'AL', 'AL/MC']);
+        const initCareLevelValues: number[] = [];
+        if (record.competitorType && CARE_ELIGIBLE_TYPES.has(record.competitorType)) {
+          for (const v of [record.careLevel1Rate, record.careLevel2Rate, record.careLevel3Rate, record.careLevel4Rate]) {
+            if (v != null && v > 0) initCareLevelValues.push(v);
+          }
+        }
         competitorMap.set(key, {
           id: record.id,
           name: record.competitorName,
@@ -1430,7 +1464,8 @@ export class DatabaseStorage implements IStorage {
             streetRate: record.monthlyRateAvg,
             careRate: record.careFeesAvg,
             competitorType: record.competitorType ?? null,
-          }] : []
+          }] : [],
+          _careLevelValues: initCareLevelValues,
         });
       } else {
         const existing = competitorMap.get(key);
@@ -1452,6 +1487,13 @@ export class DatabaseStorage implements IStorage {
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
         }
+        // Accumulate care level values for care-eligible service lines
+        const CARE_ELIGIBLE_TYPES_EL = new Set(['HC', 'HC/MC', 'SMC', 'AL', 'AL/MC']);
+        if (record.competitorType && CARE_ELIGIBLE_TYPES_EL.has(record.competitorType)) {
+          for (const v of [record.careLevel1Rate, record.careLevel2Rate, record.careLevel3Rate, record.careLevel4Rate]) {
+            if (v != null && v > 0) existing._careLevelValues.push(v);
+          }
+        }
         // Accumulate per-room-type rates — one entry per distinct room type + service line
         if (record.roomType) {
           const alreadyHas = existing.roomRates.some(
@@ -1471,6 +1513,7 @@ export class DatabaseStorage implements IStorage {
     
     // Post-process: derive top-level streetRate/roomType/avgCareRate from Studio row
     // if present, for deterministic backward-compat across consumers.
+    // Also compute computedAvgCareRate from accumulated care level values.
     for (const comp of competitorMap.values()) {
       if (comp.roomRates && comp.roomRates.length > 0) {
         // Sort room types into canonical order before any consumer reads them
@@ -1481,6 +1524,15 @@ export class DatabaseStorage implements IStorage {
         comp.avgCareRate = preferred.careRate ?? comp.avgCareRate;
         comp.roomType = preferred.roomType ?? comp.roomType;
       }
+      // Compute average of all care level values across care-eligible service lines
+      const careLevelValues: number[] = comp._careLevelValues || [];
+      if (careLevelValues.length > 0) {
+        const sum = careLevelValues.reduce((a: number, b: number) => a + b, 0);
+        comp.computedAvgCareRate = Math.round(sum / careLevelValues.length);
+      } else {
+        comp.computedAvgCareRate = null;
+      }
+      delete comp._careLevelValues;
     }
 
     const results = Array.from(competitorMap.values()) as CompetitorWithRates[];
