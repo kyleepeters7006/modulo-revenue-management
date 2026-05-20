@@ -338,6 +338,17 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   return false;
                 };
 
+                // Returns the first column value that parses to a finite non-zero number, or null.
+                // Avoids the JS truthy pitfall where "0" is truthy but represents no rate,
+                // and guards against non-numeric strings like "N/A" where parseFloat yields NaN.
+                const getFirstNonZeroRate = (...cols: any[]): string | null => {
+                  for (const col of cols) {
+                    const n = parseFloat(col);
+                    if (Number.isFinite(n) && n !== 0) return String(col);
+                  }
+                  return null;
+                };
+
                 // Helper to parse numeric values safely
                 // Non-numeric strings (e.g. "yes") are treated as 0, not null,
                 // so they don't accidentally carry through as a non-zero care rate.
@@ -464,30 +475,32 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'AL/MC',
-                    flag: (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    // Use isFlagTrue with both possible column names; fall back to rate-presence detection
+                    flag: isFlagTrue(row['MC flag'] || row['MC']) || getFirstNonZeroRate(row['MC_ALStudioRoomRate'], row['AL/MC_PrivateRate'], row['AL/MC_StudioRate'], row['MC_ALCompanionRoomRate'], row['AL/MC_CompanionRate']) ? 'True' : 'False',
                     careLevel1: parseNumeric(row['AL/MC_Level1'] ?? row['AL_Level1']),
                     careLevel2: parseNumeric(row['MC_Level2'] ?? row['AL/MC_Level2'] ?? 0),
                     careLevel3: parseNumeric(row['AL/MC_Level3'] ?? row['AL_Level3']),
                     careLevel4: parseNumeric(row['AL/MC_Level4'] ?? row['AL_Level4']),
                     medicationManagement: parseNumeric(row['MC_MedicationManagement']),
                     roomTypes: [
-                      { name: 'Studio', rate: row['AL/MC_PrivateRate'] || row['AL/MC_StudioRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
-                      { name: 'Companion', rate: row['MC_ALCompanionRoomRate'] || row['AL/MC_CompanionRate'] || null, careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                      { name: 'Studio', rate: getFirstNonZeroRate(row['AL/MC_PrivateRate'], row['AL/MC_StudioRate'], row['MC_ALStudioRoomRate']), careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: getFirstNonZeroRate(row['MC_ALCompanionRoomRate'], row['AL/MC_CompanionRate']), careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
                     ],
                     occupancy: null,
                     totalUnits: null,
                   },
                   {
                     type: 'HC/MC',
-                    flag: (row['SMC'] === 'True' || row['SMC'] === true || row['SMC'] === 1 || row['SMC flag'] === 'True' || row['SMC flag'] === true || row['SMC flag'] === 1) ? 'True' : 'False',
+                    // Use isFlagTrue with both possible column names; fall back to rate-presence detection
+                    flag: isFlagTrue(row['SMC flag'] || row['SMC']) || getFirstNonZeroRate(row['HC/MC_PrivateRate'], row['SMC_PrivateRoomRate'], row['HC/MC_CompanionRate'], row['SMC_CompanionRoomRate']) ? 'True' : 'False',
                     careLevel1: parseNumeric(row['HC/MC_Level1'] ?? row['HC_Level1']),
                     careLevel2: parseNumeric(row['SMC_Level2'] ?? row['HC/MC_Level2'] ?? 0),
                     careLevel3: parseNumeric(row['HC/MC_Level3'] ?? row['HC_Level3']),
                     careLevel4: parseNumeric(row['HC/MC_Level4'] ?? row['HC_Level4']),
                     medicationManagement: parseNumeric(row['HC/MC_MedicationManagement'] ?? row['SMC_MedicationManagement']),
                     roomTypes: [
-                      { name: 'Studio', rate: row['HC/MC_PrivateRate'] || row['SMC_PrivateRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
-                      { name: 'Companion', rate: row['HC/MC_CompanionRate'] || row['SMC_CompanionRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                      { name: 'Studio', rate: getFirstNonZeroRate(row['HC/MC_PrivateRate'], row['SMC_PrivateRoomRate']), careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                      { name: 'Companion', rate: getFirstNonZeroRate(row['HC/MC_CompanionRate'], row['SMC_CompanionRoomRate']), careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
                     ],
                     occupancy: null,
                     totalUnits: null,
@@ -578,11 +591,11 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
           stats.successfulImports = allRecords.length;
           stats.mappedRecords = allRecords.length;
 
-          // Log summary
+          // Log summary (all service lines shown, including zeros, to surface future regressions)
           console.log('\n=== CSV Import Summary ===');
           console.log(`Records inserted by type:`);
           Object.entries(insertCounts).forEach(([type, count]) => {
-            if (count > 0) console.log(`  ${type}: ${count}`);
+            console.log(`  ${type}: ${count}`);
           });
         } catch (txError: any) {
           stats.errors.push(`Transaction error: ${txError.message}`);
@@ -665,6 +678,25 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             const cleaned = String(value).replace(/[$,\s]/g, '');
             const parsed = parseFloat(cleaned);
             return isNaN(parsed) ? 0 : parsed;
+          };
+
+          // Helper function to check if a flag is "true" (handles string, boolean, number formats)
+          const isFlagTrue = (flag: any): boolean => {
+            if (flag === 'True' || flag === 'TRUE' || flag === true || flag === 1 || flag === '1') {
+              return true;
+            }
+            return false;
+          };
+
+          // Returns the first column value that parses to a finite non-zero number, or null.
+          // Avoids the JS truthy pitfall where "0" is truthy but represents no rate,
+          // and guards against non-numeric strings like "N/A" where parseFloat yields NaN.
+          const getFirstNonZeroRate = (...cols: any[]): string | null => {
+            for (const col of cols) {
+              const n = parseFloat(col);
+              if (Number.isFinite(n) && n !== 0) return String(col);
+            }
+            return null;
           };
 
           // Service line definitions with their room type mappings
@@ -816,43 +848,37 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             },
             {
               type: 'AL/MC',
-              flag: (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+              // Use isFlagTrue with both possible column names; fall back to rate-presence detection
+              flag: isFlagTrue(row['MC flag'] || row['MC']) || getFirstNonZeroRate(row['MC_ALStudioRoomRate'], row['AL/MC_PrivateRate'], row['AL/MC_StudioRate'], row['MC_ALCompanionRoomRate'], row['AL/MC_CompanionRate']) ? 'True' : 'False',
               careLevel1: parseNumericExcel(row['AL/MC_Level1'] ?? row['AL_Level1']),
               careLevel2: parseNumericExcel(row['MC_Level2'] ?? row['AL/MC_Level2'] ?? 0),
               careLevel3: parseNumericExcel(row['AL/MC_Level3'] ?? row['AL_Level3']),
               careLevel4: parseNumericExcel(row['AL/MC_Level4'] ?? row['AL_Level4']),
               medicationManagement: parseNumericExcel(row['MC_MedicationManagement']),
               roomTypes: [
-                { name: 'Studio', rate: row['AL/MC_StudioRate'] || row['AL/MC_PrivateRate'] || row['MC_ALStudioRoomRate'], careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
-                { name: 'Companion', rate: row['MC_ALCompanionRoomRate'] || row['AL/MC_CompanionRate'] || null, careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                { name: 'Studio', rate: getFirstNonZeroRate(row['AL/MC_StudioRate'], row['AL/MC_PrivateRate'], row['MC_ALStudioRoomRate']), careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
+                { name: 'Companion', rate: getFirstNonZeroRate(row['MC_ALCompanionRoomRate'], row['AL/MC_CompanionRate']), careLevel: row['AL/MC_Comp_Care_Adj'], otherAdj: row['AL/MC_Comp_Other_Adj'], weight: row['AL/MC_Comp_Weight'] },
               ],
               occupancy: null,
               totalUnits: null,
             },
             {
               type: 'HC/MC',
-              flag: (row['SMC'] === 'True' || row['SMC'] === true || row['SMC'] === 1) ? 'True' : 'False',
+              // Use isFlagTrue with both possible column names; fall back to rate-presence detection
+              flag: isFlagTrue(row['SMC flag'] || row['SMC']) || getFirstNonZeroRate(row['HC/MC_PrivateRate'], row['SMC_PrivateRoomRate'], row['HC/MC_CompanionRate'], row['SMC_CompanionRoomRate']) ? 'True' : 'False',
               careLevel1: parseNumericExcel(row['HC/MC_Level1'] ?? row['HC_Level1']),
               careLevel2: parseNumericExcel(row['SMC_Level2'] ?? row['HC/MC_Level2'] ?? 0),
               careLevel3: parseNumericExcel(row['HC/MC_Level3'] ?? row['HC_Level3']),
               careLevel4: parseNumericExcel(row['HC/MC_Level4'] ?? row['HC_Level4']),
               medicationManagement: parseNumericExcel(row['HC/MC_MedicationManagement'] ?? row['SMC_MedicationManagement']),
               roomTypes: [
-                { name: 'Studio', rate: row['HC/MC_PrivateRate'] || row['SMC_PrivateRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
-                { name: 'Companion', rate: row['HC/MC_CompanionRate'] || row['SMC_CompanionRoomRate'], careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                { name: 'Studio', rate: getFirstNonZeroRate(row['HC/MC_PrivateRate'], row['SMC_PrivateRoomRate']), careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
+                { name: 'Companion', rate: getFirstNonZeroRate(row['HC/MC_CompanionRate'], row['SMC_CompanionRoomRate']), careLevel: row['HC/MC_Comp_Care_Adj'], otherAdj: row['HC/MC_Comp_Other_Adj'], weight: row['HC/MC_Comp_Weight'] },
               ],
               occupancy: null,
               totalUnits: null,
             },
           ];
-
-          // Helper function to check if a flag is "true" (handles string, boolean, number formats)
-          const isFlagTrue = (flag: any): boolean => {
-            if (flag === 'True' || flag === 'TRUE' || flag === true || flag === 1 || flag === '1') {
-              return true;
-            }
-            return false;
-          };
 
           // For each service line, create rows for each room type with a rate
           for (const serviceLine of serviceLines) {
@@ -926,12 +952,12 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
       }
     });
     
-    // Log summary of what was inserted
-    console.log('\n=== Import Summary ===');
+    // Log summary (all service lines shown, including zeros, to surface future regressions)
+    console.log('\n=== Excel Import Summary ===');
     console.log(`Total rows processed: ${data.length}`);
     console.log(`Records inserted by type:`);
     Object.entries(insertCounts).forEach(([type, count]) => {
-      if (count > 0) console.log(`  ${type}: ${count}`);
+      console.log(`  ${type}: ${count}`);
     });
     if (stats.successfulImports === 0 && data.length > 0) {
       console.warn('[CompetitiveSurvey] 0 records inserted from', data.length, 'rows. Check that service line flags (AL, HC, etc.) are set to "True" and rate columns match expected names.');
