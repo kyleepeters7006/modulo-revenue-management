@@ -464,7 +464,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'AL/MC',
-                    flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    flag: (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
                     careLevel1: parseNumeric(row['AL/MC_Level1'] ?? row['AL_Level1']),
                     careLevel2: parseNumeric(row['MC_Level2'] ?? row['AL/MC_Level2'] ?? 0),
                     careLevel3: parseNumeric(row['AL/MC_Level3'] ?? row['AL_Level3']),
@@ -479,7 +479,7 @@ export async function importCompetitiveSurveyCSV(fileBuffer: Buffer, surveyMonth
                   },
                   {
                     type: 'HC/MC',
-                    flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+                    flag: (row['SMC'] === 'True' || row['SMC'] === true || row['SMC'] === 1 || row['SMC flag'] === 'True' || row['SMC flag'] === true || row['SMC flag'] === 1) ? 'True' : 'False',
                     careLevel1: parseNumeric(row['HC/MC_Level1'] ?? row['HC_Level1']),
                     careLevel2: parseNumeric(row['SMC_Level2'] ?? row['HC/MC_Level2'] ?? 0),
                     careLevel3: parseNumeric(row['HC/MC_Level3'] ?? row['HC_Level3']),
@@ -816,8 +816,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             },
             {
               type: 'AL/MC',
-              flag: (row['AL'] === 'True' || row['AL'] === true || row['AL'] === 1) && 
-                    (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+              flag: (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
               careLevel1: parseNumericExcel(row['AL/MC_Level1'] ?? row['AL_Level1']),
               careLevel2: parseNumericExcel(row['MC_Level2'] ?? row['AL/MC_Level2'] ?? 0),
               careLevel3: parseNumericExcel(row['AL/MC_Level3'] ?? row['AL_Level3']),
@@ -832,8 +831,7 @@ export async function importCompetitiveSurveyExcel(fileBuffer: Buffer, surveyMon
             },
             {
               type: 'HC/MC',
-              flag: (row['HC'] === 'True' || row['HC'] === true || row['HC'] === 1) && 
-                    (row['MC'] === 'True' || row['MC'] === true || row['MC'] === 1) ? 'True' : 'False',
+              flag: (row['SMC'] === 'True' || row['SMC'] === true || row['SMC'] === 1) ? 'True' : 'False',
               careLevel1: parseNumericExcel(row['HC/MC_Level1'] ?? row['HC_Level1']),
               careLevel2: parseNumericExcel(row['SMC_Level2'] ?? row['HC/MC_Level2'] ?? 0),
               careLevel3: parseNumericExcel(row['HC/MC_Level3'] ?? row['HC_Level3']),
