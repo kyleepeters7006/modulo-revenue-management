@@ -80,7 +80,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates } from "@shared/schema";
-import { sql, and, eq, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
+import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
@@ -11695,7 +11695,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           .where(and(
             eq(rentRollData.clientId, clientId),
             eq(rentRollData.uploadMonth, latestMonth),
-            eq(rentRollData.location, locationName)
+            eq(rentRollData.location, locationName),
+            gt(rentRollData.streetRate, 0),
+            sql`NOT (${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'IL') AND ${rentRollData.roomNumber} LIKE '%/B')`
           ))
           .groupBy(rentRollData.serviceLine, rentRollData.roomType);
         
@@ -11819,8 +11821,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         
         // Get Trilogy rate for comparison
         const trilogyServiceLine = serviceLine === 'AL' ? 'AL' : serviceLine;
-        const trilogyRate = trilogyRates[trilogyServiceLine]?.[record.roomType || ''] || 
-                          trilogyRates[trilogyServiceLine]?.['Studio'] || 0;
+        const trilogyRate = trilogyRates[trilogyServiceLine]?.[record.roomType || ''] || 0;
         
         // Calculate market position (Trilogy rate / Competitor rate * 100), 1 decimal place
         // so 99.6% doesn't round to 100% and incorrectly show as "at/above market"
