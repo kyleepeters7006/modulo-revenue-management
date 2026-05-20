@@ -537,7 +537,7 @@ export default function CompetitorForm({
                             if (hasPerSL) {
                               return Object.entries(wbsl).map(([sl, w]) => (
                                 <Badge key={sl} variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                  {sl}: {Math.round((w as number) * 100)}%
+                                  {sl} Weight: {Math.round((w as number) * 100)}%
                                 </Badge>
                               ));
                             }
@@ -545,7 +545,7 @@ export default function CompetitorForm({
                               if (competitor.serviceLines && competitor.serviceLines.length > 0) {
                                 return competitor.serviceLines.map((sl: string) => (
                                   <Badge key={sl} variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                    {sl}: {Math.round(competitor.weight * 100)}%
+                                    {sl} Weight: {Math.round(competitor.weight * 100)}%
                                   </Badge>
                                 ));
                               }
@@ -578,15 +578,18 @@ export default function CompetitorForm({
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
                             {[...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
                               compareRoomTypes(a.roomType, b.roomType)
-                            ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null; competitorType?: string | null }, idx: number) => (
+                            ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null; competitorType?: string | null }, idx: number) => {
+                              const slLabel = rr.competitorType || (competitor.serviceLines && competitor.serviceLines.length > 0 ? competitor.serviceLines[0] : null);
+                              return (
                               <div key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`} className="whitespace-nowrap">
                                 <span className="font-medium">
-                                  {rr.roomType}{rr.competitorType ? ` (${rr.competitorType})` : ''}:
+                                  {slLabel ? `${slLabel} – ` : ''}{rr.roomType}:
                                 </span>{' '}
                                 {rr.streetRate != null ? `$${Math.round(rr.streetRate).toLocaleString()}` : '—'}
                                 {rr.careRate != null && rr.careRate > 0 ? ` | Care: $${Math.round(rr.careRate).toLocaleString()}` : ''}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
