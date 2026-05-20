@@ -1399,6 +1399,10 @@ export class DatabaseStorage implements IStorage {
       
       if (!competitorMap.has(key)) {
         // Use Studio as the primary/fallback rate for backward compat
+        const initWeightsByServiceLine: Record<string, number> = {};
+        if (record.competitorType && recordWeight > 0) {
+          initWeightsByServiceLine[record.competitorType] = recordWeight;
+        }
         competitorMap.set(key, {
           id: record.id,
           name: record.competitorName,
@@ -1412,6 +1416,7 @@ export class DatabaseStorage implements IStorage {
           avgCareRate: record.careFeesAvg,
           rating: null,
           weight: recordWeight > 0 ? recordWeight : null,
+          weightsByServiceLine: initWeightsByServiceLine,
           rank: null,
           roomType: record.roomType,
           serviceLines: record.competitorType ? [record.competitorType] : [],
@@ -1424,6 +1429,7 @@ export class DatabaseStorage implements IStorage {
             roomType: record.roomType,
             streetRate: record.monthlyRateAvg,
             careRate: record.careFeesAvg,
+            competitorType: record.competitorType ?? null,
           }] : []
         });
       } else {
@@ -1438,18 +1444,25 @@ export class DatabaseStorage implements IStorage {
         if (recordWeight > 0 && !existing.weight) {
           existing.weight = recordWeight;
         }
+        // Store per-service-line weight
+        if (record.competitorType && recordWeight > 0 && !existing.weightsByServiceLine[record.competitorType]) {
+          existing.weightsByServiceLine[record.competitorType] = recordWeight;
+        }
         // Collect unique service lines
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
         }
-        // Accumulate per-room-type rates — one entry per distinct room type
+        // Accumulate per-room-type rates — one entry per distinct room type + service line
         if (record.roomType) {
-          const alreadyHas = existing.roomRates.some((r: any) => r.roomType === record.roomType);
+          const alreadyHas = existing.roomRates.some(
+            (r: any) => r.roomType === record.roomType && r.competitorType === (record.competitorType ?? null)
+          );
           if (!alreadyHas) {
             existing.roomRates.push({
               roomType: record.roomType,
               streetRate: record.monthlyRateAvg,
               careRate: record.careFeesAvg,
+              competitorType: record.competitorType ?? null,
             });
           }
         }

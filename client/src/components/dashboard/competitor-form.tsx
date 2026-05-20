@@ -531,11 +531,32 @@ export default function CompetitorForm({
                       <div className="flex-1 space-y-3 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="font-medium text-[var(--dashboard-text)]">{competitor.name}</h4>
-                          {competitor.weight != null && competitor.weight > 0 && (
-                            <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              Weight: {Math.round(competitor.weight * 100)}%
-                            </Badge>
-                          )}
+                          {(() => {
+                            const wbsl: Record<string, number> = competitor.weightsByServiceLine || {};
+                            const hasPerSL = Object.keys(wbsl).length > 0;
+                            if (hasPerSL) {
+                              return Object.entries(wbsl).map(([sl, w]) => (
+                                <Badge key={sl} variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  {sl}: {Math.round((w as number) * 100)}%
+                                </Badge>
+                              ));
+                            }
+                            if (competitor.weight != null && competitor.weight > 0) {
+                              if (competitor.serviceLines && competitor.serviceLines.length > 0) {
+                                return competitor.serviceLines.map((sl: string) => (
+                                  <Badge key={sl} variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                    {sl}: {Math.round(competitor.weight * 100)}%
+                                  </Badge>
+                                ));
+                              }
+                              return (
+                                <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  Weight: {Math.round(competitor.weight * 100)}%
+                                </Badge>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                         
                         {competitor.address && (
@@ -557,9 +578,11 @@ export default function CompetitorForm({
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
                             {[...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
                               compareRoomTypes(a.roomType, b.roomType)
-                            ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null }) => (
-                              <div key={rr.roomType} className="whitespace-nowrap">
-                                <span className="font-medium">{rr.roomType}:</span>{' '}
+                            ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null; competitorType?: string | null }, idx: number) => (
+                              <div key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`} className="whitespace-nowrap">
+                                <span className="font-medium">
+                                  {rr.roomType}{rr.competitorType ? ` (${rr.competitorType})` : ''}:
+                                </span>{' '}
                                 {rr.streetRate != null ? `$${Math.round(rr.streetRate).toLocaleString()}` : '—'}
                                 {rr.careRate != null && rr.careRate > 0 ? ` | Care: $${Math.round(rr.careRate).toLocaleString()}` : ''}
                               </div>

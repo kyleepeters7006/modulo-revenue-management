@@ -336,14 +336,24 @@ export function CompetitorMap({
 
         // Format room rates more elegantly
         let primaryRate = displayRate;
-        let roomTypeLabel = isHC ? 'HC Rate' : 'Avg Rate';
+        const popupServiceLine = competitor.serviceLine || (competitor.serviceLines && competitor.serviceLines[0]) || null;
+        let roomTypeLabel = isHC ? `HC Rate${popupServiceLine ? ` (${popupServiceLine})` : ''}` : `Avg Rate${popupServiceLine ? ` (${popupServiceLine})` : ''}`;
         if (!isHC && competitor.rates && typeof competitor.rates === 'object') {
           if (competitor.rates.Studio || competitor.rates.studio) {
             primaryRate = competitor.rates.Studio || competitor.rates.studio;
-            roomTypeLabel = 'Studio';
+            roomTypeLabel = `Studio${popupServiceLine ? ` (${popupServiceLine})` : ''}`;
           } else if (competitor.rates['One Bedroom'] || competitor.rates.oneBedroom) {
             primaryRate = competitor.rates['One Bedroom'] || competitor.rates.oneBedroom;
-            roomTypeLabel = '1BR';
+            roomTypeLabel = `1BR${popupServiceLine ? ` (${popupServiceLine})` : ''}`;
+          }
+        }
+        // For roomRates array, derive label from first entry if available
+        if (competitor.roomRates && competitor.roomRates.length > 0) {
+          const firstRR = competitor.roomRates[0];
+          const rrSL = firstRR.competitorType || popupServiceLine;
+          if (firstRR.streetRate != null) {
+            primaryRate = firstRR.streetRate;
+            roomTypeLabel = `${firstRR.roomType}${rrSL ? ` (${rrSL})` : ''}`;
           }
         }
 
@@ -380,11 +390,29 @@ export function CompetitorMap({
                   ${competitor.serviceLine || 'AL'} - Monthly Rates
                 </div>
                 `}
-                ${competitor.weight != null && competitor.weight > 0 ? `
+                ${(() => {
+                  const wbsl: Record<string, number> = competitor.weightsByServiceLine || {};
+                  const perSLEntries = Object.entries(wbsl);
+                  if (perSLEntries.length > 0) {
+                    return perSLEntries.map(([sl, w]) => `
+                <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
+                  ⚖ ${sl}: ${Math.round((w as number) * 100)}%
+                </div>`).join('');
+                  }
+                  if (competitor.weight != null && competitor.weight > 0) {
+                    if (competitor.serviceLines && competitor.serviceLines.length > 0) {
+                      return competitor.serviceLines.map((sl: string) => `
+                <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
+                  ⚖ ${sl}: ${Math.round(competitor.weight * 100)}%
+                </div>`).join('');
+                    }
+                    return `
                 <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
                   ⚖ ${Math.round(competitor.weight * 100)}% weight
-                </div>
-                ` : ''}
+                </div>`;
+                  }
+                  return '';
+                })()}
               </div>
               
               <!-- Rate Section -->
