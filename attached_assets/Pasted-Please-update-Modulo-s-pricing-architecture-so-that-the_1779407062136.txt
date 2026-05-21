@@ -1,0 +1,225 @@
+Please update Modulo’s pricing architecture so that the two existing user-facing rate concepts — “Modulo Rate” and “AI Rate” — are replaced with two clearer pricing strategy options:
+
+1. Rules Rate
+2. Revenue Target AI Rate
+
+The goal is to simplify the product language and user experience while preserving the advanced AI Rate formula that already exists.
+
+Important framing:
+The current platform has two algorithm concepts called “Modulo Rate” and “AI Rate.” These are confusing to users because it is not clear when each should be used or how they are different.
+
+Replace that structure with two clearly named pricing strategies:
+
+- Rules Rate = transparent, stackable business rules pricing engine
+- Revenue Target AI Rate = advanced AI-driven revenue optimization engine that utilizes the existing AI Rate formula
+
+Do not continue presenting “Modulo Rate” and “AI Rate” as the two main user-facing algorithms. Treat those as legacy/internal concepts and replace them throughout the user-facing product.
+
+1. Replace current algorithm structure
+
+Replace the existing user-facing algorithm options:
+
+Old:
+- Modulo Rate
+- AI Rate
+
+New:
+- Rules Rate
+- Revenue Target AI Rate
+
+Rules Rate should become the default option.
+
+Revenue Target AI Rate should utilize the existing AI Rate formula and preserve the advanced logic that considers revenue growth targets, occupancy, vacancy, competitive rates, room attributes, leasing velocity, and guardrails.
+
+2. Rules Rate logic
+
+Rules Rate should calculate recommended rates using user-created stackable pricing rules.
+
+Examples of stackable rules:
+- Discount every room vacant more than 10 days by 5%
+- Increase all units at campuses over 90% occupancy by 5%
+- Add a premium for renovated units
+- Cap rate increases at 3%
+- Never price below the minimum approved rate
+- Apply a move-in special to units vacant more than 30 days
+
+Calculation flow:
+1. Start with current rate or base market rate
+2. Apply active stackable pricing rules
+3. Apply guardrails / min-max bands
+4. Produce final recommended rate
+
+Explanation example:
+Recommended rate: $4,750
+Pricing Strategy: Rules Rate
+Reason: This unit has been vacant for 12 days, so the 5% vacancy discount rule was applied. The final rate remains within approved guardrails.
+
+3. Revenue Target AI Rate logic
+
+Revenue Target AI Rate should replace the old user-facing “AI Rate” concept, but it should utilize the existing AI Rate formula as the foundation.
+
+Do not rebuild the AI Rate formula from scratch unless absolutely necessary. Instead:
+- Reuse the existing AI Rate calculation logic
+- Rename it and present it as Revenue Target AI Rate
+- Ensure the existing revenue target logic is included
+- Preserve the existing factors, weights, adjustments, and guardrails where they are already working
+- Clean up the explanation layer so users understand the recommendation without needing to understand the full formula
+
+Revenue Target AI Rate should consider:
+- Annual revenue growth target
+- Actual YTD revenue growth
+- Revenue gap to target
+- Months remaining in the year
+- Occupancy
+- Days vacant
+- Competitive rates
+- Unit attributes
+- Leasing velocity
+- Room type performance
+- Campus-level demand
+- Guardrails / min-max bands
+
+Calculation flow:
+1. Start with the existing AI Rate formula
+2. Include revenue growth target gap and urgency logic
+3. Evaluate occupancy, vacancy, competitive rates, unit attributes, and leasing velocity
+4. Apply the existing AI-driven adjustment recommendation
+5. Apply guardrails / min-max bands
+6. Produce final recommended rate
+
+Explanation example:
+Recommended rate: $4,950
+Pricing Strategy: Revenue Target AI Rate
+Reason: This campus is 1.8% behind its annual revenue growth target, occupancy is 92%, and this room type has leased quickly over the last 90 days. The final rate remains within approved guardrails.
+
+4. Update all algorithm description text across the platform
+
+Search the entire codebase and user interface for references to:
+- Modulo Rate
+- AI Rate
+- Modulo algorithm
+- AI algorithm
+- pricing algorithm
+- algorithm weights
+- AI pricing engine
+- rate calculation methodology
+- methodology page
+- about page
+- help text
+- tooltips
+- dashboard labels
+- recommendation cards
+- settings pages
+- documentation text
+- onboarding text
+
+Update all user-facing text so the product consistently describes the two pricing strategies as:
+
+Rules Rate:
+“A transparent pricing engine that applies user-defined business rules consistently across units and campuses.”
+
+Revenue Target AI Rate:
+“An intelligent pricing engine that uses Modulo’s existing AI Rate formula to monitor revenue performance against annual growth goals and recommend rates using occupancy, vacancy, demand, competitive pricing, unit attributes, leasing velocity, and guardrails.”
+
+Add this positioning wherever methodology is explained:
+“Modulo lets users start with simple, transparent pricing rules and move into more advanced revenue optimization when they are ready.”
+
+5. Update pricing settings UI
+
+Create or update a “Pricing Strategy” selector with two options:
+
+Rules Rate
+Description:
+“Use clear business rules to adjust rates. Best for transparency, operator trust, and easy adoption.”
+
+Revenue Target AI Rate
+Description:
+“Use Modulo’s existing AI Rate formula to monitor revenue performance and recommend rates based on growth targets, occupancy, vacancy, competitive rates, unit attributes, and leasing velocity.”
+
+Default new users and new campuses to Rules Rate.
+
+6. Update recommendation displays
+
+Every recommended rate should show:
+
+- Current rate
+- Recommended rate
+- Dollar change
+- Percent change
+- Pricing Strategy used
+- Plain-English reason for recommendation
+- Rules applied, if using Rules Rate
+- AI factors considered, if using Revenue Target AI Rate
+- Guardrail status
+
+Do not overwhelm the user with formulas on the main screen. Add a “View Details” expandable section for advanced users.
+
+7. Update terminology
+
+Use these terms consistently:
+
+Use:
+- Pricing Strategy
+- Rules Rate
+- Revenue Target AI Rate
+- Recommended Rate
+- Reason for Recommendation
+- Rules Applied
+- AI Factors Considered
+- Guardrails
+- Revenue Target Gap
+- Occupancy Signal
+- Vacancy Signal
+- Competitive Rate Signal
+
+Avoid or replace:
+- Modulo Rate
+- AI Rate, except where needed internally in code or advanced technical details
+- Modulo algorithm
+- AI algorithm
+- complex algorithm
+- algorithm weights, unless inside advanced details only
+
+8. Preserve functionality but improve naming
+
+Do not remove useful existing pricing logic.
+
+Instead:
+- Map the current Modulo Rate / stackable rules logic into the new Rules Rate
+- Map the current AI Rate formula into the new Revenue Target AI Rate
+- Preserve the existing AI Rate formula and enhance the user-facing explanation
+- Keep any existing calculations that are still useful
+- Rename, reorganize, and simplify the user-facing experience
+
+The goal is not to eliminate intelligence. The goal is to make the system easier to understand, easier to explain, and easier to adopt.
+
+9. About / Methodology page update
+
+Rewrite the About / Methodology page to explain the new structure.
+
+Suggested copy:
+
+“Modulo supports two pricing strategies.
+
+Rules Rate is designed for transparency and adoption. Users can create stackable business rules such as discounting units that have been vacant too long, increasing rates at high-occupancy campuses, applying renovation premiums, or enforcing minimum and maximum rate guardrails.
+
+Revenue Target AI Rate is designed for advanced revenue optimization. It uses Modulo’s existing AI Rate formula to monitor actual revenue growth against annual targets and recommend rate changes based on revenue gap, occupancy, vacancy, competitive pricing, unit attributes, leasing velocity, and campus-level demand.
+
+Modulo is designed to let teams start simple, build trust, and move into more advanced pricing intelligence when they are ready.”
+
+10. Testing
+
+Please test that:
+
+- “Modulo Rate” and “AI Rate” are no longer shown as the primary user-facing algorithm options
+- The user now sees “Rules Rate” and “Revenue Target AI Rate”
+- Rules Rate uses stackable rules to generate recommendations
+- Revenue Target AI Rate utilizes the existing AI Rate formula
+- Switching pricing strategies changes the rate recommendation method
+- Recommendation explanations update based on the selected pricing strategy
+- Guardrails apply in both modes
+- Existing data and saved settings are not broken
+- The About / Methodology page and all algorithm description text are updated
+- The UI feels simpler, more executive-friendly, and more operator-friendly
+
+Please implement this cleanly with reusable components and avoid duplicating pricing logic unnecessarily.
