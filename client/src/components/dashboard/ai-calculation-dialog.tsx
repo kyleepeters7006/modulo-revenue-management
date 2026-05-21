@@ -382,7 +382,7 @@ export default function AICalculationDialog({
                                     Signal ({adj.signal !== undefined ? adj.signal.toFixed(3) : 'N/A'}) → Adjustment ({adj.adjustment > 0 ? '+' : ''}{formatPercent(adj.adjustment)})
                                   </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {adj.signalExplanation || 'The normalized signal is converted to a percentage adjustment based on the AI algorithm\'s scaling factors.'}
+                                    {adj.signalExplanation || 'The normalized signal is converted to a percentage adjustment based on the Revenue Target AI engine\'s scaling factors.'}
                                   </p>
                                 </div>
                                 {adj.rawData && (
@@ -465,7 +465,7 @@ export default function AICalculationDialog({
                     <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Rate Progression</p>
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <div className="bg-gray-100 dark:bg-gray-800 rounded px-2 py-1 text-center min-w-[90px]">
-                        <p className="text-xs text-muted-foreground">Stored Revenue Target AI Rate</p>
+                        <p className="text-xs text-muted-foreground">Saved Revenue Target AI Rate</p>
                         <p className="font-medium">{formatCurrency(calcDetails.strategyLayer.existingAiRate || 0)}</p>
                       </div>
                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />

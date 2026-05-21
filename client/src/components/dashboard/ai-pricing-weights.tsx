@@ -61,14 +61,14 @@ export function AiPricingWeights() {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-pricing-weights'] });
       setHasChanges(false);
       toast({
-        title: 'AI Weights Saved',
-        description: 'AI pricing weights have been updated successfully.',
+        title: 'Revenue Target AI Weights Saved',
+        description: 'Revenue Target AI weights have been updated successfully.',
       });
     },
     onError: () => {
       toast({
         title: 'Error',
-        description: 'Failed to save AI pricing weights.',
+        description: 'Failed to save Revenue Target AI weights.',
         variant: 'destructive',
       });
     },
@@ -136,7 +136,7 @@ export function AiPricingWeights() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>AI Pricing Weights</CardTitle>
+          <CardTitle>Revenue Target AI Weights</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-[var(--dashboard-muted)]">Loading weights...</div>
@@ -150,9 +150,9 @@ export function AiPricingWeights() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>AI Pricing Weights</CardTitle>
+            <CardTitle>Revenue Target AI Weights</CardTitle>
             <CardDescription>
-              Configure how AI algorithm factors influence pricing decisions (must total 100%)
+              Configure how Revenue Target AI factors influence pricing decisions (must total 100%)
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -217,7 +217,7 @@ export function AiPricingWeights() {
               data-testid="button-save-ai-weights"
             >
               <Save className="h-4 w-4 mr-1" />
-              Save AI Weights
+              Save Revenue Target AI Weights
             </Button>
           </div>
         </div>

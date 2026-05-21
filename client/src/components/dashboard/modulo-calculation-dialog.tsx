@@ -325,11 +325,11 @@ export default function ModuloCalculationDialog({
                       <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                       <div>
                         <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                          Rules Rate Algorithm Disabled
+                          Rules Rate Engine Disabled
                         </h4>
                         <p className="text-xs text-blue-800 dark:text-blue-200">
-                          The Rules Rate algorithm is currently turned off. Only manual adjustment rules are being applied to pricing. 
-                          To enable the algorithm, go to the Pricing Weights section and toggle "Use Rules Rate Algorithm Weights".
+                          The Rules Rate engine is currently turned off. Only manual adjustment rules are being applied to pricing. 
+                          To enable it, go to the Pricing Weights section and toggle "Use Rules Rate Algorithm Weights".
                         </p>
                       </div>
                     </div>
@@ -609,14 +609,14 @@ export default function ModuloCalculationDialog({
                       <Settings className="h-4 w-4 text-blue-600" />
                       Manual Adjustment Rules
                       <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300">
-                        Overrides Modulo
+                        Overrides Rules Rate
                       </Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
                       <p className="text-xs text-muted-foreground">
-                        The following manual rules were applied to override the Modulo algorithm:
+                        The following manual rules were applied to override the Rules Rate engine:
                       </p>
                       {calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).map((adj: any, index: number) => (
                         <div key={index} className="space-y-2 p-3 bg-white dark:bg-gray-900 rounded border border-blue-200 dark:border-blue-800">

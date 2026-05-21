@@ -399,7 +399,7 @@ export default function PricingAlgorithmDocs() {
                 </div>
                 <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
                   The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records each rule that fired so operators can audit exactly which rules affected each unit.
-                  To configure rules, navigate to <strong>Pricing Controls → Smart Adjustments</strong>, type a rule in plain English, preview its impact, then activate it. Rules can be toggled on/off without deletion.
+                  To configure rules, navigate to <strong>Pricing Controls → Smart Adjustment Rules</strong>, type a rule in plain English, preview its impact, then activate it. Rules can be toggled on/off without deletion.
                 </p>
               </div>
             </CardContent>

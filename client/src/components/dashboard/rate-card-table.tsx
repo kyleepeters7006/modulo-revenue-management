@@ -256,7 +256,7 @@ export default function RateCardTable({
   // Helper function to generate Modulo calculation explanation
   const getModuloTooltip = (unit: any) => {
     if (!unit.moduloSuggestedRate || unit.moduloSuggestedRate === unit.streetRate) {
-      return "No Modulo suggestions available";
+      return "No Rules Rate suggestions available";
     }
 
     const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
@@ -311,7 +311,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
   // Helper function to generate AI calculation explanation  
   const getAITooltip = (unit: any) => {
     if (!unit.aiSuggestedRate) {
-      return "No AI suggestions available";
+      return "No Revenue Target AI Rate suggestions available";
     }
 
     const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
@@ -512,9 +512,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                   )}
                   {(generateModuloMutation.isPending || activeModuloJobId)
                     ? "Calculating..."
-                    : filteredUnits.some((u: any) => u.moduloSuggestedRate)
-                      ? "Recalculate Rules Rate"
-                      : "Generate Rules Rate Suggestions"}
+                    : "Run Rules Rate"}
                 </Button>
                 
                 <Button
@@ -530,9 +528,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                   )}
                   {generateAIMutation.isPending
                     ? "Generating..."
-                    : filteredUnits.some((u: any) => u.aiSuggestedRate)
-                      ? "Recalculate Revenue Target AI Rate"
-                      : "Generate Revenue Target AI Rate"}
+                    : "Run Revenue Target AI Rate"}
                 </Button>
                 </div>
               </div>
@@ -923,7 +919,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                                             <Shield className="h-3 w-3 text-amber-600" />
                                           </TooltipTrigger>
                                           <TooltipContent className="max-w-xs">
-                                            <p className="font-semibold text-xs mb-1">Smart Adjustments Applied</p>
+                                            <p className="font-semibold text-xs mb-1">Smart Adjustment Rules Applied</p>
                                             {details.guardrailsApplied.map((rule: string, i: number) => (
                                               <p key={i} className="text-xs">{rule}</p>
                                             ))}

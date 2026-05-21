@@ -317,10 +317,10 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
           <div>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
-              Smart Adjustments
+              Smart Adjustment Rules
             </CardTitle>
             <CardDescription>
-              Speak or type natural language rules to adjust portfolio pricing
+              Define natural-language rules that stack on top of the Rules Rate engine to refine pricing
             </CardDescription>
           </div>
           <Button

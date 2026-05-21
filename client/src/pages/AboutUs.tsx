@@ -86,6 +86,26 @@ export default function AboutUs() {
           </CardContent>
         </Card>
 
+        {/* Pricing Methodology */}
+        <Card className="mb-8 bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
+          <CardHeader>
+            <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
+              Our Pricing Methodology
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
+            <p>
+              Modulo supports two pricing strategies. <strong className="text-[var(--trilogy-dark-blue)]">Rules Rate</strong> is designed for transparency and adoption — it applies six operator-configured weighted signals to each unit's street rate, stacks Smart Adjustment Rules on top, and produces a fully auditable recommendation every time. Operators can see exactly which factors moved the rate and by how much.
+            </p>
+            <p>
+              <strong className="text-[var(--trilogy-dark-blue)]">Revenue Target AI Rate</strong> takes a different approach — it uses GPT-5-generated weights based on the current portfolio snapshot, refined over time by an ML learning loop that tracks adoption and move-in outcomes. For vacant units with an active revenue growth target, the Revenue Target Strategy layer further optimises each recommendation by selecting the rate that is expected to generate the most revenue between now and year-end.
+            </p>
+            <p>
+              Both strategies are bounded by Guardrails. Operators see both side-by-side and decide which rate to adopt, when, and at what frequency. The system never forces a change.
+            </p>
+          </CardContent>
+        </Card>
+
         {/* Pricing Algorithm Documentation — prominent banner */}
         <button
           onClick={() => setLocation('/pricing-algorithm')}
