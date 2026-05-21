@@ -84,7 +84,7 @@ export default function AICalculationDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-blue-600" />
-              AI Pricing Calculation
+              Revenue Target AI Rate Calculation
               <Badge variant="secondary">{roomType}</Badge>
               {serviceLine && <Badge variant="outline">{serviceLine}</Badge>}
             </DialogTitle>
@@ -100,7 +100,7 @@ export default function AICalculationDialog({
                   <p className="text-lg font-bold">{formatCurrency(streetRate)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">AI Suggested Rate</p>
+                  <p className="text-xs text-muted-foreground">Revenue Target AI Rate</p>
                   <p className="text-lg font-bold text-blue-600">{formatCurrency(fallbackRate)}</p>
                 </div>
               </div>
@@ -124,7 +124,7 @@ export default function AICalculationDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-blue-600" />
-            AI Pricing Calculation
+            Revenue Target AI Rate Calculation
             <Badge variant="secondary">{roomType}</Badge>
             {serviceLine && <Badge variant="outline">{serviceLine}</Badge>}
           </DialogTitle>
@@ -170,13 +170,13 @@ export default function AICalculationDialog({
                     })()}
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">AI Calculated</p>
+                    <p className="text-xs text-muted-foreground">Revenue Target AI</p>
                     <p className="text-lg font-bold text-blue-600" data-testid="ai-calculated-rate">
                       {formatCurrency(calcDetails.finalRate || aiSuggestedRate)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Final AI Rate</p>
+                    <p className="text-xs text-muted-foreground">Final Revenue Target AI Rate</p>
                     <p className="text-lg font-bold text-primary" data-testid="final-ai-rate">
                       {formatCurrency(aiSuggestedRate)}
                     </p>
@@ -465,7 +465,7 @@ export default function AICalculationDialog({
                     <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Rate Progression</p>
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <div className="bg-gray-100 dark:bg-gray-800 rounded px-2 py-1 text-center min-w-[90px]">
-                        <p className="text-xs text-muted-foreground">Stored AI Rate</p>
+                        <p className="text-xs text-muted-foreground">Stored Revenue Target AI Rate</p>
                         <p className="font-medium">{formatCurrency(calcDetails.strategyLayer.existingAiRate || 0)}</p>
                       </div>
                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -845,7 +845,7 @@ export default function AICalculationDialog({
                             <div className="text-xs text-muted-foreground pl-3">↓ final</div>
                             <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2">
                               <div>
-                                <p className="font-medium text-blue-900 dark:text-blue-100">Final AI Rate</p>
+                                <p className="font-medium text-blue-900 dark:text-blue-100">Final Revenue Target AI Rate</p>
                               </div>
                               <p className="font-mono font-bold text-blue-700 dark:text-blue-300">{formatCurrency(finalRate)}</p>
                             </div>

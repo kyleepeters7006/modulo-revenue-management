@@ -881,7 +881,7 @@ export default function InteractiveFloorPlanViewer({
                   </div>
                   {selectedUnit.moduloSuggestedRate && (
                     <div className="bg-[var(--trilogy-teal)]/10 p-3 rounded border border-[var(--trilogy-teal)]">
-                      <p className="text-xs text-[var(--trilogy-navy)] mb-1">Modulo Rate</p>
+                      <p className="text-xs text-[var(--trilogy-navy)] mb-1">Rules Rate</p>
                       <p className="text-xl font-semibold text-[var(--trilogy-navy)]">
                         ${Math.round(selectedUnit.moduloSuggestedRate).toLocaleString()}/mo
                       </p>

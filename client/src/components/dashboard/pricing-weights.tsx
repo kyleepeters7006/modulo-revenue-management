@@ -290,12 +290,12 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       setHasChanges(false);
       setIsSaving(false);
 
-      let description = "Weights saved. Regenerate Modulo pricing to apply the new settings.";
+      let description = "Weights saved. Regenerate Rules Rate pricing to apply the new settings.";
       if (isPortfolioScope && applyToAllLocations && (data?.locationCount || data?.count)) {
         const locationCount = data?.locationCount ?? data?.count;
-        description = `Weights applied to all ${locationCount} locations. Regenerate Modulo pricing to apply the new settings.`;
+        description = `Weights applied to all ${locationCount} locations. Regenerate Rules Rate pricing to apply the new settings.`;
       } else if (applyToAllServiceLines && locationId && !serviceLine) {
-        description = "Weights have been applied to all service lines for this location. Regenerate Modulo pricing to apply the new settings.";
+        description = "Weights have been applied to all service lines for this location. Regenerate Rules Rate pricing to apply the new settings.";
       }
 
       toast({
@@ -496,12 +496,12 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
       <div className="flex items-center justify-between p-4 mb-4 bg-[var(--dashboard-surface)] rounded-lg border border-[var(--dashboard-border)]">
         <div className="flex-1">
           <h4 className="text-sm font-medium text-[var(--dashboard-text)] mb-1">
-            Use Modulo Algorithm Weights
+            Use Rules Rate Algorithm Weights
           </h4>
           <p className="text-xs text-[var(--dashboard-muted)]">
             {enableWeights 
-              ? "Modulo algorithm is active. Pricing will use weighted factors below." 
-              : "Modulo algorithm disabled. Only manual adjustment rules will be applied."}
+              ? "Rules Rate algorithm is active. Pricing will use weighted factors below." 
+              : "Rules Rate algorithm disabled. Only manual adjustment rules will be applied."}
           </p>
         </div>
         <Switch

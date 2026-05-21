@@ -222,7 +222,7 @@ export default function ModuloCalculationDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
-            Modulo Pricing Calculation
+            Rules Rate Calculation
             <Badge variant="secondary">{roomType}</Badge>
             {locationId && (
               <Button
@@ -276,7 +276,7 @@ export default function ModuloCalculationDialog({
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Modulo Rate</p>
+                      <p className="text-xs text-muted-foreground">Rules Rate</p>
                       <p className={`text-lg font-bold ${ruleAdjustedRate ? 'text-muted-foreground line-through' : 'text-primary'}`}>
                         {formatCurrency(getFinalRate(calcDetails))}
                       </p>
@@ -309,7 +309,7 @@ export default function ModuloCalculationDialog({
                           Rates calculated with older weights
                         </h4>
                         <p className="text-xs text-amber-800 dark:text-amber-200">
-                          The pricing weights have been updated since these rates were last generated. Regenerate Modulo pricing to apply your latest settings.
+                          The pricing weights have been updated since these rates were last generated. Regenerate Rules Rate pricing to apply your latest settings.
                         </p>
                       </div>
                     </div>
@@ -325,11 +325,11 @@ export default function ModuloCalculationDialog({
                       <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                       <div>
                         <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                          Modulo Algorithm Disabled
+                          Rules Rate Algorithm Disabled
                         </h4>
                         <p className="text-xs text-blue-800 dark:text-blue-200">
-                          The Modulo pricing algorithm is currently turned off. Only manual adjustment rules are being applied to pricing. 
-                          To enable the algorithm, go to the Pricing Weights section and toggle "Use Modulo Algorithm Weights".
+                          The Rules Rate algorithm is currently turned off. Only manual adjustment rules are being applied to pricing. 
+                          To enable the algorithm, go to the Pricing Weights section and toggle "Use Rules Rate Algorithm Weights".
                         </p>
                       </div>
                     </div>
@@ -406,7 +406,7 @@ export default function ModuloCalculationDialog({
               {!calcDetails.weightsDisabled && (
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">Modulo Algorithm Calculation</CardTitle>
+                    <CardTitle className="text-sm">Rules Rate Calculation</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
@@ -572,7 +572,7 @@ export default function ModuloCalculationDialog({
                         {calcDetails.adjustments.filter((adj: any) => !adj.factor.startsWith('Rule:')).length > 0 && (
                           <div className="mt-4 pt-4 border-t-2 border-[var(--trilogy-teal)]">
                             <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold">Modulo Algorithm Result</span>
+                              <span className="text-sm font-semibold">Rules Rate Result</span>
                               <span className={`text-base font-bold ${getAdjustmentColor(
                                 calcDetails.adjustments
                                   .filter((adj: any) => !adj.factor.startsWith('Rule:'))
@@ -593,7 +593,7 @@ export default function ModuloCalculationDialog({
                       <div className="text-center py-8 text-muted-foreground">
                         <Info className="h-8 w-8 mx-auto mb-2" />
                         <p className="text-sm">No detailed calculation available</p>
-                        <p className="text-xs mt-1">Generate Modulo suggestions to see detailed calculations</p>
+                        <p className="text-xs mt-1">Generate Rules Rate suggestions to see detailed calculations</p>
                       </div>
                     )}
                   </div>
@@ -792,7 +792,7 @@ export default function ModuloCalculationDialog({
               <div className="text-center text-muted-foreground">
                 <Info className="h-8 w-8 mx-auto mb-2" />
                 <p className="text-sm">No calculation details available</p>
-                <p className="text-xs mt-1">Generate Modulo suggestions to see detailed calculations</p>
+                <p className="text-xs mt-1">Generate Rules Rate suggestions to see detailed calculations</p>
               </div>
             </div>
           )}

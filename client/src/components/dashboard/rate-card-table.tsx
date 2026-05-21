@@ -159,14 +159,14 @@ export default function RateCardTable({
           if (!cancelled) {
             setActiveModuloJobId(null);
             setModuloJobProgress(0);
-            toast({ title: "Modulo rates saved", description: "Pricing recommendations have been calculated and saved" });
+            toast({ title: "Rules rates saved", description: "Pricing recommendations have been calculated and saved" });
             queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
           }
         } else if (job.status === 'failed') {
           if (!cancelled) {
             setActiveModuloJobId(null);
             setModuloJobProgress(0);
-            toast({ title: "Modulo calculation failed", description: job.error || "Unknown error", variant: "destructive" });
+            toast({ title: "Rules Rate calculation failed", description: job.error || "Unknown error", variant: "destructive" });
           }
         } else {
           setTimeout(poll, 2000);
@@ -196,16 +196,16 @@ export default function RateCardTable({
       if (jobId) {
         setActiveModuloJobId(jobId);
         setModuloJobProgress(1);
-        toast({ title: "Modulo calculation started", description: "Rates will update automatically when complete" });
+        toast({ title: "Rules Rate calculation started", description: "Rates will update automatically when complete" });
       } else {
         // Fallback: no job ID means synchronous response — just refresh
-        toast({ title: "Modulo rates saved", description: "Pricing recommendations have been calculated and saved" });
+        toast({ title: "Rules rates saved", description: "Pricing recommendations have been calculated and saved" });
         queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       }
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to generate Modulo suggestions",
+        title: "Failed to generate Rules Rate suggestions",
         description: error.message,
         variant: "destructive"
       });
@@ -222,14 +222,14 @@ export default function RateCardTable({
     }),
     onSuccess: () => {
       toast({
-        title: "AI suggestions generated",
+        title: "Revenue Target AI Rate suggestions generated",
         description: "AI-powered pricing recommendations are ready"
       });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to generate AI suggestions", 
+        title: "Failed to generate Revenue Target AI Rate suggestions", 
         description: error.message,
         variant: "destructive"
       });
@@ -298,14 +298,14 @@ export default function RateCardTable({
       factors.push(`🏢 Competitor rate $${Math.round(displayCompetitor).toLocaleString()}${rateSuffix}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
     }
 
-    return `Modulo Algorithm Calculation:
+    return `Rules Rate Calculation:
     
 Base Rate: $${Math.round(displayStreet).toLocaleString()}${rateSuffix}
 ${factors.join('\n')}
 
 Final Rate: $${Math.round(displayModulo).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
 
-The Modulo algorithm considers occupancy pressure, vacancy duration, unit attributes, and competitor positioning to optimize pricing.`;
+The Rules Rate engine considers occupancy pressure, vacancy duration, unit attributes, and competitor positioning to optimize pricing.`;
   };
 
   // Helper function to generate AI calculation explanation  
@@ -322,10 +322,10 @@ The Modulo algorithm considers occupancy pressure, vacancy duration, unit attrib
     const change = displayAI - displayStreet;
     const changePercent = Math.round((change / displayStreet) * 100);
     
-    return `AI Pricing Analysis:
+    return `Revenue Target AI Pricing Analysis:
 
 Base Rate: $${Math.round(displayStreet).toLocaleString()}${rateSuffix}
-AI Suggested: $${Math.round(displayAI).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
+Rev Target AI Suggested: $${Math.round(displayAI).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
 
 Analysis Factors:
 🧠 Market intelligence and patterns
@@ -334,7 +334,7 @@ Analysis Factors:
 🎯 Competitive positioning
 🔮 Predictive modeling
 
-The AI considers complex market dynamics, seasonal patterns, and competitive intelligence to generate data-driven pricing recommendations.`;
+The Revenue Target AI considers complex market dynamics, seasonal patterns, and competitive intelligence to generate data-driven pricing recommendations.`;
   };
 
   const units = rateCardData?.units || [];
@@ -513,8 +513,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   {(generateModuloMutation.isPending || activeModuloJobId)
                     ? "Calculating..."
                     : filteredUnits.some((u: any) => u.moduloSuggestedRate)
-                      ? "Recalculate Modulo"
-                      : "Generate Modulo Suggestions"}
+                      ? "Recalculate Rules Rate"
+                      : "Generate Rules Rate Suggestions"}
                 </Button>
                 
                 <Button
@@ -531,8 +531,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   {generateAIMutation.isPending
                     ? "Generating..."
                     : filteredUnits.some((u: any) => u.aiSuggestedRate)
-                      ? "Recalculate AI Suggestions"
-                      : "Generate AI Suggestions"}
+                      ? "Recalculate Revenue Target AI Rate"
+                      : "Generate Revenue Target AI Rate"}
                 </Button>
                 </div>
               </div>
@@ -548,13 +548,13 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                         {moduloCount > 0 && (
                           <span className="flex items-center gap-1">
                             <CheckCircle className="h-3 w-3 text-green-500" />
-                            {moduloCount} unit{moduloCount !== 1 ? 's' : ''} have saved Modulo rates
+                            {moduloCount} unit{moduloCount !== 1 ? 's' : ''} have saved Rules Rates
                           </span>
                         )}
                         {aiCount > 0 && (
                           <span className="flex items-center gap-1">
                             <CheckCircle className="h-3 w-3 text-blue-500" />
-                            {aiCount} unit{aiCount !== 1 ? 's' : ''} have saved AI rates
+                            {aiCount} unit{aiCount !== 1 ? 's' : ''} have saved Revenue Target AI Rates
                           </span>
                         )}
                         {moduloCount === 0 && aiCount === 0 && (
@@ -578,8 +578,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                     const unitsWithModulo = filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate));
                     if (unitsWithModulo.length === 0) {
                       toast({ 
-                        title: "No Modulo suggestions", 
-                        description: "Generate Modulo suggestions first",
+                        title: "No Rules Rate suggestions", 
+                        description: "Generate Rules Rate suggestions first",
                         variant: "destructive"
                       });
                       return;
@@ -595,7 +595,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-modulo"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Modulo ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate)).length})
+                  Accept All Rules Rate ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate)).length})
                 </Button>
                 
                 <Button
@@ -603,8 +603,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                     const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate);
                     if (unitsWithAI.length === 0) {
                       toast({ 
-                        title: "No AI suggestions", 
-                        description: "Generate AI suggestions first",
+                        title: "No Revenue Target AI Rate suggestions", 
+                        description: "Generate Revenue Target AI Rate suggestions first",
                         variant: "destructive"
                       });
                       return;
@@ -620,7 +620,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   data-testid="button-accept-all-ai"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
+                  Accept All Revenue Target AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
                 </Button>
                 </div>
               </div>
@@ -633,7 +633,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Calculator className="h-4 w-4 text-primary animate-pulse" />
-                      <div className="text-sm text-muted-foreground">Calculating Modulo pricing recommendations...</div>
+                      <div className="text-sm text-muted-foreground">Calculating Rules Rate pricing recommendations...</div>
                     </div>
                     {moduloJobProgress > 0 && (
                       <span className="text-xs text-muted-foreground tabular-nums">{Math.round(moduloJobProgress)}%</span>
@@ -670,8 +670,8 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                   <TableHead>Service Line</TableHead>
                   <TableHead>Occupancy</TableHead>
                   <TableHead>Avg Street Rate</TableHead>
-                  <TableHead>Avg Modulo</TableHead>
-                  <TableHead>Avg AI</TableHead>
+                  <TableHead>Avg Rules Rate</TableHead>
+                  <TableHead>Avg Rev Target AI</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -784,7 +784,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       data-testid="sort-modulo"
                     >
                       <div className="flex items-center">
-                        Modulo
+                        Rules Rate
                         <SortIcon column="modulo" />
                       </div>
                     </TableHead>
@@ -794,7 +794,7 @@ The AI considers complex market dynamics, seasonal patterns, and competitive int
                       data-testid="sort-ai"
                     >
                       <div className="flex items-center">
-                        AI
+                        Rev Target AI
                         <SortIcon column="ai" />
                       </div>
                     </TableHead>

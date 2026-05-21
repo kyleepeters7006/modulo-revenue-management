@@ -125,7 +125,7 @@ export default function RateCard() {
           setJobProgress(null);
           toast({
             title: "Calculation Failed",
-            description: data.error || "Failed to generate Modulo pricing suggestions.",
+            description: data.error || "Failed to generate Rules Rate suggestions.",
             variant: "destructive",
           });
         } else if (data.status === 'processing') {
@@ -195,7 +195,7 @@ export default function RateCard() {
       setJobProgress(null);
       toast({
         title: "Calculation Failed",
-        description: "Failed to start Modulo pricing calculation. Please try again.",
+        description: "Failed to start Rules Rate calculation. Please try again.",
         variant: "destructive",
       });
       console.error('Generate Modulo error:', error);
@@ -275,7 +275,7 @@ export default function RateCard() {
                 Rate Card & Pricing
               </h1>
               <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
-                Review current rates, Modulo suggestions, and AI recommendations
+                Review current rates, Rules Rate suggestions, and Revenue Target AI recommendations
               </p>
             </div>
             <div className="flex flex-col gap-2">

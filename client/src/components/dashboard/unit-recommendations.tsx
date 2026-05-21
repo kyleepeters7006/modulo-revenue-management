@@ -72,7 +72,7 @@ export default function UnitRecommendations() {
     const competitorAdjustment = competitorRate > baseRate ? 3 : -2;
     const roomTypeBonus = unit.Room_Type === 'One Bedroom' ? 2 : 0;
     
-    const calculation = `Modulo Rate Calculation:
+    const calculation = `Rules Rate Calculation:
 
 Base Rate: $${baseRate.toLocaleString()}
 
@@ -87,7 +87,7 @@ Total Adjustment: ${occupancyAdjustment + competitorAdjustment + roomTypeBonus}%
 
 Recommended Rate: $${recommendedRate.toLocaleString()}
 
-* Calculation based on Modulo pricing algorithm using occupancy pressure, vacancy duration, room attributes, competitor rates, and market conditions.`;
+* Calculation based on the Rules Rate algorithm using occupancy pressure, vacancy duration, room attributes, competitor rates, and market conditions.`;
     
     return calculation;
   };

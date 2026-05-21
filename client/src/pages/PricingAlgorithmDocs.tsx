@@ -62,11 +62,11 @@ export default function PricingAlgorithmDocs() {
           <span>·</span>
           <a href="#workflow" className="text-[var(--trilogy-teal)] hover:underline">Workflow</a>
           <span>·</span>
-          <a href="#modulo-rate" className="text-[var(--trilogy-teal)] hover:underline">Modulo Rate</a>
+          <a href="#modulo-rate" className="text-[var(--trilogy-teal)] hover:underline">Rules Rate</a>
           <span>·</span>
           <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Smart Adjustment Rules</a>
           <span>·</span>
-          <a href="#ai-rate" className="text-[var(--trilogy-teal)] hover:underline">AI Rate</a>
+          <a href="#ai-rate" className="text-[var(--trilogy-teal)] hover:underline">Revenue Target AI Rate</a>
           <span>·</span>
           <a href="#revenue-strategy" className="text-[var(--trilogy-teal)] hover:underline">Revenue Target Strategy</a>
           <span>·</span>
@@ -87,33 +87,33 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
               <p>
-                Modulo generates <strong className="text-[var(--trilogy-dark-blue)]">two separate pricing recommendations</strong> for every unit — the <strong>Modulo Rate</strong> and the <strong>AI Rate</strong>. Both are bounded by Guardrails. Operators see both side-by-side and choose which rate to adopt, and when.
+                Modulo generates <strong className="text-[var(--trilogy-dark-blue)]">two separate pricing recommendations</strong> for every unit — the <strong>Rules Rate</strong> and the <strong>Revenue Target AI Rate</strong>. Both are bounded by Guardrails. Operators see both side-by-side and choose which rate to adopt, and when.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white rounded-lg border border-[var(--trilogy-teal)]/30 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Modulo Rate</h4>
+                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Rules Rate</h4>
                   </div>
                   <ul className="text-sm space-y-1 list-disc list-inside">
                     <li>Deterministic and fully auditable</li>
                     <li>Driven by six operator-configured weighted signals</li>
                     <li>Room attributes reflected in the base rate (the unit's current street rate)</li>
-                    <li>Smart Adjustment Rules apply here — not to the AI Rate</li>
+                    <li>Smart Adjustment Rules apply here — not to the Revenue Target AI Rate</li>
                     <li>Guardrails apply after Smart Adjustment Rules</li>
                   </ul>
                 </div>
                 <div className="bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Brain className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI Rate</h4>
+                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Revenue Target AI Rate</h4>
                   </div>
                   <ul className="text-sm space-y-1 list-disc list-inside">
                     <li>AI-enhanced, independently generated</li>
                     <li>Uses GPT-generated weights based on current portfolio snapshot</li>
                     <li>Refined over time by ML learning from outcomes</li>
-                    <li>Revenue Target Strategy applies here — not to the Modulo Rate</li>
+                    <li>Revenue Target Strategy applies here — not to the Rules Rate</li>
                     <li>Revenue Target Strategy applies to vacant units only</li>
                     <li>Guardrails apply after Revenue Target Strategy</li>
                   </ul>
@@ -121,7 +121,7 @@ export default function PricingAlgorithmDocs() {
               </div>
 
               <div className="bg-white/70 rounded-lg border border-[var(--trilogy-grey)]/20 p-4 text-sm">
-                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> Smart Adjustment Rules belong to the Modulo Rate path only. The Revenue Target Strategy Layer belongs to the AI Rate path only. Guardrails apply to both.
+                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> Smart Adjustment Rules belong to the Rules Rate path only. The Revenue Target Strategy Layer belongs to the Revenue Target AI Rate path only. Guardrails apply to both.
               </div>
             </CardContent>
           </Card>
@@ -144,7 +144,7 @@ export default function PricingAlgorithmDocs() {
                 <div>
                   <div className="text-center mb-3">
                     <span className="inline-flex items-center gap-1.5 bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] font-semibold text-sm px-3 py-1 rounded-full border border-[var(--trilogy-teal)]/30">
-                      <Calculator className="h-4 w-4" /> Modulo Rate Path
+                      <Calculator className="h-4 w-4" /> Rules Rate Path
                     </span>
                   </div>
                   <div className="flex flex-col items-center gap-1">
@@ -153,7 +153,7 @@ export default function PricingAlgorithmDocs() {
                       { label: "Modulo Core Engine", sub: "6 weighted signals applied to attribute-inclusive base rate" },
                       { label: "Smart Adjustment Rules", sub: "operator-defined rules, stacked in priority order" },
                       { label: "Guardrails", sub: "max increase/decrease, competitor variance" },
-                      { label: "Modulo Rate", sub: "deterministic recommendation", highlight: true },
+                      { label: "Rules Rate", sub: "deterministic recommendation", highlight: true },
                     ].map((step, i) => (
                       <div key={i} className="flex flex-col items-center w-full">
                         <div className={`w-full rounded-lg border px-4 py-2.5 text-center text-sm ${step.highlight ? "bg-[var(--trilogy-teal)] text-white border-[var(--trilogy-teal)] font-semibold" : "bg-white border-[var(--trilogy-teal)]/20"}`}>
@@ -170,7 +170,7 @@ export default function PricingAlgorithmDocs() {
                 <div>
                   <div className="text-center mb-3">
                     <span className="inline-flex items-center gap-1.5 bg-[var(--trilogy-dark-blue)]/10 text-[var(--trilogy-dark-blue)] font-semibold text-sm px-3 py-1 rounded-full border border-[var(--trilogy-dark-blue)]/30">
-                      <Brain className="h-4 w-4" /> AI Rate Path
+                      <Brain className="h-4 w-4" /> Revenue Target AI Rate Path
                     </span>
                   </div>
                   <div className="flex flex-col items-center gap-1">
@@ -179,7 +179,7 @@ export default function PricingAlgorithmDocs() {
                       { label: "AI Pricing Engine", sub: "GPT-generated weights + ML-refined learning" },
                       { label: "Revenue Target Strategy", sub: "vacant units only — occupied units pass through" },
                       { label: "Guardrails", sub: "max increase/decrease, competitor variance" },
-                      { label: "AI Rate", sub: "AI-enhanced recommendation", highlight: true },
+                      { label: "Revenue Target AI Rate", sub: "AI-enhanced recommendation", highlight: true },
                     ].map((step, i) => (
                       <div key={i} className="flex flex-col items-center w-full">
                         <div className={`w-full rounded-lg border px-4 py-2.5 text-center text-sm ${step.highlight ? "bg-[var(--trilogy-dark-blue)] text-white border-[var(--trilogy-dark-blue)] font-semibold" : "bg-white border-[var(--trilogy-dark-blue)]/20"}`}>
@@ -200,7 +200,7 @@ export default function PricingAlgorithmDocs() {
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
                 <Calculator className="h-6 w-6 text-[var(--trilogy-teal)]" />
-                Modulo Rate Calculation
+                Rules Rate Calculation
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
@@ -341,7 +341,7 @@ export default function PricingAlgorithmDocs() {
                 Smart Adjustment Rules
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
-                Applies to the Modulo Rate path only — runs after Modulo, before Guardrails
+                Applies to the Rules Rate path only — runs after Rules Rate engine, before Guardrails
               </p>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
@@ -353,8 +353,8 @@ export default function PricingAlgorithmDocs() {
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-3 border border-[var(--trilogy-teal)]/20 text-sm flex items-start gap-2">
                 <Zap className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <span>
-                  Smart Adjustment Rules apply <strong>after</strong> the core Modulo Rate is calculated and <strong>before</strong> Guardrails clamp the result.
-                  They do <strong>not</strong> apply to the AI Rate path.
+                  Smart Adjustment Rules apply <strong>after</strong> the core Rules Rate is calculated and <strong>before</strong> Guardrails clamp the result.
+                  They do <strong>not</strong> apply to the Revenue Target AI Rate path.
                 </span>
               </div>
 
@@ -392,10 +392,10 @@ export default function PricingAlgorithmDocs() {
                   Rules are applied in descending priority order. Each rule receives the rate produced by the previous rule — adjustments compound rather than conflict.
                 </p>
                 <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
-                  <p>Base Modulo Rate: $4,500</p>
+                  <p>Base Rules Rate: $4,500</p>
                   <p>Rule 1 (priority 10) — +5% AL all vacant → $4,500 × 1.05 = <strong>$4,725</strong></p>
                   <p>Rule 2 (priority 5) — −$100 after 30 days vacant → $4,725 − $100 = <strong>$4,625</strong></p>
-                  <p className="text-[var(--trilogy-teal)] mt-1">Final Rule-Adjusted Modulo Rate: $4,625</p>
+                  <p className="text-[var(--trilogy-teal)] mt-1">Final Rule-Adjusted Rules Rate: $4,625</p>
                 </div>
                 <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
                   The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records each rule that fired so operators can audit exactly which rules affected each unit.
@@ -410,12 +410,12 @@ export default function PricingAlgorithmDocs() {
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
                 <Brain className="h-6 w-6 text-[var(--trilogy-dark-blue)]" />
-                AI Rate Calculation
+                Revenue Target AI Rate Calculation
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                The AI Pricing Engine generates a separate AI Rate using two complementary mechanisms: a per-run GPT-5 weight suggestion and an ongoing ML learning loop. These operate independently — the GPT suggestion shapes each run, while the ML system refines the model over time.
+                The AI Pricing Engine generates a separate Revenue Target AI Rate using two complementary mechanisms: a per-run GPT-5 weight suggestion and an ongoing ML learning loop. These operate independently — the GPT suggestion shapes each run, while the ML system refines the model over time.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -428,7 +428,7 @@ export default function PricingAlgorithmDocs() {
                     <li>Current portfolio snapshot is sent to GPT-5 (occupancy, vacancy, competitor rates, service line breakdown)</li>
                     <li>GPT-5 returns suggested pricing weights with reasoning</li>
                     <li>Suggested weights are used for that calculation batch</li>
-                    <li>Per-unit AI Rates are produced using those weights</li>
+                    <li>Per-unit Revenue Target AI Rates are produced using those weights</li>
                     <li>Guardrails clamp the final rates before storage</li>
                   </ol>
                 </div>
@@ -451,13 +451,13 @@ export default function PricingAlgorithmDocs() {
 
               {/* Comparison table */}
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Modulo Rate vs AI Rate: Key Differences</h4>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Rules Rate vs Revenue Target AI Rate: Key Differences</h4>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b">
                       <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">Aspect</th>
-                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">Modulo Rate</th>
-                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">AI Rate</th>
+                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">Rules Rate</th>
+                      <th className="text-left py-2 text-[var(--trilogy-dark-blue)]">Revenue Target AI Rate</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -500,16 +500,16 @@ export default function PricingAlgorithmDocs() {
                 Revenue Target Strategy Layer
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-orange)] font-medium mt-1">
-                Add-on overlay for the AI Rate — applies to vacant units only
+                Add-on overlay for the Revenue Target AI Rate — applies to vacant units only
               </p>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                This layer takes each vacant unit's AI Rate and asks one question: would a small price change generate more revenue between now and the end of the year than holding the current rate? Based on the answer, every vacant unit gets one of three outcomes:
+                This layer takes each vacant unit's Revenue Target AI Rate and asks one question: would a small price change generate more revenue between now and the end of the year than holding the current rate? Based on the answer, every vacant unit gets one of three outcomes:
               </p>
 
               <ul className="text-sm list-disc list-outside ml-5 space-y-1">
-                <li><strong className="text-[var(--trilogy-dark-blue)]">Keep</strong> the AI Rate unchanged when no small adjustment improves expected revenue.</li>
+                <li><strong className="text-[var(--trilogy-dark-blue)]">Keep</strong> the Revenue Target AI Rate unchanged when no small adjustment improves expected revenue.</li>
                 <li><strong className="text-[var(--trilogy-dark-blue)]">Discount</strong> modestly when a faster lease — and more months of rent collected — outweighs the lower rate.</li>
                 <li><strong className="text-[var(--trilogy-dark-blue)]">Raise</strong> modestly when the unit can absorb a higher rate without meaningfully delaying the lease.</li>
               </ul>
@@ -517,7 +517,7 @@ export default function PricingAlgorithmDocs() {
               <div className="bg-[var(--trilogy-orange)]/5 rounded-lg p-3 border border-[var(--trilogy-orange)]/20 text-sm flex items-start gap-2">
                 <Target className="h-4 w-4 text-[var(--trilogy-orange)] mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Pass-through cases (AI Rate is forwarded unchanged):</p>
+                  <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Pass-through cases (Revenue Target AI Rate is forwarded unchanged):</p>
                   <ul className="list-disc list-outside ml-5 space-y-0.5">
                     <li>The unit is occupied — this layer only acts on vacant units.</li>
                     <li>The location or service line has no revenue growth target configured.</li>
@@ -578,7 +578,7 @@ export default function PricingAlgorithmDocs() {
                       <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Volume Driver</h5>
                     </div>
                     <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
-                      High urgency · unit vacant longer than peers · AI Rate above competitor average · low occupancy · below-average unit attributes
+                      High urgency · unit vacant longer than peers · Revenue Target AI Rate above competitor average · low occupancy · below-average unit attributes
                     </p>
                     <p className="text-xs font-medium text-[var(--trilogy-orange)] mt-2">Action: 3–8% discount</p>
                   </div>
@@ -588,7 +588,7 @@ export default function PricingAlgorithmDocs() {
                       <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Premium Driver</h5>
                     </div>
                     <p className="text-xs text-[var(--trilogy-grey)] leading-relaxed">
-                      Strong leasing velocity · filling faster than peers · AI Rate below competitor average · high occupancy · premium unit attributes
+                      Strong leasing velocity · filling faster than peers · Revenue Target AI Rate below competitor average · high occupancy · premium unit attributes
                     </p>
                     <p className="text-xs font-medium text-[var(--trilogy-teal)] mt-2">Action: 2–10% increase</p>
                   </div>
@@ -629,11 +629,11 @@ export default function PricingAlgorithmDocs() {
               {/* Step 4 */}
               <div>
                 <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">Step 4 — Best Candidate Selection</h4>
-                <p className="text-sm mb-3">All scored candidates are compared. The one with the highest expected revenue is selected — but only if it improves on the existing AI Rate by at least 0.5%. If no candidate clears that bar, the existing AI Rate is kept unchanged.</p>
+                <p className="text-sm mb-3">All scored candidates are compared. The one with the highest expected revenue is selected — but only if it improves on the existing Revenue Target AI Rate by at least 0.5%. If no candidate clears that bar, the existing Revenue Target AI Rate is kept unchanged.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                   <div className="bg-[var(--trilogy-orange)]/5 rounded border border-[var(--trilogy-orange)]/30 p-3">
                     <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Volume Driver</p>
-                    <p className="text-xs text-[var(--trilogy-grey)]">Discount selected if expected revenue improves by ≥ 0.5% over the existing AI Rate.</p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">Discount selected if expected revenue improves by ≥ 0.5% over the existing Revenue Target AI Rate.</p>
                   </div>
                   <div className="bg-[var(--trilogy-teal)]/5 rounded border border-[var(--trilogy-teal)]/30 p-3">
                     <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Premium Driver</p>
@@ -641,7 +641,7 @@ export default function PricingAlgorithmDocs() {
                   </div>
                   <div className="bg-gray-50 rounded border border-gray-200 p-3">
                     <p className="font-medium text-[var(--trilogy-dark-blue)] mb-1">Neutral / No improvement</p>
-                    <p className="text-xs text-[var(--trilogy-grey)]">±1% only if it clears the 0.5% threshold. If nothing improves, the existing AI Rate passes through unchanged.</p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">±1% only if it clears the 0.5% threshold. If nothing improves, the existing Revenue Target AI Rate passes through unchanged.</p>
                   </div>
                 </div>
               </div>
@@ -660,7 +660,7 @@ export default function PricingAlgorithmDocs() {
                   <div className="bg-white rounded border border-gray-200 p-3">
                     <p className="text-xs font-medium text-[var(--trilogy-dark-blue)] mb-2">Unit context</p>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-xs text-[var(--trilogy-grey)]">
-                      <div>AI Rate: <strong className="text-[var(--trilogy-dark-blue)]">$4,800/mo</strong></div>
+                      <div>Rev Target AI Rate: <strong className="text-[var(--trilogy-dark-blue)]">$4,800/mo</strong></div>
                       <div>Vacant: <strong className="text-[var(--trilogy-dark-blue)]">45 days</strong></div>
                       <div>Competitor median: <strong className="text-[var(--trilogy-dark-blue)]">$4,200/mo</strong></div>
                       <div>Occupancy: <strong className="text-[var(--trilogy-dark-blue)]">81%</strong></div>
@@ -680,7 +680,7 @@ export default function PricingAlgorithmDocs() {
                         <span className="text-xs font-bold text-white bg-[var(--trilogy-orange)] px-2 py-0.5 rounded">Step 2</span>
                         <span className="text-xs font-medium text-[var(--trilogy-dark-blue)]">Classification → Volume Driver</span>
                       </div>
-                      <p className="text-xs text-[var(--trilogy-grey)]">Moderate urgency · AI Rate 14% above competitor median · vacant 25 days over campus average · low occupancy → <strong>discount candidates at 3–8% generated</strong></p>
+                      <p className="text-xs text-[var(--trilogy-grey)]">Moderate urgency · Revenue Target AI Rate 14% above competitor median · vacant 25 days over campus average · low occupancy → <strong>discount candidates at 3–8% generated</strong></p>
                     </div>
                   </div>
                   {/* Step 3 table */}
@@ -737,7 +737,7 @@ export default function PricingAlgorithmDocs() {
                     </div>
                     <p className="text-xs text-[var(--trilogy-grey)]">
                       The −5% candidate ($4,560) produces the highest expected revenue at $19,600 — a 113% improvement over no change ($9,200). This far exceeds the 0.5% minimum threshold.{" "}
-                      <strong className="text-[var(--trilogy-teal)]">Final AI Rate: $4,560/mo.</strong>
+                      <strong className="text-[var(--trilogy-teal)]">Final Revenue Target AI Rate: $4,560/mo.</strong>
                     </p>
                   </div>
                 </div>
@@ -753,7 +753,7 @@ export default function PricingAlgorithmDocs() {
                 Guardrails
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
-                Final safety layer — applies to both the Modulo Rate path and the AI Rate path
+                Final safety layer — applies to both the Rules Rate path and the Revenue Target AI Rate path
               </p>
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
@@ -806,22 +806,22 @@ export default function PricingAlgorithmDocs() {
             <CardContent className="text-[var(--trilogy-grey)]">
               <ol className="space-y-3 list-decimal list-inside">
                 <li className="pl-2">
-                  <strong>Modulo Rate:</strong> The Modulo engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals — applied to the unit's current street rate. That street rate already reflects the room's physical attributes, so attribute quality is embedded in the starting base, not applied afterward.
+                  <strong>Rules Rate:</strong> The Rules Rate engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals — applied to the unit's current street rate. That street rate already reflects the room's physical attributes, so attribute quality is embedded in the starting base, not applied afterward.
                 </li>
                 <li className="pl-2">
-                  <strong>Smart Adjustment Rules:</strong> Operator-defined rules modify the Modulo Rate only. They apply after the Modulo engine, before Guardrails, and stack in priority order. They do not affect the AI Rate.
+                  <strong>Smart Adjustment Rules:</strong> Operator-defined rules modify the Rules Rate only. They apply after the Rules Rate engine, before Guardrails, and stack in priority order. They do not affect the Revenue Target AI Rate.
                 </li>
                 <li className="pl-2">
-                  <strong>AI Rate:</strong> The AI Pricing Engine independently calculates a second recommendation using GPT-5-generated weights based on the current portfolio snapshot. An ML learning loop refines these weights over time using adoption and move-in outcome data.
+                  <strong>Revenue Target AI Rate:</strong> The AI Pricing Engine independently calculates a second recommendation using GPT-5-generated weights based on the current portfolio snapshot. An ML learning loop refines these weights over time using adoption and move-in outcome data.
                 </li>
                 <li className="pl-2">
-                  <strong>Revenue Target Strategy:</strong> For vacant units with an active revenue growth target, the strategy layer evaluates whether the AI Rate should be preserved, discounted to accelerate leasing, or increased to improve exit-rate value — choosing only the option with the highest expected revenue by year-end. Occupied units pass through unchanged. This layer applies to the AI Rate only.
+                  <strong>Revenue Target Strategy:</strong> For vacant units with an active revenue growth target, the strategy layer evaluates whether the Revenue Target AI Rate should be preserved, discounted to accelerate leasing, or increased to improve exit-rate value — choosing only the option with the highest expected revenue by year-end. Occupied units pass through unchanged. This layer applies to the Revenue Target AI Rate only.
                 </li>
                 <li className="pl-2">
-                  <strong>Guardrails:</strong> Both final recommendations — the Modulo Rate and the AI Rate — are clamped by Guardrails before being stored or displayed. No recommendation can exceed configured increase or decrease limits, regardless of what the algorithm or AI produces.
+                  <strong>Guardrails:</strong> Both final recommendations — the Rules Rate and the Revenue Target AI Rate — are clamped by Guardrails before being stored or displayed. No recommendation can exceed configured increase or decrease limits, regardless of what the algorithm or AI produces.
                 </li>
                 <li className="pl-2">
-                  <strong>Operator decision:</strong> Operators see both the Modulo Rate and the AI Rate side-by-side and decide which rate to adopt, when, and at what frequency. The system never forces a change.
+                  <strong>Operator decision:</strong> Operators see both the Rules Rate and the Revenue Target AI Rate side-by-side and decide which rate to adopt, when, and at what frequency. The system never forces a change.
                 </li>
               </ol>
             </CardContent>

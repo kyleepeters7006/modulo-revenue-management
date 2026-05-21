@@ -593,7 +593,7 @@ export default function FloorPlansPage() {
             </div>
             {unit.moduloRate && (
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Modulo Rate:</span>
+                <span className="text-sm text-gray-600">Rules Rate:</span>
                 <span className="font-semibold text-lg text-primary">
                   {formatRateByServiceLine(unit.moduloRate, unit.serviceLine)}
                 </span>
