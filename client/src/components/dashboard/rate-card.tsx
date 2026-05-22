@@ -79,7 +79,7 @@ export default function RateCard() {
       "Room Type": type,
       "Square Feet": data.sqft,
       "Base Price": formatCurrency(data.basePrice),
-      "Modulo Recommended": formatCurrency(getRecommendedPrice(type) || data.basePrice),
+      "Rules Rate": formatCurrency(getRecommendedPrice(type) || data.basePrice),
       "Available Units": data.availability
     }));
 
@@ -214,7 +214,7 @@ export default function RateCard() {
                   </div>
                   
                   <div className="flex justify-between items-center pb-3 border-b border-[var(--dashboard-border)]">
-                    <span className="text-sm text-[var(--trilogy-teal)]">Modulo Recommended</span>
+                    <span className="text-sm text-[var(--trilogy-teal)]">Rules Rate</span>
                     <ModuloCalculationDialog 
                       roomType={selectedFloorPlan} 
                       currentRate={currentFloorPlan.basePrice}

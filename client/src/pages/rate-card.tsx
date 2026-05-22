@@ -114,7 +114,7 @@ export default function RateCard() {
           setIsGenerating(false);
           setJobProgress(null);
           toast({
-            title: "Modulo Calculation Complete",
+            title: "Rules Rate Calculation Complete",
             description: `Successfully generated pricing for ${data.progress?.total || data.result?.totalUnits || 0} units.`,
           });
           // Invalidate rate card data to refresh the table
