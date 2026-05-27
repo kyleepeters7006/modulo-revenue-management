@@ -1,0 +1,299 @@
+We need to redesign and expand the Smart Adjustment Rules section on the Pricing Controls page in Modulo.
+
+Current context:
+- The existing section is called “Smart Adjustment Rules.”
+- It currently allows users to type a natural-language pricing rule or use voice/talk-to-text.
+- It displays suggested example rules, active rules, impact estimates, and an apply rule button.
+- We recently renamed the primary pricing engine to “Rules Rate.”
+- These adjustment rules should stack on top of the Rules Rate engine. They should not replace the Rules Rate calculation.
+- The goal is to make this section more powerful, intuitive, structured, and AI-safe.
+
+Primary request:
+Move this section to the top of the Pricing Controls page, directly under the filter section, and rename it:
+
+“Rule Designer”
+
+Subtitle:
+“Build pricing rules using natural language or structured IF / THEN logic.”
+
+Design goal:
+Create an intuitive pricing rule builder that lets users create rules in two ways:
+1. Natural language / voice input
+2. Structured IF / THEN builder using dropdowns, operators, grouped conditions, and rule preview
+
+The structured builder is important because users need to build large conditional statements using IF, AND, and OR logic. The AI should not just guess the rule. The UI should help guide and validate rule creation.
+
+Please redesign this as a clean, modern card-based interface consistent with the existing Modulo styling.
+
+Recommended layout:
+Create a large “Rule Designer” card with two main columns.
+
+LEFT COLUMN: Rule Creation
+Include tabs or segmented buttons:
+- Ask AI
+- Structured Builder
+
+TAB 1: Ask AI
+Keep the existing natural-language input and microphone / talk-to-text capability.
+The user should be able to type or speak a rule like:
+- “If campus occupancy drops below 85%, reduce rates by 3%.”
+- “Reduce vacant unit rates by $100 after 30 days.”
+- “If a unit sells, increase nearby units by 3%.”
+- “Increase memory care rates by 2% every quarter.”
+
+After the user submits the sentence, AI should parse the sentence into the structured rule format and show the interpreted rule before saving or applying it.
+
+Do not immediately apply AI-generated rules without showing a draft preview first.
+
+TAB 2: Structured Builder
+Create a guided rule builder with this logic:
+
+IF [condition group]
+  [metric] [time period] [operator] [value]
+  AND / OR
+  [metric] [time period] [operator] [value]
+
+THEN [pricing action]
+  [increase/decrease/set/cap/floor/discount]
+  [rate target]
+  [amount type: percentage or dollar amount]
+  [amount value]
+  [scope]
+
+The user should be able to:
+- Add a condition
+- Add a condition group
+- Choose AND or OR between conditions
+- Nest grouped conditions where possible, or at minimum visually group conditions
+- Remove a condition
+- Duplicate a condition
+- Choose a metric
+- Choose a time period for each metric
+- Choose an operator
+- Enter a value
+- Choose the pricing action
+- Choose whether the change is a dollar amount or percentage
+- Choose the target units or room types
+- Preview the rule before applying
+
+Metrics available in the metric dropdown:
+- Campus Occupancy
+- Service Line Occupancy
+- Room Type Occupancy
+- Vacant Units/Beds
+- Total Units/Beds
+- Service Line
+- Competitor Rate
+- Days Vacant
+- Room Attributes
+- Days To Sell Previously
+- Season
+- Stock Market
+- Inquiry and Tour Volume
+
+Time periods available for each metric:
+- Current Spot
+- Current Month
+- Trailing 3
+- Trailing 6
+- Trailing 12
+
+Operators:
+- is greater than
+- is greater than or equal to
+- is less than
+- is less than or equal to
+- equals
+- does not equal
+- increases by more than
+- decreases by more than
+- is between
+- contains
+- does not contain
+
+Pricing actions:
+- Increase rate
+- Decrease rate
+- Set rate
+- Apply discount
+- Remove discount
+- Cap rate increase
+- Set minimum rate
+- Set maximum rate
+
+Amount type:
+- Percent
+- Dollar amount
+
+Scope options:
+- All selected campuses
+- Selected campus
+- Selected service line
+- Selected room type
+- Selected units/beds
+- Vacant units only
+- Units matching room attributes
+- Units with days vacant above threshold
+- Units near a sold unit, if that logic already exists
+
+RIGHT COLUMN: Rule Summary / Validation / Preview
+Create a right-side panel that updates live as the user builds the rule.
+
+Include:
+1. Plain-English summary
+Example:
+“If Campus Occupancy for the Current Month is below 85% AND Days Vacant is greater than 30, decrease matching vacant unit rates by $100.”
+
+2. Structured logic preview
+Show the rule in a readable IF / THEN format.
+
+3. AI interpretation confidence
+For natural-language rules, show:
+- High confidence
+- Medium confidence
+- Needs review
+
+4. Validation warnings
+Examples:
+- “This rule does not have a target scope.”
+- “This rule may affect 0 units based on current filters.”
+- “This rule uses competitor rate, but competitor data is missing for some campuses.”
+- “This rule applies to all service lines. Confirm before applying.”
+- “This rule has an OR condition that may broaden the rule impact.”
+
+5. Impact preview
+Use the existing impact estimate logic if available.
+Show:
+- Units affected
+- Estimated monthly impact
+- Estimated annualized impact
+- Percent change versus current Rules Rate
+- Optional: before/after average rate
+
+6. Action buttons:
+- Save Rule
+- Preview Impact
+- Apply Rule
+- Clear
+- Cancel
+
+Rule data model:
+Please create or update the rule object so both the natural-language input and structured builder produce the same underlying format.
+
+Suggested schema:
+
+{
+  id: string,
+  name: string,
+  description: string,
+  enabled: boolean,
+  createdAt: string,
+  updatedAt: string,
+  source: "natural_language" | "structured_builder",
+  originalPrompt: string | null,
+  conditionTree: {
+    operator: "AND" | "OR",
+    conditions: [
+      {
+        id: string,
+        metric: string,
+        timePeriod: "Current Spot" | "Current Month" | "Trailing 3" | "Trailing 6" | "Trailing 12",
+        operator: string,
+        value: string | number,
+        valueType: "number" | "percent" | "currency" | "text" | "days"
+      }
+    ],
+    groups: []
+  },
+  action: {
+    type: "increase_rate" | "decrease_rate" | "set_rate" | "apply_discount" | "remove_discount" | "cap_rate_increase" | "set_minimum_rate" | "set_maximum_rate",
+    amountType: "percent" | "dollar",
+    amountValue: number,
+    targetScope: string,
+    targetFilters: {
+      campusIds: [],
+      serviceLines: [],
+      roomTypes: [],
+      roomAttributes: [],
+      vacantOnly: boolean
+    }
+  },
+  preview: {
+    unitsAffected: number,
+    estimatedMonthlyImpact: number,
+    estimatedAnnualizedImpact: number,
+    percentChange: number
+  },
+  validation: {
+    status: "valid" | "warning" | "error",
+    messages: []
+  }
+}
+
+Important behavior:
+- Do not apply a rule immediately after AI parsing.
+- Always show the interpreted structured rule first.
+- User must click Save Rule or Apply Rule.
+- If Preview Impact toggle is on, show impact before applying.
+- Rules should be reversible and logged, consistent with the current design.
+- Preserve the existing Active Rules area, but improve it visually.
+
+Active Rules redesign:
+Below the Rule Designer card, show Active Rules in a cleaner list/table format.
+
+Each active rule card should include:
+- Rule name
+- Plain-English summary
+- Enabled/disabled toggle
+- Number of executions
+- Estimated annualized impact
+- Last applied date
+- Edit button
+- Duplicate button
+- Delete button
+- View history button
+
+Example active rule:
+Name: “Vacancy Pressure Discount”
+Summary: “If Days Vacant is greater than 30 AND Campus Occupancy is below 85%, decrease matching vacant unit rates by $100.”
+Impact: “$182,500 annualized”
+Executions: “14”
+Status: Enabled
+
+UI / design notes:
+- Keep the clean white-card style currently used in Modulo.
+- Use teal accent styling consistent with the current Apply Rule button.
+- Avoid making the page feel overly technical.
+- The structured builder should feel like building a sentence, not writing code.
+- Use pill-style dropdowns, compact rows, and clear section labels.
+- Add small helper text explaining each section.
+- Make the IF / THEN logic visually obvious.
+- Use subtle borders and background shading for condition groups.
+- Make it mobile responsive, with the right-side preview stacking below the builder on smaller screens.
+
+Suggested visual structure:
+
+[Rule Designer]
+Build pricing rules using natural language or structured IF / THEN logic.
+
+[Ask AI] [Structured Builder]
+
+Left:
+IF
+  [Metric dropdown] [Time Period dropdown] [Operator dropdown] [Value input]
+  [AND/OR toggle]
+  [Add Condition] [Add Group]
+
+THEN
+  [Action dropdown] [Amount Type dropdown] [Amount input]
+  Apply to: [Scope dropdown] [Target filters]
+
+Right:
+Rule Summary
+Validation
+Estimated Impact
+[Preview Impact] [Save Rule] [Apply Rule]
+
+Please implement this in the Pricing Controls page without breaking the existing pricing controls, Rules Rate logic, active rules, or current impact calculation logic. Reuse existing components where possible, but improve the UX substantially.
+
+Also update any existing references from “Smart Adjustment Rules” to “Rule Designer,” unless there are backend names that should remain unchanged for compatibility.

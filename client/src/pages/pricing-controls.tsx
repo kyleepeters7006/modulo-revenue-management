@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, Info, HeartPulse } from "lucide-react";
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
-import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
+import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import AdjustmentRanges from "@/components/dashboard/adjustment-ranges";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import { Button } from "@/components/ui/button";
@@ -966,15 +966,15 @@ export default function PricingControls() {
         </Card>
 
         <div className="space-y-6 sm:space-y-8">
+          <RuleDesigner
+            locationId={selectedLocationId}
+            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
+          />
           <PricingWeights 
             locationId={selectedLocationId} 
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
           <AdjustmentRanges 
-            locationId={selectedLocationId}
-            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
-          />
-          <NaturalLanguageAdjustments 
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />

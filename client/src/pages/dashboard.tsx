@@ -16,7 +16,7 @@ import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import AttributeMap from "@/components/dashboard/attribute-map";
 import BuildingMapUploader from "@/components/dashboard/building-map-uploader";
 import RateCard from "@/components/dashboard/rate-card";
-import { NaturalLanguageAdjustments } from "@/components/dashboard/natural-language-adjustments";
+import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import { Button } from "@/components/ui/button";
 import { Menu, BookOpen } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -125,9 +125,9 @@ export default function Dashboard() {
           {/* Metrics Overview */}
           <MetricsOverview data={status as any} />
 
-          {/* Natural Language Adjustments - New Feature */}
-          <div id="smart-adjustments" className="mb-12 lg:mb-16 scroll-mt-20">
-            <NaturalLanguageAdjustments />
+          {/* Rule Designer */}
+          <div id="rule-designer" className="mb-12 lg:mb-16 scroll-mt-20">
+            <RuleDesigner />
           </div>
 
           {/* Data Upload & Assumptions */}

@@ -64,7 +64,7 @@ export default function PricingAlgorithmDocs() {
           <span>·</span>
           <a href="#modulo-rate" className="text-[var(--trilogy-teal)] hover:underline">Rules Rate</a>
           <span>·</span>
-          <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Smart Adjustment Rules</a>
+          <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Rule Designer</a>
           <span>·</span>
           <a href="#ai-rate" className="text-[var(--trilogy-teal)] hover:underline">Revenue Target AI Rate</a>
           <span>·</span>
@@ -100,8 +100,8 @@ export default function PricingAlgorithmDocs() {
                     <li>Deterministic and fully auditable</li>
                     <li>Driven by six operator-configured weighted signals</li>
                     <li>Room attributes reflected in the base rate (the unit's current street rate)</li>
-                    <li>Smart Adjustment Rules apply here — not to the Revenue Target AI Rate</li>
-                    <li>Guardrails apply after Smart Adjustment Rules</li>
+                    <li>Rule Designer rules apply here — not to the Revenue Target AI Rate</li>
+                    <li>Guardrails apply after Rule Designer rules</li>
                   </ul>
                 </div>
                 <div className="bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30 p-4">
@@ -121,7 +121,7 @@ export default function PricingAlgorithmDocs() {
               </div>
 
               <div className="bg-white/70 rounded-lg border border-[var(--trilogy-grey)]/20 p-4 text-sm">
-                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> Smart Adjustment Rules belong to the Rules Rate path only. The Revenue Target Strategy Layer belongs to the Revenue Target AI Rate path only. Guardrails apply to both.
+                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> Rule Designer rules belong to the Rules Rate path only. The Revenue Target Strategy Layer belongs to the Revenue Target AI Rate path only. Guardrails apply to both.
               </div>
             </CardContent>
           </Card>
@@ -151,7 +151,7 @@ export default function PricingAlgorithmDocs() {
                     {[
                       { label: "Base Unit Data", sub: "occupancy, rates, vacancy, attributes" },
                       { label: "Modulo Core Engine", sub: "6 weighted signals applied to attribute-inclusive base rate" },
-                      { label: "Smart Adjustment Rules", sub: "operator-defined rules, stacked in priority order" },
+                      { label: "Rule Designer", sub: "operator-defined rules, stacked in priority order" },
                       { label: "Guardrails", sub: "max increase/decrease, competitor variance" },
                       { label: "Rules Rate", sub: "deterministic recommendation", highlight: true },
                     ].map((step, i) => (
@@ -338,7 +338,7 @@ export default function PricingAlgorithmDocs() {
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
                 <Sparkles className="h-6 w-6 text-[var(--trilogy-teal)]" />
-                Smart Adjustment Rules
+                Rule Designer
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
                 Applies to the Rules Rate path only — runs after Rules Rate engine, before Guardrails
@@ -346,14 +346,14 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                Smart Adjustment Rules are operator-defined pricing rules written in plain English — for example, <em>"Reduce vacant AL rates by $100 after 30 days vacant."</em> They are parsed by AI into structured conditions and applied automatically on every Modulo calculation cycle. Multiple active rules stack in priority order, each building on the rate produced by the previous rule.
+                The Rule Designer lets operators create pricing rules in plain English or using structured IF / THEN logic — for example, <em>"Reduce vacant AL rates by $100 after 30 days vacant."</em> Rules are parsed by AI into structured conditions and applied automatically on every Modulo calculation cycle. Multiple active rules stack in priority order, each building on the rate produced by the previous rule.
               </p>
 
               {/* Placement callout */}
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-3 border border-[var(--trilogy-teal)]/20 text-sm flex items-start gap-2">
                 <Zap className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <span>
-                  Smart Adjustment Rules apply <strong>after</strong> the core Rules Rate is calculated and <strong>before</strong> Guardrails clamp the result.
+                  Rule Designer rules apply <strong>after</strong> the core Rules Rate is calculated and <strong>before</strong> Guardrails clamp the result.
                   They do <strong>not</strong> apply to the Revenue Target AI Rate path.
                 </span>
               </div>
@@ -399,7 +399,7 @@ export default function PricingAlgorithmDocs() {
                 </div>
                 <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
                   The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records each rule that fired so operators can audit exactly which rules affected each unit.
-                  To configure rules, navigate to <strong>Pricing Controls → Smart Adjustment Rules</strong>, type a rule in plain English, preview its impact, then activate it. Rules can be toggled on/off without deletion.
+                  To configure rules, navigate to <strong>Pricing Controls → Rule Designer</strong>, type a rule or use the Structured Builder, preview its impact, then save. Rules can be toggled on/off without deletion.
                 </p>
               </div>
             </CardContent>
@@ -473,7 +473,7 @@ export default function PricingAlgorithmDocs() {
                     </tr>
                     <tr className="border-b">
                       <td className="py-2">Adjustment layer</td>
-                      <td className="py-2">Smart Adjustment Rules</td>
+                      <td className="py-2">Rule Designer</td>
                       <td className="py-2">Revenue Target Strategy (vacant units only)</td>
                     </tr>
                     <tr className="border-b">
@@ -758,7 +758,7 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
               <p>
-                Guardrails are the last step in both pricing paths. They enforce hard business boundaries regardless of what the Modulo engine, AI Pricing Engine, Smart Adjustment Rules, or Revenue Target Strategy produce. No recommendation ever leaves these boundaries.
+                Guardrails are the last step in both pricing paths. They enforce hard business boundaries regardless of what the Modulo engine, AI Pricing Engine, Rule Designer rules, or Revenue Target Strategy produce. No recommendation ever leaves these boundaries.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -809,7 +809,7 @@ export default function PricingAlgorithmDocs() {
                   <strong>Rules Rate:</strong> The Rules Rate engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals — applied to the unit's current street rate. That street rate already reflects the room's physical attributes, so attribute quality is embedded in the starting base, not applied afterward.
                 </li>
                 <li className="pl-2">
-                  <strong>Smart Adjustment Rules:</strong> Operator-defined rules modify the Rules Rate only. They apply after the Rules Rate engine, before Guardrails, and stack in priority order. They do not affect the Revenue Target AI Rate.
+                  <strong>Rule Designer:</strong> Operator-defined rules modify the Rules Rate only. They apply after the Rules Rate engine, before Guardrails, and stack in priority order. They do not affect the Revenue Target AI Rate.
                 </li>
                 <li className="pl-2">
                   <strong>Revenue Target AI Rate:</strong> The AI Pricing Engine independently calculates a second recommendation using GPT-5-generated weights based on the current portfolio snapshot. An ML learning loop refines these weights over time using adoption and move-in outcome data.
