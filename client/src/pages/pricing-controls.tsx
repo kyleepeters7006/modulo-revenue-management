@@ -668,308 +668,309 @@ export default function PricingControls() {
           </div>
         </div>
 
-        {/* Target Annual Revenue Growth Section */}
-        <Card className="mb-6" data-testid="card-target-growth">
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-2">
-              <Target className="h-5 w-5 text-blue-600" />
-              <CardTitle className="text-lg">Target Annual Revenue Growth</CardTitle>
-            </div>
-            <CardDescription>
-              Set your target annual revenue growth percentage for each service line. AI will optimize weights, attributes, and guardrails to help achieve these targets.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              {/* Target % inputs for each service line */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {(["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const).map((sl) => {
-                  const isDisabled = selectedServiceLine !== "All" && selectedServiceLine !== sl;
-                  return (
-                    <div key={sl} className={`space-y-1.5 ${isDisabled ? 'opacity-50' : ''}`}>
-                      <label className="text-sm font-medium text-gray-700">{sl}</label>
-                      <div className="relative">
-                        <Input
-                          type="text"
-                          value={targetGrowth[sl]}
-                          onChange={(e) => handleTargetChange(sl, e.target.value)}
-                          disabled={isDisabled}
-                          className="pr-8 text-right"
-                          data-testid={`input-target-${sl.toLowerCase().replace('/', '-')}`}
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">%</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Save and Generate Buttons */}
-              <div className="flex flex-col gap-4 pt-4 border-t border-gray-100">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      onClick={() => saveTargetsMutation.mutate()}
-                      disabled={saveTargetsMutation.isPending}
-                      data-testid="button-save-targets"
-                    >
-                      {saveTargetsMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="h-4 w-4 mr-2" />
-                          Save Targets
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      onClick={() => generateSettingsMutation.mutate()}
-                      disabled={generateSettingsMutation.isPending}
-                      data-testid="button-generate-settings"
-                    >
-                      {generateSettingsMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          {analyzeIndividually ? 'Analyzing Each Scope...' : 'Analyzing Portfolio...'}
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" />
-                          Generate Weights, Attribute Values & Guardrails
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Save targets to apply to selected locations, or Generate to let AI optimize settings
-                  </p>
-                </div>
-                
-                {/* Analyze Individually Checkbox */}
-                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Checkbox
-                    id="analyze-individually"
-                    checked={analyzeIndividually}
-                    onCheckedChange={(checked) => handleAnalyzeIndividuallyChange(checked === true)}
-                    data-testid="checkbox-analyze-individually"
-                  />
-                  <div>
-                    <Label htmlFor="analyze-individually" className="text-sm font-medium cursor-pointer">
-                      Analyze Locations/Service Lines Individually
-                    </Label>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      When enabled, AI will generate specific recommendations for each location and service line combination. Displayed values show averages; individual settings are applied when saved.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Generated Settings Display */}
-              {generatedSettings && (
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-blue-600" />
-                      <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
-                      {generatedSettings.mode === 'individual' && generatedSettings.scopeCount && (
-                        <Badge variant="secondary" className="text-xs">
-                          {generatedSettings.scopeCount} scopes analyzed • Showing averages
-                        </Badge>
-                      )}
-                    </div>
-                    <Button
-                      onClick={() => applyRecommendationsMutation.mutate()}
-                      disabled={applyRecommendationsMutation.isPending}
-                      className="bg-green-600 hover:bg-green-700"
-                      data-testid="button-apply-recommendations"
-                    >
-                      {applyRecommendationsMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Applying...
-                        </>
-                      ) : (
-                        <>
-                          <Check className="h-4 w-4 mr-2" />
-                          Apply Recommendations
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  
-                  {generatedSettings.mode === 'individual' && (
-                    <p className="text-xs text-blue-700 bg-blue-100 p-2 rounded mb-3">
-                      Individual settings will be saved for each location/service line combination when applied.
-                    </p>
-                  )}
-                  
-                  <p className="text-xs text-gray-600 mb-3">Toggle categories on/off to control which settings will be applied:</p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                    {/* Pricing Weights */}
-                    <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.weights ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <h5 className="text-xs font-medium text-gray-500 uppercase">Pricing Weights</h5>
-                        <Switch
-                          checked={enabledCategories.weights}
-                          onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, weights: checked }))}
-                          data-testid="toggle-weights"
-                        />
-                      </div>
-                      <TooltipProvider>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              Occupancy Pressure:
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs p-2">
-                                  <p className="text-xs font-medium mb-1">Occupancy: {generatedSettings.metrics?.occupancyRate ?? '—'}%</p>
-                                  <p className="text-xs text-gray-600">Higher weight when occupancy is low to push for competitive pricing. Current: {generatedSettings.metrics?.totalUnits ?? '—'} units, {generatedSettings.metrics?.vacantUnits ?? '—'} vacant.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                            <span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              Days Vacant Decay:
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs p-2">
-                                  <p className="text-xs font-medium mb-1">Avg Days Vacant: {generatedSettings.metrics?.avgDaysVacant ?? '—'}</p>
-                                  <p className="text-xs text-gray-600">Higher weight when units stay vacant longer. Units 30+ days: {generatedSettings.metrics?.unitsOver30DaysVacant ?? '—'}, 60+ days: {generatedSettings.metrics?.unitsOver60DaysVacant ?? '—'}.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                            <span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              Competitor Rates:
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs p-2">
-                                  <p className="text-xs font-medium mb-1">Avg Competitor Rate: ${generatedSettings.metrics?.competitorRate ?? '—'}</p>
-                                  <p className="text-xs text-gray-600">Weight based on available competitor data. Lower weight when data is sparse or when current rates are already well-positioned.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                            <span className="font-medium">{generatedSettings.weights.competitorRates}%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              Seasonality:
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs p-2">
-                                  <p className="text-xs font-medium mb-1">Seasonal Factor</p>
-                                  <p className="text-xs text-gray-600">Adjusts for seasonal demand patterns. Spring/fall typically higher demand in senior living.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                            <span className="font-medium">{generatedSettings.weights.seasonality}%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              Stock Market:
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs p-2">
-                                  <p className="text-xs font-medium mb-1">Market Conditions</p>
-                                  <p className="text-xs text-gray-600">Economic indicator weight. Lower weight as this is a secondary factor in senior living pricing.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                            <span className="font-medium">{generatedSettings.weights.stockMarket}%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1">
-                              Inquiry Volume:
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs p-2">
-                                  <p className="text-xs font-medium mb-1">Sales Velocity: {generatedSettings.metrics?.salesVelocity ?? '—'} move-ins (30 days)</p>
-                                  <p className="text-xs text-gray-600">Net change: {(generatedSettings.metrics?.netChange ?? 0) > 0 ? '+' : ''}{generatedSettings.metrics?.netChange ?? '—'}. Higher velocity allows more aggressive pricing.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </span>
-                            <span className="font-medium">{generatedSettings.weights.inquiryTourVolume}%</span>
-                          </div>
-                        </div>
-                      </TooltipProvider>
-                    </div>
-                    
-                    {/* Guardrails */}
-                    <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.guardrails ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <h5 className="text-xs font-medium text-gray-500 uppercase">Guardrails</h5>
-                        <Switch
-                          checked={enabledCategories.guardrails}
-                          onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, guardrails: checked }))}
-                          data-testid="toggle-guardrails"
-                        />
-                      </div>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between"><span>Max Increase:</span><span className="font-medium">{generatedSettings.guardrails.maxIncreasePercent}%</span></div>
-                        <div className="flex justify-between"><span>Max Decrease:</span><span className="font-medium">{generatedSettings.guardrails.maxDecreasePercent}%</span></div>
-                        <div className="flex justify-between"><span>Min Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.minStreetRate}</span></div>
-                        <div className="flex justify-between"><span>Max Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.maxStreetRate}</span></div>
-                      </div>
-                    </div>
-                    
-                    {/* Adjustment Ranges */}
-                    {generatedSettings.adjustmentRanges && (
-                      <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.adjustmentRanges ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-xs font-medium text-gray-500 uppercase">Adjustment Ranges</h5>
-                          <Switch
-                            checked={enabledCategories.adjustmentRanges}
-                            onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, adjustmentRanges: checked }))}
-                            data-testid="toggle-adjustment-ranges"
-                          />
-                        </div>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between"><span>Occupancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.occupancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.occupancyMax * 100).toFixed(0)}%</span></div>
-                          <div className="flex justify-between"><span>Vacancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.vacancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.vacancyMax * 100).toFixed(0)}%</span></div>
-                          <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.seasonalityMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.seasonalityMax * 100).toFixed(0)}%</span></div>
-                          <div className="flex justify-between"><span>Competitor:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.competitorMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.competitorMax * 100).toFixed(0)}%</span></div>
-                        </div>
-                      </div>
-                    )}
-                    
-                  </div>
-                  
-                  <div className="bg-white/80 rounded-md p-3">
-                    <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">AI Reasoning</h5>
-                    <p className="text-sm text-gray-700">{generatedSettings.reasoning}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
         <div className="space-y-6 sm:space-y-8">
           <RuleDesigner
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
           />
+
+          {/* Target Annual Revenue Growth Section */}
+          <Card data-testid="card-target-growth">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-blue-600" />
+                <CardTitle className="text-lg">Target Annual Revenue Growth</CardTitle>
+              </div>
+              <CardDescription>
+                Set your target annual revenue growth percentage for each service line. AI will optimize weights, attributes, and guardrails to help achieve these targets.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {/* Target % inputs for each service line */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  {(["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const).map((sl) => {
+                    const isDisabled = selectedServiceLine !== "All" && selectedServiceLine !== sl;
+                    return (
+                      <div key={sl} className={`space-y-1.5 ${isDisabled ? 'opacity-50' : ''}`}>
+                        <label className="text-sm font-medium text-gray-700">{sl}</label>
+                        <div className="relative">
+                          <Input
+                            type="text"
+                            value={targetGrowth[sl]}
+                            onChange={(e) => handleTargetChange(sl, e.target.value)}
+                            disabled={isDisabled}
+                            className="pr-8 text-right"
+                            data-testid={`input-target-${sl.toLowerCase().replace('/', '-')}`}
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Save and Generate Buttons */}
+                <div className="flex flex-col gap-4 pt-4 border-t border-gray-100">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        onClick={() => saveTargetsMutation.mutate()}
+                        disabled={saveTargetsMutation.isPending}
+                        data-testid="button-save-targets"
+                      >
+                        {saveTargetsMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-4 w-4 mr-2" />
+                            Save Targets
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => generateSettingsMutation.mutate()}
+                        disabled={generateSettingsMutation.isPending}
+                        data-testid="button-generate-settings"
+                      >
+                        {generateSettingsMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            {analyzeIndividually ? 'Analyzing Each Scope...' : 'Analyzing Portfolio...'}
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Generate Weights, Attribute Values &amp; Guardrails
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Save targets to apply to selected locations, or Generate to let AI optimize settings
+                    </p>
+                  </div>
+
+                  {/* Analyze Individually Checkbox */}
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <Checkbox
+                      id="analyze-individually"
+                      checked={analyzeIndividually}
+                      onCheckedChange={(checked) => handleAnalyzeIndividuallyChange(checked === true)}
+                      data-testid="checkbox-analyze-individually"
+                    />
+                    <div>
+                      <Label htmlFor="analyze-individually" className="text-sm font-medium cursor-pointer">
+                        Analyze Locations/Service Lines Individually
+                      </Label>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        When enabled, AI will generate specific recommendations for each location and service line combination. Displayed values show averages; individual settings are applied when saved.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Generated Settings Display */}
+                {generatedSettings && (
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-blue-600" />
+                        <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
+                        {generatedSettings.mode === 'individual' && generatedSettings.scopeCount && (
+                          <Badge variant="secondary" className="text-xs">
+                            {generatedSettings.scopeCount} scopes analyzed • Showing averages
+                          </Badge>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => applyRecommendationsMutation.mutate()}
+                        disabled={applyRecommendationsMutation.isPending}
+                        className="bg-green-600 hover:bg-green-700"
+                        data-testid="button-apply-recommendations"
+                      >
+                        {applyRecommendationsMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Applying...
+                          </>
+                        ) : (
+                          <>
+                            <Check className="h-4 w-4 mr-2" />
+                            Apply Recommendations
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {generatedSettings.mode === 'individual' && (
+                      <p className="text-xs text-blue-700 bg-blue-100 p-2 rounded mb-3">
+                        Individual settings will be saved for each location/service line combination when applied.
+                      </p>
+                    )}
+
+                    <p className="text-xs text-gray-600 mb-3">Toggle categories on/off to control which settings will be applied:</p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                      {/* Pricing Weights */}
+                      <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.weights ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-xs font-medium text-gray-500 uppercase">Pricing Weights</h5>
+                          <Switch
+                            checked={enabledCategories.weights}
+                            onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, weights: checked }))}
+                            data-testid="toggle-weights"
+                          />
+                        </div>
+                        <TooltipProvider>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between items-center">
+                              <span className="flex items-center gap-1">
+                                Occupancy Pressure:
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs p-2">
+                                    <p className="text-xs font-medium mb-1">Occupancy: {generatedSettings.metrics?.occupancyRate ?? '—'}%</p>
+                                    <p className="text-xs text-gray-600">Higher weight when occupancy is low to push for competitive pricing. Current: {generatedSettings.metrics?.totalUnits ?? '—'} units, {generatedSettings.metrics?.vacantUnits ?? '—'} vacant.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="flex items-center gap-1">
+                                Days Vacant Decay:
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs p-2">
+                                    <p className="text-xs font-medium mb-1">Avg Days Vacant: {generatedSettings.metrics?.avgDaysVacant ?? '—'}</p>
+                                    <p className="text-xs text-gray-600">Higher weight when units stay vacant longer. Units 30+ days: {generatedSettings.metrics?.unitsOver30DaysVacant ?? '—'}, 60+ days: {generatedSettings.metrics?.unitsOver60DaysVacant ?? '—'}.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="flex items-center gap-1">
+                                Competitor Rates:
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs p-2">
+                                    <p className="text-xs font-medium mb-1">Avg Competitor Rate: ${generatedSettings.metrics?.competitorRate ?? '—'}</p>
+                                    <p className="text-xs text-gray-600">Weight based on available competitor data. Lower weight when data is sparse or when current rates are already well-positioned.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="font-medium">{generatedSettings.weights.competitorRates}%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="flex items-center gap-1">
+                                Seasonality:
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs p-2">
+                                    <p className="text-xs font-medium mb-1">Seasonal Factor</p>
+                                    <p className="text-xs text-gray-600">Adjusts for seasonal demand patterns. Spring/fall typically higher demand in senior living.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="font-medium">{generatedSettings.weights.seasonality}%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="flex items-center gap-1">
+                                Stock Market:
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs p-2">
+                                    <p className="text-xs font-medium mb-1">Market Conditions</p>
+                                    <p className="text-xs text-gray-600">Economic indicator weight. Lower weight as this is a secondary factor in senior living pricing.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="font-medium">{generatedSettings.weights.stockMarket}%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="flex items-center gap-1">
+                                Inquiry Volume:
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs p-2">
+                                    <p className="text-xs font-medium mb-1">Sales Velocity: {generatedSettings.metrics?.salesVelocity ?? '—'} move-ins (30 days)</p>
+                                    <p className="text-xs text-gray-600">Net change: {(generatedSettings.metrics?.netChange ?? 0) > 0 ? '+' : ''}{generatedSettings.metrics?.netChange ?? '—'}. Higher velocity allows more aggressive pricing.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="font-medium">{generatedSettings.weights.inquiryTourVolume}%</span>
+                            </div>
+                          </div>
+                        </TooltipProvider>
+                      </div>
+
+                      {/* Guardrails */}
+                      <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.guardrails ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-xs font-medium text-gray-500 uppercase">Guardrails</h5>
+                          <Switch
+                            checked={enabledCategories.guardrails}
+                            onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, guardrails: checked }))}
+                            data-testid="toggle-guardrails"
+                          />
+                        </div>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between"><span>Max Increase:</span><span className="font-medium">{generatedSettings.guardrails.maxIncreasePercent}%</span></div>
+                          <div className="flex justify-between"><span>Max Decrease:</span><span className="font-medium">{generatedSettings.guardrails.maxDecreasePercent}%</span></div>
+                          <div className="flex justify-between"><span>Min Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.minStreetRate}</span></div>
+                          <div className="flex justify-between"><span>Max Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.maxStreetRate}</span></div>
+                        </div>
+                      </div>
+
+                      {/* Adjustment Ranges */}
+                      {generatedSettings.adjustmentRanges && (
+                        <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.adjustmentRanges ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-xs font-medium text-gray-500 uppercase">Adjustment Ranges</h5>
+                            <Switch
+                              checked={enabledCategories.adjustmentRanges}
+                              onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, adjustmentRanges: checked }))}
+                              data-testid="toggle-adjustment-ranges"
+                            />
+                          </div>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between"><span>Occupancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.occupancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.occupancyMax * 100).toFixed(0)}%</span></div>
+                            <div className="flex justify-between"><span>Vacancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.vacancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.vacancyMax * 100).toFixed(0)}%</span></div>
+                            <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.seasonalityMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.seasonalityMax * 100).toFixed(0)}%</span></div>
+                            <div className="flex justify-between"><span>Competitor:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.competitorMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.competitorMax * 100).toFixed(0)}%</span></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white/80 rounded-md p-3">
+                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">AI Reasoning</h5>
+                      <p className="text-sm text-gray-700">{generatedSettings.reasoning}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           <PricingWeights 
             locationId={selectedLocationId} 
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
