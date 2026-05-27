@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,44 @@ export default function RateCardTable({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
+
+  // Refs for syncing top + bottom horizontal scrollbars
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
+  const topInnerRef = useRef<HTMLDivElement>(null);
+  const isSyncingScroll = useRef(false);
+
+  // Keep the top mirror div the same width as the table's scroll content
+  const syncTopWidth = useCallback(() => {
+    if (bottomScrollRef.current && topInnerRef.current) {
+      topInnerRef.current.style.width = `${bottomScrollRef.current.scrollWidth}px`;
+    }
+  }, []);
+
+  useEffect(() => {
+    syncTopWidth();
+    const observer = new ResizeObserver(syncTopWidth);
+    if (bottomScrollRef.current) observer.observe(bottomScrollRef.current);
+    return () => observer.disconnect();
+  }, [syncTopWidth]);
+
+  const handleTopScroll = useCallback(() => {
+    if (isSyncingScroll.current) return;
+    isSyncingScroll.current = true;
+    if (bottomScrollRef.current && topScrollRef.current) {
+      bottomScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+    isSyncingScroll.current = false;
+  }, []);
+
+  const handleBottomScroll = useCallback(() => {
+    if (isSyncingScroll.current) return;
+    isSyncingScroll.current = true;
+    if (topScrollRef.current && bottomScrollRef.current) {
+      topScrollRef.current.scrollLeft = bottomScrollRef.current.scrollLeft;
+    }
+    isSyncingScroll.current = false;
+  }, []);
   const [activeModuloJobId, setActiveModuloJobId] = useState<string | null>(null);
   const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
   const { toast } = useToast();
@@ -708,7 +746,22 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
               <p className="text-sm text-gray-400 mt-2">Upload rent roll data to see unit details</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Top scrollbar mirror — stays in sync with the table below */}
+            <div
+              ref={topScrollRef}
+              onScroll={handleTopScroll}
+              className="overflow-x-auto"
+              style={{ overflowY: 'hidden' }}
+            >
+              <div ref={topInnerRef} style={{ height: 1 }} />
+            </div>
+
+            <div
+              ref={bottomScrollRef}
+              onScroll={handleBottomScroll}
+              className="overflow-x-auto"
+            >
               <Table className="min-w-max">
                 <TableHeader>
                   <TableRow>
@@ -1109,6 +1162,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                 </div>
               )}
             </div>
+            </>
           )}
         </CardContent>
       </Card>
