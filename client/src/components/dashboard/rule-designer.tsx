@@ -10,9 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle,
-  Trash2, Plus, ChevronRight, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
+  Trash2, Plus, ChevronRight, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
   Info, Eye, Save, X, Wand2, ArrowRight
 } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 
 interface SpeechRecognitionEvent extends Event {
@@ -165,6 +166,7 @@ export function RuleDesigner({ locationId, serviceLine }: RuleDesignerProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [rules, setRules] = useState<AdjustmentRule[]>([]);
+  const [rulesOpen, setRulesOpen] = useState(true);
   const [impactData, setImpactData] = useState<ImpactData | null>(null);
   const [isLoadingImpact, setIsLoadingImpact] = useState(false);
 
@@ -693,82 +695,113 @@ export function RuleDesigner({ locationId, serviceLine }: RuleDesignerProps) {
       </Card>
 
       {/* ── Active Rules ── */}
-      {rules.length > 0 && (
-        <Card className="w-full shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
-              Active Rules
-              <Badge variant="secondary" className="text-xs">{rules.length}</Badge>
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Rules stack on top of the Rules Rate engine in priority order, before Guardrails are applied.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {rules.map(rule => (
-                <div
-                  key={rule.id}
-                  className={`rounded-xl border p-4 transition-all ${rule.isActive ? 'bg-white border-border' : 'bg-muted/30 border-border/50 opacity-70'}`}
-                  data-testid={`rule-${rule.id}`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-[var(--trilogy-dark-blue)]">{rule.name}</span>
-                        {rule.isActive
-                          ? <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Enabled</Badge>
-                          : <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
-                        }
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">{rule.description}</p>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <Badge variant="secondary" className="text-xs">{rule.executionCount ?? 0} executions</Badge>
-                        {rule.affectedUnits != null && (
-                          <Badge variant="outline" className="text-xs">{rule.affectedUnits} units</Badge>
-                        )}
-                        {(rule.volumeAdjustedAnnualImpact ?? 0) !== 0 && (
-                          <Badge
-                            className={`text-xs ${(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
-                            variant="outline"
-                          >
-                            {(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? <TrendingUp className="h-3 w-3 mr-1 inline" /> : <TrendingDown className="h-3 w-3 mr-1 inline" />}
-                            ${Math.abs(Math.round(rule.volumeAdjustedAnnualImpact ?? 0)).toLocaleString()}/yr
-                          </Badge>
-                        )}
-                        {rule.lastExecuted && (
-                          <span className="text-xs text-muted-foreground">
-                            Last applied {new Date(rule.lastExecuted).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Switch
-                        checked={rule.isActive}
-                        onCheckedChange={() => toggleRule(rule.id)}
-                        aria-label={`Toggle ${rule.name}`}
-                        data-testid={`switch-rule-${rule.id}`}
-                      />
-                      <Button
-                        variant="ghost" size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteRule(rule.id, rule.name)}
-                        title="Delete rule"
-                        data-testid={`button-delete-${rule.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+      {rules.length > 0 && (() => {
+        const activeCount = rules.filter(r => r.isActive).length;
+        const sortedRules = [
+          ...rules.filter(r => r.isActive),
+          ...rules.filter(r => !r.isActive),
+        ];
+        return (
+          <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
+            <Card className="w-full shadow-sm">
+              <CollapsibleTrigger asChild>
+                <CardHeader className="pb-3 cursor-pointer select-none hover:bg-muted/30 rounded-t-lg transition-colors">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                      Rules
+                      <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">{activeCount} active</Badge>
+                      {rules.length - activeCount > 0 && (
+                        <Badge variant="secondary" className="text-xs">{rules.length - activeCount} disabled</Badge>
+                      )}
+                    </CardTitle>
+                    <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
                   </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                  <CardDescription className="text-xs">
+                    Rules stack on top of the Rules Rate engine in priority order, before Guardrails are applied.
+                  </CardDescription>
+                </CardHeader>
+              </CollapsibleTrigger>
+
+              <CollapsibleContent>
+                <CardContent className="pt-0">
+                  <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                    {sortedRules.map((rule, idx) => (
+                      <div key={rule.id}>
+                        {/* Divider between active and disabled groups */}
+                        {idx > 0 && !sortedRules[idx - 1].isActive === false && !rule.isActive && sortedRules[idx - 1].isActive && (
+                          <div className="flex items-center gap-2 py-1">
+                            <div className="flex-1 border-t border-dashed border-muted-foreground/30" />
+                            <span className="text-xs text-muted-foreground">Disabled</span>
+                            <div className="flex-1 border-t border-dashed border-muted-foreground/30" />
+                          </div>
+                        )}
+                        <div
+                          className={`rounded-xl border p-3 transition-all ${rule.isActive ? 'bg-white dark:bg-gray-900 border-border' : 'bg-muted/30 border-border/50 opacity-60'}`}
+                          data-testid={`rule-${rule.id}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-sm text-[var(--trilogy-dark-blue)]">{rule.name}</span>
+                                {rule.isActive
+                                  ? <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Enabled</Badge>
+                                  : <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
+                                }
+                              </div>
+                              {rule.description && (
+                                <p className="text-xs text-muted-foreground leading-relaxed">{rule.description}</p>
+                              )}
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                <Badge variant="secondary" className="text-xs">{rule.executionCount ?? 0} executions</Badge>
+                                {rule.affectedUnits != null && (
+                                  <Badge variant="outline" className="text-xs">{rule.affectedUnits} units</Badge>
+                                )}
+                                {(rule.volumeAdjustedAnnualImpact ?? 0) !== 0 && (
+                                  <Badge
+                                    className={`text-xs ${(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
+                                    variant="outline"
+                                  >
+                                    {(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? <TrendingUp className="h-3 w-3 mr-1 inline" /> : <TrendingDown className="h-3 w-3 mr-1 inline" />}
+                                    ${Math.abs(Math.round(rule.volumeAdjustedAnnualImpact ?? 0)).toLocaleString()}/yr
+                                  </Badge>
+                                )}
+                                {rule.lastExecuted && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Last applied {new Date(rule.lastExecuted).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Switch
+                                checked={rule.isActive}
+                                onCheckedChange={() => toggleRule(rule.id)}
+                                aria-label={`Toggle ${rule.name}`}
+                                data-testid={`switch-rule-${rule.id}`}
+                              />
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => deleteRule(rule.id, rule.name)}
+                                title="Delete rule"
+                                data-testid={`button-delete-${rule.id}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
+        );
+      })()}
     </div>
   );
 }
