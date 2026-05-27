@@ -52,6 +52,18 @@ export default function ModuloCalculationDialog({
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
 
+  // Fetch active rules when dialog is open and rules were applied to this unit
+  const { data: activeRules } = useQuery<any[]>({
+    queryKey: ['/api/adjustment-rules'],
+    queryFn: async () => {
+      const res = await fetch('/api/adjustment-rules', { credentials: 'include' });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: open && !!appliedRuleName,
+    staleTime: 30_000,
+  });
+
   const recalculateMutation = useMutation({
     mutationFn: async () => {
       if (!locationId) throw new Error('No locationId available');
@@ -186,6 +198,52 @@ export default function ModuloCalculationDialog({
     (Array.isArray(calcDetails?.guardrailsApplied) && calcDetails.guardrailsApplied.length > 0)
   );
 
+  // Build a step-by-step breakdown of each rule applied to this unit.
+  // Replays the same stacking logic used by adjustmentRulesService.ts.
+  const ruleChainSteps: Array<{
+    name: string;
+    description: string;
+    actionLabel: string;
+    before: number;
+    after: number;
+    delta: number;
+  }> = (() => {
+    if (!appliedRuleName || !activeRules?.length || !calcDetails) return [];
+    const appliedNames = appliedRuleName.split(' + ').map((n: string) => n.trim());
+    // Preserve order by matching names in the order they appear in appliedRuleName
+    const matchedRules = appliedNames
+      .map((name: string) => activeRules.find((r: any) => r.name === name))
+      .filter(Boolean);
+    if (!matchedRules.length) return [];
+    const engineRate = getFinalRate(calcDetails); // pre-rule rate
+    let current = engineRate;
+    return matchedRules.map((rule: any) => {
+      const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : rule.action;
+      const adjType = action?.adjustmentType || 'percentage';
+      const adjValue = action?.adjustmentValue ?? action?.percentage ?? 0;
+      const before = current;
+      if (adjType === 'percentage') {
+        current = Math.round(current * (1 + adjValue / 100));
+      } else {
+        current = Math.round(current + adjValue);
+      }
+      const delta = current - before;
+      const pctStr = `${adjValue > 0 ? '+' : ''}${adjValue}%`;
+      const dollarStr = `${adjValue >= 0 ? '+' : ''}$${Math.abs(adjValue)}`;
+      const actionLabel = adjType === 'percentage'
+        ? `${adjValue > 0 ? 'Increase' : 'Decrease'} by ${pctStr}`
+        : `${adjValue >= 0 ? 'Increase' : 'Decrease'} by ${dollarStr}`;
+      return {
+        name: rule.name,
+        description: rule.description || '',
+        actionLabel,
+        before,
+        after: current,
+        delta,
+      };
+    });
+  })();
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -297,6 +355,115 @@ export default function ModuloCalculationDialog({
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Rule Designer Adjustments — step-by-step breakdown */}
+              {ruleChainSteps.length > 0 && (
+                <Card className="border-green-300 bg-green-50 dark:bg-green-950/20">
+                  <CardHeader className="pb-3 bg-green-100/60 dark:bg-green-950/40 rounded-t-lg">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Settings className="h-4 w-4 text-green-700" />
+                      <span className="text-green-900 dark:text-green-100">Rule Designer Adjustments</span>
+                      <Badge className="bg-green-600 text-white text-xs">
+                        {ruleChainSteps.length} rule{ruleChainSteps.length !== 1 ? 's' : ''} applied
+                      </Badge>
+                    </CardTitle>
+                    <p className="text-xs text-green-800 dark:text-green-300 mt-1">
+                      These rules stacked on top of the Rules Rate in priority order. Each rule receives the rate
+                      produced by the previous one.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="pt-4 space-y-3">
+                    {/* Starting rate */}
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border border-green-200">
+                      <span className="text-xs font-medium text-muted-foreground">Rules Rate (engine output)</span>
+                      <span className="text-sm font-bold">{formatCurrency(getFinalRate(calcDetails))}</span>
+                    </div>
+
+                    {/* Each rule step */}
+                    {ruleChainSteps.map((step, i) => (
+                      <div key={i} className="relative">
+                        {/* Connector arrow */}
+                        <div className="flex justify-center my-1">
+                          <ChevronRight className="h-4 w-4 rotate-90 text-green-500" />
+                        </div>
+
+                        <div className="rounded-lg border border-green-200 bg-white dark:bg-gray-900 overflow-hidden">
+                          {/* Rule header */}
+                          <div className="flex items-start justify-between px-3 py-2 bg-green-50 dark:bg-green-950/40 border-b border-green-200">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-green-900 dark:text-green-100 truncate">
+                                Rule {i + 1}: {step.name}
+                              </p>
+                              {step.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 italic">"{step.description}"</p>
+                              )}
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={`ml-2 shrink-0 text-xs font-mono ${step.delta >= 0 ? 'border-green-400 text-green-700' : 'border-red-400 text-red-700'}`}
+                            >
+                              {step.delta >= 0 ? '+' : ''}{formatCurrency(step.delta)}
+                            </Badge>
+                          </div>
+
+                          {/* Rate chain */}
+                          <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                            <span className="font-mono text-muted-foreground">{formatCurrency(step.before)}</span>
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-xs text-muted-foreground">{step.actionLabel}</span>
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span className={`font-mono font-semibold ${step.delta >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                              {formatCurrency(step.after)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Final applied rate */}
+                    <div className="flex justify-center my-1">
+                      <ChevronRight className="h-4 w-4 rotate-90 text-green-500" />
+                    </div>
+                    <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-green-600 text-white">
+                      <span className="text-xs font-semibold">Final Applied Rate</span>
+                      <div className="text-right">
+                        <span className="text-sm font-bold">{formatCurrency(ruleAdjustedRate!)}</span>
+                        {(() => {
+                          const netDelta = ruleAdjustedRate! - getFinalRate(calcDetails);
+                          const netPct = getFinalRate(calcDetails) > 0 ? (netDelta / getFinalRate(calcDetails)) * 100 : 0;
+                          return (
+                            <span className="text-xs opacity-80 ml-2">
+                              ({netDelta >= 0 ? '+' : ''}{formatCurrency(netDelta)} / {netDelta >= 0 ? '+' : ''}{netPct.toFixed(1)}% net)
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Fallback: rule was applied but we couldn't load rule details */}
+              {appliedRuleName && ruleChainSteps.length === 0 && (
+                <Card className="border-green-300 bg-green-50 dark:bg-green-950/20">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <Settings className="h-4 w-4 text-green-700 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-green-900 dark:text-green-100">Rule Designer Adjustments Applied</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Rules applied: <span className="font-medium text-green-800">{appliedRuleName.split(' + ').join(', ')}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Rules Rate {formatCurrency(getFinalRate(calcDetails))} → Applied Rate {formatCurrency(ruleAdjustedRate!)}
+                          {' '}({ruleAdjustedRate! - getFinalRate(calcDetails) >= 0 ? '+' : ''}
+                          {formatCurrency(ruleAdjustedRate! - getFinalRate(calcDetails))} net)
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Stale Weights Notice */}
               {hasStaleWeights && (
