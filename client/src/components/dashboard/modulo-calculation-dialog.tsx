@@ -429,15 +429,18 @@ export default function ModuloCalculationDialog({
                     <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-green-600 text-white">
                       <span className="text-xs font-semibold">Final Applied Rate</span>
                       <div className="text-right">
-                        <span className="text-sm font-bold">{formatCurrency(ruleAdjustedRate!)}</span>
                         {(() => {
-                          const streetRateBase = calcDetails.baseRate || currentRate;
-                          const netDelta = ruleAdjustedRate! - streetRateBase;
+                          const chainFinal = ruleChainSteps[ruleChainSteps.length - 1].after;
+                          const streetRateBase = calcDetails.baseRate ?? currentRate;
+                          const netDelta = chainFinal - streetRateBase;
                           const netPct = streetRateBase > 0 ? (netDelta / streetRateBase) * 100 : 0;
                           return (
-                            <span className="text-xs opacity-80 ml-2">
-                              ({netDelta >= 0 ? '+' : ''}{formatCurrency(netDelta)} / {netDelta >= 0 ? '+' : ''}{netPct.toFixed(1)}% net)
-                            </span>
+                            <>
+                              <span className="text-sm font-bold">{formatCurrency(chainFinal)}</span>
+                              <span className="text-xs opacity-80 ml-2">
+                                ({netDelta >= 0 ? '+' : ''}{formatCurrency(netDelta)} / {netDelta >= 0 ? '+' : ''}{netPct.toFixed(1)}% net)
+                              </span>
+                            </>
                           );
                         })()}
                       </div>
