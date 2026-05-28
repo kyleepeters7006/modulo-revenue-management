@@ -29,6 +29,7 @@ const METRICS = [
   'Vacant Units/Beds', 'Total Units/Beds', 'Service Line',
   'Competitor Rate', 'Days Vacant', 'Room Attributes',
   'Days To Sell Previously', 'Season', 'Stock Market', 'Inquiry and Tour Volume',
+  'Quality Mix',
 ];
 
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
