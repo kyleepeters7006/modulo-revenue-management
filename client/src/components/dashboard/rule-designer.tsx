@@ -171,6 +171,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [rulesOpen, setRulesOpen] = useState(true);
   const [impactData, setImpactData] = useState<ImpactData | null>(null);
   const [isLoadingImpact, setIsLoadingImpact] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [editingRuleName, setEditingRuleName] = useState<string>('');
 
   // Structured builder state
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
@@ -266,7 +268,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     }
   };
 
-  // Save (or apply) rule
+  // Save (or apply) rule — handles both create (POST) and edit (PATCH)
   const handleSaveRule = async (applyNow = false) => {
     const description = getDescription();
     if (!description) {
@@ -275,8 +277,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     }
     setIsSaving(true);
     try {
-      const res = await fetch('/api/adjustment-rules', {
-        method: 'POST',
+      const isEditing = !!editingRuleId;
+      const url = isEditing ? `/api/adjustment-rules/${editingRuleId}` : '/api/adjustment-rules';
+      const method = isEditing ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLine: serviceLine || null }),
       });
@@ -287,12 +292,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       setConditions([defaultCondition()]);
       setRuleAction(defaultAction());
       setImpactData(null);
+      setEditingRuleId(null);
+      setEditingRuleName('');
       toast({
-        title: applyNow ? 'Rule applied' : 'Rule saved',
+        title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
       });
     } catch {
-      toast({ title: 'Failed to save rule', description: 'Please try again', variant: 'destructive' });
+      toast({ title: editingRuleId ? 'Failed to update rule' : 'Failed to save rule', description: 'Please try again', variant: 'destructive' });
     } finally {
       setIsSaving(false);
     }
@@ -303,6 +310,19 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setConditions([defaultCondition()]);
     setRuleAction(defaultAction());
     setImpactData(null);
+    setEditingRuleId(null);
+    setEditingRuleName('');
+  };
+
+  const startEdit = (rule: AdjustmentRule & { description?: string }) => {
+    setEditingRuleId(rule.id);
+    setEditingRuleName(rule.name);
+    setActiveTab('ask-ai');
+    setAiInput(rule.description || rule.name || '');
+    setImpactData(null);
+    setConditions([defaultCondition()]);
+    setRuleAction(defaultAction());
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const toggleRule = async (ruleId: string) => {
@@ -384,6 +404,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               ? `Rules will apply to ${[locationName, serviceLine].filter(Boolean).join(' · ')} only. Preview math reflects this scope.`
               : 'Build pricing rules using natural language or structured IF / THEN logic.'}
           </CardDescription>
+          {editingRuleId && (
+            <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-300">
+              <Pencil className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-xs font-medium">Editing: "{editingRuleName}"</span>
+              <Button variant="ghost" size="sm" className="ml-auto h-5 px-2 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100" onClick={handleClear}>
+                Cancel
+              </Button>
+            </div>
+          )}
         </CardHeader>
 
         <CardContent>
@@ -693,22 +722,37 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       data-testid="button-save-rule"
                     >
                       <Save className="h-4 w-4" />
-                      {isSaving ? 'Saving…' : 'Save Rule'}
+                      {isSaving ? (editingRuleId ? 'Updating…' : 'Saving…') : (editingRuleId ? 'Update Rule' : 'Save Rule')}
                     </Button>
-                    <Button
-                      variant="outline"
-                      className="gap-2 text-sm"
-                      onClick={() => handleSaveRule(true)}
-                      disabled={!description || isSaving}
-                      data-testid="button-apply-rule"
-                    >
-                      <Play className="h-4 w-4" />
-                      Apply Rule
-                    </Button>
+                    {!editingRuleId && (
+                      <Button
+                        variant="outline"
+                        className="gap-2 text-sm"
+                        onClick={() => handleSaveRule(true)}
+                        disabled={!description || isSaving}
+                        data-testid="button-apply-rule"
+                      >
+                        <Play className="h-4 w-4" />
+                        Apply Rule
+                      </Button>
+                    )}
+                    {editingRuleId && (
+                      <Button
+                        variant="outline"
+                        className="gap-2 text-sm"
+                        onClick={handleClear}
+                        disabled={isSaving}
+                      >
+                        <X className="h-4 w-4" />
+                        Cancel Edit
+                      </Button>
+                    )}
                   </div>
-                  <Button variant="ghost" size="sm" className="w-full text-muted-foreground text-xs gap-1.5" onClick={handleClear}>
-                    <X className="h-3.5 w-3.5" /> Clear
-                  </Button>
+                  {!editingRuleId && (
+                    <Button variant="ghost" size="sm" className="w-full text-muted-foreground text-xs gap-1.5" onClick={handleClear}>
+                      <X className="h-3.5 w-3.5" /> Clear
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -807,6 +851,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 data-testid={`switch-rule-${rule.id}`}
                                 className="data-[state=unchecked]:bg-gray-400 dark:data-[state=unchecked]:bg-gray-600"
                               />
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-[var(--trilogy-teal)] dark:text-gray-400 dark:hover:text-teal-400"
+                                onClick={() => startEdit(rule as any)}
+                                title="Edit rule"
+                                data-testid={`button-edit-${rule.id}`}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive dark:text-gray-400 dark:hover:text-red-400"

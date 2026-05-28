@@ -14078,6 +14078,46 @@ Respond in JSON format:
     }
   });
   
+  app.patch("/api/adjustment-rules/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = (req as any).clientId || 'demo';
+      const { description, locationId, serviceLine } = req.body;
+
+      const existing = (await storage.getAdjustmentRules()).find(r => r.id === id);
+      if (!existing) return res.status(404).json({ error: "Rule not found" });
+
+      if (!description) return res.status(400).json({ error: "description is required" });
+
+      const parsedRule = parseNaturalLanguageRule(description);
+      if (!parsedRule) return res.status(400).json({ error: "Could not understand the rule. Please try rephrasing." });
+
+      const validation = validateParsedRule(parsedRule);
+      if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
+
+      const updated = await storage.updateAdjustmentRule(id, {
+        name: parsedRule.name,
+        description,
+        trigger: parsedRule.trigger,
+        action: parsedRule.action,
+        locationId: locationId !== undefined ? locationId : (existing.locationId ?? null),
+        serviceLine: serviceLine !== undefined ? serviceLine : (existing.serviceLine ?? null),
+      });
+
+      const impact = await computeRuleImpact(updated, clientId);
+      await storage.updateAdjustmentRule(id, {
+        monthlyImpact: impact.monthlyImpact,
+        annualImpact: impact.annualImpact,
+        volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
+      });
+
+      res.json({ rule: { ...updated, ...impact }, affectedUnits: impact.affectedUnits });
+    } catch (error) {
+      console.error('Error updating adjustment rule:', error);
+      res.status(500).json({ error: "Failed to update adjustment rule" });
+    }
+  });
+
   app.patch("/api/adjustment-rules/:id/toggle", async (req, res) => {
     try {
       const { id } = req.params;
