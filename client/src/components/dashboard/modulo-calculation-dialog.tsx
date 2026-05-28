@@ -220,8 +220,8 @@ export default function ModuloCalculationDialog({
       .map((name: string) => activeRules.find((r: any) => r.name === name))
       .filter(Boolean);
     if (!matchedRules.length) return [];
-    const engineRate = getFinalRate(calcDetails); // pre-rule rate
-    let current = engineRate;
+    const streetRate = calcDetails.baseRate || currentRate; // rules start from Street Rate
+    let current = streetRate;
     return matchedRules.map((rule: any) => {
       const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : rule.action;
       const adjType = action?.adjustmentType || 'percentage';
@@ -332,7 +332,7 @@ export default function ModuloCalculationDialog({
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Rules Rate</p>
+                      <p className="text-xs text-muted-foreground">Modulo Rate</p>
                       <p className={`text-lg font-bold ${ruleAdjustedRate ? 'text-muted-foreground line-through' : 'text-primary'}`}>
                         {formatCurrency(getFinalRate(calcDetails))}
                       </p>
@@ -370,7 +370,7 @@ export default function ModuloCalculationDialog({
                       </Badge>
                     </CardTitle>
                     <p className="text-xs text-green-800 dark:text-green-300 mt-1">
-                      These rules stacked on top of the Rules Rate in priority order. Each rule receives the rate
+                      These rules are applied to the Street Rate in priority order. Each rule receives the rate
                       produced by the previous one.
                     </p>
                   </CardHeader>
@@ -379,15 +379,6 @@ export default function ModuloCalculationDialog({
                     <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border border-green-200">
                       <span className="text-xs font-medium text-muted-foreground">Street Rate (baseline)</span>
                       <span className="text-sm font-bold">{formatCurrency(calcDetails.baseRate || currentRate)}</span>
-                    </div>
-
-                    {/* Arrow + engine step */}
-                    <div className="flex justify-center my-1">
-                      <ChevronRight className="h-4 w-4 rotate-90 text-green-500" />
-                    </div>
-                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border border-green-200">
-                      <span className="text-xs font-medium text-muted-foreground">Rules Rate (engine output)</span>
-                      <span className="text-sm font-bold">{formatCurrency(getFinalRate(calcDetails))}</span>
                     </div>
 
                     {/* Each rule step */}
@@ -440,8 +431,9 @@ export default function ModuloCalculationDialog({
                       <div className="text-right">
                         <span className="text-sm font-bold">{formatCurrency(ruleAdjustedRate!)}</span>
                         {(() => {
-                          const netDelta = ruleAdjustedRate! - getFinalRate(calcDetails);
-                          const netPct = getFinalRate(calcDetails) > 0 ? (netDelta / getFinalRate(calcDetails)) * 100 : 0;
+                          const streetRateBase = calcDetails.baseRate || currentRate;
+                          const netDelta = ruleAdjustedRate! - streetRateBase;
+                          const netPct = streetRateBase > 0 ? (netDelta / streetRateBase) * 100 : 0;
                           return (
                             <span className="text-xs opacity-80 ml-2">
                               ({netDelta >= 0 ? '+' : ''}{formatCurrency(netDelta)} / {netDelta >= 0 ? '+' : ''}{netPct.toFixed(1)}% net)
