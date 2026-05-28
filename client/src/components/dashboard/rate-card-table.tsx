@@ -957,9 +957,9 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                                 >
                                   <span>
                                     {formatRateByServiceLine(Math.round(unit.ruleAdjustedRate || unit.moduloSuggestedRate), unit.serviceLine)}
-                                    {unit.ruleAdjustedRate && unit.moduloSuggestedRate && (
+                                    {unit.ruleAdjustedRate && unit.streetRate && (
                                       <span className="text-xs text-gray-500 ml-1">
-                                        (was {formatRateByServiceLine(Math.round(unit.moduloSuggestedRate), unit.serviceLine)})
+                                        (was {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
                                       </span>
                                     )}
                                   </span>
@@ -987,10 +987,10 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                               </ModuloCalculationDialog>
                               {(() => {
                                 const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
-                                if (unit.ruleAdjustedRate && unit.moduloSuggestedRate) {
-                                  // Rule applied: show the rule's impact vs the base Modulo rate
+                                if (unit.ruleAdjustedRate && unit.streetRate) {
+                                  // Rule applied: show the rule's impact vs the Street Rate baseline
                                   const displayFinal = convertToDisplayRate(unit.ruleAdjustedRate, unit.serviceLine) || 0;
-                                  const displayBase  = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
+                                  const displayBase  = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
                                   const change = Math.round(displayFinal - displayBase);
                                   const changePercent = displayBase !== 0 ? Math.round((change / displayBase) * 100) : 0;
                                   return (
