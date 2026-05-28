@@ -136,13 +136,15 @@ export function applyAdjustmentRulesToUnit(
 
 /**
  * Apply adjustment rules to multiple units.
+ * Base rate is the unit's street rate (independent of the Modulo engine output).
  */
 export function applyAdjustmentRulesToBatch(
-  units: Array<{ id: string; unit: any; moduloSuggestedRate: number; [key: string]: any }>,
+  units: Array<{ id: string; unit: any; [key: string]: any }>,
   activeRules: AdjustmentRules[]
 ): Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }> {
-  return units.map(({ id, unit, moduloSuggestedRate }) => {
-    const adjustment = applyAdjustmentRulesToUnit(unit, moduloSuggestedRate, activeRules);
+  return units.map(({ id, unit }) => {
+    const baseRate: number = unit?.streetRate ?? unit?.street_rate ?? 0;
+    const adjustment = applyAdjustmentRulesToUnit(unit, baseRate, activeRules);
     return {
       id,
       ruleAdjustedRate: adjustment.ruleAdjustedRate,
@@ -153,9 +155,10 @@ export function applyAdjustmentRulesToBatch(
 
 /**
  * Fetch active rules from DB and apply them to a batch of units.
+ * Base rate for each unit is its street rate (independent of the Modulo engine output).
  */
 export async function fetchAndApplyAdjustmentRules(
-  units: Array<{ id: string; unit: any; moduloSuggestedRate: number; [key: string]: any }>
+  units: Array<{ id: string; unit: any; [key: string]: any }>
 ): Promise<Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }>> {
   try {
     const activeRules = await storage.getActiveAdjustmentRules();

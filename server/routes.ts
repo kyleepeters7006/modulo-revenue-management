@@ -9438,17 +9438,13 @@ Service line mix: ${Object.entries(slBreakdown).map(([sl, n]) => `${sl}: ${n}`).
       
       console.log(`Calculated ${updates.length} Modulo suggestions, applying adjustment rules...`);
       
-      // Apply adjustment rules to Modulo rates
-      const unitsWithModuloRates = updates.map((update) => {
-        const unit = units.find(u => u.id === update.id);
-        return {
-          id: update.id,
-          unit: unit,
-          moduloSuggestedRate: update.moduloSuggestedRate
-        };
-      });
+      // Apply adjustment rules — base rate is each unit's street rate (independent of Modulo)
+      const unitsForRules = updates.map((update) => ({
+        id: update.id,
+        unit: units.find(u => u.id === update.id),
+      }));
       
-      const adjustmentResults = await fetchAndApplyAdjustmentRules(unitsWithModuloRates);
+      const adjustmentResults = await fetchAndApplyAdjustmentRules(unitsForRules);
       
       // Merge adjustment results with Modulo updates
       const finalUpdates = updates.map((update, index) => {
