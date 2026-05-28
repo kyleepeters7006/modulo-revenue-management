@@ -88,12 +88,10 @@ export default function ModuloCalculationDialog({
         const data = await res.json();
         if (data.status === 'completed') {
           setRecalcStatus('done');
-          setRecalcJobId(null);
           queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
           queryClient.invalidateQueries({ queryKey: ['/api/locations'] });
         } else if (data.status === 'failed') {
           setRecalcStatus('error');
-          setRecalcJobId(null);
         } else if (attempts < maxAttempts) {
           attempts++;
           pollRef.current = setTimeout(poll, 2000);
@@ -344,7 +342,11 @@ export default function ModuloCalculationDialog({
                         {appliedRuleName ? 'Applied Rate' : 'Final Rate'}
                       </p>
                       <p className="text-lg font-bold text-primary">
-                        {formatCurrency(ruleAdjustedRate || getFinalRate(calcDetails))}
+                        {formatCurrency(
+                          ruleChainSteps.length > 0
+                            ? ruleChainSteps[ruleChainSteps.length - 1].after
+                            : ruleAdjustedRate || getFinalRate(calcDetails)
+                        )}
                       </p>
                       {appliedRuleName && (
                         <Badge variant="default" className="mt-1 text-xs bg-green-600">
