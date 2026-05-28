@@ -198,6 +198,13 @@ export default function ModuloCalculationDialog({
     (Array.isArray(calcDetails?.guardrailsApplied) && calcDetails.guardrailsApplied.length > 0)
   );
 
+  // Use the actual final rate from the backend calculation
+  // This ensures the popup shows the exact same rate as the rate card table
+  const getFinalRate = (details: any) => {
+    if (!details) return currentRate;
+    return details.finalRate || currentRate;
+  };
+
   // Build a step-by-step breakdown of each rule applied to this unit.
   // Replays the same stacking logic used by adjustmentRulesService.ts.
   const ruleChainSteps: Array<{
@@ -263,13 +270,6 @@ export default function ModuloCalculationDialog({
     return "text-gray-600";
   };
 
-  // Use the actual final rate from the backend calculation
-  // This ensures the popup shows the exact same rate as the rate card table
-  const getFinalRate = (details: any) => {
-    if (!details) return currentRate;
-    // Use the finalRate from calculation details (which includes guardrails)
-    return details.finalRate || currentRate;
-  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
