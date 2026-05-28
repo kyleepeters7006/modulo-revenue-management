@@ -959,7 +959,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                                     {formatRateByServiceLine(Math.round(unit.ruleAdjustedRate || unit.moduloSuggestedRate), unit.serviceLine)}
                                     {unit.ruleAdjustedRate && unit.streetRate && (
                                       <span className="text-xs text-gray-500 ml-1">
-                                        (was {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
+                                        (Street Rate: {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
                                       </span>
                                     )}
                                   </span>

@@ -312,7 +312,7 @@ export default function ModuloCalculationDialog({
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
-                      <p className="text-xs text-muted-foreground">Base Rate</p>
+                      <p className="text-xs text-muted-foreground">Street Rate</p>
                       <p className="text-lg font-bold">{formatCurrency(calcDetails.baseRate || currentRate)}</p>
                     </div>
                     <div>
@@ -375,7 +375,16 @@ export default function ModuloCalculationDialog({
                     </p>
                   </CardHeader>
                   <CardContent className="pt-4 space-y-3">
-                    {/* Starting rate */}
+                    {/* Street Rate baseline */}
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border border-green-200">
+                      <span className="text-xs font-medium text-muted-foreground">Street Rate (baseline)</span>
+                      <span className="text-sm font-bold">{formatCurrency(calcDetails.baseRate || currentRate)}</span>
+                    </div>
+
+                    {/* Arrow + engine step */}
+                    <div className="flex justify-center my-1">
+                      <ChevronRight className="h-4 w-4 rotate-90 text-green-500" />
+                    </div>
                     <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-gray-900 border border-green-200">
                       <span className="text-xs font-medium text-muted-foreground">Rules Rate (engine output)</span>
                       <span className="text-sm font-bold">{formatCurrency(getFinalRate(calcDetails))}</span>
@@ -457,9 +466,9 @@ export default function ModuloCalculationDialog({
                           Rules applied: <span className="font-medium text-green-800">{appliedRuleName.split(' + ').join(', ')}</span>
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Rules Rate {formatCurrency(getFinalRate(calcDetails))} → Applied Rate {formatCurrency(ruleAdjustedRate!)}
-                          {' '}({ruleAdjustedRate! - getFinalRate(calcDetails) >= 0 ? '+' : ''}
-                          {formatCurrency(ruleAdjustedRate! - getFinalRate(calcDetails))} net)
+                          Street Rate {formatCurrency(calcDetails.baseRate || currentRate)} → Rules Rate {formatCurrency(getFinalRate(calcDetails))} → Applied Rate {formatCurrency(ruleAdjustedRate!)}
+                          {' '}({ruleAdjustedRate! - (calcDetails.baseRate || currentRate) >= 0 ? '+' : ''}
+                          {formatCurrency(ruleAdjustedRate! - (calcDetails.baseRate || currentRate))} net from Street Rate)
                         </p>
                       </div>
                     </div>
