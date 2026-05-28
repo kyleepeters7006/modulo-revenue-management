@@ -13757,9 +13757,17 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         [clientId]
       );
       const latestUploadMonth: string | null = latestMonthRow.rows[0]?.m ?? null;
-      const units = latestUploadMonth
+      const allUnits = latestUploadMonth
         ? await storage.getRentRollDataByMonth(latestUploadMonth, clientId)
         : await storage.getRentRollData(clientId);
+
+      // Narrow to the selected campus / service line scope when provided
+      const units = allUnits.filter((u: any) => {
+        if (locationId && u.locationId !== locationId) return false;
+        if (serviceLine && u.serviceLine !== serviceLine) return false;
+        return true;
+      });
+
       let affectedUnits = 0;
       let totalImpact = 0;
       

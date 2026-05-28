@@ -155,9 +155,10 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
 interface RuleDesignerProps {
   locationId?: string;
   serviceLine?: string;
+  locationName?: string;
 }
 
-export function RuleDesigner({ locationId, serviceLine }: RuleDesignerProps) {
+export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesignerProps) {
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured'>('ask-ai');
@@ -355,12 +356,32 @@ export function RuleDesigner({ locationId, serviceLine }: RuleDesignerProps) {
       {/* ── Rule Designer Card ── */}
       <Card className="w-full shadow-sm">
         <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Wand2 className="h-5 w-5 text-[var(--trilogy-teal)]" />
-            Rule Designer
-          </CardTitle>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Wand2 className="h-5 w-5 text-[var(--trilogy-teal)]" />
+              Rule Designer
+            </CardTitle>
+            {(locationName || serviceLine) && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs text-muted-foreground">Scope:</span>
+                {locationName && (
+                  <Badge variant="secondary" className="text-xs font-medium gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--trilogy-teal)] inline-block" />
+                    {locationName}
+                  </Badge>
+                )}
+                {serviceLine && (
+                  <Badge className="text-xs font-medium bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] border-[var(--trilogy-teal)]/20" variant="outline">
+                    {serviceLine}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
           <CardDescription>
-            Build pricing rules using natural language or structured IF / THEN logic.
+            {locationName || serviceLine
+              ? `Rules will apply to ${[locationName, serviceLine].filter(Boolean).join(' · ')} only. Preview math reflects this scope.`
+              : 'Build pricing rules using natural language or structured IF / THEN logic.'}
           </CardDescription>
         </CardHeader>
 

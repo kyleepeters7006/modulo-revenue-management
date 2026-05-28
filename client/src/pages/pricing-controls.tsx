@@ -673,6 +673,7 @@ export default function PricingControls() {
           <RuleDesigner
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
+            locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
           />
 
           {/* Target Annual Revenue Growth Section */}
