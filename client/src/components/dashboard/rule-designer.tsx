@@ -718,9 +718,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       {/* ── Active Rules ── */}
       {rules.length > 0 && (() => {
         const activeCount = rules.filter(r => r.isActive).length;
+        // Newest rules first within each group
         const sortedRules = [
-          ...rules.filter(r => r.isActive),
-          ...rules.filter(r => !r.isActive),
+          ...rules.filter(r => r.isActive).slice().reverse(),
+          ...rules.filter(r => !r.isActive).slice().reverse(),
         ];
         return (
           <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
@@ -758,20 +759,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           </div>
                         )}
                         <div
-                          className={`rounded-xl border p-3 transition-all ${rule.isActive ? 'bg-white dark:bg-gray-900 border-border' : 'bg-muted/30 border-border/50 opacity-60'}`}
+                          className={`rounded-xl border p-3 transition-all ${rule.isActive ? 'bg-white dark:bg-gray-800 border-border' : 'bg-muted/20 dark:bg-gray-900/60 border-border/40 opacity-70'}`}
                           data-testid={`rule-${rule.id}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0 space-y-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium text-sm text-[var(--trilogy-dark-blue)]">{rule.name}</span>
+                                <span className="font-medium text-sm text-foreground">{rule.name}</span>
                                 {rule.isActive
-                                  ? <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Enabled</Badge>
+                                  ? <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-700 text-xs">Enabled</Badge>
                                   : <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
                                 }
                               </div>
                               {rule.description && (
-                                <p className="text-xs text-muted-foreground leading-relaxed">{rule.description}</p>
+                                <p className="text-xs text-muted-foreground dark:text-gray-400 leading-relaxed">{rule.description}</p>
                               )}
                               <div className="flex flex-wrap gap-1.5 pt-0.5">
                                 <Badge variant="secondary" className="text-xs">{rule.executionCount ?? 0} executions</Badge>
@@ -780,7 +781,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 )}
                                 {(rule.volumeAdjustedAnnualImpact ?? 0) !== 0 && (
                                   <Badge
-                                    className={`text-xs ${(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
+                                    className={`text-xs ${(rule.volumeAdjustedAnnualImpact ?? 0) >= 0
+                                      ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-700'
+                                      : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-700'}`}
                                     variant="outline"
                                   >
                                     {(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? <TrendingUp className="h-3 w-3 mr-1 inline" /> : <TrendingDown className="h-3 w-3 mr-1 inline" />}
@@ -788,7 +791,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                   </Badge>
                                 )}
                                 {rule.lastExecuted && (
-                                  <span className="text-xs text-muted-foreground">
+                                  <span className="text-xs text-muted-foreground dark:text-gray-400">
                                     Last applied {new Date(rule.lastExecuted).toLocaleDateString()}
                                   </span>
                                 )}
@@ -801,10 +804,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 onCheckedChange={() => toggleRule(rule.id)}
                                 aria-label={`Toggle ${rule.name}`}
                                 data-testid={`switch-rule-${rule.id}`}
+                                className="data-[state=unchecked]:bg-gray-400 dark:data-[state=unchecked]:bg-gray-600"
                               />
                               <Button
                                 variant="ghost" size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive dark:text-gray-400 dark:hover:text-red-400"
                                 onClick={() => deleteRule(rule.id, rule.name)}
                                 title="Delete rule"
                                 data-testid={`button-delete-${rule.id}`}
