@@ -95,6 +95,8 @@ interface AdjustmentRule {
   monthlyImpact?: number;
   annualImpact?: number;
   volumeAdjustedAnnualImpact?: number;
+  trigger?: unknown;
+  action?: unknown;
 }
 
 interface ImpactData {
@@ -314,14 +316,86 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setEditingRuleName('');
   };
 
-  const startEdit = (rule: AdjustmentRule & { description?: string }) => {
+  const startEdit = (rule: AdjustmentRule) => {
     setEditingRuleId(rule.id);
     setEditingRuleName(rule.name);
-    setActiveTab('ask-ai');
-    setAiInput(rule.description || rule.name || '');
     setImpactData(null);
-    setConditions([defaultCondition()]);
-    setRuleAction(defaultAction());
+
+    // ── Hydrate ruleAction from stored action ──────────────────────────────
+    const action = rule.action as any;
+    const adjValue: number = action?.adjustmentValue ?? 0;
+    const adjType: string = action?.adjustmentType ?? 'percentage';
+    const hydratedAction: RuleAction = {
+      type: adjValue >= 0 ? 'increase_rate' : 'decrease_rate',
+      amountType: adjType === 'percentage' ? 'percent' : 'dollar',
+      amountValue: String(Math.abs(adjValue)),
+      scope: (() => {
+        const f = action?.filters ?? {};
+        if (f.vacancyDuration) return 'Units with days vacant above threshold';
+        if (f.roomType?.length) return 'Selected room type';
+        if (f.occupancyStatus === 'vacant') return 'Vacant units only';
+        return 'All selected campuses';
+      })(),
+    };
+    setRuleAction(hydratedAction);
+
+    // ── Hydrate conditions from stored trigger ─────────────────────────────
+    const trigger = rule.trigger as any;
+    const rebuilt: Condition[] = [];
+
+    if (trigger?.type === 'condition') {
+      // New parser format: trigger.condition (singular)
+      if (trigger.condition?.field === 'occupancy') {
+        const opMap: Record<string, string> = {
+          '<': 'is less than', '>': 'is greater than',
+          '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
+          '=': 'equals', '!=': 'does not equal',
+        };
+        rebuilt.push({
+          id: newConditionId(),
+          metric: 'Campus Occupancy',
+          timePeriod: 'Current Month',
+          operator: opMap[trigger.condition.operator] ?? 'is less than',
+          // Parser stores as decimal (e.g. 0.85); convert back to readable percent
+          value: String(Math.round((trigger.condition.value as number) * 100)),
+        });
+      } else if (trigger.condition?.field === 'days_vacant') {
+        rebuilt.push({
+          id: newConditionId(),
+          metric: 'Days Vacant',
+          timePeriod: 'Current Spot',
+          operator: trigger.condition.operator === '>=' ? 'is greater than or equal to' : 'is greater than',
+          value: String(trigger.condition.value),
+        });
+      }
+
+      // Legacy format: trigger.conditions (plural) used by evaluateTrigger
+      const tc = trigger.conditions ?? {};
+      if (!trigger.condition && tc.occupancyStatus) {
+        rebuilt.push({
+          id: newConditionId(),
+          metric: 'Campus Occupancy',
+          timePeriod: 'Current Month',
+          operator: tc.occupancyStatus === 'vacant' ? 'is less than' : 'is greater than or equal to',
+          value: '85',
+        });
+      }
+      if (tc.vacancyDuration) {
+        rebuilt.push({
+          id: newConditionId(),
+          metric: 'Days Vacant',
+          timePeriod: 'Current Spot',
+          operator: tc.vacancyDuration.operator === '>=' ? 'is greater than or equal to' : 'is greater than',
+          value: String(tc.vacancyDuration.days),
+        });
+      }
+    }
+
+    setConditions(rebuilt.length > 0 ? rebuilt : [defaultCondition()]);
+
+    // Also pre-fill the AI tab text as fallback
+    setAiInput(rule.description || rule.name || '');
+    setActiveTab('structured');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -854,7 +928,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-[var(--trilogy-teal)] dark:text-gray-400 dark:hover:text-teal-400"
-                                onClick={() => startEdit(rule as any)}
+                                onClick={() => startEdit(rule)}
                                 title="Edit rule"
                                 data-testid={`button-edit-${rule.id}`}
                               >
