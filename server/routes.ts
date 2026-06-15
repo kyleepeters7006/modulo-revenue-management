@@ -4416,17 +4416,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Publish rates to CSV
   app.post("/api/publish", async (req, res) => {
     try {
-      // Generate CSV content
-      const recommendations = await fetch(`${req.protocol}://${req.get('host')}/api/recommendations`);
-      const data = await recommendations.json();
-      
-      const csvContent = Papa.unparse(data.items);
+      const clientId = req.clientId || 'demo';
+
+      // Find the latest month with data for this client
+      const latestMonthResult = await db
+        .select({ uploadMonth: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(and(sql`${rentRollData.uploadMonth} IS NOT NULL`, eq(rentRollData.clientId, clientId)))
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+        .limit(1);
+      const latestMonth = latestMonthResult[0]?.uploadMonth;
+      if (!latestMonth) {
+        return res.status(404).json({ error: "No rent roll data found for this client" });
+      }
+
+      // Fetch units for the latest month, joining locations for division
+      const units = await db
+        .select({
+          location: rentRollData.location,
+          division: locations.division,
+          serviceLine: rentRollData.serviceLine,
+          roomType: rentRollData.roomType,
+          streetRate: rentRollData.streetRate,
+          moduloSuggestedRate: rentRollData.moduloSuggestedRate,
+          ruleAdjustedRate: rentRollData.ruleAdjustedRate,
+          aiSuggestedRate: rentRollData.aiSuggestedRate,
+        })
+        .from(rentRollData)
+        .leftJoin(locations, eq(rentRollData.locationId, locations.id))
+        .where(
+          and(
+            eq(rentRollData.uploadMonth, latestMonth),
+            eq(rentRollData.clientId, clientId),
+            sql`(
+              (${rentRollData.moduloSuggestedRate} IS NOT NULL AND ${rentRollData.moduloSuggestedRate} > 0)
+              OR (${rentRollData.ruleAdjustedRate} IS NOT NULL AND ${rentRollData.ruleAdjustedRate} > 0)
+              OR (${rentRollData.aiSuggestedRate} IS NOT NULL AND ${rentRollData.aiSuggestedRate} > 0)
+            )`
+          )
+        );
+
+      // Format adjustment as signed percentage string
+      const formatAdj = (rate: number | null | undefined, street: number | null | undefined): string => {
+        if (!rate || !street || street === 0) return '';
+        const pct = ((rate - street) / street) * 100;
+        const rounded = Math.round(pct * 10) / 10;
+        return (rounded >= 0 ? '+' : '') + rounded.toFixed(1) + '%';
+      };
+
+      const rows = units.map(u => {
+        const moduloRate = u.ruleAdjustedRate ?? u.moduloSuggestedRate;
+        return {
+          'Division': u.division || '',
+          'Location': u.location,
+          'Service Line': u.serviceLine,
+          'Room Type': u.roomType,
+          'Room Type Group': normalizeRoomType(u.roomType),
+          'Current Street Rate': u.streetRate ?? '',
+          'Modulo Suggested Rate': moduloRate ?? '',
+          'Adjustment': formatAdj(moduloRate, u.streetRate),
+          'Rev Target AI Rate': u.aiSuggestedRate ?? '',
+          'Rev Target AI Adjustment': formatAdj(u.aiSuggestedRate, u.streetRate),
+        };
+      });
+
+      const csvContent = Papa.unparse(rows);
       const filename = `pricing_recommendations_${new Date().toISOString().split('T')[0]}.csv`;
-      
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csvContent);
     } catch (error) {
+      console.error('Failed to export recommendations CSV:', error);
       res.status(500).json({ error: "Failed to publish CSV" });
     }
   });
