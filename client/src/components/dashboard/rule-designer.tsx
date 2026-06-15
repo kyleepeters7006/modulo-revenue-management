@@ -92,6 +92,7 @@ interface AdjustmentRule {
   lastExecuted?: string;
   executionCount: number;
   affectedUnits?: number;
+  affectedCampuses?: number;
   monthlyImpact?: number;
   annualImpact?: number;
   volumeAdjustedAnnualImpact?: number;
@@ -834,121 +835,175 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
         </CardContent>
       </Card>
 
-      {/* ── Active Rules ── */}
+      {/* ── Rules Panel ── */}
       {rules.length > 0 && (() => {
-        const activeCount = rules.filter(r => r.isActive).length;
-        // Newest rules first within each group
-        const sortedRules = [
-          ...rules.filter(r => r.isActive).slice().reverse(),
-          ...rules.filter(r => !r.isActive).slice().reverse(),
-        ];
+        const activeRules = rules.filter(r => r.isActive);
+        const disabledRules = rules.filter(r => !r.isActive);
+        const activeCount = activeRules.length;
+
+        // Combined portfolio impact across all active rules
+        const combinedUnits = activeRules.reduce((s, r) => s + (r.affectedUnits ?? 0), 0);
+        const combinedCampuses = activeRules.reduce((s, r) => s + (r.affectedCampuses ?? 0), 0);
+        const combinedAnnual = activeRules.reduce((s, r) => s + (r.annualImpact ?? 0), 0);
+
+        const sortedRules = [...activeRules.slice().reverse(), ...disabledRules.slice().reverse()];
+
+        const fmtImpact = (v: number) => {
+          const abs = Math.abs(v);
+          const sign = v >= 0 ? '+' : '-';
+          if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+          if (abs >= 1_000) return `${sign}$${Math.round(abs / 1_000)}K`;
+          return `${sign}$${abs.toLocaleString()}`;
+        };
+
         return (
           <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
             <Card className="w-full shadow-sm">
               <CollapsibleTrigger asChild>
-                <CardHeader className="pb-3 cursor-pointer select-none hover:bg-muted/30 rounded-t-lg transition-colors">
+                <CardHeader className="pb-2 cursor-pointer select-none hover:bg-muted/30 rounded-t-lg transition-colors">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
                       Rules
-                      <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">{activeCount} active</Badge>
-                      {rules.length - activeCount > 0 && (
-                        <Badge variant="secondary" className="text-xs">{rules.length - activeCount} disabled</Badge>
+                      {activeCount > 0
+                        ? <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/50 text-xs">{activeCount} active</Badge>
+                        : <Badge variant="secondary" className="text-xs">none active</Badge>
+                      }
+                      {disabledRules.length > 0 && (
+                        <Badge variant="secondary" className="text-xs text-muted-foreground">{disabledRules.length} off</Badge>
                       )}
                     </CardTitle>
                     <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
                   </div>
                   <CardDescription className="text-xs">
-                    Rules stack on top of the Rules Rate engine in priority order, before Guardrails are applied.
+                    Select rules to apply during the next pricing round. Impact reflects expected new admissions.
                   </CardDescription>
                 </CardHeader>
               </CollapsibleTrigger>
 
               <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                    {sortedRules.map((rule, idx) => (
-                      <div key={rule.id}>
-                        {/* Divider between active and disabled groups */}
-                        {idx > 0 && !sortedRules[idx - 1].isActive === false && !rule.isActive && sortedRules[idx - 1].isActive && (
-                          <div className="flex items-center gap-2 py-1">
-                            <div className="flex-1 border-t border-dashed border-muted-foreground/30" />
-                            <span className="text-xs text-muted-foreground">Disabled</span>
-                            <div className="flex-1 border-t border-dashed border-muted-foreground/30" />
-                          </div>
-                        )}
+                <CardContent className="pt-0 pb-3">
+
+                  {/* Combined impact summary bar */}
+                  {activeCount > 0 && (
+                    <div className="mb-3 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-700/40 px-3 py-2.5 flex items-center gap-4 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-teal-700 dark:text-teal-300">
+                        <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+                        <span className="text-xs font-semibold">Combined Portfolio Impact</span>
+                      </div>
+                      <div className="flex gap-3 flex-wrap text-xs">
+                        <span className="text-muted-foreground dark:text-gray-400">
+                          <span className="font-medium text-foreground dark:text-gray-200">{combinedCampuses}</span> campuses
+                        </span>
+                        <span className="text-muted-foreground dark:text-gray-400">
+                          <span className="font-medium text-foreground dark:text-gray-200">{combinedUnits.toLocaleString()}</span> units
+                        </span>
+                        <span className={`font-semibold ${combinedAnnual >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {fmtImpact(combinedAnnual)}/yr
+                        </span>
+                        <span className="text-muted-foreground dark:text-gray-500 italic">new admissions only</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Column headers */}
+                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-2 items-center px-1 pb-1 border-b border-border/40">
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Rule</span>
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-center w-16">Campuses</span>
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-center w-14">Units</span>
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-right w-20">Yr Impact</span>
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-right w-20">Active</span>
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto divide-y divide-border/30">
+                    {sortedRules.map((rule, idx) => {
+                      const impact = rule.annualImpact ?? 0;
+                      const isPositive = impact >= 0;
+                      const hasCampuses = (rule.affectedCampuses ?? 0) > 0;
+                      const hasUnits = (rule.affectedUnits ?? 0) > 0;
+                      const hasImpact = impact !== 0;
+
+                      return (
                         <div
-                          className={`rounded-xl border p-3 transition-all ${rule.isActive ? 'bg-white dark:bg-gray-800 border-border' : 'bg-muted/20 dark:bg-gray-900/60 border-border/40 opacity-70'}`}
+                          key={rule.id}
+                          className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-2 items-center py-2.5 px-1 transition-colors
+                            ${rule.isActive
+                              ? 'bg-white dark:bg-slate-800/60'
+                              : 'opacity-60'
+                            }`}
                           data-testid={`rule-${rule.id}`}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0 space-y-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium text-sm text-foreground">{rule.name}</span>
-                                {rule.isActive
-                                  ? <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-700 text-xs">Enabled</Badge>
-                                  : <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
-                                }
-                              </div>
+                          {/* Left: indicator + name + description */}
+                          <div className="flex items-start gap-2 min-w-0">
+                            <div className={`mt-1 shrink-0 w-1.5 h-1.5 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                            <div className="min-w-0">
+                              <p className={`text-sm font-medium leading-tight truncate ${rule.isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                {rule.name}
+                              </p>
                               {rule.description && (
-                                <p className="text-xs text-muted-foreground dark:text-gray-400 leading-relaxed">{rule.description}</p>
+                                <p className="text-xs text-muted-foreground dark:text-gray-400 leading-snug mt-0.5 line-clamp-2">{rule.description}</p>
                               )}
-                              <div className="flex flex-wrap gap-1.5 pt-0.5">
-                                <Badge variant="secondary" className="text-xs">{rule.executionCount ?? 0} executions</Badge>
-                                {rule.affectedUnits != null && (
-                                  <Badge variant="outline" className="text-xs">{rule.affectedUnits} units</Badge>
-                                )}
-                                {(rule.volumeAdjustedAnnualImpact ?? 0) !== 0 && (
-                                  <Badge
-                                    className={`text-xs ${(rule.volumeAdjustedAnnualImpact ?? 0) >= 0
-                                      ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-700'
-                                      : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-700'}`}
-                                    variant="outline"
-                                  >
-                                    {(rule.volumeAdjustedAnnualImpact ?? 0) >= 0 ? <TrendingUp className="h-3 w-3 mr-1 inline" /> : <TrendingDown className="h-3 w-3 mr-1 inline" />}
-                                    ${Math.abs(Math.round(rule.volumeAdjustedAnnualImpact ?? 0)).toLocaleString()}/yr
-                                  </Badge>
-                                )}
-                                {rule.lastExecuted && (
-                                  <span className="text-xs text-muted-foreground dark:text-gray-400">
-                                    Last applied {new Date(rule.lastExecuted).toLocaleDateString()}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <Switch
-                                checked={rule.isActive}
-                                onCheckedChange={() => toggleRule(rule.id)}
-                                aria-label={`Toggle ${rule.name}`}
-                                data-testid={`switch-rule-${rule.id}`}
-                                className="data-[state=unchecked]:bg-gray-400 dark:data-[state=unchecked]:bg-gray-600"
-                              />
-                              <Button
-                                variant="ghost" size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-[var(--trilogy-teal)] dark:text-gray-400 dark:hover:text-teal-400"
-                                onClick={() => startEdit(rule)}
-                                title="Edit rule"
-                                data-testid={`button-edit-${rule.id}`}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost" size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive dark:text-gray-400 dark:hover:text-red-400"
-                                onClick={() => deleteRule(rule.id, rule.name)}
-                                title="Delete rule"
-                                data-testid={`button-delete-${rule.id}`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
                             </div>
                           </div>
+
+                          {/* Campuses */}
+                          <div className="w-16 text-center">
+                            {hasCampuses
+                              ? <span className="text-xs font-medium text-foreground dark:text-gray-200">{rule.affectedCampuses}</span>
+                              : <span className="text-xs text-muted-foreground/40">—</span>
+                            }
+                          </div>
+
+                          {/* Units */}
+                          <div className="w-14 text-center">
+                            {hasUnits
+                              ? <span className="text-xs font-medium text-foreground dark:text-gray-200">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
+                              : <span className="text-xs text-muted-foreground/40">—</span>
+                            }
+                          </div>
+
+                          {/* Annual Impact */}
+                          <div className="w-20 text-right">
+                            {hasImpact
+                              ? <span className={`text-xs font-semibold ${isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {fmtImpact(impact)}/yr
+                                </span>
+                              : <span className="text-xs text-muted-foreground/40">—</span>
+                            }
+                          </div>
+
+                          {/* Toggle + actions */}
+                          <div className="w-20 flex items-center justify-end gap-1">
+                            <Switch
+                              checked={rule.isActive}
+                              onCheckedChange={() => toggleRule(rule.id)}
+                              aria-label={`Toggle ${rule.name}`}
+                              data-testid={`switch-rule-${rule.id}`}
+                            />
+                            <Button
+                              variant="ghost" size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-[var(--trilogy-teal)]"
+                              onClick={() => startEdit(rule)}
+                              title="Edit rule"
+                              data-testid={`button-edit-${rule.id}`}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost" size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                              onClick={() => deleteRule(rule.id, rule.name)}
+                              title="Delete rule"
+                              data-testid={`button-delete-${rule.id}`}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+
                 </CardContent>
               </CollapsibleContent>
             </Card>

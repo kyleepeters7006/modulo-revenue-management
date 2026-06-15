@@ -13993,6 +13993,7 @@ Respond in JSON format:
 
       const { rows } = await pool.query(
         `SELECT COUNT(*)::int AS unit_count,
+                COUNT(DISTINCT location_id)::int AS campus_count,
                 COALESCE(SUM(${rateColumn}), 0)::float AS total_rate
          FROM rent_roll_data
          WHERE ${whereParts.join(' AND ')}`,
@@ -14000,6 +14001,7 @@ Respond in JSON format:
       );
 
       const unitCount: number = rows[0]?.unit_count ?? 0;
+      const campusCount: number = rows[0]?.campus_count ?? 0;
       const totalRate: number = rows[0]?.total_rate ?? 0;
 
       let monthlyImpact = adjustmentType === 'percentage'
@@ -14012,6 +14014,7 @@ Respond in JSON format:
         annualImpact,
         volumeAdjustedAnnualImpact: Math.round(annualImpact * 1.05),
         affectedUnits: unitCount,
+        affectedCampuses: campusCount,
       };
     } catch (err) {
       console.error('computeRuleImpact error:', err);
@@ -14047,24 +14050,31 @@ Respond in JSON format:
       
       const rules = await query;
 
-      // For any rule stored with 0 impact (e.g. seeded directly), recalculate live
+      // Always compute live impact to get affectedCampuses/affectedUnits; also refresh stale monetary values
       const enrichedRules = await Promise.all(rules.map(async (rule) => {
         const action = rule.action as any;
-        const hasZeroImpact = (rule.monthlyImpact ?? 0) === 0 && (rule.annualImpact ?? 0) === 0;
         const hasNonZeroAdjustment = (action?.adjustmentValue ?? 0) !== 0;
-        if (hasZeroImpact && hasNonZeroAdjustment) {
-          const impact = await computeRuleImpact(rule, clientId);
-          if (impact.monthlyImpact !== 0 || impact.affectedUnits > 0) {
-            // Persist updated values so next fetch returns them immediately
-            storage.updateAdjustmentRule(rule.id, {
-              monthlyImpact: impact.monthlyImpact,
-              annualImpact: impact.annualImpact,
-              volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
-            }).catch(() => {});
-            return { ...rule, ...impact };
-          }
+        if (!hasNonZeroAdjustment) return rule;
+
+        const impact = await computeRuleImpact(rule, clientId);
+        const hasZeroImpact = (rule.monthlyImpact ?? 0) === 0 && (rule.annualImpact ?? 0) === 0;
+
+        if (hasZeroImpact && (impact.monthlyImpact !== 0 || impact.affectedUnits > 0)) {
+          // Persist updated monetary values so next fetch returns them immediately
+          storage.updateAdjustmentRule(rule.id, {
+            monthlyImpact: impact.monthlyImpact,
+            annualImpact: impact.annualImpact,
+            volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
+          }).catch(() => {});
+          return { ...rule, ...impact };
         }
-        return rule;
+
+        // Rule already has monetary values — just overlay the live campus/unit counts
+        return {
+          ...rule,
+          affectedCampuses: impact.affectedCampuses,
+          affectedUnits: impact.affectedUnits,
+        };
       }));
 
       res.json(enrichedRules);
