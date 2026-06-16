@@ -78,19 +78,6 @@ export default function Navigation({ className }: NavigationProps) {
         </div>
       )}
 
-      {/* Logged-in client banner */}
-      {!isLoading && isAuthenticated && (
-        <div className="bg-[var(--trilogy-dark-blue)] text-white text-center py-1.5 px-3 text-xs sm:text-sm flex items-center justify-center gap-2 sm:gap-3">
-          <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-          <span>Logged in as <strong>{clientName}</strong></span>
-          <button
-            onClick={() => logoutMutation.mutate()}
-            className="underline font-semibold hover:no-underline"
-          >
-            Log Out
-          </button>
-        </div>
-      )}
 
       <nav className={cn("bg-white shadow-sm border-b border-gray-200", className)}>
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
