@@ -130,7 +130,7 @@ export default function Navigation({ className }: NavigationProps) {
                 className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
                 title="Inflect"
               >
-                <img src={inflectLogo} alt="Inflect" className="h-10 w-auto" />
+                <img src={inflectLogo} alt="Inflect" className="h-[50px] w-auto rounded-lg" />
               </a>
 
               {/* Auth button - Desktop */}
