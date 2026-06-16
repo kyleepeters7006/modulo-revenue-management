@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+import inflectLogo from "@assets/Inflect_Logo_-_No_Text_Below_1781618481726.png";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -121,6 +122,17 @@ export default function Navigation({ className }: NavigationProps) {
             </div>
 
             <div className="flex items-center space-x-4 ml-auto">
+              {/* Inflect link */}
+              <a
+                href="https://inflect.replit.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                title="Inflect"
+              >
+                <img src={inflectLogo} alt="Inflect" className="h-5 w-auto" />
+              </a>
+
               {/* Auth button - Desktop */}
               {!isLoading && (
                 isAuthenticated ? (
