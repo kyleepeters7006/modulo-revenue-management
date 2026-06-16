@@ -169,6 +169,13 @@ interface IhVarianceRow {
   calculatedAt?: string;
 }
 
+interface T3MoveIns {
+  byServiceLine: Record<string, number>;
+  campus: number;
+  monthsUsed: number;
+  asOf: string | null;
+}
+
 interface CampusSnapshot {
   locationId: string;
   calculatedAt: string | null;
@@ -297,6 +304,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [isRecalcAll, setIsRecalcAll] = useState(false);
   const [metricsTab, setMetricsTab] = useState<string>('occupancy');
 
+  // T3 move-in baseline
+  const [t3MoveIns, setT3MoveIns] = useState<T3MoveIns | null>(null);
+
   // Structured builder state
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
   const [conditionOperator, setConditionOperator] = useState<'AND' | 'OR'>('AND');
@@ -332,6 +342,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   }, [locationId]);
 
   useEffect(() => { fetchIhVariance(); }, [fetchIhVariance]);
+
+  // Fetch T3 move-in baseline
+  const fetchT3MoveIns = useCallback(async () => {
+    if (!locationId) { setT3MoveIns(null); return; }
+    try {
+      const res = await fetch(`/api/metrics/t3-moveins?locationId=${locationId}`);
+      if (res.ok) setT3MoveIns(await res.json());
+      else setT3MoveIns(null);
+    } catch { setT3MoveIns(null); }
+  }, [locationId]);
+
+  useEffect(() => { fetchT3MoveIns(); }, [fetchT3MoveIns]);
 
   // Fetch campus metrics snapshot
   const fetchCampusSnapshot = useCallback(async () => {
@@ -978,6 +1000,27 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                         </div>
                       ))}
                     </div>
+                    {/* T3 move-in baseline */}
+                    {t3MoveIns && (
+                      <div className="rounded-lg border border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400 mb-1.5">Expected Move-Ins (T3 Baseline — do nothing)</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {Object.entries(t3MoveIns.byServiceLine).sort(([a],[b])=>a.localeCompare(b)).map(([sl, avg]) => (
+                            <span key={sl} className="text-xs text-blue-800 dark:text-blue-200">
+                              <span className="font-semibold">{sl}</span>: ~{avg.toFixed(1)}/mo
+                            </span>
+                          ))}
+                          <span className="text-xs text-blue-700 dark:text-blue-300 font-medium ml-auto">
+                            Campus total: ~{t3MoveIns.campus.toFixed(1)}/mo
+                          </span>
+                        </div>
+                        {t3MoveIns.asOf && (
+                          <p className="text-[10px] text-blue-500 dark:text-blue-500 mt-1">
+                            Based on {t3MoveIns.monthsUsed} month{t3MoveIns.monthsUsed !== 1 ? 's' : ''} of data through {new Date(t3MoveIns.asOf).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} · HC/HC/MC private pay only
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {impactData.reasonabilityCheck && (
                       <div className={`text-xs rounded-md px-3 py-2 ${impactData.reasonabilityCheck.isReasonable ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                         <span className="font-medium">AI Assessment:</span> {impactData.reasonabilityCheck.explanation}
@@ -1590,6 +1633,29 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                         {fmt(annual)}/yr
                                       </span>
                                     )}
+                                    {/* T3 move-in baseline chip */}
+                                    {(() => {
+                                      if (!t3MoveIns) return null;
+                                      const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
+                                      let moveInAvg: number | null = null;
+                                      if (ruleSLs.length === 1 && t3MoveIns.byServiceLine[ruleSLs[0]] != null) {
+                                        moveInAvg = t3MoveIns.byServiceLine[ruleSLs[0]];
+                                      } else if (ruleSLs.length > 1) {
+                                        const sum = ruleSLs.reduce((s, sl) => s + (t3MoveIns.byServiceLine[sl] ?? 0), 0);
+                                        if (sum > 0) moveInAvg = sum;
+                                      } else {
+                                        moveInAvg = t3MoveIns.campus;
+                                      }
+                                      if (moveInAvg == null || moveInAvg <= 0) return null;
+                                      return (
+                                        <span
+                                          className="text-[11px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 rounded px-1.5 py-0.5"
+                                          title="Trailing 3-month average move-ins — expected if nothing changes"
+                                        >
+                                          ~{moveInAvg.toFixed(1)} move-ins/mo
+                                        </span>
+                                      );
+                                    })()}
                                   </div>
 
                                   <div className="flex items-center gap-0.5 shrink-0">
@@ -1870,6 +1936,53 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           ))}
                         </ul>
                       </div>
+
+                      {/* T3 Move-In Baseline */}
+                      {t3MoveIns && (() => {
+                        const ruleSLs: string[] = (infoRule.action as any)?.filters?.serviceLine || [];
+                        const rows = ruleSLs.length > 0
+                          ? ruleSLs.map(sl => ({ sl, avg: t3MoveIns.byServiceLine[sl] ?? 0 }))
+                          : Object.entries(t3MoveIns.byServiceLine).sort(([a],[b])=>a.localeCompare(b)).map(([sl, avg]) => ({ sl, avg }));
+                        const total = rows.reduce((s, r) => s + r.avg, 0);
+                        return (
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">
+                              Expected Move-Ins / Month (T3 Baseline)
+                            </p>
+                            <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20 overflow-hidden">
+                              <table className="w-full">
+                                <thead>
+                                  <tr className="border-b border-blue-100 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/30">
+                                    <th className="text-left px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">Service Line</th>
+                                    <th className="text-right px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">Move-Ins / Mo</th>
+                                    <th className="text-right px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">12-Mo Projection</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-blue-100 dark:divide-blue-900/30">
+                                  {rows.map(({ sl, avg }) => (
+                                    <tr key={sl}>
+                                      <td className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300">{sl}</td>
+                                      <td className="px-3 py-1.5 text-sm text-right font-semibold text-blue-700 dark:text-blue-300">~{avg.toFixed(1)}</td>
+                                      <td className="px-3 py-1.5 text-sm text-right text-gray-500 dark:text-gray-400">~{Math.round(avg * 12)}</td>
+                                    </tr>
+                                  ))}
+                                  {rows.length > 1 && (
+                                    <tr className="bg-blue-50/80 dark:bg-blue-950/30 font-semibold">
+                                      <td className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300">Total</td>
+                                      <td className="px-3 py-1.5 text-sm text-right text-blue-700 dark:text-blue-300">~{total.toFixed(1)}</td>
+                                      <td className="px-3 py-1.5 text-sm text-right text-gray-500 dark:text-gray-400">~{Math.round(total * 12)}</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 italic">
+                              Trailing 3-month avg · unique move-in events · HC/HC/MC = private pay only
+                              {t3MoveIns.asOf && ` · through ${new Date(t3MoveIns.asOf).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
+                            </p>
+                          </div>
+                        );
+                      })()}
 
                       {/* Revenue & RevPOR timeline */}
                       <div>

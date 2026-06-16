@@ -14865,6 +14865,95 @@ Respond in JSON format:
     }
   });
 
+  // GET /api/metrics/t3-moveins?locationId=xxx
+  // Returns trailing-3-month average unique move-ins per service line.
+  // HC and HC/MC are filtered to private pay only.
+  // Handles both YYYY-MM-DD and M/D/YYYY date formats.
+  app.get("/api/metrics/t3-moveins", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const { locationId } = req.query as { locationId?: string };
+      if (!locationId) return res.status(400).json({ error: "locationId is required" });
+
+      // Resolve location name for clients whose rows use location name not location_id
+      const locRes = await pool.query<{ name: string }>(
+        `SELECT name FROM locations WHERE id=$1 LIMIT 1`, [locationId]
+      );
+      const locationName: string | null = locRes.rows[0]?.name || null;
+
+      const result = await pool.query<{
+        service_line: string;
+        avg_monthly: string;
+        months_counted: string;
+        latest_month: string | null;
+      }>(`
+        WITH movein_events AS (
+          SELECT DISTINCT ON (location, room_number, move_in_date, service_line)
+            service_line,
+            payor_type,
+            CASE
+              WHEN move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                THEN TO_DATE(move_in_date, 'YYYY-MM-DD')
+              WHEN move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
+                THEN TO_DATE(move_in_date, 'MM/DD/YYYY')
+              ELSE NULL
+            END AS movein_dt
+          FROM rent_roll_data
+          WHERE client_id = $1
+            AND (location_id = $2 OR ($3::text IS NOT NULL AND location = $3 AND location_id IS NULL))
+            AND move_in_date IS NOT NULL AND move_in_date != ''
+        ),
+        valid_events AS (
+          SELECT service_line, payor_type, movein_dt,
+                 DATE_TRUNC('month', movein_dt) AS movein_month
+          FROM movein_events
+          WHERE movein_dt IS NOT NULL
+            AND CASE
+              WHEN service_line IN ('HC','HC/MC')
+                THEN payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%'
+              ELSE TRUE
+            END
+        ),
+        recent_months AS (
+          SELECT DISTINCT movein_month FROM valid_events
+          ORDER BY movein_month DESC LIMIT 3
+        ),
+        monthly_counts AS (
+          SELECT e.service_line, e.movein_month, COUNT(*) AS cnt
+          FROM valid_events e
+          JOIN recent_months r ON e.movein_month = r.movein_month
+          GROUP BY e.service_line, e.movein_month
+        )
+        SELECT
+          service_line,
+          ROUND(AVG(cnt)::numeric, 2) AS avg_monthly,
+          COUNT(DISTINCT movein_month)::text AS months_counted,
+          MAX(movein_month)::text AS latest_month
+        FROM monthly_counts
+        GROUP BY service_line
+        ORDER BY avg_monthly DESC
+      `, [clientId, locationId, locationName]);
+
+      const byServiceLine: Record<string, number> = {};
+      let campus = 0;
+      let monthsUsed = 0;
+      let asOf: string | null = null;
+
+      for (const row of result.rows) {
+        const avg = parseFloat(row.avg_monthly) || 0;
+        byServiceLine[row.service_line] = avg;
+        campus += avg;
+        monthsUsed = Math.max(monthsUsed, parseInt(row.months_counted) || 0);
+        if (!asOf && row.latest_month) asOf = row.latest_month;
+      }
+
+      res.json({ byServiceLine, campus: parseFloat(campus.toFixed(2)), monthsUsed, asOf });
+    } catch (error) {
+      console.error("Error fetching T3 move-ins:", error);
+      res.status(500).json({ error: "Failed to fetch T3 move-ins" });
+    }
+  });
+
   // ============================================
   // FLOOR PLANS API ENDPOINTS
   // ============================================
