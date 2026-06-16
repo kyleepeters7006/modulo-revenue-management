@@ -1,6 +1,35 @@
 import { storage } from "../storage";
 import type { AdjustmentRules } from "@shared/schema";
 
+// ---------------------------------------------------------------------------
+// In-memory cache for IH-to-Street variance metric
+// Key format: `${clientId}:${locationId}:${serviceLine}`
+// Populated by POST /api/metrics/ih-street-variance/recalculate
+// ---------------------------------------------------------------------------
+const _ihVarianceCache = new Map<string, number>();
+
+/**
+ * Load pre-calculated IH-to-street variance rows into the in-memory cache.
+ * Called after each recalculate to keep the evaluator in sync without DB hits.
+ */
+export function preloadIhStreetVariance(
+  rows: Array<{ clientId: string; locationId: string; serviceLine: string; variancePct: number | null }>
+) {
+  for (const row of rows) {
+    if (row.variancePct !== null && row.variancePct !== undefined) {
+      _ihVarianceCache.set(`${row.clientId}:${row.locationId}:${row.serviceLine}`, row.variancePct);
+    }
+  }
+}
+
+/** Lookup variance %. Falls back to campus total ('ALL') if service-line key not found. */
+function _lookupIhVariance(clientId: string, locationId: string, serviceLine: string): number | null {
+  const specific = _ihVarianceCache.get(`${clientId}:${locationId}:${serviceLine}`);
+  if (specific !== undefined) return specific;
+  const campus = _ihVarianceCache.get(`${clientId}:${locationId}:ALL`);
+  return campus !== undefined ? campus : null;
+}
+
 export interface UnitAdjustmentResult {
   ruleAdjustedRate: number | null;
   appliedRuleName: string | null;
@@ -32,6 +61,29 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
   }
 
   if (trigger.type === "condition") {
+    // ── New singular trigger.condition format ─────────────────────────────
+    // Used by AI-parsed rules for campus-level metrics like ih_street_variance.
+    if (trigger.condition?.field) {
+      const { field, operator, value } = trigger.condition as { field: string; operator: string; value: number };
+
+      if (field === "ih_street_variance") {
+        const clientId: string = unit.clientId || "demo";
+        const variancePct = _lookupIhVariance(clientId, unit.locationId, unit.serviceLine);
+        if (variancePct === null) return false; // not yet calculated for this campus
+        switch (operator) {
+          case "<":  return variancePct < value;
+          case "<=": return variancePct <= value;
+          case ">":  return variancePct > value;
+          case ">=": return variancePct >= value;
+          case "=":
+          case "==":
+          case "===": return Math.abs(variancePct - value) < 0.01;
+          default: return false;
+        }
+      }
+    }
+
+    // ── Legacy plural trigger.conditions format ───────────────────────────
     const conditions = trigger.conditions || {};
     let matches = true;
 

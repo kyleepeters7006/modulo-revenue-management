@@ -87,6 +87,31 @@ app.use((req, res, next) => {
     log(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: create ih_street_variance table.
+  // Stores pre-calculated IH-to-Street rate variance per campus per service line.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS ih_street_variance (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        location_id varchar NOT NULL REFERENCES locations(id),
+        service_line text NOT NULL,
+        variance_pct real,
+        avg_in_house_monthly real,
+        avg_street_monthly real,
+        unit_count integer DEFAULT 0,
+        client_id varchar NOT NULL DEFAULT 'demo' REFERENCES clients(id),
+        calculated_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS ih_street_variance_client_loc_sl_idx
+        ON ih_street_variance (client_id, location_id, service_line)
+    `);
+    log("[migration] ih_street_variance table ensured");
+  } catch (migErr) {
+    log(`[migration] ih_street_variance migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background

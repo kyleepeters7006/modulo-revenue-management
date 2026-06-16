@@ -1133,6 +1133,29 @@ export const insertCareLevelRatesSchema = createInsertSchema(careLevelRates).omi
 export type CareLevelRate = typeof careLevelRates.$inferSelect;
 export type InsertCareLevelRate = z.infer<typeof insertCareLevelRatesSchema>;
 
+// IH-to-Street Rate Variance — Single Occupant
+// Stores pre-calculated variance % between in-house and street rates for single-occupant units.
+// SH filter (AL/AL/MC/SL/VIL): occupied + roomType != 'Companion'
+// HC filter (HC/HC/MC): occupied + payorType ILIKE '%PRIVATE%'
+// HC rates converted to monthly (×30.44) before blending with SH.
+// serviceLine = 'ALL' stores the campus-total blended figure.
+export const ihStreetVariance = pgTable("ih_street_variance", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").notNull().references(() => locations.id),
+  serviceLine: text("service_line").notNull(), // 'ALL' = campus total; 'AL', 'HC', etc.
+  variancePct: real("variance_pct"),           // (avgIH - avgStreet) / avgStreet * 100
+  avgInHouseMonthly: real("avg_in_house_monthly"),
+  avgStreetMonthly: real("avg_street_monthly"),
+  unitCount: integer("unit_count").default(0),
+  clientId: varchar("client_id").references(() => clients.id).notNull().default('demo'),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ih_street_variance_client_loc_sl_idx").on(
+    table.clientId, table.locationId, table.serviceLine
+  ),
+]);
+export type IhStreetVariance = typeof ihStreetVariance.$inferSelect;
+
 // Persistent geocoding cache so Nominatim is only queried once per address
 export const geocodeCache = pgTable("geocode_cache", {
   address: text("address").primaryKey(),

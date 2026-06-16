@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
-  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers
+  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, BarChart2, RefreshCw
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle
@@ -33,6 +33,7 @@ const METRICS = [
   'Competitor Rate', 'Days Vacant', 'Room Attributes',
   'Days To Sell Previously', 'Season', 'Stock Market', 'Inquiry and Tour Volume',
   'Quality Mix',
+  'In House to Street Rate var % - Single Occupant',
 ];
 
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
@@ -159,6 +160,15 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
   return msgs;
 }
 
+interface IhVarianceRow {
+  serviceLine: string;
+  variancePct: number | null;
+  avgInHouseMonthly: number | null;
+  avgStreetMonthly: number | null;
+  unitCount: number;
+  calculatedAt?: string;
+}
+
 interface RuleDesignerProps {
   locationId?: string;
   serviceLine?: string;
@@ -183,6 +193,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
 
+  // IH-to-Street variance panel state
+  const [ihVarianceRows, setIhVarianceRows] = useState<IhVarianceRow[]>([]);
+  const [isLoadingVariance, setIsLoadingVariance] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
+
   // Structured builder state
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
   const [conditionOperator, setConditionOperator] = useState<'AND' | 'OR'>('AND');
@@ -205,6 +220,37 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   }, [locationId, serviceLine]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  // Fetch IH-to-Street variance rows for the selected campus
+  const fetchIhVariance = useCallback(async () => {
+    if (!locationId) { setIhVarianceRows([]); return; }
+    setIsLoadingVariance(true);
+    try {
+      const res = await fetch(`/api/metrics/ih-street-variance?locationId=${locationId}`);
+      if (res.ok) setIhVarianceRows(await res.json());
+    } catch { /* silent */ }
+    finally { setIsLoadingVariance(false); }
+  }, [locationId]);
+
+  useEffect(() => { fetchIhVariance(); }, [fetchIhVariance]);
+
+  const handleRecalculateVariance = async () => {
+    if (!locationId) return;
+    setIsRecalculating(true);
+    try {
+      const res = await fetch(`/api/metrics/ih-street-variance/recalculate?locationId=${locationId}`, { method: 'POST' });
+      if (res.ok) {
+        await fetchIhVariance();
+        toast({ title: 'Variance recalculated', description: 'IH-to-Street variance updated.' });
+      } else {
+        toast({ title: 'Recalculation failed', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Recalculation failed', variant: 'destructive' });
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
 
   // Speech recognition setup
   useEffect(() => {
@@ -861,6 +907,123 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           </div>
         </CardContent>
       </Card>
+
+      {/* ── IH-to-Street Rate Variance Panel ── */}
+      {locationId && (
+        <div className="rounded-xl border border-border bg-white dark:bg-gray-900 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-slate-50/60 dark:bg-gray-800/60">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-md bg-teal-50 dark:bg-teal-950/60 border border-teal-100 dark:border-teal-800/50 flex items-center justify-center">
+                <BarChart2 className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground leading-none">
+                  In House to Street Rate var % — Single Occupant
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {locationName ? locationName : 'Selected campus'} · SH = non-companion rooms · HC = private pay · HC rates converted to monthly
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRecalculateVariance}
+              disabled={isRecalculating}
+              className="gap-1.5 text-xs h-8"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRecalculating ? 'animate-spin' : ''}`} />
+              {isRecalculating ? 'Calculating…' : 'Recalculate'}
+            </Button>
+          </div>
+
+          {/* Table */}
+          {isLoadingVariance ? (
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground">Loading variance data…</div>
+          ) : ihVarianceRows.length === 0 ? (
+            <div className="px-4 py-6 text-center">
+              <p className="text-xs text-muted-foreground">
+                No variance data yet. Click <span className="font-medium text-foreground">Recalculate</span> to compute this metric for the selected campus.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Service Line</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg IH Rate/mo</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg Street Rate/mo</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Variance %</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Units</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* ALL row first, then sorted SLs */}
+                  {[
+                    ...ihVarianceRows.filter(r => r.serviceLine === 'ALL'),
+                    ...ihVarianceRows.filter(r => r.serviceLine !== 'ALL').sort((a, b) => a.serviceLine.localeCompare(b.serviceLine)),
+                  ].map(row => {
+                    const pct = row.variancePct ?? 0;
+                    const isAll = row.serviceLine === 'ALL';
+                    const negative = pct < 0;
+                    const pctColor = negative
+                      ? 'text-rose-600 dark:text-rose-400'
+                      : 'text-emerald-600 dark:text-emerald-400';
+                    const pctBg = negative
+                      ? 'bg-rose-50 dark:bg-rose-950/30'
+                      : 'bg-emerald-50 dark:bg-emerald-950/30';
+                    return (
+                      <tr
+                        key={row.serviceLine}
+                        className={`border-b border-border last:border-0 ${isAll ? 'bg-teal-50/60 dark:bg-teal-950/20 font-semibold' : 'hover:bg-muted/30'}`}
+                      >
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            {isAll ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 text-xs font-semibold">
+                                All (Blended)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-muted/60 text-foreground text-xs">
+                                {row.serviceLine}
+                                {(row.serviceLine === 'HC' || row.serviceLine === 'HC/MC') && (
+                                  <span className="ml-1 text-muted-foreground font-normal">(×30.44)</span>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          {row.avgInHouseMonthly != null ? `$${Math.round(row.avgInHouseMonthly).toLocaleString()}` : '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                          {row.avgStreetMonthly != null ? `$${Math.round(row.avgStreetMonthly).toLocaleString()}` : '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {row.variancePct != null ? (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold ${pctColor} ${pctBg}`}>
+                              {negative ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
+                              {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.unitCount}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {ihVarianceRows[0]?.calculatedAt && (
+                <p className="text-xs text-muted-foreground px-4 py-2 border-t border-border">
+                  Last calculated: {new Date(ihVarianceRows[0].calculatedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Empty state ── */}
       {rules.length === 0 && (

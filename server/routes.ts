@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -14485,6 +14485,171 @@ Respond in JSON format:
     } catch (error) {
       console.error('Error executing adjustment rules:', error);
       res.status(500).json({ error: "Failed to execute adjustment rules" });
+    }
+  });
+
+  // ============================================
+  // IH-TO-STREET VARIANCE METRIC ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/metrics/ih-street-variance
+   * Returns stored IH-to-Street variance rows for a campus.
+   * Query params: locationId (required)
+   */
+  app.get("/api/metrics/ih-street-variance", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId } = req.query;
+      if (!locationId) return res.status(400).json({ error: "locationId is required" });
+
+      const rows = await db
+        .select()
+        .from(ihStreetVariance)
+        .where(
+          and(
+            eq(ihStreetVariance.clientId, clientId),
+            eq(ihStreetVariance.locationId, locationId as string)
+          )
+        )
+        .orderBy(ihStreetVariance.serviceLine);
+
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching IH-to-street variance:", error);
+      res.status(500).json({ error: "Failed to fetch IH-to-street variance" });
+    }
+  });
+
+  /**
+   * POST /api/metrics/ih-street-variance/recalculate
+   * Calculates IH-to-Street Rate Variance for single-occupant units at a campus.
+   *
+   * Single-occupant definition:
+   *   - SH (AL, AL/MC, SL, VIL): occupied + roomType != 'Companion'
+   *   - HC (HC, HC/MC):           occupied + payorType ILIKE '%PRIVATE%'
+   *
+   * HC rates are stored daily → converted to monthly (×30.44) before blending.
+   * Upserts one row per service line + one 'ALL' row (campus blended total).
+   *
+   * Query params: locationId (required)
+   */
+  app.post("/api/metrics/ih-street-variance/recalculate", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId } = req.query as { locationId?: string };
+      if (!locationId) return res.status(400).json({ error: "locationId is required" });
+
+      const HC_DAILY_SL = new Set(['HC', 'HC/MC']);
+      const DAYS_PER_MONTH = 30.44;
+
+      // Fetch all occupied single-occupant units for the campus
+      const units = await pool.query<{
+        service_line: string;
+        in_house_rate: number;
+        street_rate: number;
+      }>(
+        `SELECT service_line, in_house_rate, street_rate
+         FROM rent_roll_data
+         WHERE location_id = $1
+           AND client_id = $2
+           AND occupied_yn = true
+           AND in_house_rate > 0
+           AND street_rate > 0
+           AND (
+             (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_type != 'Companion')
+             OR
+             (service_line IN ('HC', 'HC/MC') AND UPPER(COALESCE(payor_type, '')) LIKE '%PRIVATE%')
+           )`,
+        [locationId, clientId]
+      );
+
+      if (units.rows.length === 0) {
+        return res.json({ message: "No single-occupant occupied units found", rows: [] });
+      }
+
+      // Convert each row to monthly
+      const monthly = units.rows.map(u => ({
+        serviceLine: u.service_line,
+        ihMonthly:  HC_DAILY_SL.has(u.service_line) ? u.in_house_rate * DAYS_PER_MONTH : u.in_house_rate,
+        stMonthly:  HC_DAILY_SL.has(u.service_line) ? u.street_rate * DAYS_PER_MONTH   : u.street_rate,
+      }));
+
+      // Group by service line
+      const bySlMap = new Map<string, { ih: number[]; st: number[] }>();
+      for (const row of monthly) {
+        if (!bySlMap.has(row.serviceLine)) bySlMap.set(row.serviceLine, { ih: [], st: [] });
+        bySlMap.get(row.serviceLine)!.ih.push(row.ihMonthly);
+        bySlMap.get(row.serviceLine)!.st.push(row.stMonthly);
+      }
+
+      const avg = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+
+      const results: Array<{ serviceLine: string; variancePct: number; avgIH: number; avgSt: number; count: number }> = [];
+
+      // Per service line
+      for (const [sl, { ih, st }] of bySlMap) {
+        const avgIH = avg(ih);
+        const avgSt = avg(st);
+        results.push({ serviceLine: sl, variancePct: ((avgIH - avgSt) / avgSt) * 100, avgIH, avgSt, count: ih.length });
+      }
+
+      // Campus total (ALL)
+      const allIH = monthly.map(r => r.ihMonthly);
+      const allSt = monthly.map(r => r.stMonthly);
+      const avgAllIH = avg(allIH);
+      const avgAllSt = avg(allSt);
+      results.push({ serviceLine: 'ALL', variancePct: ((avgAllIH - avgAllSt) / avgAllSt) * 100, avgIH: avgAllIH, avgSt: avgAllSt, count: monthly.length });
+
+      // Upsert all rows
+      const now = new Date();
+      for (const r of results) {
+        await db
+          .insert(ihStreetVariance)
+          .values({
+            locationId,
+            serviceLine: r.serviceLine,
+            variancePct: r.variancePct,
+            avgInHouseMonthly: r.avgIH,
+            avgStreetMonthly: r.avgSt,
+            unitCount: r.count,
+            clientId,
+            calculatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [ihStreetVariance.clientId, ihStreetVariance.locationId, ihStreetVariance.serviceLine],
+            set: {
+              variancePct: r.variancePct,
+              avgInHouseMonthly: r.avgIH,
+              avgStreetMonthly: r.avgSt,
+              unitCount: r.count,
+              calculatedAt: now,
+            },
+          });
+      }
+
+      // Sync cache in adjustmentRulesService
+      const { preloadIhStreetVariance } = await import('./services/adjustmentRulesService');
+      preloadIhStreetVariance(results.map(r => ({
+        clientId,
+        locationId,
+        serviceLine: r.serviceLine,
+        variancePct: r.variancePct,
+      })));
+
+      res.json({
+        message: `Calculated IH-to-Street variance for ${results.length} service lines`,
+        rows: results.map(r => ({
+          serviceLine: r.serviceLine,
+          variancePct: Math.round(r.variancePct * 10) / 10,
+          avgInHouseMonthly: Math.round(r.avgIH),
+          avgStreetMonthly: Math.round(r.avgSt),
+          unitCount: r.count,
+        })),
+      });
+    } catch (error) {
+      console.error("Error recalculating IH-to-street variance:", error);
+      res.status(500).json({ error: "Failed to recalculate IH-to-street variance" });
     }
   });
 
