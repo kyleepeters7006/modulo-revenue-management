@@ -180,6 +180,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleName, setEditingRuleName] = useState<string>('');
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
+  const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
+  const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
 
   // Structured builder state
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
@@ -409,6 +411,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       const res = await fetch(`/api/adjustment-rules/${ruleId}/toggle`, { method: 'PATCH' });
       if (!res.ok) throw new Error();
       setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
+    } catch {
+      toast({ title: 'Failed to update rule', variant: 'destructive' });
+    }
+  };
+
+  const toggleAdditive = async (ruleId: string) => {
+    try {
+      const res = await fetch(`/api/adjustment-rules/${ruleId}/additive`, { method: 'PATCH' });
+      if (!res.ok) throw new Error();
+      setRules(prev => prev.map(r => {
+        if (r.id !== ruleId) return r;
+        const act = (r.action as any) || {};
+        return { ...r, action: { ...act, isAdditive: !act.isAdditive } };
+      }));
     } catch {
       toast({ title: 'Failed to update rule', variant: 'destructive' });
     }
@@ -841,26 +857,33 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
       {/* ── Rules Panel ── */}
       {rules.length > 0 && (() => {
-        const activeRules = rules.filter(r => r.isActive);
+        const activeRules   = rules.filter(r => r.isActive);
         const disabledRules = rules.filter(r => !r.isActive);
-        const activeCount = activeRules.length;
+        const activeCount   = activeRules.length;
 
-        const combinedUnits    = activeRules.reduce((s, r) => s + (r.affectedUnits    ?? 0), 0);
-        const combinedCampuses = activeRules.reduce((s, r) => s + (r.affectedCampuses ?? 0), 0);
-        const combinedMonthly  = activeRules.reduce((s, r) => s + (r.monthlyImpact    ?? 0), 0);
-        const combinedAnnual   = activeRules.reduce((s, r) => s + (r.annualImpact     ?? 0), 0);
+        // Priority-ordered active rules: exclusive rules compete for units; additive always stack
+        const sortedActive   = [...activeRules].reverse(); // oldest first → priority 1, 2, 3...
+        const sortedDisabled = [...disabledRules].reverse();
+        const sortedRules    = [...sortedActive, ...sortedDisabled];
 
-        const sortedRules = [...activeRules.slice().reverse(), ...disabledRules.slice().reverse()];
+        const exclusiveActive = sortedActive.filter(r => !(r.action as any)?.isAdditive);
+        const additiveActive  = sortedActive.filter(r =>  (r.action as any)?.isAdditive);
+        const hasOverlap      = exclusiveActive.length > 1;
+
+        // Combined impact: additive rules always count; exclusive: sum all (may overlap — noted in UI)
+        const combinedUnits    = sortedActive.reduce((s, r) => s + (r.affectedUnits    ?? 0), 0);
+        const combinedCampuses = sortedActive.reduce((s, r) => s + (r.affectedCampuses ?? 0), 0);
+        const combinedMonthly  = sortedActive.reduce((s, r) => s + (r.monthlyImpact    ?? 0), 0);
+        const combinedAnnual   = sortedActive.reduce((s, r) => s + (r.annualImpact     ?? 0), 0);
 
         const fmt = (v: number) => {
           const abs = Math.abs(v);
           const sign = v >= 0 ? '+' : '-';
           if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-          if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}K`;
+          if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(0)}K`;
           return `${sign}$${Math.round(abs).toLocaleString()}`;
         };
 
-        // June 2026 → December 2026 = 6 months
         const monthsToDecember = 6;
 
         const exportRules = async () => {
@@ -871,14 +894,27 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             const res = await fetch(`/api/adjustment-rules/export${params.toString() ? '?' + params : ''}`);
             if (!res.ok) throw new Error();
             const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
             a.href = url; a.download = 'rules-impact-detail.csv'; a.click();
             URL.revokeObjectURL(url);
           } catch {
             toast({ title: 'Export failed', variant: 'destructive' });
           }
         };
+
+        // Golden-angle spiral dots for bubble map
+        const genDots = (count: number, radius: number) => {
+          const n = Math.min(count, 64);
+          return Array.from({ length: n }, (_, i) => {
+            const theta = i * 2.39996; // golden angle
+            const r     = Math.sqrt((i + 0.5) / n) * (radius - 7);
+            return { x: Math.cos(theta) * r, y: Math.sin(theta) * r };
+          });
+        };
+
+        // Assign a unique hue per rule for the bubble map
+        const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c'];
 
         return (
           <>
@@ -898,12 +934,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">{disabledRules.length} off</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {activeCount > 0 && (
+                          <Button
+                            variant="outline" size="sm"
+                            className="h-7 text-xs gap-1.5 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-700 bg-teal-50 dark:bg-teal-950/40 hover:bg-teal-100"
+                            onClick={e => { e.stopPropagation(); setBubbleMapOpen(true); }}
+                            title="View bubble map of rule coverage"
+                          >
+                            <Eye className="h-3 w-3" />
+                            Bubble Map
+                          </Button>
+                        )}
                         <Button
                           variant="outline" size="sm"
-                          className="h-7 text-xs gap-1.5 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          className="h-7 text-xs gap-1.5 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50"
                           onClick={e => { e.stopPropagation(); exportRules(); }}
-                          title="Export rules impact by campus and service line"
                         >
                           <Download className="h-3 w-3" />
                           Export CSV
@@ -926,17 +972,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     {/* ── Combined active rules summary ── */}
                     {activeCount > 0 && (
                       <div className="mb-4 rounded-lg border border-teal-200 dark:border-teal-700/60 bg-teal-50 dark:bg-teal-950/30 p-3">
-                        <p className="text-xs font-semibold text-teal-700 dark:text-teal-300 flex items-center gap-1.5 mb-2.5">
-                          <TrendingUp className="h-3.5 w-3.5 shrink-0" />
-                          Combined Impact — {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
-                          <span className="font-normal text-teal-600 dark:text-teal-400 ml-1">· new admissions only</span>
-                        </p>
+                        <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
+                          <p className="text-xs font-semibold text-teal-700 dark:text-teal-300 flex items-center gap-1.5">
+                            <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+                            Combined Impact — {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
+                            <span className="font-normal text-teal-600 dark:text-teal-400">· new admissions only</span>
+                          </p>
+                          {hasOverlap && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/50 rounded-full px-2 py-0.5">
+                              <AlertTriangle className="h-3 w-3 shrink-0" />
+                              {exclusiveActive.length} exclusive rules share units — priority order applies
+                            </span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {[
-                            { label: 'Campuses',  value: combinedCampuses.toLocaleString(), money: false },
-                            { label: 'Units',     value: combinedUnits.toLocaleString(),     money: false },
-                            { label: '/Month',    value: fmt(combinedMonthly),               money: true  },
-                            { label: '/Year',     value: fmt(combinedAnnual),                money: true  },
+                            { label: 'Campuses', value: combinedCampuses.toLocaleString(), money: false },
+                            { label: 'Units',    value: combinedUnits.toLocaleString(),    money: false },
+                            { label: '/Month',   value: fmt(combinedMonthly),              money: true  },
+                            { label: '/Year',    value: fmt(combinedAnnual),               money: true  },
                           ].map(({ label, value, money }) => (
                             <div key={label} className="rounded-md bg-white dark:bg-gray-800 border border-teal-100 dark:border-teal-800/50 px-3 py-2">
                               <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold mb-0.5">{label}</p>
@@ -951,10 +1005,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* ── Rule list ── */}
                     <div className="space-y-2">
-                      {sortedRules.map((rule) => {
-                        const annual  = rule.annualImpact  ?? 0;
-                        const monthly = rule.monthlyImpact ?? 0;
-                        const isPos   = annual >= 0;
+                      {sortedRules.map((rule, idx) => {
+                        const annual     = rule.annualImpact  ?? 0;
+                        const monthly    = rule.monthlyImpact ?? 0;
+                        const isPos      = annual >= 0;
+                        const isAdditive = !!(rule.action as any)?.isAdditive;
+                        // Priority number only applies to active exclusive rules
+                        const exclusivePriority = rule.isActive && !isAdditive
+                          ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
+                          : null;
+
                         return (
                           <div
                             key={rule.id}
@@ -965,11 +1025,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             }`}
                             data-testid={`rule-${rule.id}`}
                           >
-                            {/* Top row: dot + name + toggle */}
+                            {/* Top row: priority dot + name + toggle */}
                             <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1.5">
                               <div className="flex items-center gap-2 min-w-0">
-                                <div className={`shrink-0 w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                {exclusivePriority !== null ? (
+                                  <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center">
+                                    {exclusivePriority}
+                                  </span>
+                                ) : (
+                                  <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                )}
                                 <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug truncate">{rule.name}</p>
+                                {rule.isActive && (
+                                  <span className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border
+                                    ${isAdditive
+                                      ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-700/50'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700/50'}`}>
+                                    {isAdditive ? 'stacks' : 'exclusive'}
+                                  </span>
+                                )}
                               </div>
                               <Switch
                                 checked={rule.isActive}
@@ -982,13 +1056,29 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                             {/* Description */}
                             {rule.description && (
-                              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed px-3 pb-1.5 ml-4">
+                              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed px-3 pb-1 ml-7">
                                 {rule.description}
                               </p>
                             )}
 
+                            {/* Additive toggle */}
+                            <label className="flex items-center gap-2 px-3 pb-2 ml-7 cursor-pointer group w-fit">
+                              <input
+                                type="checkbox"
+                                checked={isAdditive}
+                                onChange={() => toggleAdditive(rule.id)}
+                                className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 h-3 w-3"
+                              />
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300 select-none">
+                                Apply in addition to other rules
+                                {!isAdditive && exclusivePriority !== null && exclusivePriority > 1 && (
+                                  <span className="ml-1 text-amber-600 dark:text-amber-400">(currently priority #{exclusivePriority} — units claimed by rule #{1} first)</span>
+                                )}
+                              </span>
+                            </label>
+
                             {/* Chips + action buttons */}
-                            <div className="flex items-center justify-between gap-2 px-3 pb-2.5 ml-4">
+                            <div className="flex items-center justify-between gap-2 px-3 pb-2.5 ml-7">
                               <div className="flex flex-wrap gap-1.5">
                                 {(rule.affectedCampuses ?? 0) > 0 && (
                                   <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
@@ -1015,30 +1105,21 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 )}
                               </div>
                               <div className="flex items-center gap-0.5 shrink-0">
-                                <Button
-                                  variant="ghost" size="icon"
+                                <Button variant="ghost" size="icon"
                                   className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
-                                  onClick={() => setInfoRule(rule)}
-                                  title="How this rule works"
-                                >
+                                  onClick={() => setInfoRule(rule)} title="How this rule works">
                                   <Info className="h-3.5 w-3.5" />
                                 </Button>
-                                <Button
-                                  variant="ghost" size="icon"
+                                <Button variant="ghost" size="icon"
                                   className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
-                                  onClick={() => startEdit(rule)}
-                                  title="Edit rule"
-                                  data-testid={`button-edit-${rule.id}`}
-                                >
+                                  onClick={() => startEdit(rule)} title="Edit rule"
+                                  data-testid={`button-edit-${rule.id}`}>
                                   <Pencil className="h-3.5 w-3.5" />
                                 </Button>
-                                <Button
-                                  variant="ghost" size="icon"
+                                <Button variant="ghost" size="icon"
                                   className="h-7 w-7 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
-                                  onClick={() => deleteRule(rule.id, rule.name)}
-                                  title="Delete rule"
-                                  data-testid={`button-delete-${rule.id}`}
-                                >
+                                  onClick={() => deleteRule(rule.id, rule.name)} title="Delete rule"
+                                  data-testid={`button-delete-${rule.id}`}>
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
@@ -1048,10 +1129,177 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       })}
                     </div>
 
+                    {/* Exclusivity legend */}
+                    {activeCount > 1 && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[9px] font-bold flex items-center justify-center">1</span>
+                          Exclusive — first rule in priority order claims overlapping units
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-4 h-4 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                          </span>
+                          Stacks — applies on top of any other rule
+                        </span>
+                      </div>
+                    )}
+
                   </CardContent>
                 </CollapsibleContent>
               </Card>
             </Collapsible>
+
+            {/* ── Bubble Map Dialog ── */}
+            <Dialog open={bubbleMapOpen} onOpenChange={setBubbleMapOpen}>
+              <DialogContent className="max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                <DialogHeader>
+                  <DialogTitle className="text-gray-900 dark:text-white text-base">Rule Coverage — Bubble Map</DialogTitle>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Each circle represents one rule. Circle size is proportional to units affected.
+                    Dots inside show unit density (up to 64 sampled). Hover for details.
+                  </p>
+                </DialogHeader>
+
+                {activeCount === 0 ? (
+                  <div className="py-12 text-center text-gray-400 dark:text-gray-500 text-sm">No active rules to display.</div>
+                ) : (
+                  <div className="flex flex-wrap gap-6 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-lg justify-center items-end mt-2">
+                    {sortedActive.map((rule, ri) => {
+                      const units      = rule.affectedUnits ?? 0;
+                      const radius     = Math.max(44, Math.min(110, Math.sqrt(units) * 2.8));
+                      const size       = Math.round(radius) * 2 + 8;
+                      const isAdditive = !!(rule.action as any)?.isAdditive;
+                      const color      = PALETTE[ri % PALETTE.length];
+                      const dots       = genDots(units, radius);
+                      const monthly    = rule.monthlyImpact ?? 0;
+                      const annual     = rule.annualImpact  ?? 0;
+                      const isHovered  = hoveredBubble === rule.id;
+
+                      return (
+                        <div
+                          key={rule.id}
+                          className="relative flex flex-col items-center gap-1.5"
+                          onMouseEnter={() => setHoveredBubble(rule.id)}
+                          onMouseLeave={() => setHoveredBubble(null)}
+                          style={{ cursor: 'default' }}
+                        >
+                          <svg width={size} height={size} style={{ overflow: 'visible' }}>
+                            {/* Outer ring for exclusive rules */}
+                            {!isAdditive && (
+                              <circle
+                                cx={size / 2} cy={size / 2} r={radius + 4}
+                                fill="none"
+                                stroke={color}
+                                strokeWidth={1}
+                                strokeDasharray="4 3"
+                                opacity={0.4}
+                              />
+                            )}
+                            {/* Main circle */}
+                            <circle
+                              cx={size / 2} cy={size / 2} r={radius}
+                              fill={color}
+                              fillOpacity={0.1}
+                              stroke={color}
+                              strokeWidth={isHovered ? 2.5 : 2}
+                            />
+                            {/* Unit dots */}
+                            {dots.map((dot, di) => (
+                              <circle
+                                key={di}
+                                cx={size / 2 + dot.x}
+                                cy={size / 2 + dot.y}
+                                r={2}
+                                fill={color}
+                                opacity={0.55}
+                              />
+                            ))}
+                            {/* Priority number for exclusive */}
+                            {!isAdditive && (
+                              <text
+                                x={size / 2} y={size / 2 - radius + 14}
+                                textAnchor="middle"
+                                fontSize={11}
+                                fontWeight="bold"
+                                fill={color}
+                                opacity={0.8}
+                              >
+                                #{sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1}
+                              </text>
+                            )}
+                          </svg>
+
+                          {/* Label below */}
+                          <div className="text-center" style={{ maxWidth: Math.max(size, 80) }}>
+                            <p className="text-xs font-semibold text-gray-800 dark:text-white leading-tight" style={{ maxWidth: 110, wordBreak: 'break-word' }}>
+                              {rule.name}
+                            </p>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400">{units.toLocaleString()} units</p>
+                          </div>
+
+                          {/* Hover tooltip */}
+                          {isHovered && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none"
+                                 style={{ minWidth: 180 }}>
+                              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3">
+                                <p className="text-xs font-semibold text-gray-900 dark:text-white mb-1">{rule.name}</p>
+                                <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-2 leading-snug">{rule.description}</p>
+                                <div className="space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-500">Units</span>
+                                    <span className="font-medium text-gray-900 dark:text-white">{units.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-500">Campuses</span>
+                                    <span className="font-medium text-gray-900 dark:text-white">{(rule.affectedCampuses ?? 0)}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-500">Monthly</span>
+                                    <span className={`font-semibold ${monthly >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(monthly)}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-500">Annual</span>
+                                    <span className={`font-semibold ${annual >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(annual)}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-4 pt-1 border-t border-gray-100 dark:border-gray-800 mt-1">
+                                    <span className="text-gray-500">Mode</span>
+                                    <span className={`font-medium ${isAdditive ? 'text-teal-700' : 'text-amber-700'}`}>
+                                      {isAdditive ? 'Stacks with others' : 'Exclusive (priority)'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Arrow */}
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
+                                   style={{ borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid #e5e7eb' }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Legend */}
+                <div className="flex flex-wrap gap-4 text-[11px] text-gray-500 dark:text-gray-400 pt-1 px-1">
+                  <span className="flex items-center gap-1.5">
+                    <svg width={14} height={14}><circle cx={7} cy={7} r={6} fill="none" stroke="#0d9488" strokeWidth={1.5} /></svg>
+                    Stacks (additive)
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <svg width={14} height={14}>
+                      <circle cx={7} cy={7} r={6} fill="none" stroke="#d97706" strokeWidth={1.5} strokeDasharray="3 2" />
+                    </svg>
+                    Exclusive — dashed ring, priority number inside
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <svg width={10} height={10}><circle cx={5} cy={5} r={3} fill="#6b7280" opacity={0.55} /></svg>
+                    Each dot ≈ 1 unit (up to 64 shown)
+                  </span>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             {/* ── Rule Info Dialog ── */}
             {infoRule && (() => {

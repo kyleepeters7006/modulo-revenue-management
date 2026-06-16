@@ -14294,6 +14294,23 @@ Respond in JSON format:
     }
   });
   
+  app.patch("/api/adjustment-rules/:id/additive", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const rules = await storage.getAdjustmentRules();
+      const rule = rules.find(r => r.id === id);
+      if (!rule) return res.status(404).json({ error: "Rule not found" });
+      const action = (rule.action as any) || {};
+      const updated = await storage.updateAdjustmentRule(id, {
+        action: { ...action, isAdditive: !action.isAdditive },
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating rule additive flag:', error);
+      res.status(500).json({ error: "Failed to update rule" });
+    }
+  });
+
   app.delete("/api/adjustment-rules/:id", async (req, res) => {
     try {
       const { id } = req.params;
