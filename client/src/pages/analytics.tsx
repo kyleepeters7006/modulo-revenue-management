@@ -552,7 +552,7 @@ export function Analytics() {
           <img 
             src="/attached_assets/image_1756817717051.png" 
             alt="Modulo" 
-            className="h-9 sm:h-12 w-auto"
+            className="h-9 sm:h-12 w-auto rounded-lg"
           />
         </Link>
         <Link href="/">

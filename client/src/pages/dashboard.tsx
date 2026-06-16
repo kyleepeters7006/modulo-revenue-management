@@ -54,7 +54,7 @@ export default function Dashboard() {
             <img 
               src="/attached_assets/Modulo M Logo_1756828313102.png" 
               alt="Modulo" 
-              className="h-20 w-20 object-contain"
+              className="h-20 w-20 object-contain rounded-xl"
             />
           </div>
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
