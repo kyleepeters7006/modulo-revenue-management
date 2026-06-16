@@ -511,6 +511,14 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
         />
       </div>
       
+      <div className={`relative transition-opacity duration-200 ${!enableWeights ? 'opacity-50 pointer-events-none' : ''}`}>
+        {!enableWeights && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg">
+            <p className="text-xs font-medium text-gray-500 bg-white/90 border border-dashed border-gray-300 rounded-lg px-3 py-2 text-center shadow-sm">
+              Signal weights are inactive — Rules Rate algorithm is disabled above
+            </p>
+          </div>
+        )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {weightConfigs.map((config) => (
           <div key={config.key} className="space-y-4">
@@ -552,6 +560,7 @@ export default function PricingWeights({ locationId, serviceLine }: PricingWeigh
             />
           </div>
         ))}
+      </div>
       </div>
       
       <div className="flex items-center justify-between mt-6">

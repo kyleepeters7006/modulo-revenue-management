@@ -22,6 +22,9 @@ import {
   Zap,
   Layers,
   ArrowDown,
+  Lock,
+  Plus,
+  PieChart,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -65,6 +68,8 @@ export default function PricingAlgorithmDocs() {
           <a href="#modulo-rate" className="text-[var(--trilogy-teal)] hover:underline">Rules Rate</a>
           <span>·</span>
           <a href="#smart-rules" className="text-[var(--trilogy-teal)] hover:underline">Rule Designer</a>
+          <span>·</span>
+          <a href="#rule-exclusivity" className="text-[var(--trilogy-teal)] hover:underline">Exclusivity</a>
           <span>·</span>
           <a href="#ai-rate" className="text-[var(--trilogy-teal)] hover:underline">Revenue Target AI Rate</a>
           <span>·</span>
@@ -401,6 +406,96 @@ export default function PricingAlgorithmDocs() {
                   The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records each rule that fired so operators can audit exactly which rules affected each unit.
                   To configure rules, navigate to <strong>Pricing Controls → Rule Designer</strong>, type a rule or use the Structured Builder, preview its impact, then save. Rules can be toggled on/off without deletion.
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── 4b. RULE EXCLUSIVITY ─────────────────────────────────────────── */}
+          <Card id="rule-exclusivity" className="bg-white/95 backdrop-blur border-amber-200/60">
+            <CardHeader>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Lock className="h-6 w-6 text-amber-500" />
+                Rule Exclusivity &amp; Priority
+              </CardTitle>
+              <p className="text-sm text-amber-600 font-medium mt-1">
+                One rule per unit by default — stacking is opt-in per rule
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+              <p>
+                By default every Rule Designer rule is <strong className="text-[var(--trilogy-dark-blue)]">exclusive</strong>: it claims a unit and no other exclusive rule will also apply to that same unit. Active exclusive rules are ordered by priority — the highest-priority rule applies first. Subsequent exclusive rules skip any unit already claimed by a higher-priority rule.
+              </p>
+              <p>
+                Any rule can be switched to <strong className="text-[var(--trilogy-dark-blue)]">additive</strong> mode ("<em>Apply in addition to other rules</em>" checkbox in the Rule Designer). An additive rule always runs on top of whatever an exclusive rule already set — it stacks, regardless of priority order.
+              </p>
+
+              {/* Visual comparison */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Lock className="h-5 w-5 text-amber-600" />
+                    <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Exclusive (default)</h5>
+                    <span className="text-xs font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">#1, #2… priority badge</span>
+                  </div>
+                  <ul className="text-sm space-y-1.5 list-disc list-inside">
+                    <li>Claims matching units on first run</li>
+                    <li>Later exclusive rules skip claimed units</li>
+                    <li>Priority order = amber number badge in the Rule card</li>
+                    <li>Use for mutually-exclusive pricing tiers (e.g. "Vacant AL standard" vs "Vacant AL long-stay")</li>
+                  </ul>
+                  <div className="mt-3 font-mono text-xs bg-white rounded border border-amber-200 p-2 space-y-1">
+                    <p className="text-amber-700 font-semibold">Example — unit vacant 45 days, AL:</p>
+                    <p>Rule #1 (exclusive): vacant AL &gt; 30 days → −$150 → <strong>$4,350</strong></p>
+                    <p className="text-gray-400">Rule #2 (exclusive): vacant AL → +5% <span className="italic">skipped — unit already claimed</span></p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border-2 border-teal-300 bg-teal-50 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Plus className="h-5 w-5 text-teal-600" />
+                    <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Additive (stacks)</h5>
+                    <span className="text-xs font-bold bg-teal-200 text-teal-900 px-2 py-0.5 rounded-full">teal "stacks" badge</span>
+                  </div>
+                  <ul className="text-sm space-y-1.5 list-disc list-inside">
+                    <li>Always applies on top of any exclusive result</li>
+                    <li>Never skipped due to exclusivity</li>
+                    <li>Multiple additive rules all run on the same unit</li>
+                    <li>Use for cross-cutting adjustments (e.g. "Summer premium: +$50 all vacant units")</li>
+                  </ul>
+                  <div className="mt-3 font-mono text-xs bg-white rounded border border-teal-200 p-2 space-y-1">
+                    <p className="text-teal-700 font-semibold">Example — same unit as above:</p>
+                    <p>Rule #1 (exclusive): → $4,350</p>
+                    <p>Summer bonus (additive): +$50 → <strong className="text-teal-700">$4,400</strong></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Priority table */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">How Priority Is Assigned</h4>
+                <p className="text-sm mb-3">
+                  Active exclusive rules are numbered in the order they were created (oldest = highest priority = #1). You can change the effective priority by toggling rules off and on — a rule that was toggled off and back on moves to the end of the priority list.
+                </p>
+                <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
+                  <p className="text-[var(--trilogy-teal)] font-semibold">Priority execution order (oldest-first):</p>
+                  <p>#1 — "Long-stay AL vacant" (exclusive) → applies to units vacant ≥ 30 days</p>
+                  <p>#2 — "Standard AL vacant" (exclusive) → applies to any remaining AL vacant not claimed by #1</p>
+                  <p className="text-teal-600">+ "Summer seasonal" (additive, stacks) → applies to ALL matched units regardless</p>
+                </div>
+                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
+                  The <strong>Rate Card explanation dialog</strong> shows each rule's exclusivity mode inline (amber badge for exclusive, teal badge for stacks) so operators can see exactly why a rule was applied or skipped for a given unit.
+                </p>
+              </div>
+
+              {/* Bubble Map */}
+              <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 border border-[var(--trilogy-teal)]/20 flex items-start gap-3">
+                <PieChart className="h-5 w-5 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1">Bubble Map — Visual Portfolio Impact</h4>
+                  <p className="text-sm">
+                    The <strong>Bubble Map</strong> button (teal, in the Rules card header on Pricing Controls) opens a visual overview of every active rule as a circle. Circle size scales with the number of affected units. Dots inside each circle represent individual units. Exclusive rules show a dashed ring and a priority number; additive rules show a solid ring. Hover any circle for name, affected campuses, and monthly / annual impact.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -809,7 +904,7 @@ export default function PricingAlgorithmDocs() {
                   <strong>Rules Rate:</strong> The Rules Rate engine calculates a deterministic rate using six weighted pricing signals — Occupancy Pressure, Days Vacant Decay, Seasonality, Competitor Positioning, Market Conditions, and Demand Signals — applied to the unit's current street rate. That street rate already reflects the room's physical attributes, so attribute quality is embedded in the starting base, not applied afterward.
                 </li>
                 <li className="pl-2">
-                  <strong>Rule Designer:</strong> Operator-defined rules modify the Rules Rate only. They apply after the Rules Rate engine, before Guardrails, and stack in priority order. They do not affect the Revenue Target AI Rate.
+                  <strong>Rule Designer:</strong> Operator-defined rules modify the Rules Rate only. They apply after the Rules Rate engine, before Guardrails. By default each rule is <em>exclusive</em> — it claims a unit and no other exclusive rule will also apply to that unit. Active exclusive rules run in priority order (oldest = highest). Any rule can be switched to <em>additive</em> mode to stack on top of whatever an exclusive rule set. They do not affect the Revenue Target AI Rate.
                 </li>
                 <li className="pl-2">
                   <strong>Revenue Target AI Rate:</strong> The AI Pricing Engine independently calculates a second recommendation using GPT-5-generated weights based on the current portfolio snapshot. An ML learning loop refines these weights over time using adoption and move-in outcome data.

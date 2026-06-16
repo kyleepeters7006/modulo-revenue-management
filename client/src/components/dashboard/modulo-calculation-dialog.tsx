@@ -49,6 +49,7 @@ export default function ModuloCalculationDialog({
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<any>(null);
   const [recalcStatus, setRecalcStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [showSignalDetails, setShowSignalDetails] = useState(false);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
 
@@ -212,6 +213,8 @@ export default function ModuloCalculationDialog({
     before: number;
     after: number;
     delta: number;
+    isAdditive: boolean;
+    priorityNum: number;
   }> = (() => {
     if (!appliedRuleName || !activeRules?.length || !calcDetails) return [];
     const appliedNames = appliedRuleName.split(' + ').map((n: string) => n.trim());
@@ -222,8 +225,9 @@ export default function ModuloCalculationDialog({
     if (!matchedRules.length) return [];
     const streetRate = calcDetails.baseRate || currentRate; // rules start from Street Rate
     let current = streetRate;
-    return matchedRules.map((rule: any) => {
+    return matchedRules.map((rule: any, idx: number) => {
       const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : rule.action;
+      const isAdditive = !!(action?.isAdditive);
       const adjType = action?.adjustmentType || 'percentage';
       const adjValue = action?.adjustmentValue ?? action?.percentage ?? 0;
       const before = current;
@@ -245,6 +249,8 @@ export default function ModuloCalculationDialog({
         before,
         after: current,
         delta,
+        isAdditive,
+        priorityNum: idx + 1,
       };
     });
   })();
@@ -370,8 +376,7 @@ export default function ModuloCalculationDialog({
                       </Badge>
                     </CardTitle>
                     <p className="text-xs text-green-800 dark:text-green-300 mt-1">
-                      These rules are applied to the Street Rate in priority order. Each rule receives the rate
-                      produced by the previous one.
+                      Rules apply in priority order. Exclusive rules claim this unit — additive rules stack on top regardless. The final applied rate is the result after all rules have run.
                     </p>
                   </CardHeader>
                   <CardContent className="pt-4 space-y-3">
@@ -393,9 +398,14 @@ export default function ModuloCalculationDialog({
                           {/* Rule header */}
                           <div className="flex items-start justify-between px-3 py-2 bg-green-50 dark:bg-green-950/40 border-b border-green-200">
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-green-900 dark:text-green-100 truncate">
-                                Rule {i + 1}: {step.name}
-                              </p>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="text-xs font-semibold text-green-900 dark:text-green-100">
+                                  Rule {i + 1}: {step.name}
+                                </p>
+                                <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${step.isAdditive ? 'bg-teal-100 text-teal-800 border-teal-300' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                                  {step.isAdditive ? 'stacks' : `#${step.priorityNum} exclusive`}
+                                </span>
+                              </div>
                               {step.description && (
                                 <p className="text-xs text-muted-foreground mt-0.5 italic">"{step.description}"</p>
                               )}
@@ -510,8 +520,19 @@ export default function ModuloCalculationDialog({
                 </Card>
               )}
 
+              {/* Toggle for underlying signal calculation — hidden by default when rules drove the rate */}
+              {ruleChainSteps.length > 0 && (
+                <button
+                  onClick={() => setShowSignalDetails(s => !s)}
+                  className="w-full text-xs text-gray-500 flex items-center justify-center gap-1.5 py-2 hover:bg-gray-50 rounded border border-dashed border-gray-200 transition-colors"
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showSignalDetails ? 'rotate-180' : ''}`} />
+                  {showSignalDetails ? 'Hide underlying signal calculation' : 'Show underlying signal calculation'}
+                </button>
+              )}
+
               {/* Algorithm Weights */}
-              {calcDetails.weights && !calcDetails.weightsDisabled && (
+              {(ruleChainSteps.length === 0 || showSignalDetails) && calcDetails.weights && !calcDetails.weightsDisabled && (
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm">Algorithm Weights Configuration</CardTitle>
@@ -576,7 +597,7 @@ export default function ModuloCalculationDialog({
               )}
 
               {/* Modulo Algorithm Calculation */}
-              {!calcDetails.weightsDisabled && (
+              {(ruleChainSteps.length === 0 || showSignalDetails) && !calcDetails.weightsDisabled && (
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm">Rules Rate Calculation</CardTitle>
@@ -775,7 +796,7 @@ export default function ModuloCalculationDialog({
               )}
 
               {/* Manual Adjustment Rules */}
-              {calcDetails.adjustments && calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).length > 0 && (
+              {(ruleChainSteps.length === 0 || showSignalDetails) && calcDetails.adjustments && calcDetails.adjustments.filter((adj: any) => adj.factor.startsWith('Rule:')).length > 0 && (
                 <Card className="border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm flex items-center gap-2">
@@ -878,7 +899,7 @@ export default function ModuloCalculationDialog({
               )}
 
               {/* Final Calculation Summary */}
-              {calcDetails.adjustments && calcDetails.adjustments.length > 0 && (
+              {(ruleChainSteps.length === 0 || showSignalDetails) && calcDetails.adjustments && calcDetails.adjustments.length > 0 && (
                 <Card className="border-primary/20 bg-primary/5">
                   <CardContent className="pt-6">
                     <div className="space-y-2">
@@ -948,7 +969,7 @@ export default function ModuloCalculationDialog({
               )}
 
               {/* Formula Display */}
-              <Card className="bg-gray-50 dark:bg-gray-800">
+              {(ruleChainSteps.length === 0 || showSignalDetails) && <Card className="bg-gray-50 dark:bg-gray-800">
                 <CardContent className="pt-4">
                   <h3 className="text-xs font-semibold text-muted-foreground mb-2">Formula:</h3>
                   <div className="text-xs font-mono space-y-1">
@@ -958,7 +979,7 @@ export default function ModuloCalculationDialog({
                     </div>
                   </div>
                 </CardContent>
-              </Card>
+              </Card>}
             </>
           ) : (
             <div className="flex items-center justify-center p-8">
