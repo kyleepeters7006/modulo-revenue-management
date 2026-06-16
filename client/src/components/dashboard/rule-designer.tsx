@@ -886,22 +886,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                   {/* Combined impact summary bar */}
                   {activeCount > 0 && (
-                    <div className="mb-3 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-700/40 px-3 py-2.5 flex items-center gap-4 flex-wrap">
+                    <div className="mb-3 rounded-lg bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-600/50 px-3 py-2.5 flex items-center gap-4 flex-wrap">
                       <div className="flex items-center gap-1.5 text-teal-700 dark:text-teal-300">
                         <TrendingUp className="h-3.5 w-3.5 shrink-0" />
                         <span className="text-xs font-semibold">Combined Portfolio Impact</span>
                       </div>
                       <div className="flex gap-3 flex-wrap text-xs">
-                        <span className="text-muted-foreground dark:text-gray-400">
-                          <span className="font-medium text-foreground dark:text-gray-200">{combinedCampuses}</span> campuses
+                        <span className="text-gray-600 dark:text-gray-300">
+                          <span className="font-semibold text-gray-900 dark:text-white">{combinedCampuses}</span> campuses
                         </span>
-                        <span className="text-muted-foreground dark:text-gray-400">
-                          <span className="font-medium text-foreground dark:text-gray-200">{combinedUnits.toLocaleString()}</span> units
+                        <span className="text-gray-600 dark:text-gray-300">
+                          <span className="font-semibold text-gray-900 dark:text-white">{combinedUnits.toLocaleString()}</span> units
                         </span>
-                        <span className={`font-semibold ${combinedAnnual >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        <span className={`font-bold ${combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
                           {fmtImpact(combinedAnnual)}/yr
                         </span>
-                        <span className="text-muted-foreground dark:text-gray-500 italic">new admissions only</span>
+                        <span className="text-gray-500 dark:text-gray-400 italic">new admissions only</span>
                       </div>
                     </div>
                   )}
@@ -917,39 +917,42 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       return (
                         <div
                           key={rule.id}
-                          className={`flex items-start gap-3 py-3 px-1 transition-colors ${rule.isActive ? '' : 'opacity-55'}`}
+                          className={`flex items-start gap-3 py-3 px-2 rounded-lg transition-colors
+                            ${rule.isActive
+                              ? 'bg-white dark:bg-gray-800'
+                              : 'bg-gray-50 dark:bg-gray-900/50 opacity-70'}`}
                           data-testid={`rule-${rule.id}`}
                         >
                           {/* Status dot */}
-                          <div className={`mt-1.5 shrink-0 w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                          <div className={`mt-1.5 shrink-0 w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-400 dark:bg-gray-500'}`} />
 
                           {/* Name + description + stat chips */}
                           <div className="flex-1 min-w-0 space-y-1">
-                            <p className={`text-sm font-semibold leading-snug ${rule.isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
+                            <p className={`text-sm font-semibold leading-snug ${rule.isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}>
                               {rule.name}
                             </p>
                             {rule.description && (
-                              <p className="text-xs text-muted-foreground dark:text-gray-400 leading-relaxed line-clamp-2">
+                              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
                                 {rule.description}
                               </p>
                             )}
                             {/* Stat chips row */}
                             <div className="flex flex-wrap gap-1.5 pt-0.5">
                               {hasCampuses && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
                                   {rule.affectedCampuses} campuses
                                 </span>
                               )}
                               {hasUnits && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
                                   {(rule.affectedUnits ?? 0).toLocaleString()} units
                                 </span>
                               )}
                               {hasImpact && (
                                 <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
                                   ${isPositive
-                                    ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                    : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
+                                    : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'}`}>
                                   {isPositive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
                                   {fmtImpact(impact)}/yr
                                 </span>
