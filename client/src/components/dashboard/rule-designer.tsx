@@ -1442,13 +1442,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
         return (
           <>
             <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
-              <Card className="w-full shadow-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <Card className="w-full shadow-sm bg-white border border-gray-200">
                 <CollapsibleTrigger asChild>
-                  <CardHeader className="pb-2 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-t-lg transition-colors">
+                  <CardHeader className="pb-2 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400 shrink-0" />
-                        <span className="text-base font-semibold text-gray-900 dark:text-white">Rules</span>
+                        <CheckCircle2 className="h-4 w-4 text-teal-600 shrink-0" />
+                        <span className="text-base font-semibold text-gray-900">Rules</span>
                         {activeCount > 0
                           ? <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 border border-green-200 px-2 py-0.5 text-xs font-medium">{activeCount} active</span>
                           : <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">none active</span>
@@ -1461,7 +1461,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                         {activeCount > 0 && (
                           <Button
                             variant="outline" size="sm"
-                            className="h-7 text-xs gap-1.5 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-700 bg-teal-50 dark:bg-teal-950/40 hover:bg-teal-100"
+                            className="h-7 text-xs gap-1.5 text-teal-700 border-teal-200 bg-teal-50 hover:bg-teal-100"
                             onClick={e => { e.stopPropagation(); setBubbleMapOpen(true); }}
                             title="View bubble map of rule coverage"
                           >
@@ -1471,7 +1471,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                         )}
                         <Button
                           variant="outline" size="sm"
-                          className="h-7 text-xs gap-1.5 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50"
+                          className="h-7 text-xs gap-1.5 text-gray-600 border-gray-300 bg-white hover:bg-gray-50"
                           onClick={e => { e.stopPropagation(); exportRules(); }}
                         >
                           <Download className="h-3 w-3" />
@@ -1480,7 +1480,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                         <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       Select rules to apply during the next pricing round. Impact reflects expected new admissions
                       {(locationId || serviceLine)
                         ? ` filtered to ${locationName || 'selected location'}${serviceLine ? ` · ${serviceLine}` : ''}.`
@@ -1494,19 +1494,19 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* ── Combined active rules summary ── */}
                     {activeCount > 0 && (
-                      <div className="mb-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-4">
+                      <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
                         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center shrink-0">
-                              <Layers className="h-3 w-3 text-gray-500 dark:text-gray-400" />
+                            <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                              <Layers className="h-3 w-3 text-gray-500" />
                             </div>
-                            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            <p className="text-sm font-semibold text-gray-900">
                               {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
-                              <span className="font-normal text-gray-400 dark:text-gray-500 ml-1.5 text-xs">· new admissions only</span>
+                              <span className="font-normal text-gray-400 ml-1.5 text-xs">· new admissions only</span>
                             </p>
                           </div>
                           {hasOverlap && (
-                            <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/50 rounded-full px-2 py-0.5">
+                            <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
                               <AlertTriangle className="h-3 w-3 shrink-0" />
                               {exclusiveActive.length} exclusive — priority order applies
                             </span>
@@ -1519,13 +1519,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             { label: 'Monthly',  value: fmt(combinedMonthly),              money: true  },
                             { label: 'Annual',   value: fmt(combinedAnnual),               money: true  },
                           ].map(({ label, value, money }) => (
-                            <div key={label} className="rounded-lg bg-white dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700/60 px-3 py-2.5 text-center">
+                            <div key={label} className="rounded-lg bg-white border border-gray-100 px-3 py-2.5 text-center">
                               <p className={`text-base font-bold tracking-tight leading-none mb-1 ${
                                 money
-                                  ? (combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')
-                                  : 'text-gray-900 dark:text-white'
+                                  ? (combinedAnnual >= 0 ? 'text-green-700' : 'text-red-700')
+                                  : 'text-gray-900'
                               }`}>{value}</p>
-                              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 font-medium">{label}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">{label}</p>
                             </div>
                           ))}
                         </div>
@@ -1544,7 +1544,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           : null;
 
                         const accentClass = !rule.isActive
-                          ? 'bg-gray-300 dark:bg-gray-600'
+                          ? 'bg-gray-300'
                           : isAdditive ? 'bg-teal-500' : 'bg-amber-500';
 
                         return (
@@ -1552,8 +1552,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             key={rule.id}
                             className={`rounded-lg border overflow-hidden transition-all ${
                               rule.isActive
-                                ? 'bg-white dark:bg-gray-800/70 border-gray-200 dark:border-gray-700 shadow-sm'
-                                : 'bg-gray-50/60 dark:bg-gray-900/40 border-gray-200 dark:border-gray-700/50 opacity-60'
+                                ? 'bg-white border-gray-200 shadow-sm'
+                                : 'bg-gray-50 border-gray-200 opacity-60'
                             }`}
                             data-testid={`rule-${rule.id}`}
                           >
@@ -1566,26 +1566,26 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 {/* Row 1: priority indicator + name + mode badge + active switch */}
                                 <div className="flex items-center gap-2">
                                   {exclusivePriority !== null ? (
-                                    <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold flex items-center justify-center border border-amber-200 dark:border-amber-700/50">
+                                    <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center border border-amber-200">
                                       {exclusivePriority}
                                     </span>
                                   ) : isAdditive && rule.isActive ? (
-                                    <div className="shrink-0 w-5 h-5 rounded-full bg-teal-50 dark:bg-teal-900/30 border border-teal-200 dark:border-teal-700/50 flex items-center justify-center">
+                                    <div className="shrink-0 w-5 h-5 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center">
                                       <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
                                     </div>
                                   ) : (
-                                    <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 ${rule.isActive ? 'bg-teal-400' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                    <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 ${rule.isActive ? 'bg-teal-400' : 'bg-gray-300'}`} />
                                   )}
 
-                                  <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug flex-1 min-w-0 truncate">
+                                  <p className="text-sm font-semibold text-gray-900 leading-snug flex-1 min-w-0 truncate">
                                     {rule.name}
                                   </p>
 
                                   {rule.isActive && (
                                     <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide
                                       ${isAdditive
-                                        ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-700/50'
-                                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700/50'}`}>
+                                        ? 'bg-teal-50 text-teal-700 border-teal-200'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                                       {isAdditive ? '+ stacks' : '⊙ exclusive'}
                                     </span>
                                   )}
@@ -1601,7 +1601,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                                 {/* Row 2: description */}
                                 {rule.description && (
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2 ml-[26px]">
+                                  <p className="text-xs text-gray-500 leading-relaxed line-clamp-2 ml-[26px]">
                                     {rule.description}
                                   </p>
                                 )}
@@ -1610,25 +1610,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 <div className="flex items-center justify-between gap-2 ml-[26px]">
                                   <div className="flex flex-wrap items-center gap-1.5">
                                     {(rule.affectedCampuses ?? 0) > 0 && (
-                                      <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700/60 rounded px-1.5 py-0.5">
+                                      <span className="text-[11px] font-medium text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">
                                         {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
                                       </span>
                                     )}
                                     {(rule.affectedUnits ?? 0) > 0 && (
-                                      <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700/60 rounded px-1.5 py-0.5">
+                                      <span className="text-[11px] font-medium text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">
                                         {(rule.affectedUnits ?? 0).toLocaleString()} units
                                       </span>
                                     )}
                                     {monthly !== 0 && (
                                       <span className={`text-[11px] font-semibold rounded px-1.5 py-0.5 ${
-                                        isPos ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30' : 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
+                                        isPos ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
                                       }`}>
                                         {fmt(monthly)}/mo
                                       </span>
                                     )}
                                     {annual !== 0 && (
                                       <span className={`text-[11px] font-semibold rounded px-1.5 py-0.5 inline-flex items-center gap-1 ${
-                                        isPos ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30' : 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
+                                        isPos ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
                                       }`}>
                                         {isPos ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
                                         {fmt(annual)}/yr
@@ -1651,7 +1651,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                       return (
                                         <button
                                           onClick={() => setShowMoveInMethodology(true)}
-                                          className="text-[11px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 rounded px-1.5 py-0.5 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer inline-flex items-center gap-1"
+                                          className="text-[11px] font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5 hover:bg-blue-100 transition-colors cursor-pointer inline-flex items-center gap-1"
                                           title="Click to see how this is calculated"
                                         >
                                           ~{moveInAvg.toFixed(1)} move-ins/mo
@@ -1663,18 +1663,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                                   <div className="flex items-center gap-0.5 shrink-0">
                                     <Button variant="ghost" size="icon"
-                                      className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
+                                      className="h-7 w-7 text-gray-400 hover:text-teal-600 hover:bg-teal-50"
                                       onClick={() => setInfoRule(rule)} title="Rule details">
                                       <Info className="h-3.5 w-3.5" />
                                     </Button>
                                     <Button variant="ghost" size="icon"
-                                      className="h-7 w-7 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                      className="h-7 w-7 text-gray-400 hover:text-blue-600 hover:bg-blue-50"
                                       onClick={() => startEdit(rule)} title="Edit rule"
                                       data-testid={`button-edit-${rule.id}`}>
                                       <Pencil className="h-3.5 w-3.5" />
                                     </Button>
                                     <Button variant="ghost" size="icon"
-                                      className="h-7 w-7 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                                      className="h-7 w-7 text-gray-400 hover:text-red-600 hover:bg-red-50"
                                       onClick={() => deleteRule(rule.id, rule.name)} title="Delete rule"
                                       data-testid={`button-delete-${rule.id}`}>
                                       <Trash2 className="h-3.5 w-3.5" />
@@ -1683,7 +1683,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 </div>
 
                                 {/* Row 4: additive toggle using Switch (replaces HTML checkbox) */}
-                                <div className="flex items-center gap-2 ml-[26px] pt-1.5 border-t border-gray-100 dark:border-gray-700/40">
+                                <div className="flex items-center gap-2 ml-[26px] pt-1.5 border-t border-gray-100">
                                   <Switch
                                     id={`additive-${rule.id}`}
                                     checked={isAdditive}
@@ -1692,11 +1692,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                   />
                                   <label
                                     htmlFor={`additive-${rule.id}`}
-                                    className="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer select-none leading-snug"
+                                    className="text-[11px] text-gray-500 hover:text-gray-700 cursor-pointer select-none leading-snug"
                                   >
                                     Apply in addition to other rules
                                     {!isAdditive && exclusivePriority !== null && exclusivePriority > 1 && (
-                                      <span className="ml-1 text-amber-600 dark:text-amber-400">(priority #{exclusivePriority} — units claimed by rule #1 first)</span>
+                                      <span className="ml-1 text-amber-600">(priority #{exclusivePriority} — units claimed by rule #1 first)</span>
                                     )}
                                   </label>
                                 </div>
@@ -1710,14 +1710,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* Exclusivity legend */}
                     {activeCount > 1 && (
-                      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-gray-500 dark:text-gray-400">
+                      <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-gray-500">
                         <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 rounded border border-amber-200 dark:border-amber-700/50 bg-amber-500 shrink-0" />
-                          <span><strong className="text-gray-700 dark:text-gray-300 font-semibold">Exclusive</strong> — first in priority order claims overlapping units</span>
+                          <span className="w-4 h-4 rounded border border-amber-200 bg-amber-500 shrink-0" />
+                          <span><strong className="text-gray-700 font-semibold">Exclusive</strong> — first in priority order claims overlapping units</span>
                         </span>
                         <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 rounded border border-teal-200 dark:border-teal-700/50 bg-teal-500 shrink-0" />
-                          <span><strong className="text-gray-700 dark:text-gray-300 font-semibold">Stacks</strong> — always applies on top of any other rule</span>
+                          <span className="w-4 h-4 rounded border border-teal-200 bg-teal-500 shrink-0" />
+                          <span><strong className="text-gray-700 font-semibold">Stacks</strong> — always applies on top of any other rule</span>
                         </span>
                       </div>
                     )}
@@ -1729,10 +1729,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
             {/* ── Bubble Map Dialog ── */}
             <Dialog open={bubbleMapOpen} onOpenChange={setBubbleMapOpen}>
-              <DialogContent className="max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+              <DialogContent className="max-w-2xl bg-white border border-gray-200">
                 <DialogHeader>
-                  <DialogTitle className="text-gray-900 dark:text-white text-base">Rule Coverage — Bubble Map</DialogTitle>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <DialogTitle className="text-gray-900 text-base">Rule Coverage — Bubble Map</DialogTitle>
+                  <p className="text-xs text-gray-500 mt-1">
                     Each circle represents one rule. Circle size is proportional to units affected.
                     Dots inside show unit density (up to 64 sampled). Hover for details.
                   </p>
