@@ -767,9 +767,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
-                    <Sparkles className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <Sparkles className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-gray-600 leading-relaxed">
                       AI parses your rule into a structured trigger + action, estimates impact, and saves it. Always review the preview before saving.
                     </p>
                   </div>
