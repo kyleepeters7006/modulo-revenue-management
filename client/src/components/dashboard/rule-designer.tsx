@@ -9,9 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle,
-  Trash2, Plus, ChevronRight, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
-  Info, Eye, Save, X, Wand2, ArrowRight, Download
+  Mic, MicOff, Sparkles, Play, CheckCircle2,
+  Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
+  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle
@@ -521,7 +521,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     <Sparkles className="h-3.5 w-3.5" /> Ask AI
                   </TabsTrigger>
                   <TabsTrigger value="structured" className="flex-1 gap-1.5">
-                    <ChevronRight className="h-3.5 w-3.5" /> Structured Builder
+                    <SlidersHorizontal className="h-3.5 w-3.5" /> Structured
                   </TabsTrigger>
                 </TabsList>
 
@@ -563,10 +563,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-100">
-                    <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                    <p className="text-xs text-blue-700">
-                      AI will parse your rule and show an interpreted preview before saving. Always review before applying.
+                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800/50">
+                    <Sparkles className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                      AI parses your rule into a structured trigger + action, estimates impact, and saves it. Always review the preview before saving.
                     </p>
                   </div>
                 </TabsContent>
@@ -719,7 +719,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                   {description ? (
                     <p className="text-sm text-foreground leading-relaxed">"{description}"</p>
                   ) : (
-                    <p className="text-sm text-muted-foreground italic">Build a rule to see the summary here.</p>
+                    <div className="flex flex-col items-center justify-center py-5 gap-2.5 text-center">
+                      <div className="w-10 h-10 rounded-full bg-muted/50 flex items-center justify-center">
+                        <Wand2 className="h-4.5 w-4.5 text-muted-foreground/40" style={{ width: 18, height: 18 }} />
+                      </div>
+                      <p className="text-sm text-muted-foreground italic leading-relaxed">
+                        Build a rule to see the<br />plain-language summary here.
+                      </p>
+                    </div>
                   )}
                 </div>
 
@@ -855,6 +862,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
         </CardContent>
       </Card>
 
+      {/* ── Empty state ── */}
+      {rules.length === 0 && (
+        <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 py-10 px-6 flex flex-col items-center gap-3 text-center">
+          <div className="w-12 h-12 rounded-full bg-teal-50 dark:bg-teal-950/50 border border-teal-100 dark:border-teal-800/50 flex items-center justify-center">
+            <Layers className="h-5 w-5 text-teal-500 dark:text-teal-400" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">No rules yet</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs">
+              Build your first pricing rule above using AI or the structured builder.
+              Rules take effect on the next pricing calculation.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Rules Panel ── */}
       {rules.length > 0 && (() => {
         const activeRules   = rules.filter(r => r.isActive);
@@ -867,7 +890,6 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
         const sortedRules    = [...sortedActive, ...sortedDisabled];
 
         const exclusiveActive = sortedActive.filter(r => !(r.action as any)?.isAdditive);
-        const additiveActive  = sortedActive.filter(r =>  (r.action as any)?.isAdditive);
         const hasOverlap      = exclusiveActive.length > 1;
 
         // Combined impact: additive rules always count; exclusive: sum all (may overlap — noted in UI)
@@ -971,32 +993,38 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* ── Combined active rules summary ── */}
                     {activeCount > 0 && (
-                      <div className="mb-4 rounded-lg border border-teal-200 dark:border-teal-700/60 bg-teal-50 dark:bg-teal-950/30 p-3">
-                        <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
-                          <p className="text-xs font-semibold text-teal-700 dark:text-teal-300 flex items-center gap-1.5">
-                            <TrendingUp className="h-3.5 w-3.5 shrink-0" />
-                            Combined Impact — {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
-                            <span className="font-normal text-teal-600 dark:text-teal-400">· new admissions only</span>
-                          </p>
+                      <div className="mb-4 rounded-xl border border-teal-200 dark:border-teal-700/50 bg-gradient-to-br from-teal-50 via-white to-white dark:from-teal-950/40 dark:via-gray-900 dark:to-gray-900 p-4">
+                        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-900/60 flex items-center justify-center shrink-0">
+                              <Layers className="h-3 w-3 text-teal-600 dark:text-teal-400" />
+                            </div>
+                            <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">
+                              {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
+                              <span className="font-normal text-teal-600/70 dark:text-teal-400/70 ml-1.5 text-xs">· new admissions only</span>
+                            </p>
+                          </div>
                           {hasOverlap && (
                             <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/50 rounded-full px-2 py-0.5">
                               <AlertTriangle className="h-3 w-3 shrink-0" />
-                              {exclusiveActive.length} exclusive rules share units — priority order applies
+                              {exclusiveActive.length} exclusive — priority order applies
                             </span>
                           )}
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="grid grid-cols-4 gap-2">
                           {[
                             { label: 'Campuses', value: combinedCampuses.toLocaleString(), money: false },
                             { label: 'Units',    value: combinedUnits.toLocaleString(),    money: false },
-                            { label: '/Month',   value: fmt(combinedMonthly),              money: true  },
-                            { label: '/Year',    value: fmt(combinedAnnual),               money: true  },
+                            { label: 'Monthly',  value: fmt(combinedMonthly),              money: true  },
+                            { label: 'Annual',   value: fmt(combinedAnnual),               money: true  },
                           ].map(({ label, value, money }) => (
-                            <div key={label} className="rounded-md bg-white dark:bg-gray-800 border border-teal-100 dark:border-teal-800/50 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold mb-0.5">{label}</p>
-                              <p className={`text-sm font-bold ${money ? (combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400') : 'text-gray-900 dark:text-white'}`}>
-                                {value}
-                              </p>
+                            <div key={label} className="rounded-lg bg-white dark:bg-gray-800/60 border border-teal-100 dark:border-teal-800/40 px-3 py-2.5 text-center">
+                              <p className={`text-base font-bold tracking-tight leading-none mb-1 ${
+                                money
+                                  ? (combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')
+                                  : 'text-gray-900 dark:text-white'
+                              }`}>{value}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 font-medium">{label}</p>
                             </div>
                           ))}
                         </div>
@@ -1005,123 +1033,148 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* ── Rule list ── */}
                     <div className="space-y-2">
-                      {sortedRules.map((rule, idx) => {
-                        const annual     = rule.annualImpact  ?? 0;
-                        const monthly    = rule.monthlyImpact ?? 0;
-                        const isPos      = annual >= 0;
-                        const isAdditive = !!(rule.action as any)?.isAdditive;
-                        // Priority number only applies to active exclusive rules
+                      {sortedRules.map((rule) => {
+                        const annual        = rule.annualImpact  ?? 0;
+                        const monthly       = rule.monthlyImpact ?? 0;
+                        const isPos         = annual >= 0;
+                        const isAdditive    = !!(rule.action as any)?.isAdditive;
                         const exclusivePriority = rule.isActive && !isAdditive
                           ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
                           : null;
 
+                        const accentClass = !rule.isActive
+                          ? 'bg-gray-300 dark:bg-gray-600'
+                          : isAdditive ? 'bg-teal-500' : 'bg-amber-500';
+
                         return (
                           <div
                             key={rule.id}
-                            className={`rounded-lg border transition-all ${
+                            className={`rounded-lg border overflow-hidden transition-all ${
                               rule.isActive
-                                ? 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-                                : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800 opacity-60'
+                                ? 'bg-white dark:bg-gray-800/70 border-gray-200 dark:border-gray-700 shadow-sm'
+                                : 'bg-gray-50/60 dark:bg-gray-900/40 border-gray-200 dark:border-gray-700/50 opacity-60'
                             }`}
                             data-testid={`rule-${rule.id}`}
                           >
-                            {/* Top row: priority dot + name + toggle */}
-                            <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1.5">
-                              <div className="flex items-center gap-2 min-w-0">
-                                {exclusivePriority !== null ? (
-                                  <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center">
-                                    {exclusivePriority}
-                                  </span>
-                                ) : (
-                                  <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-                                )}
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug truncate">{rule.name}</p>
-                                {rule.isActive && (
-                                  <span className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border
-                                    ${isAdditive
-                                      ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-700/50'
-                                      : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700/50'}`}>
-                                    {isAdditive ? 'stacks' : 'exclusive'}
-                                  </span>
-                                )}
-                              </div>
-                              <Switch
-                                checked={rule.isActive}
-                                onCheckedChange={() => toggleRule(rule.id)}
-                                aria-label={`Toggle ${rule.name}`}
-                                data-testid={`switch-rule-${rule.id}`}
-                                className="shrink-0"
-                              />
-                            </div>
+                            <div className="flex min-h-0">
+                              {/* ── Left accent strip ── */}
+                              <div className={`w-1 shrink-0 ${accentClass}`} />
 
-                            {/* Description */}
-                            {rule.description && (
-                              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed px-3 pb-1 ml-7">
-                                {rule.description}
-                              </p>
-                            )}
+                              <div className="flex-1 px-3 py-2.5 space-y-1.5 min-w-0">
 
-                            {/* Additive toggle */}
-                            <label className="flex items-center gap-2 px-3 pb-2 ml-7 cursor-pointer group w-fit">
-                              <input
-                                type="checkbox"
-                                checked={isAdditive}
-                                onChange={() => toggleAdditive(rule.id)}
-                                className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 h-3 w-3"
-                              />
-                              <span className="text-[11px] text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300 select-none">
-                                Apply in addition to other rules
-                                {!isAdditive && exclusivePriority !== null && exclusivePriority > 1 && (
-                                  <span className="ml-1 text-amber-600 dark:text-amber-400">(currently priority #{exclusivePriority} — units claimed by rule #{1} first)</span>
-                                )}
-                              </span>
-                            </label>
+                                {/* Row 1: priority indicator + name + mode badge + active switch */}
+                                <div className="flex items-center gap-2">
+                                  {exclusivePriority !== null ? (
+                                    <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold flex items-center justify-center border border-amber-200 dark:border-amber-700/50">
+                                      {exclusivePriority}
+                                    </span>
+                                  ) : isAdditive && rule.isActive ? (
+                                    <div className="shrink-0 w-5 h-5 rounded-full bg-teal-50 dark:bg-teal-900/30 border border-teal-200 dark:border-teal-700/50 flex items-center justify-center">
+                                      <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                                    </div>
+                                  ) : (
+                                    <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 ${rule.isActive ? 'bg-teal-400' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                  )}
 
-                            {/* Chips + action buttons */}
-                            <div className="flex items-center justify-between gap-2 px-3 pb-2.5 ml-7">
-                              <div className="flex flex-wrap gap-1.5">
-                                {(rule.affectedCampuses ?? 0) > 0 && (
-                                  <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
-                                    {rule.affectedCampuses} campuses
-                                  </span>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug flex-1 min-w-0 truncate">
+                                    {rule.name}
+                                  </p>
+
+                                  {rule.isActive && (
+                                    <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide
+                                      ${isAdditive
+                                        ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-700/50'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700/50'}`}>
+                                      {isAdditive ? '+ stacks' : '⊙ exclusive'}
+                                    </span>
+                                  )}
+
+                                  <Switch
+                                    checked={rule.isActive}
+                                    onCheckedChange={() => toggleRule(rule.id)}
+                                    aria-label={`Toggle ${rule.name}`}
+                                    data-testid={`switch-rule-${rule.id}`}
+                                    className="shrink-0"
+                                  />
+                                </div>
+
+                                {/* Row 2: description */}
+                                {rule.description && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2 ml-[26px]">
+                                    {rule.description}
+                                  </p>
                                 )}
-                                {(rule.affectedUnits ?? 0) > 0 && (
-                                  <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
-                                    {(rule.affectedUnits ?? 0).toLocaleString()} units
-                                  </span>
-                                )}
-                                {monthly !== 0 && (
-                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold
-                                    ${isPos ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}>
-                                    {fmt(monthly)}/mo
-                                  </span>
-                                )}
-                                {annual !== 0 && (
-                                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
-                                    ${isPos ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}>
-                                    {isPos ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-                                    {fmt(annual)}/yr
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                <Button variant="ghost" size="icon"
-                                  className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
-                                  onClick={() => setInfoRule(rule)} title="How this rule works">
-                                  <Info className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon"
-                                  className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
-                                  onClick={() => startEdit(rule)} title="Edit rule"
-                                  data-testid={`button-edit-${rule.id}`}>
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon"
-                                  className="h-7 w-7 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
-                                  onClick={() => deleteRule(rule.id, rule.name)} title="Delete rule"
-                                  data-testid={`button-delete-${rule.id}`}>
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
+
+                                {/* Row 3: impact chips + action buttons */}
+                                <div className="flex items-center justify-between gap-2 ml-[26px]">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {(rule.affectedCampuses ?? 0) > 0 && (
+                                      <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700/60 rounded px-1.5 py-0.5">
+                                        {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
+                                      </span>
+                                    )}
+                                    {(rule.affectedUnits ?? 0) > 0 && (
+                                      <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700/60 rounded px-1.5 py-0.5">
+                                        {(rule.affectedUnits ?? 0).toLocaleString()} units
+                                      </span>
+                                    )}
+                                    {monthly !== 0 && (
+                                      <span className={`text-[11px] font-semibold rounded px-1.5 py-0.5 ${
+                                        isPos ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30' : 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
+                                      }`}>
+                                        {fmt(monthly)}/mo
+                                      </span>
+                                    )}
+                                    {annual !== 0 && (
+                                      <span className={`text-[11px] font-semibold rounded px-1.5 py-0.5 inline-flex items-center gap-1 ${
+                                        isPos ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30' : 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
+                                      }`}>
+                                        {isPos ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                                        {fmt(annual)}/yr
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-0.5 shrink-0">
+                                    <Button variant="ghost" size="icon"
+                                      className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
+                                      onClick={() => setInfoRule(rule)} title="Rule details">
+                                      <Info className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon"
+                                      className="h-7 w-7 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                      onClick={() => startEdit(rule)} title="Edit rule"
+                                      data-testid={`button-edit-${rule.id}`}>
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon"
+                                      className="h-7 w-7 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                                      onClick={() => deleteRule(rule.id, rule.name)} title="Delete rule"
+                                      data-testid={`button-delete-${rule.id}`}>
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                {/* Row 4: additive toggle using Switch (replaces HTML checkbox) */}
+                                <div className="flex items-center gap-2 ml-[26px] pt-1.5 border-t border-gray-100 dark:border-gray-700/40">
+                                  <Switch
+                                    id={`additive-${rule.id}`}
+                                    checked={isAdditive}
+                                    onCheckedChange={() => toggleAdditive(rule.id)}
+                                    className="h-[18px] w-8 data-[state=checked]:bg-teal-500 shrink-0"
+                                  />
+                                  <label
+                                    htmlFor={`additive-${rule.id}`}
+                                    className="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer select-none leading-snug"
+                                  >
+                                    Apply in addition to other rules
+                                    {!isAdditive && exclusivePriority !== null && exclusivePriority > 1 && (
+                                      <span className="ml-1 text-amber-600 dark:text-amber-400">(priority #{exclusivePriority} — units claimed by rule #1 first)</span>
+                                    )}
+                                  </label>
+                                </div>
+
                               </div>
                             </div>
                           </div>
@@ -1131,16 +1184,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* Exclusivity legend */}
                     {activeCount > 1 && (
-                      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-3 text-[11px] text-gray-500 dark:text-gray-400">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-4 h-4 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[9px] font-bold flex items-center justify-center">1</span>
-                          Exclusive — first rule in priority order claims overlapping units
+                      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-gray-500 dark:text-gray-400">
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded border border-amber-200 dark:border-amber-700/50 bg-amber-500 shrink-0" />
+                          <span><strong className="text-gray-700 dark:text-gray-300 font-semibold">Exclusive</strong> — first in priority order claims overlapping units</span>
                         </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-4 h-4 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center">
-                            <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-                          </span>
-                          Stacks — applies on top of any other rule
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded border border-teal-200 dark:border-teal-700/50 bg-teal-500 shrink-0" />
+                          <span><strong className="text-gray-700 dark:text-gray-300 font-semibold">Stacks</strong> — always applies on top of any other rule</span>
                         </span>
                       </div>
                     )}
