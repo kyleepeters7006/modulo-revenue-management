@@ -906,17 +906,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                   )}
 
-                  {/* Column headers */}
-                  <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-2 items-center px-1 pb-1 border-b border-border/40">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Rule</span>
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-center w-16">Campuses</span>
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-center w-14">Units</span>
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-right w-20">Yr Impact</span>
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide text-right w-20">Active</span>
-                  </div>
-
                   <div className="max-h-80 overflow-y-auto divide-y divide-border/30">
-                    {sortedRules.map((rule, idx) => {
+                    {sortedRules.map((rule) => {
                       const impact = rule.annualImpact ?? 0;
                       const isPositive = impact >= 0;
                       const hasCampuses = (rule.affectedCampuses ?? 0) > 0;
@@ -926,78 +917,74 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       return (
                         <div
                           key={rule.id}
-                          className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-2 items-center py-2.5 px-1 transition-colors
-                            ${rule.isActive
-                              ? 'bg-white dark:bg-slate-800/60'
-                              : 'opacity-60'
-                            }`}
+                          className={`flex items-start gap-3 py-3 px-1 transition-colors ${rule.isActive ? '' : 'opacity-55'}`}
                           data-testid={`rule-${rule.id}`}
                         >
-                          {/* Left: indicator + name + description */}
-                          <div className="flex items-start gap-2 min-w-0">
-                            <div className={`mt-1 shrink-0 w-1.5 h-1.5 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-                            <div className="min-w-0">
-                              <p className={`text-sm font-medium leading-tight truncate ${rule.isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                {rule.name}
+                          {/* Status dot */}
+                          <div className={`mt-1.5 shrink-0 w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+
+                          {/* Name + description + stat chips */}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <p className={`text-sm font-semibold leading-snug ${rule.isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
+                              {rule.name}
+                            </p>
+                            {rule.description && (
+                              <p className="text-xs text-muted-foreground dark:text-gray-400 leading-relaxed line-clamp-2">
+                                {rule.description}
                               </p>
-                              {rule.description && (
-                                <p className="text-xs text-muted-foreground dark:text-gray-400 leading-snug mt-0.5 line-clamp-2">{rule.description}</p>
+                            )}
+                            {/* Stat chips row */}
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {hasCampuses && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                  {rule.affectedCampuses} campuses
+                                </span>
+                              )}
+                              {hasUnits && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                                  {(rule.affectedUnits ?? 0).toLocaleString()} units
+                                </span>
+                              )}
+                              {hasImpact && (
+                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
+                                  ${isPositive
+                                    ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                    : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                  {isPositive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                                  {fmtImpact(impact)}/yr
+                                </span>
                               )}
                             </div>
                           </div>
 
-                          {/* Campuses */}
-                          <div className="w-16 text-center">
-                            {hasCampuses
-                              ? <span className="text-xs font-medium text-foreground dark:text-gray-200">{rule.affectedCampuses}</span>
-                              : <span className="text-xs text-muted-foreground/40">—</span>
-                            }
-                          </div>
-
-                          {/* Units */}
-                          <div className="w-14 text-center">
-                            {hasUnits
-                              ? <span className="text-xs font-medium text-foreground dark:text-gray-200">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
-                              : <span className="text-xs text-muted-foreground/40">—</span>
-                            }
-                          </div>
-
-                          {/* Annual Impact */}
-                          <div className="w-20 text-right">
-                            {hasImpact
-                              ? <span className={`text-xs font-semibold ${isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {fmtImpact(impact)}/yr
-                                </span>
-                              : <span className="text-xs text-muted-foreground/40">—</span>
-                            }
-                          </div>
-
-                          {/* Toggle + actions */}
-                          <div className="w-20 flex items-center justify-end gap-1">
+                          {/* Toggle + actions — stacked vertically to save horizontal space */}
+                          <div className="shrink-0 flex flex-col items-center gap-1">
                             <Switch
                               checked={rule.isActive}
                               onCheckedChange={() => toggleRule(rule.id)}
                               aria-label={`Toggle ${rule.name}`}
                               data-testid={`switch-rule-${rule.id}`}
                             />
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-6 w-6 text-muted-foreground hover:text-[var(--trilogy-teal)]"
-                              onClick={() => startEdit(rule)}
-                              title="Edit rule"
-                              data-testid={`button-edit-${rule.id}`}
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                              onClick={() => deleteRule(rule.id, rule.name)}
-                              title="Delete rule"
-                              data-testid={`button-delete-${rule.id}`}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
+                            <div className="flex gap-0.5">
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-[var(--trilogy-teal)]"
+                                onClick={() => startEdit(rule)}
+                                title="Edit rule"
+                                data-testid={`button-edit-${rule.id}`}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                onClick={() => deleteRule(rule.id, rule.name)}
+                                title="Delete rule"
+                                data-testid={`button-delete-${rule.id}`}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       );
