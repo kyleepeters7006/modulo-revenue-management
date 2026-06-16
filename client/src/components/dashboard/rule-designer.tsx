@@ -306,6 +306,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
   // T3 move-in baseline
   const [t3MoveIns, setT3MoveIns] = useState<T3MoveIns | null>(null);
+  const [showMoveInMethodology, setShowMoveInMethodology] = useState(false);
 
   // Structured builder state
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
@@ -1648,12 +1649,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                       }
                                       if (moveInAvg == null || moveInAvg <= 0) return null;
                                       return (
-                                        <span
-                                          className="text-[11px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 rounded px-1.5 py-0.5"
-                                          title="Trailing 3-month average move-ins — expected if nothing changes"
+                                        <button
+                                          onClick={() => setShowMoveInMethodology(true)}
+                                          className="text-[11px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 rounded px-1.5 py-0.5 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer inline-flex items-center gap-1"
+                                          title="Click to see how this is calculated"
                                         >
                                           ~{moveInAvg.toFixed(1)} move-ins/mo
-                                        </span>
+                                          <Info className="h-2.5 w-2.5 opacity-60" />
+                                        </button>
                                       );
                                     })()}
                                   </div>
@@ -1976,10 +1979,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 </tbody>
                               </table>
                             </div>
-                            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 italic">
-                              Trailing 3-month avg · unique move-in events · HC/HC/MC = private pay only
-                              {t3MoveIns.asOf && ` · through ${new Date(t3MoveIns.asOf).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
-                            </p>
+                            <div className="flex items-center justify-between mt-1.5">
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">
+                                T3 avg · unique events · HC/HC/MC = private pay only
+                                {t3MoveIns.asOf && ` · through ${new Date(t3MoveIns.asOf).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
+                              </p>
+                              <button
+                                onClick={() => setShowMoveInMethodology(true)}
+                                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline shrink-0 ml-2"
+                              >
+                                How is this calculated? →
+                              </button>
+                            </div>
                           </div>
                         );
                       })()}
@@ -2043,6 +2054,67 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           </>
         );
       })()}
+
+      {/* ── Move-In Methodology Dialog ── */}
+      <Dialog open={showMoveInMethodology} onOpenChange={setShowMoveInMethodology}>
+        <DialogContent className="max-w-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900 dark:text-white text-base">How Move-Ins Are Calculated</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
+
+            <div className="flex gap-3">
+              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
+              <div>
+                <p className="font-semibold text-gray-900 dark:text-white mb-1">Unique move-in events only</p>
+                <p className="leading-relaxed">
+                  Each monthly rent roll upload is a snapshot — the same resident appears in every snapshot until they leave. We deduplicate by <span className="font-medium text-gray-900 dark:text-white">room + move-in date + service line</span> so each resident is counted as one event, no matter how many uploads contain their record.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
+              <div>
+                <p className="font-semibold text-gray-900 dark:text-white mb-1">Trailing 3-month average</p>
+                <p className="leading-relaxed">
+                  We take the <span className="font-medium text-gray-900 dark:text-white">3 most recent calendar months</span> with move-in activity for this campus, count unique events per service line in each month, then average the 3. This smooths single-month spikes while staying responsive to recent trends.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
+              <div>
+                <p className="font-semibold text-gray-900 dark:text-white mb-1">HC and HC/MC: private pay only</p>
+                <p className="leading-relaxed">
+                  Medicaid and Medicare rates are set externally and unaffected by pricing rules. For HC and HC/MC, only residents with payor type <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">PRIVATE PAY</span> or <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">LEGACY - PVT PAY</span> are counted.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/60 dark:bg-blue-950/20 p-3">
+              <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">What the number means</p>
+              <p className="leading-relaxed text-blue-700 dark:text-blue-300">
+                This is the <span className="font-semibold">"do nothing" baseline</span> — how many new residents you'd expect each month if the rule didn't exist and conditions stayed the same. It gives revenue impact context: a rule generating $2,000/mo means something very different at 2 move-ins/mo versus 8.
+              </p>
+            </div>
+
+            <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
+              The chip on each rule card scopes to the rule's service line filter automatically. Single SL → that SL's T3 average. Multiple SLs → sum. No SL filter → campus total. The rule detail dialog scopes to the rule's configured service lines.
+            </p>
+
+          </div>
+
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+            <Button variant="outline" size="sm" onClick={() => setShowMoveInMethodology(false)} className="w-full">
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
