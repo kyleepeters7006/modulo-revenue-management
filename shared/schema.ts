@@ -1133,6 +1133,25 @@ export const insertCareLevelRatesSchema = createInsertSchema(careLevelRates).omi
 export type CareLevelRate = typeof careLevelRates.$inferSelect;
 export type InsertCareLevelRate = z.infer<typeof insertCareLevelRatesSchema>;
 
+// Campus Metrics Snapshot — flexible key-value store for rule designer reference data.
+// Stores pre-calculated occupancy, vacancy, competitor variance, payer mix,
+// inquiry/tour volume, and avg-days-vacant per campus × service_line × room_type.
+// service_line = NULL → campus-level.  room_type = NULL → not dimension-specific.
+// metric_name values: 'occupancy_pct', 'vacant_units', 'total_units',
+//   'avg_days_vacant', 'competitor_variance_pct', 'private_pay_pct',
+//   'medicaid_pct', 'medicare_pct', 'inquiry_count', 'tour_count'.
+export const campusMetrics = pgTable("campus_metrics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").notNull().references(() => locations.id),
+  serviceLine: text("service_line"),   // NULL = campus-level
+  roomType: text("room_type"),         // NULL = not dimension-specific
+  metricName: text("metric_name").notNull(),
+  value: real("value"),
+  clientId: varchar("client_id").references(() => clients.id).notNull().default('demo'),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+});
+export type CampusMetric = typeof campusMetrics.$inferSelect;
+
 // IH-to-Street Rate Variance — Single Occupant
 // Stores pre-calculated variance % between in-house and street rates for single-occupant units.
 // SH filter (AL/AL/MC/SL/VIL): occupied + roomType != 'Companion'

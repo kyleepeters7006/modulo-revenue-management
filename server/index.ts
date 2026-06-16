@@ -87,6 +87,29 @@ app.use((req, res, next) => {
     log(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: create campus_metrics table (flexible key-value for rule designer).
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS campus_metrics (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        location_id varchar NOT NULL REFERENCES locations(id),
+        service_line text,
+        room_type text,
+        metric_name text NOT NULL,
+        value real,
+        client_id varchar NOT NULL DEFAULT 'demo' REFERENCES clients(id),
+        calculated_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS campus_metrics_loc_idx
+        ON campus_metrics (client_id, location_id)
+    `);
+    log("[migration] campus_metrics table ensured");
+  } catch (migErr) {
+    log(`[migration] campus_metrics migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: create ih_street_variance table.
   // Stores pre-calculated IH-to-Street rate variance per campus per service line.
   try {

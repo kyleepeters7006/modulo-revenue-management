@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -14650,6 +14650,218 @@ Respond in JSON format:
     } catch (error) {
       console.error("Error recalculating IH-to-street variance:", error);
       res.status(500).json({ error: "Failed to recalculate IH-to-street variance" });
+    }
+  });
+
+  // ============================================
+  // CAMPUS METRICS SNAPSHOT (Rule Designer reference data)
+  // ============================================
+
+  // GET /api/metrics/campus-snapshot?locationId=xxx
+  // Returns all stored campus_metrics rows shaped into a structured snapshot.
+  app.get("/api/metrics/campus-snapshot", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const { locationId } = req.query as { locationId?: string };
+      if (!locationId) return res.status(400).json({ error: "locationId is required" });
+
+      const rows = await pool.query<{
+        service_line: string | null; room_type: string | null;
+        metric_name: string; value: number | null; calculated_at: string | null;
+      }>(
+        `SELECT service_line, room_type, metric_name, value, calculated_at
+         FROM campus_metrics WHERE client_id=$1 AND location_id=$2
+         ORDER BY metric_name, service_line NULLS FIRST, room_type NULLS FIRST`,
+        [clientId, locationId]
+      );
+
+      if (rows.rows.length === 0) return res.json(null);
+
+      const snapshot: any = {
+        locationId,
+        calculatedAt: rows.rows[0].calculated_at,
+        occupancy:          { campus: null, byServiceLine: {} as Record<string,number>, byRoomType: {} as Record<string,number> },
+        vacantUnits:        { campus: null, byServiceLine: {} as Record<string,number>, byRoomType: {} as Record<string,number> },
+        totalUnits:         { campus: null, byServiceLine: {} as Record<string,number>, byRoomType: {} as Record<string,number> },
+        avgDaysVacant:      { campus: null, byServiceLine: {} as Record<string,number>, byRoomType: {} as Record<string,number> },
+        competitorVariance: { campus: null, byServiceLine: {} as Record<string,number>, byRoomType: {} as Record<string,number> },
+        payerMix: {
+          campus: { privatePay: null, medicaid: null, medicare: null },
+          byServiceLine: {} as Record<string, { privatePay: number|null; medicaid: number|null; medicare: number|null }>,
+        },
+        inquiryVolume: {
+          campus: { inquiries: null, tours: null },
+          byServiceLine: {} as Record<string, { inquiries: number|null; tours: number|null }>,
+        },
+      };
+
+      const simpleMap: Record<string, string> = {
+        occupancy_pct: 'occupancy', vacant_units: 'vacantUnits', total_units: 'totalUnits',
+        avg_days_vacant: 'avgDaysVacant', competitor_variance_pct: 'competitorVariance',
+      };
+
+      for (const r of rows.rows) {
+        const sl = r.service_line; const rt = r.room_type; const v = r.value;
+        if (v === null) continue;
+
+        if (simpleMap[r.metric_name]) {
+          const obj = snapshot[simpleMap[r.metric_name]];
+          if (!sl && !rt) obj.campus = v;
+          else if (sl && !rt) obj.byServiceLine[sl] = v;
+          else if (!sl && rt) obj.byRoomType[rt] = v;
+        }
+
+        if (['private_pay_pct','medicaid_pct','medicare_pct'].includes(r.metric_name)) {
+          const field = r.metric_name === 'private_pay_pct' ? 'privatePay'
+                      : r.metric_name === 'medicaid_pct' ? 'medicaid' : 'medicare';
+          if (!sl && !rt) (snapshot.payerMix.campus as any)[field] = v;
+          else if (sl && !rt) {
+            if (!snapshot.payerMix.byServiceLine[sl]) snapshot.payerMix.byServiceLine[sl] = { privatePay: null, medicaid: null, medicare: null };
+            (snapshot.payerMix.byServiceLine[sl] as any)[field] = v;
+          }
+        }
+
+        if (['inquiry_count','tour_count'].includes(r.metric_name)) {
+          const field = r.metric_name === 'inquiry_count' ? 'inquiries' : 'tours';
+          if (!sl && !rt) (snapshot.inquiryVolume.campus as any)[field] = v;
+          else if (sl && !rt) {
+            if (!snapshot.inquiryVolume.byServiceLine[sl]) snapshot.inquiryVolume.byServiceLine[sl] = { inquiries: null, tours: null };
+            (snapshot.inquiryVolume.byServiceLine[sl] as any)[field] = v;
+          }
+        }
+      }
+
+      res.json(snapshot);
+    } catch (error) {
+      console.error("Error fetching campus snapshot:", error);
+      res.status(500).json({ error: "Failed to fetch campus snapshot" });
+    }
+  });
+
+  // POST /api/metrics/campus-snapshot/recalculate?locationId=xxx
+  // Recalculates all campus metrics from rent_roll_data + inquiry_metrics and stores them.
+  app.post("/api/metrics/campus-snapshot/recalculate", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const { locationId } = req.query as { locationId?: string };
+      if (!locationId) return res.status(400).json({ error: "locationId is required" });
+
+      // Get latest upload_month for this campus
+      const latestRes = await pool.query<{ month: string }>(
+        `SELECT MAX(upload_month) AS month FROM rent_roll_data WHERE location_id=$1 AND client_id=$2`,
+        [locationId, clientId]
+      );
+      const latestMonth = latestRes.rows[0]?.month;
+      if (!latestMonth) return res.json({ message: "No rent roll data found for this campus", rows: 0 });
+
+      // Fetch all units for the latest month
+      const unitsRes = await pool.query<{
+        service_line: string; room_type: string; occupied_yn: boolean;
+        days_vacant: number; street_rate: number; competitor_final_rate: number; payor_type: string;
+      }>(
+        `SELECT service_line, room_type, occupied_yn, days_vacant,
+                street_rate, competitor_final_rate, payor_type
+         FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
+        [locationId, clientId, latestMonth]
+      );
+      const units = unitsRes.rows;
+
+      // Fetch inquiry/tour volume from the inquiry_metrics table (aggregated)
+      const inqRes = await pool.query<{ service_line: string; inq: string; tour: string }>(
+        `SELECT service_line, SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
+         FROM inquiry_metrics WHERE location_id=$1 AND client_id=$2 GROUP BY service_line`,
+        [locationId, clientId]
+      );
+
+      // ── Compute metrics ──────────────────────────────────────────────────
+      const avgArr = (arr: number[]) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+      const pctOf  = (n: number, d: number) => d > 0 ? (n / d) * 100 : 0;
+      type MetricRow = { sl: string | null; rt: string | null; name: string; val: number };
+      const metrics: MetricRow[] = [];
+
+      function pushGroup(sl: string | null, rt: string | null, group: typeof units) {
+        const total = group.length;
+        if (!total) return;
+        const occupied = group.filter(u => u.occupied_yn).length;
+        metrics.push({ sl, rt, name: 'total_units',   val: total });
+        metrics.push({ sl, rt, name: 'vacant_units',  val: total - occupied });
+        metrics.push({ sl, rt, name: 'occupancy_pct', val: pctOf(occupied, total) });
+
+        const vacDays = group.filter(u => !u.occupied_yn && (u.days_vacant || 0) > 0).map(u => u.days_vacant);
+        if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
+
+        const compUnits = group.filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100);
+        if (compUnits.length) {
+          const avgSt = avgArr(compUnits.map(u => u.street_rate));
+          const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));
+          if (avgC > 0) metrics.push({ sl, rt, name: 'competitor_variance_pct', val: (avgSt - avgC) / avgC * 100 });
+        }
+
+        // Payer mix — campus/SL level only (not RT breakdown)
+        if (rt === null) {
+          const occ = group.filter(u => u.occupied_yn);
+          const n = occ.length;
+          if (n > 0) {
+            const up = (s: string) => (s || '').toUpperCase();
+            metrics.push({ sl, rt, name: 'private_pay_pct', val: pctOf(occ.filter(u => up(u.payor_type).includes('PRIVATE')).length,  n) });
+            metrics.push({ sl, rt, name: 'medicaid_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICAID')).length, n) });
+            metrics.push({ sl, rt, name: 'medicare_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICARE')).length, n) });
+          }
+        }
+      }
+
+      // Campus level
+      pushGroup(null, null, units);
+
+      // Per service line
+      const slMap = new Map<string, typeof units>();
+      for (const u of units) { const k = u.service_line || 'Other'; if (!slMap.has(k)) slMap.set(k, []); slMap.get(k)!.push(u); }
+      for (const [sl, g] of slMap) pushGroup(sl, null, g);
+
+      // Per room type
+      const rtMap = new Map<string, typeof units>();
+      for (const u of units) { const k = u.room_type || 'Other'; if (!rtMap.has(k)) rtMap.set(k, []); rtMap.get(k)!.push(u); }
+      for (const [rt, g] of rtMap) pushGroup(null, rt, g);
+
+      // Inquiry/tour from inquiry_metrics
+      const campInq  = inqRes.rows.reduce((s, r) => s + (Number(r.inq)  || 0), 0);
+      const campTour = inqRes.rows.reduce((s, r) => s + (Number(r.tour) || 0), 0);
+      metrics.push({ sl: null, rt: null, name: 'inquiry_count', val: campInq });
+      metrics.push({ sl: null, rt: null, name: 'tour_count',    val: campTour });
+      for (const r of inqRes.rows) {
+        if (r.service_line) {
+          metrics.push({ sl: r.service_line, rt: null, name: 'inquiry_count', val: Number(r.inq)  || 0 });
+          metrics.push({ sl: r.service_line, rt: null, name: 'tour_count',    val: Number(r.tour) || 0 });
+        }
+      }
+
+      // ── Persist: delete old + bulk insert new ────────────────────────────
+      await pool.query(`DELETE FROM campus_metrics WHERE client_id=$1 AND location_id=$2`, [clientId, locationId]);
+      if (metrics.length > 0) {
+        const now = new Date().toISOString();
+        const vals: any[] = [];
+        const placeholders = metrics.map((m, i) => {
+          const b = i * 7;
+          vals.push(locationId, m.sl, m.rt, m.name, m.val, clientId, now);
+          return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`;
+        });
+        await pool.query(
+          `INSERT INTO campus_metrics (location_id,service_line,room_type,metric_name,value,client_id,calculated_at) VALUES ${placeholders.join(',')}`,
+          vals
+        );
+      }
+
+      // Sync in-memory cache for rule evaluator
+      const { preloadCampusMetrics } = await import('./services/adjustmentRulesService');
+      preloadCampusMetrics(metrics.map(m => ({
+        clientId, locationId, serviceLine: m.sl, roomType: m.rt, metricName: m.name, value: m.val,
+      })));
+
+      log(`[campus-snapshot] Calculated ${metrics.length} metric data points for ${locationId}`);
+      res.json({ message: `Calculated ${metrics.length} metric data points`, rows: metrics.length });
+    } catch (error) {
+      console.error("Error recalculating campus snapshot:", error);
+      res.status(500).json({ error: "Failed to recalculate campus snapshot" });
     }
   });
 

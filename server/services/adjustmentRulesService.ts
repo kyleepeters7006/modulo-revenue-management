@@ -8,10 +8,6 @@ import type { AdjustmentRules } from "@shared/schema";
 // ---------------------------------------------------------------------------
 const _ihVarianceCache = new Map<string, number>();
 
-/**
- * Load pre-calculated IH-to-street variance rows into the in-memory cache.
- * Called after each recalculate to keep the evaluator in sync without DB hits.
- */
 export function preloadIhStreetVariance(
   rows: Array<{ clientId: string; locationId: string; serviceLine: string; variancePct: number | null }>
 ) {
@@ -22,12 +18,57 @@ export function preloadIhStreetVariance(
   }
 }
 
-/** Lookup variance %. Falls back to campus total ('ALL') if service-line key not found. */
 function _lookupIhVariance(clientId: string, locationId: string, serviceLine: string): number | null {
   const specific = _ihVarianceCache.get(`${clientId}:${locationId}:${serviceLine}`);
   if (specific !== undefined) return specific;
   const campus = _ihVarianceCache.get(`${clientId}:${locationId}:ALL`);
   return campus !== undefined ? campus : null;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory cache for all campus metrics (occupancy, vacancies, competitor
+// variance, payer mix, inquiry volume, avg days vacant, etc.)
+//
+// Key format: `${clientId}:${locationId}:${sl||''}:${rt||''}:${metricName}`
+//   sl = '' means campus-level; sl = 'AL' means AL service line
+//   rt = '' means not room-type specific; rt = 'Studio' means Studio room type
+//
+// Populated by POST /api/metrics/campus-snapshot/recalculate
+// ---------------------------------------------------------------------------
+const _campusMetricsCache = new Map<string, number>();
+
+export function preloadCampusMetrics(
+  rows: Array<{
+    clientId: string; locationId: string;
+    serviceLine: string | null; roomType: string | null;
+    metricName: string; value: number | null;
+  }>
+) {
+  for (const row of rows) {
+    if (row.value !== null && row.value !== undefined) {
+      const key = `${row.clientId}:${row.locationId}:${row.serviceLine || ''}:${row.roomType || ''}:${row.metricName}`;
+      _campusMetricsCache.set(key, row.value);
+    }
+  }
+}
+
+/**
+ * Lookup a campus metric value.
+ * Falls back: SL+RT → SL-only → campus-level.
+ */
+function _lookupCampusMetric(
+  clientId: string, locationId: string,
+  sl: string | null, rt: string | null, metricName: string
+): number | null {
+  const tryKey = (s: string, r: string) => {
+    const k = `${clientId}:${locationId}:${s}:${r}:${metricName}`;
+    return _campusMetricsCache.has(k) ? _campusMetricsCache.get(k)! : null;
+  };
+  // Most specific first
+  if (sl && rt) { const v = tryKey(sl, rt); if (v !== null) return v; }
+  if (sl)       { const v = tryKey(sl, ''); if (v !== null) return v; }
+  // Campus-level fallback
+  return tryKey('', '');
 }
 
 export interface UnitAdjustmentResult {
@@ -66,20 +107,65 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
     if (trigger.condition?.field) {
       const { field, operator, value } = trigger.condition as { field: string; operator: string; value: number };
 
-      if (field === "ih_street_variance") {
-        const clientId: string = unit.clientId || "demo";
-        const variancePct = _lookupIhVariance(clientId, unit.locationId, unit.serviceLine);
-        if (variancePct === null) return false; // not yet calculated for this campus
+      const clientId: string = unit.clientId || "demo";
+      const sl: string | null = unit.serviceLine || null;
+      const rt: string | null = unit.roomType    || null;
+
+      /** Generic campus-metric comparator */
+      function cmpMetric(metricVal: number | null): boolean {
+        if (metricVal === null) return false;
         switch (operator) {
-          case "<":  return variancePct < value;
-          case "<=": return variancePct <= value;
-          case ">":  return variancePct > value;
-          case ">=": return variancePct >= value;
-          case "=":
-          case "==":
-          case "===": return Math.abs(variancePct - value) < 0.01;
+          case "<":  return metricVal < value;
+          case "<=": return metricVal <= value;
+          case ">":  return metricVal > value;
+          case ">=": return metricVal >= value;
+          case "=": case "==": case "===": return Math.abs(metricVal - value) < 0.01;
           default: return false;
         }
+      }
+
+      // IH-to-street variance (separate cache)
+      if (field === "ih_street_variance") {
+        return cmpMetric(_lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL'));
+      }
+
+      // Campus / service-line / room-type occupancy
+      if (field === "occupancy" || field === "campus_occupancy") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, null, null, 'occupancy_pct'));
+      }
+      if (field === "service_line_occupancy") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'occupancy_pct'));
+      }
+      if (field === "room_type_occupancy") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, null, rt, 'occupancy_pct'));
+      }
+
+      // Vacant unit counts
+      if (field === "vacant_units" || field === "vacant_beds") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'vacant_units'));
+      }
+
+      // Competitor rate variance % (own street − comp) / comp × 100
+      if (field === "competitor_rate" || field === "competitor_variance") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'competitor_variance_pct'));
+      }
+
+      // Quality / payer mix — private pay %
+      if (field === "quality_mix" || field === "private_pay") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
+      }
+
+      // Inquiry volume
+      if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count'));
+      }
+      if (field === "tour_count" || field === "tour_volume") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count'));
+      }
+
+      // Average days vacant (campus or SL level)
+      if (field === "avg_days_vacant" || field === "days_vacant_campus") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'avg_days_vacant'));
       }
     }
 
