@@ -767,9 +767,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800/50">
-                    <Sparkles className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
-                    <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
+                    <Sparkles className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
                       AI parses your rule into a structured trigger + action, estimates impact, and saves it. Always review the preview before saving.
                     </p>
                   </div>
@@ -939,21 +939,21 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Logic Preview</p>
                     <div className="rounded-lg bg-white border border-border p-3 text-xs font-mono space-y-1">
-                      <div className="text-blue-700 font-semibold">IF</div>
+                      <div className="text-gray-500 font-semibold">IF</div>
                       {conditions.map((c, i) => (
                         <div key={c.id} className="pl-3 text-gray-700">
-                          {i > 0 && <span className="text-orange-600 font-semibold">{conditionOperator} </span>}
-                          <span className="text-purple-700">{c.metric}</span>
+                          {i > 0 && <span className="text-gray-900 font-semibold">{conditionOperator} </span>}
+                          <span className="text-gray-900 font-medium">{c.metric}</span>
                           {c.timePeriod && <span className="text-gray-500"> ({c.timePeriod})</span>}
-                          {' '}<span className="text-gray-900">{c.operator}</span>
-                          {c.value && <span className="text-green-700"> {c.value}</span>}
+                          {' '}<span className="text-gray-600">{c.operator}</span>
+                          {c.value && <span className="text-gray-900 font-semibold"> {c.value}</span>}
                         </div>
                       ))}
-                      <div className="text-[var(--trilogy-teal)] font-semibold pt-1">THEN</div>
+                      <div className="text-gray-500 font-semibold pt-1">THEN</div>
                       <div className="pl-3 text-gray-700">
-                        <span className="text-purple-700">{actionLabel || 'action'}</span>
+                        <span className="text-gray-900 font-medium">{actionLabel || 'action'}</span>
                         {ruleAction.amountValue && (
-                          <span className="text-green-700"> {ruleAction.amountType === 'percent' ? `${ruleAction.amountValue}%` : `$${ruleAction.amountValue}`}</span>
+                          <span className="text-gray-900 font-semibold"> {ruleAction.amountType === 'percent' ? `${ruleAction.amountValue}%` : `$${ruleAction.amountValue}`}</span>
                         )}
                         {ruleAction.scope && <span className="text-gray-500"> → {ruleAction.scope.toLowerCase()}</span>}
                       </div>
@@ -1003,20 +1003,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                     {/* T3 move-in baseline */}
                     {t3MoveIns && (
-                      <div className="rounded-lg border border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2.5">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400 mb-1.5">Expected Move-Ins (T3 Baseline — do nothing)</p>
+                      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">Expected Move-Ins (T3 Baseline — do nothing)</p>
                         <div className="flex flex-wrap gap-x-3 gap-y-1">
                           {Object.entries(t3MoveIns.byServiceLine).sort(([a],[b])=>a.localeCompare(b)).map(([sl, avg]) => (
-                            <span key={sl} className="text-xs text-blue-800 dark:text-blue-200">
-                              <span className="font-semibold">{sl}</span>: ~{avg.toFixed(1)}/mo
+                            <span key={sl} className="text-xs text-gray-700 dark:text-gray-300">
+                              <span className="font-semibold text-gray-900 dark:text-white">{sl}</span>: ~{avg.toFixed(1)}/mo
                             </span>
                           ))}
-                          <span className="text-xs text-blue-700 dark:text-blue-300 font-medium ml-auto">
+                          <span className="text-xs text-gray-600 dark:text-gray-400 font-medium ml-auto">
                             Campus total: ~{t3MoveIns.campus.toFixed(1)}/mo
                           </span>
                         </div>
                         {t3MoveIns.asOf && (
-                          <p className="text-[10px] text-blue-500 dark:text-blue-500 mt-1">
+                          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
                             Based on {t3MoveIns.monthsUsed} month{t3MoveIns.monthsUsed !== 1 ? 's' : ''} of data through {new Date(t3MoveIns.asOf).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} · HC/HC/MC private pay only
                           </p>
                         )}
@@ -1494,15 +1494,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                     {/* ── Combined active rules summary ── */}
                     {activeCount > 0 && (
-                      <div className="mb-4 rounded-xl border border-teal-200 dark:border-teal-700/50 bg-gradient-to-br from-teal-50 via-white to-white dark:from-teal-950/40 dark:via-gray-900 dark:to-gray-900 p-4">
+                      <div className="mb-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-4">
                         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-900/60 flex items-center justify-center shrink-0">
-                              <Layers className="h-3 w-3 text-teal-600 dark:text-teal-400" />
+                            <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center shrink-0">
+                              <Layers className="h-3 w-3 text-gray-500 dark:text-gray-400" />
                             </div>
-                            <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                               {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
-                              <span className="font-normal text-teal-600/70 dark:text-teal-400/70 ml-1.5 text-xs">· new admissions only</span>
+                              <span className="font-normal text-gray-400 dark:text-gray-500 ml-1.5 text-xs">· new admissions only</span>
                             </p>
                           </div>
                           {hasOverlap && (
@@ -1519,7 +1519,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             { label: 'Monthly',  value: fmt(combinedMonthly),              money: true  },
                             { label: 'Annual',   value: fmt(combinedAnnual),               money: true  },
                           ].map(({ label, value, money }) => (
-                            <div key={label} className="rounded-lg bg-white dark:bg-gray-800/60 border border-teal-100 dark:border-teal-800/40 px-3 py-2.5 text-center">
+                            <div key={label} className="rounded-lg bg-white dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700/60 px-3 py-2.5 text-center">
                               <p className={`text-base font-bold tracking-tight leading-none mb-1 ${
                                 money
                                   ? (combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')
@@ -1952,27 +1952,27 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">
                               Expected Move-Ins / Month (T3 Baseline)
                             </p>
-                            <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20 overflow-hidden">
+                            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 overflow-hidden">
                               <table className="w-full">
                                 <thead>
-                                  <tr className="border-b border-blue-100 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/30">
-                                    <th className="text-left px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">Service Line</th>
-                                    <th className="text-right px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">Move-Ins / Mo</th>
-                                    <th className="text-right px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">12-Mo Projection</th>
+                                  <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                                    <th className="text-left px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-400">Service Line</th>
+                                    <th className="text-right px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-400">Move-Ins / Mo</th>
+                                    <th className="text-right px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-400">12-Mo Projection</th>
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y divide-blue-100 dark:divide-blue-900/30">
+                                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                   {rows.map(({ sl, avg }) => (
                                     <tr key={sl}>
                                       <td className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300">{sl}</td>
-                                      <td className="px-3 py-1.5 text-sm text-right font-semibold text-blue-700 dark:text-blue-300">~{avg.toFixed(1)}</td>
+                                      <td className="px-3 py-1.5 text-sm text-right font-semibold text-gray-900 dark:text-gray-100">~{avg.toFixed(1)}</td>
                                       <td className="px-3 py-1.5 text-sm text-right text-gray-500 dark:text-gray-400">~{Math.round(avg * 12)}</td>
                                     </tr>
                                   ))}
                                   {rows.length > 1 && (
-                                    <tr className="bg-blue-50/80 dark:bg-blue-950/30 font-semibold">
+                                    <tr className="bg-gray-50 dark:bg-gray-800/80 font-semibold">
                                       <td className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300">Total</td>
-                                      <td className="px-3 py-1.5 text-sm text-right text-blue-700 dark:text-blue-300">~{total.toFixed(1)}</td>
+                                      <td className="px-3 py-1.5 text-sm text-right text-gray-900 dark:text-gray-100">~{total.toFixed(1)}</td>
                                       <td className="px-3 py-1.5 text-sm text-right text-gray-500 dark:text-gray-400">~{Math.round(total * 12)}</td>
                                     </tr>
                                   )}
@@ -2065,7 +2065,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
 
             <div className="flex gap-3">
-              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
+              <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</div>
               <div>
                 <p className="font-semibold text-gray-900 dark:text-white mb-1">Unique move-in events only</p>
                 <p className="leading-relaxed">
@@ -2075,7 +2075,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             </div>
 
             <div className="flex gap-3">
-              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
+              <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</div>
               <div>
                 <p className="font-semibold text-gray-900 dark:text-white mb-1">Trailing 3-month average</p>
                 <p className="leading-relaxed">
@@ -2085,7 +2085,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             </div>
 
             <div className="flex gap-3">
-              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
+              <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</div>
               <div>
                 <p className="font-semibold text-gray-900 dark:text-white mb-1">HC and HC/MC: private pay only</p>
                 <p className="leading-relaxed">
@@ -2094,9 +2094,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               </div>
             </div>
 
-            <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/60 dark:bg-blue-950/20 p-3">
-              <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">What the number means</p>
-              <p className="leading-relaxed text-blue-700 dark:text-blue-300">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-3">
+              <p className="font-semibold text-gray-900 dark:text-white mb-1">What the number means</p>
+              <p className="leading-relaxed text-gray-700 dark:text-gray-300">
                 This is the <span className="font-semibold">"do nothing" baseline</span> — how many new residents you'd expect each month if the rule didn't exist and conditions stayed the same. It gives revenue impact context: a rule generating $2,000/mo means something very different at 2 move-ins/mo versus 8.
               </p>
             </div>
