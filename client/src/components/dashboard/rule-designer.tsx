@@ -11,8 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle,
   Trash2, Plus, ChevronRight, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
-  Info, Eye, Save, X, Wand2, ArrowRight
+  Info, Eye, Save, X, Wand2, ArrowRight, Download
 } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle
+} from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 
@@ -176,6 +179,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [isLoadingImpact, setIsLoadingImpact] = useState(false);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleName, setEditingRuleName] = useState<string>('');
+  const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
 
   // Structured builder state
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
@@ -841,163 +845,333 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
         const disabledRules = rules.filter(r => !r.isActive);
         const activeCount = activeRules.length;
 
-        // Combined portfolio impact across all active rules
-        const combinedUnits = activeRules.reduce((s, r) => s + (r.affectedUnits ?? 0), 0);
+        const combinedUnits    = activeRules.reduce((s, r) => s + (r.affectedUnits    ?? 0), 0);
         const combinedCampuses = activeRules.reduce((s, r) => s + (r.affectedCampuses ?? 0), 0);
-        const combinedAnnual = activeRules.reduce((s, r) => s + (r.annualImpact ?? 0), 0);
+        const combinedMonthly  = activeRules.reduce((s, r) => s + (r.monthlyImpact    ?? 0), 0);
+        const combinedAnnual   = activeRules.reduce((s, r) => s + (r.annualImpact     ?? 0), 0);
 
         const sortedRules = [...activeRules.slice().reverse(), ...disabledRules.slice().reverse()];
 
-        const fmtImpact = (v: number) => {
+        const fmt = (v: number) => {
           const abs = Math.abs(v);
           const sign = v >= 0 ? '+' : '-';
           if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-          if (abs >= 1_000) return `${sign}$${Math.round(abs / 1_000)}K`;
-          return `${sign}$${abs.toLocaleString()}`;
+          if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}K`;
+          return `${sign}$${Math.round(abs).toLocaleString()}`;
+        };
+
+        // June 2026 → December 2026 = 6 months
+        const monthsToDecember = 6;
+
+        const exportRules = async () => {
+          try {
+            const params = new URLSearchParams();
+            if (locationId) params.set('locationId', locationId);
+            if (serviceLine) params.set('serviceLine', serviceLine);
+            const res = await fetch(`/api/adjustment-rules/export${params.toString() ? '?' + params : ''}`);
+            if (!res.ok) throw new Error();
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'rules-impact-detail.csv'; a.click();
+            URL.revokeObjectURL(url);
+          } catch {
+            toast({ title: 'Export failed', variant: 'destructive' });
+          }
         };
 
         return (
-          <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
-            <Card className="w-full shadow-sm">
-              <CollapsibleTrigger asChild>
-                <CardHeader className="pb-2 cursor-pointer select-none hover:bg-muted/30 rounded-t-lg transition-colors">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                      Rules
-                      {activeCount > 0
-                        ? <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/50 text-xs">{activeCount} active</Badge>
-                        : <Badge variant="secondary" className="text-xs">none active</Badge>
-                      }
-                      {disabledRules.length > 0 && (
-                        <Badge variant="secondary" className="text-xs text-muted-foreground">{disabledRules.length} off</Badge>
-                      )}
-                    </CardTitle>
-                    <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
-                  </div>
-                  <CardDescription className="text-xs">
-                    Select rules to apply during the next pricing round. Impact reflects expected new admissions.
-                  </CardDescription>
-                </CardHeader>
-              </CollapsibleTrigger>
-
-              <CollapsibleContent>
-                <CardContent className="pt-0 pb-3">
-
-                  {/* Combined impact summary bar */}
-                  {activeCount > 0 && (
-                    <div className="mb-3 rounded-lg bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-600/50 px-3 py-2.5 flex items-center gap-4 flex-wrap">
-                      <div className="flex items-center gap-1.5 text-teal-700 dark:text-teal-300">
-                        <TrendingUp className="h-3.5 w-3.5 shrink-0" />
-                        <span className="text-xs font-semibold">Combined Portfolio Impact</span>
+          <>
+            <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
+              <Card className="w-full shadow-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="pb-2 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-t-lg transition-colors">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <CheckCircle2 className="h-4 w-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                        <span className="text-base font-semibold text-gray-900 dark:text-white">Rules</span>
+                        {activeCount > 0
+                          ? <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 border border-green-200 px-2 py-0.5 text-xs font-medium">{activeCount} active</span>
+                          : <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">none active</span>
+                        }
+                        {disabledRules.length > 0 && (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">{disabledRules.length} off</span>
+                        )}
                       </div>
-                      <div className="flex gap-3 flex-wrap text-xs">
-                        <span className="text-gray-600 dark:text-gray-300">
-                          <span className="font-semibold text-gray-900 dark:text-white">{combinedCampuses}</span> campuses
-                        </span>
-                        <span className="text-gray-600 dark:text-gray-300">
-                          <span className="font-semibold text-gray-900 dark:text-white">{combinedUnits.toLocaleString()}</span> units
-                        </span>
-                        <span className={`font-bold ${combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
-                          {fmtImpact(combinedAnnual)}/yr
-                        </span>
-                        <span className="text-gray-500 dark:text-gray-400 italic">new admissions only</span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline" size="sm"
+                          className="h-7 text-xs gap-1.5 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          onClick={e => { e.stopPropagation(); exportRules(); }}
+                          title="Export rules impact by campus and service line"
+                        >
+                          <Download className="h-3 w-3" />
+                          Export CSV
+                        </Button>
+                        <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
                       </div>
                     </div>
-                  )}
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Select rules to apply during the next pricing round. Impact reflects expected new admissions
+                      {(locationId || serviceLine)
+                        ? ` filtered to ${locationName || 'selected location'}${serviceLine ? ` · ${serviceLine}` : ''}.`
+                        : ' across all campuses.'}
+                    </p>
+                  </CardHeader>
+                </CollapsibleTrigger>
 
-                  <div className="max-h-80 overflow-y-auto divide-y divide-border/30">
-                    {sortedRules.map((rule) => {
-                      const impact = rule.annualImpact ?? 0;
-                      const isPositive = impact >= 0;
-                      const hasCampuses = (rule.affectedCampuses ?? 0) > 0;
-                      const hasUnits = (rule.affectedUnits ?? 0) > 0;
-                      const hasImpact = impact !== 0;
+                <CollapsibleContent>
+                  <CardContent className="pt-0 pb-4 px-4">
 
-                      return (
-                        <div
-                          key={rule.id}
-                          className={`flex items-start gap-3 py-3 px-2 rounded-lg transition-colors
-                            ${rule.isActive
-                              ? 'bg-white dark:bg-gray-800'
-                              : 'bg-gray-50 dark:bg-gray-900/50 opacity-70'}`}
-                          data-testid={`rule-${rule.id}`}
-                        >
-                          {/* Status dot */}
-                          <div className={`mt-1.5 shrink-0 w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-400 dark:bg-gray-500'}`} />
+                    {/* ── Combined active rules summary ── */}
+                    {activeCount > 0 && (
+                      <div className="mb-4 rounded-lg border border-teal-200 dark:border-teal-700/60 bg-teal-50 dark:bg-teal-950/30 p-3">
+                        <p className="text-xs font-semibold text-teal-700 dark:text-teal-300 flex items-center gap-1.5 mb-2.5">
+                          <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+                          Combined Impact — {activeCount} Active Rule{activeCount > 1 ? 's' : ''}
+                          <span className="font-normal text-teal-600 dark:text-teal-400 ml-1">· new admissions only</span>
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {[
+                            { label: 'Campuses',  value: combinedCampuses.toLocaleString(), money: false },
+                            { label: 'Units',     value: combinedUnits.toLocaleString(),     money: false },
+                            { label: '/Month',    value: fmt(combinedMonthly),               money: true  },
+                            { label: '/Year',     value: fmt(combinedAnnual),                money: true  },
+                          ].map(({ label, value, money }) => (
+                            <div key={label} className="rounded-md bg-white dark:bg-gray-800 border border-teal-100 dark:border-teal-800/50 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold mb-0.5">{label}</p>
+                              <p className={`text-sm font-bold ${money ? (combinedAnnual >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400') : 'text-gray-900 dark:text-white'}`}>
+                                {value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                          {/* Name + description + stat chips */}
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <p className={`text-sm font-semibold leading-snug ${rule.isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}>
-                              {rule.name}
-                            </p>
+                    {/* ── Rule list ── */}
+                    <div className="space-y-2">
+                      {sortedRules.map((rule) => {
+                        const annual  = rule.annualImpact  ?? 0;
+                        const monthly = rule.monthlyImpact ?? 0;
+                        const isPos   = annual >= 0;
+                        return (
+                          <div
+                            key={rule.id}
+                            className={`rounded-lg border transition-all ${
+                              rule.isActive
+                                ? 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                                : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-800 opacity-60'
+                            }`}
+                            data-testid={`rule-${rule.id}`}
+                          >
+                            {/* Top row: dot + name + toggle */}
+                            <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1.5">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className={`shrink-0 w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                                <p className="text-sm font-semibold text-gray-900 dark:text-white leading-snug truncate">{rule.name}</p>
+                              </div>
+                              <Switch
+                                checked={rule.isActive}
+                                onCheckedChange={() => toggleRule(rule.id)}
+                                aria-label={`Toggle ${rule.name}`}
+                                data-testid={`switch-rule-${rule.id}`}
+                                className="shrink-0"
+                              />
+                            </div>
+
+                            {/* Description */}
                             {rule.description && (
-                              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
+                              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed px-3 pb-1.5 ml-4">
                                 {rule.description}
                               </p>
                             )}
-                            {/* Stat chips row */}
-                            <div className="flex flex-wrap gap-1.5 pt-0.5">
-                              {hasCampuses && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
-                                  {rule.affectedCampuses} campuses
-                                </span>
-                              )}
-                              {hasUnits && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
-                                  {(rule.affectedUnits ?? 0).toLocaleString()} units
-                                </span>
-                              )}
-                              {hasImpact && (
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
-                                  ${isPositive
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
-                                    : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'}`}>
-                                  {isPositive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-                                  {fmtImpact(impact)}/yr
-                                </span>
-                              )}
-                            </div>
-                          </div>
 
-                          {/* Toggle + actions — stacked vertically to save horizontal space */}
-                          <div className="shrink-0 flex flex-col items-center gap-1">
-                            <Switch
-                              checked={rule.isActive}
-                              onCheckedChange={() => toggleRule(rule.id)}
-                              aria-label={`Toggle ${rule.name}`}
-                              data-testid={`switch-rule-${rule.id}`}
-                            />
-                            <div className="flex gap-0.5">
-                              <Button
-                                variant="ghost" size="icon"
-                                className="h-6 w-6 text-muted-foreground hover:text-[var(--trilogy-teal)]"
-                                onClick={() => startEdit(rule)}
-                                title="Edit rule"
-                                data-testid={`button-edit-${rule.id}`}
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                variant="ghost" size="icon"
-                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                                onClick={() => deleteRule(rule.id, rule.name)}
-                                title="Delete rule"
-                                data-testid={`button-delete-${rule.id}`}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                            {/* Chips + action buttons */}
+                            <div className="flex items-center justify-between gap-2 px-3 pb-2.5 ml-4">
+                              <div className="flex flex-wrap gap-1.5">
+                                {(rule.affectedCampuses ?? 0) > 0 && (
+                                  <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
+                                    {rule.affectedCampuses} campuses
+                                  </span>
+                                )}
+                                {(rule.affectedUnits ?? 0) > 0 && (
+                                  <span className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-200">
+                                    {(rule.affectedUnits ?? 0).toLocaleString()} units
+                                  </span>
+                                )}
+                                {monthly !== 0 && (
+                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold
+                                    ${isPos ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}>
+                                    {fmt(monthly)}/mo
+                                  </span>
+                                )}
+                                {annual !== 0 && (
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
+                                    ${isPos ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}>
+                                    {isPos ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                                    {fmt(annual)}/yr
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
+                                  onClick={() => setInfoRule(rule)}
+                                  title="How this rule works"
+                                >
+                                  <Info className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-7 w-7 text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30"
+                                  onClick={() => startEdit(rule)}
+                                  title="Edit rule"
+                                  data-testid={`button-edit-${rule.id}`}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost" size="icon"
+                                  className="h-7 w-7 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                                  onClick={() => deleteRule(rule.id, rule.name)}
+                                  title="Delete rule"
+                                  data-testid={`button-delete-${rule.id}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
+                        );
+                      })}
+                    </div>
+
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+
+            {/* ── Rule Info Dialog ── */}
+            {infoRule && (() => {
+              const action       = infoRule.action as any;
+              const filters      = action?.filters || {};
+              const adjType      = action?.adjustmentType || 'percentage';
+              const adjValue: number = action?.adjustmentValue ?? 0;
+              const rateTarget   = action?.target === 'care_rate' ? 'care rate' : 'street rate';
+
+              const monthly = infoRule.monthlyImpact ?? 0;
+              const units   = infoRule.affectedUnits  ?? 0;
+
+              const periods = [
+                { label: '1 Month',     months: 1 },
+                { label: '3 Months',    months: 3 },
+                { label: '6 Months',    months: 6 },
+                { label: '12 Months',   months: 12 },
+                { label: 'By Dec 2026', months: monthsToDecember, highlight: true },
+              ];
+
+              const scopeLines: string[] = [];
+              if      (filters.occupancyStatus === 'vacant')   scopeLines.push('Vacant units only');
+              else if (filters.occupancyStatus === 'occupied') scopeLines.push('Occupied units only');
+              else                                              scopeLines.push('All units (vacant + occupied)');
+              if (filters.serviceLine?.length) scopeLines.push(`Service lines: ${(filters.serviceLine as string[]).join(', ')}`);
+              else                             scopeLines.push('All service lines');
+              if (filters.roomType?.length)    scopeLines.push(`Room types: ${(filters.roomType as string[]).join(', ')}`);
+              if (filters.vacancyDuration) {
+                const vd = filters.vacancyDuration as { operator: string; days: number };
+                scopeLines.push(`Vacant ${vd.operator} ${vd.days} days`);
+              }
+              if (locationId)   scopeLines.push(`Filtered to: ${locationName || locationId}`);
+              if (serviceLine)  scopeLines.push(`Service line filter: ${serviceLine}`);
+
+              const direction = adjValue >= 0 ? 'increases' : 'decreases';
+              const amount    = adjType === 'percentage' ? `${Math.abs(adjValue)}%` : `$${Math.abs(adjValue)}`;
+              const calcNote  = adjType === 'percentage'
+                ? `Monthly impact = (${Math.abs(adjValue)} ÷ 100) × sum of matched ${rateTarget}s across all affected units. Only new move-ins are affected — existing residents keep their contracted rate.`
+                : `Monthly impact = $${Math.abs(adjValue)} × number of matched units. Only new move-ins are affected — existing residents keep their contracted rate.`;
+
+              return (
+                <Dialog open={!!infoRule} onOpenChange={open => { if (!open) setInfoRule(null); }}>
+                  <DialogContent className="max-w-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                    <DialogHeader className="pb-0">
+                      <DialogTitle className="text-gray-900 dark:text-white text-base leading-snug">{infoRule.name}</DialogTitle>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed pt-1">{infoRule.description}</p>
+                    </DialogHeader>
+
+                    <div className="space-y-4 mt-1">
+
+                      {/* Applies to */}
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">Applies To</p>
+                        <ul className="space-y-1.5">
+                          {scopeLines.map((line, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                              <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-500 shrink-0" />
+                              {line}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Revenue & RevPOR timeline */}
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">
+                          Revenue Impact Timeline &mdash; new admissions only
+                        </p>
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                                <th className="text-left px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300">Period</th>
+                                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300">Revenue</th>
+                                <th className="text-right px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300">RevPOR / unit</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                              {periods.map(({ label, months, highlight }) => {
+                                const rev    = monthly * months;
+                                const revpor = units > 0 ? (monthly / units) * months : 0;
+                                const pos    = rev >= 0;
+                                return (
+                                  <tr key={label} className={highlight ? 'bg-blue-50 dark:bg-blue-950/20' : ''}>
+                                    <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300 font-medium">
+                                      {label}
+                                      {highlight && <span className="ml-1.5 text-[10px] text-blue-600 dark:text-blue-400 font-normal">(6 mo away)</span>}
+                                    </td>
+                                    <td className={`px-3 py-2 text-sm text-right font-semibold ${pos ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+                                      {fmt(rev)}
+                                    </td>
+                                    <td className={`px-3 py-2 text-sm text-right ${pos ? 'text-green-600 dark:text-green-500' : 'text-red-600 dark:text-red-500'}`}>
+                                      {units > 0 ? `${pos ? '+' : '-'}$${Math.round(Math.abs(revpor)).toLocaleString()}` : '—'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5 italic leading-snug">
+                          RevPOR / unit = cumulative rate improvement per affected unit over the period.
+                          Revenue = rate delta × affected units × months.
+                        </p>
+                      </div>
 
-                </CardContent>
-              </CollapsibleContent>
-            </Card>
-          </Collapsible>
+                      {/* How revenue is calculated */}
+                      <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5">How Revenue is Calculated</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                          This rule <strong className="text-gray-800 dark:text-gray-100">{direction}</strong> the <strong className="text-gray-800 dark:text-gray-100">{rateTarget}</strong> by <strong className="text-gray-800 dark:text-gray-100">{amount}</strong> for each matched unit. {calcNote}
+                        </p>
+                      </div>
+
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              );
+            })()}
+          </>
         );
       })()}
     </div>

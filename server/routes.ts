@@ -14012,7 +14012,7 @@ Respond in JSON format:
   // Helper: compute revenue impact for an adjustment rule using the latest month's data
   async function computeRuleImpact(rule: any, clientId: string): Promise<{
     monthlyImpact: number; annualImpact: number;
-    volumeAdjustedAnnualImpact: number; affectedUnits: number;
+    volumeAdjustedAnnualImpact: number; affectedUnits: number; affectedCampuses: number;
   }> {
     try {
       const action = rule.action as any;
@@ -14079,7 +14079,7 @@ Respond in JSON format:
       };
     } catch (err) {
       console.error('computeRuleImpact error:', err);
-      return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0 };
+      return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0, affectedCampuses: 0 };
     }
   }
 
@@ -14145,6 +14145,94 @@ Respond in JSON format:
     }
   });
   
+  app.get("/api/adjustment-rules/export", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLine } = req.query;
+
+      let query = db.select().from(adjustmentRules);
+      const conds: any[] = [];
+      if (locationId) conds.push(or(eq(adjustmentRules.locationId, locationId as string), sql`${adjustmentRules.locationId} IS NULL`));
+      if (serviceLine) conds.push(or(eq(adjustmentRules.serviceLine, serviceLine as string), sql`${adjustmentRules.serviceLine} IS NULL`));
+      if (conds.length) query = query.where(and(...conds)) as any;
+      const rules = await query;
+
+      const latestRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+        [clientId]
+      );
+      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
+
+      const escapeCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csvLines: string[] = [
+        ['Rule Name', 'Active', 'Campus', 'Service Line', 'Units Affected', 'Monthly Impact ($)', 'Annual Impact ($)', '3-Month ($)', '6-Month ($)'].join(',')
+      ];
+
+      if (latestMonth) {
+        for (const rule of rules) {
+          const action = rule.action as any;
+          const filters = action?.filters || {};
+          const adjustmentType: string = action?.adjustmentType || 'percentage';
+          const adjustmentValue: number = action?.adjustmentValue ?? 0;
+          const rateColumn = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
+
+          const whereParts: string[] = ['rrd.client_id = $1', 'rrd.upload_month = $2'];
+          const params: any[] = [clientId, latestMonth];
+          let idx = 3;
+
+          if (locationId) { whereParts.push(`rrd.location_id = $${idx}`); params.push(locationId as string); idx++; }
+          if (filters.roomType?.length) { whereParts.push(`rrd.room_type = ANY($${idx}::text[])`); params.push(filters.roomType); idx++; }
+          if (filters.serviceLine?.length) { whereParts.push(`rrd.service_line = ANY($${idx}::text[])`); params.push(filters.serviceLine); idx++; }
+          else if (serviceLine) { whereParts.push(`rrd.service_line = $${idx}`); params.push(serviceLine as string); idx++; }
+          if (filters.occupancyStatus === 'vacant') { whereParts.push(`(rrd.occupied_yn = false OR rrd.occupied_yn IS NULL)`); }
+          else if (filters.occupancyStatus === 'occupied') { whereParts.push(`rrd.occupied_yn = true`); }
+          if (filters.vacancyDuration) {
+            const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
+            whereParts.push(`rrd.days_vacant ${operator} $${idx}`);
+            params.push(days); idx++;
+          }
+
+          const { rows: breakdown } = await pool.query(`
+            SELECT
+              COALESCE(l.name, rrd.location_id) AS campus_name,
+              rrd.service_line,
+              COUNT(*)::int AS unit_count,
+              COALESCE(SUM(rrd.${rateColumn}), 0)::float AS total_rate
+            FROM rent_roll_data rrd
+            LEFT JOIN locations l ON l.id = rrd.location_id AND l.client_id = $1
+            WHERE ${whereParts.join(' AND ')}
+            GROUP BY rrd.location_id, l.name, rrd.service_line
+            ORDER BY campus_name, rrd.service_line
+          `, params);
+
+          for (const row of breakdown) {
+            const monthlyImpact = adjustmentType === 'percentage'
+              ? row.total_rate * (adjustmentValue / 100)
+              : row.unit_count * adjustmentValue;
+            csvLines.push([
+              escapeCsv(rule.name),
+              rule.isActive ? 'Yes' : 'No',
+              escapeCsv(row.campus_name),
+              escapeCsv(row.service_line || ''),
+              row.unit_count,
+              Math.round(monthlyImpact),
+              Math.round(monthlyImpact * 12),
+              Math.round(monthlyImpact * 3),
+              Math.round(monthlyImpact * 6),
+            ].join(','));
+          }
+        }
+      }
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="rules-impact-detail.csv"');
+      res.send(csvLines.join('\n'));
+    } catch (error) {
+      console.error('Error exporting rules:', error);
+      res.status(500).json({ error: 'Export failed' });
+    }
+  });
+
   app.patch("/api/adjustment-rules/:id", async (req, res) => {
     try {
       const { id } = req.params;
