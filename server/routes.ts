@@ -4437,6 +4437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           division: locations.division,
           serviceLine: rentRollData.serviceLine,
           roomType: rentRollData.roomType,
+          rawRoomType: rentRollData.rawRoomType,
           streetRate: rentRollData.streetRate,
           moduloSuggestedRate: rentRollData.moduloSuggestedRate,
           ruleAdjustedRate: rentRollData.ruleAdjustedRate,
@@ -4464,13 +4465,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return (rounded >= 0 ? '+' : '') + rounded.toFixed(1) + '%';
       };
 
-      const rows = units.map(u => {
+      const allRows = units.map(u => {
         const moduloRate = u.ruleAdjustedRate ?? u.moduloSuggestedRate;
+        const roomTypeDisplay = u.rawRoomType || u.roomType;
         return {
           'Division': u.division || '',
           'Location': u.location,
           'Service Line': u.serviceLine,
-          'Room Type': u.roomType,
+          'Room Type': roomTypeDisplay,
           'Room Type Group': normalizeRoomType(u.roomType),
           'Current Street Rate': u.streetRate ?? '',
           'Modulo Suggested Rate': moduloRate ?? '',
@@ -4479,6 +4481,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Rev Target AI Adjustment': formatAdj(u.aiSuggestedRate, u.streetRate),
         };
       });
+
+      // Deduplicate: one row per unique Division + Location + Service Line + Room Type
+      const dedupeMap = new Map<string, typeof allRows[0]>();
+      for (const row of allRows) {
+        const key = `${row['Division']}|${row['Location']}|${row['Service Line']}|${row['Room Type']}`;
+        if (!dedupeMap.has(key)) {
+          dedupeMap.set(key, row);
+        }
+      }
+      const rows = Array.from(dedupeMap.values());
 
       const csvContent = Papa.unparse(rows);
       const filename = `pricing_recommendations_${new Date().toISOString().split('T')[0]}.csv`;
