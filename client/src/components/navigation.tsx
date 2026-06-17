@@ -81,21 +81,21 @@ export default function Navigation({ className }: NavigationProps) {
 
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
-          <div className="flex items-center py-1">
+          <div className="flex items-center py-2">
             {/* Logo */}
             <div className="flex-shrink-0 mr-3 lg:mr-5">
               <Link href="/overview" className="flex items-center" data-testid="link-home">
                 <img 
                   src="/attached_assets/image_1756817717051.png" 
                   alt="Modulo" 
-                  className="h-9 md:h-10 w-auto rounded-md"
+                  className="h-16 md:h-20 w-auto rounded-lg"
                 />
               </Link>
             </div>
             
             {/* Main Navigation - Desktop */}
             <div className="hidden md:flex flex-1 min-w-0">
-              <div className="flex gap-x-0.5 lg:gap-x-1 xl:gap-x-2">
+              <div className="flex gap-x-0.5 lg:gap-x-2 xl:gap-x-3">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location === item.path || (location === "/" && item.path === "/overview");
@@ -105,14 +105,14 @@ export default function Navigation({ className }: NavigationProps) {
                       key={item.path}
                       href={item.path}
                       className={cn(
-                        "inline-flex flex-col items-center text-center px-1 lg:px-1.5 py-1 border-b-2 text-[11px] lg:text-xs font-medium transition-colors duration-200 max-w-[64px] lg:max-w-[80px]",
+                        "inline-flex flex-col items-center text-center px-1 lg:px-1.5 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200 max-w-[72px] lg:max-w-[90px]",
                         isActive
                           ? "border-[var(--trilogy-blue)] text-[var(--trilogy-dark-blue)]"
                           : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                       )}
                       data-testid={`link-${item.path.slice(1)}`}
                     >
-                      <Icon className="h-3 w-3 flex-shrink-0 mb-0.5" />
+                      <Icon className="h-3.5 w-3.5 flex-shrink-0 mb-0.5" />
                       <span className="leading-tight">{item.label}</span>
                     </Link>
                   );
@@ -120,16 +120,16 @@ export default function Navigation({ className }: NavigationProps) {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 ml-auto">
+            <div className="flex items-center space-x-4 ml-auto">
               {/* Inflect link */}
               <a
                 href="https://inflect.replit.app"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden md:inline-flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
                 title="Inflect"
               >
-                <img src={inflectLogo} alt="Inflect" className="h-8 w-auto rounded-md" />
+                <img src={inflectLogo} alt="Inflect" className="h-[50px] w-auto rounded-lg" />
               </a>
 
               {/* Auth button - Desktop */}
