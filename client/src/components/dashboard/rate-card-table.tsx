@@ -888,8 +888,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             <div
               ref={topScrollRef}
               onScroll={handleTopScroll}
-              className="overflow-x-scroll overflow-y-hidden mb-1"
-              style={{ height: 14 }}
+              className="scroll-mirror-top mb-1"
             >
               <div style={{ width: tableScrollWidth, height: 1 }} />
             </div>
@@ -899,7 +898,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
               onScroll={handleBottomScroll}
               className={isFullscreen ? "scroll-track-bottom flex-1 overflow-auto" : "scroll-track-bottom"}
             >
-              <Table ref={tableRef} className="w-full text-xs">
+              <Table ref={tableRef} className="w-full min-w-[950px] text-xs">
                 <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
                   <TableRow>
                     {/* Location — sort + text search filter */}
