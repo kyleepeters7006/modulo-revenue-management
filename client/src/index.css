@@ -90,6 +90,27 @@
   }
 }
 
+/* Always-visible horizontal scrollbar for table top/bottom mirrors */
+.table-hscroll {
+  overflow-x: scroll;
+  overflow-y: hidden;
+}
+.table-hscroll::-webkit-scrollbar {
+  height: 8px;
+  display: block;
+}
+.table-hscroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+.table-hscroll::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+.table-hscroll::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
 @layer components {
   .dashboard-card {
     background-color: var(--dashboard-surface);

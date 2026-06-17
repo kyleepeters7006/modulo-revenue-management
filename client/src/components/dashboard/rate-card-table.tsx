@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -104,11 +104,14 @@ export default function RateCardTable({
     }
   }, []);
 
-  useEffect(() => {
+  // Sync after every render so the top mirror always matches the table width
+  useLayoutEffect(() => {
     syncTopWidth();
+  });
+
+  // ResizeObserver keeps the mirror in sync when window/table resizes
+  useEffect(() => {
     const observer = new ResizeObserver(syncTopWidth);
-    // Watch the TABLE itself — its width changes from 0 → min-w-max when data
-    // loads, which is when we need to update the top scrollbar mirror.
     if (tableRef.current) observer.observe(tableRef.current);
     if (bottomScrollRef.current) observer.observe(bottomScrollRef.current);
     return () => observer.disconnect();
@@ -888,7 +891,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             <div
               ref={topScrollRef}
               onScroll={handleTopScroll}
-              style={{ overflowX: 'scroll', overflowY: 'hidden', marginBottom: 4 }}
+              className="table-hscroll mb-1"
             >
               <div ref={topInnerRef} style={{ height: 1 }} />
             </div>
@@ -896,7 +899,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             <div
               ref={bottomScrollRef}
               onScroll={handleBottomScroll}
-              className={isFullscreen ? "flex-1 overflow-auto" : "overflow-x-auto"}
+              className={isFullscreen ? "table-hscroll flex-1 overflow-auto" : "table-hscroll"}
             >
               <Table ref={tableRef} className="min-w-max">
                 <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
