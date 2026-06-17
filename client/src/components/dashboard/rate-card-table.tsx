@@ -88,52 +88,62 @@ export default function RateCardTable({
   });
   const ITEMS_PER_PAGE = 50;
 
-  // Refs for syncing top + bottom horizontal scrollbars
-  const topScrollRef = useRef<HTMLDivElement>(null);
+  // Refs for the scrollable table wrapper and the table element itself
   const bottomScrollRef = useRef<HTMLDivElement>(null);
-  const topInnerRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-  const isSyncingScroll = useRef(false);
 
-  // Keep the top mirror div the same width as the table's scroll content.
-  // We measure the TABLE element (min-w-max) rather than the scroll container
-  // because the container's rendered width stays fixed; only the table grows.
-  const syncTopWidth = useCallback(() => {
-    if (bottomScrollRef.current && topInnerRef.current) {
-      topInnerRef.current.style.width = `${bottomScrollRef.current.scrollWidth}px`;
-    }
+  // Custom top scrollbar state — width & left position of the visible thumb
+  const [thumbWidth, setThumbWidth] = useState(0);
+  const [thumbLeft,  setThumbLeft]  = useState(0);
+  const isDraggingThumb    = useRef(false);
+  const dragStartX         = useRef(0);
+  const dragStartScrollLeft = useRef(0);
+
+  // Recalculate thumb geometry from the table's current scroll state
+  const updateThumb = useCallback(() => {
+    const el = bottomScrollRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    if (scrollWidth <= clientWidth) { setThumbWidth(0); return; }
+    const w    = Math.max(40, Math.floor(clientWidth * (clientWidth / scrollWidth)));
+    const maxL = clientWidth - w;
+    const left = maxL > 0 ? Math.floor((scrollLeft / (scrollWidth - clientWidth)) * maxL) : 0;
+    setThumbWidth(w);
+    setThumbLeft(left);
   }, []);
 
-  // Sync after every render so the top mirror always matches the table width
-  useLayoutEffect(() => {
-    syncTopWidth();
-  });
+  // Recompute thumb after every render (data load, filter change, etc.)
+  useLayoutEffect(() => { updateThumb(); });
 
-  // ResizeObserver keeps the mirror in sync when window/table resizes
+  // Keep thumb in sync when the table or container is resized
   useEffect(() => {
-    const observer = new ResizeObserver(syncTopWidth);
-    if (tableRef.current) observer.observe(tableRef.current);
+    const observer = new ResizeObserver(updateThumb);
+    if (tableRef.current)    observer.observe(tableRef.current);
     if (bottomScrollRef.current) observer.observe(bottomScrollRef.current);
     return () => observer.disconnect();
-  }, [syncTopWidth]);
+  }, [updateThumb]);
 
-  const handleTopScroll = useCallback(() => {
-    if (isSyncingScroll.current) return;
-    isSyncingScroll.current = true;
-    if (bottomScrollRef.current && topScrollRef.current) {
-      bottomScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
-    }
-    isSyncingScroll.current = false;
-  }, []);
+  // Global mouse handlers for dragging the custom thumb
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDraggingThumb.current || !bottomScrollRef.current) return;
+      const el   = bottomScrollRef.current;
+      const maxL = el.clientWidth - thumbWidth;
+      if (maxL <= 0) return;
+      const dx           = e.clientX - dragStartX.current;
+      const scrollRatio  = (el.scrollWidth - el.clientWidth) / maxL;
+      el.scrollLeft      = dragStartScrollLeft.current + dx * scrollRatio;
+    };
+    const onUp = () => { isDraggingThumb.current = false; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+    };
+  }, [thumbWidth]);
 
-  const handleBottomScroll = useCallback(() => {
-    if (isSyncingScroll.current) return;
-    isSyncingScroll.current = true;
-    if (topScrollRef.current && bottomScrollRef.current) {
-      topScrollRef.current.scrollLeft = bottomScrollRef.current.scrollLeft;
-    }
-    isSyncingScroll.current = false;
-  }, []);
+  const handleBottomScroll = useCallback(() => { updateThumb(); }, [updateThumb]);
 
   // ESC key closes fullscreen
   useEffect(() => {
@@ -887,14 +897,42 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             </div>
           ) : (
             <>
-            {/* Top scrollbar mirror — stays in sync with the table below */}
-            <div
-              ref={topScrollRef}
-              onScroll={handleTopScroll}
-              className="scroll-mirror-top mb-1"
-            >
-              <div ref={topInnerRef} style={{ height: 1 }} />
-            </div>
+            {/* Custom top scrollbar — JS-controlled thumb, always visible when table overflows */}
+            {thumbWidth > 0 && (
+              <div
+                className="relative mb-1 rounded-sm select-none"
+                style={{ height: 14, background: '#e2e8f0' }}
+                onMouseDown={(e) => {
+                  const el = bottomScrollRef.current;
+                  if (!el) return;
+                  const rect  = e.currentTarget.getBoundingClientRect();
+                  const clickX = e.clientX - rect.left;
+                  const maxL   = el.clientWidth - thumbWidth;
+                  if (maxL <= 0) return;
+                  const ratio  = Math.max(0, Math.min(1, (clickX - thumbWidth / 2) / maxL));
+                  el.scrollLeft = ratio * (el.scrollWidth - el.clientWidth);
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    bottom: 2,
+                    left: thumbLeft,
+                    width: thumbWidth,
+                    background: '#64748b',
+                    borderRadius: 4,
+                    cursor: 'grab',
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    isDraggingThumb.current    = true;
+                    dragStartX.current         = e.clientX;
+                    dragStartScrollLeft.current = bottomScrollRef.current?.scrollLeft ?? 0;
+                  }}
+                />
+              </div>
+            )}
 
             <div
               ref={bottomScrollRef}
