@@ -90,28 +90,29 @@
   }
 }
 
-/* Always-visible horizontal scrollbar for table top/bottom mirrors */
-.table-hscroll {
+/* ── Top scrollbar mirror: always-visible, fixed 16px tall ── */
+.scroll-mirror-top {
   overflow-x: scroll;
   overflow-y: hidden;
+  height: 16px;
   scrollbar-width: thin;
   scrollbar-color: #b0b0b0 #e8e8e8;
 }
-.table-hscroll::-webkit-scrollbar {
-  height: 10px;
+.scroll-mirror-top::-webkit-scrollbar        { height: 10px; }
+.scroll-mirror-top::-webkit-scrollbar-track  { background: #e8e8e8; border-radius: 5px; }
+.scroll-mirror-top::-webkit-scrollbar-thumb  { background: #b0b0b0; border-radius: 5px; min-width: 40px; }
+.scroll-mirror-top::-webkit-scrollbar-thumb:hover { background: #888; }
+
+/* ── Bottom table scroll container: natural overflow, styled scrollbar ── */
+.scroll-track-bottom {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #b0b0b0 #e8e8e8;
 }
-.table-hscroll::-webkit-scrollbar-track {
-  background: #e8e8e8;
-  border-radius: 5px;
-}
-.table-hscroll::-webkit-scrollbar-thumb {
-  background: #b0b0b0;
-  border-radius: 5px;
-  min-width: 40px;
-}
-.table-hscroll::-webkit-scrollbar-thumb:hover {
-  background: #888;
-}
+.scroll-track-bottom::-webkit-scrollbar        { height: 10px; }
+.scroll-track-bottom::-webkit-scrollbar-track  { background: #e8e8e8; border-radius: 5px; }
+.scroll-track-bottom::-webkit-scrollbar-thumb  { background: #b0b0b0; border-radius: 5px; min-width: 40px; }
+.scroll-track-bottom::-webkit-scrollbar-thumb:hover { background: #888; }
 
 @layer components {
   .dashboard-card {
