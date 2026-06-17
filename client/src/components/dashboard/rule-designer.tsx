@@ -196,16 +196,16 @@ interface CampusSnapshot {
 
 // ── Metric table row sub-components ─────────────────────────────────────────
 function MetricDimensionCell({ label, highlight, isServiceLine }: { label: string; highlight?: boolean; isServiceLine?: boolean }) {
-  if (highlight) return <span className="inline-flex px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">{label}</span>;
-  if (isServiceLine) return <span className="inline-flex px-2 py-0.5 rounded-full bg-muted/60 text-foreground text-xs">{label}</span>;
-  return <span className="text-muted-foreground text-xs">{label}</span>;
+  if (highlight) return <span className="inline-flex px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">{label}</span>;
+  if (isServiceLine) return <span className="inline-flex px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs">{label}</span>;
+  return <span className="text-slate-500 text-xs">{label}</span>;
 }
 
 function OccRow({ label, occPct, occupied, total, highlight, isServiceLine }: { label: string; occPct: number|null; occupied: number|null; total: number|null; highlight?: boolean; isServiceLine?: boolean }) {
   const pct = occPct ?? 0;
-  const pctStyle = pct >= 90 ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30' : pct >= 75 ? 'text-amber-600 bg-amber-50 dark:bg-amber-950/30' : 'text-rose-600 bg-rose-50 dark:bg-rose-950/30';
+  const pctStyle = pct >= 90 ? 'text-emerald-600 bg-emerald-50' : pct >= 75 ? 'text-amber-600 bg-amber-50' : 'text-rose-600 bg-rose-50';
   return (
-    <tr className={`border-b border-border last:border-0 ${highlight ? 'bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' : 'hover:bg-muted/30'}`}>
+    <tr className={`border-b border-slate-100 last:border-0 ${highlight ? 'bg-indigo-50/60 font-semibold' : 'hover:bg-slate-50'}`}>
       <td className="px-4 py-2.5"><MetricDimensionCell label={label} highlight={highlight} isServiceLine={isServiceLine} /></td>
       <td className="px-4 py-2.5 text-right">
         {occPct != null ? <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${pctStyle}`}>{pct.toFixed(1)}%</span> : '—'}
@@ -219,7 +219,7 @@ function OccRow({ label, occPct, occupied, total, highlight, isServiceLine }: { 
 function VacRow({ label, vacant, total, avgDays, highlight, isServiceLine }: { label: string; vacant: number|null; total: number|null; avgDays: number|null; highlight?: boolean; isServiceLine?: boolean }) {
   const daysStyle = avgDays == null ? '' : avgDays > 60 ? 'text-rose-600 font-semibold' : avgDays > 30 ? 'text-amber-600' : 'text-emerald-600';
   return (
-    <tr className={`border-b border-border last:border-0 ${highlight ? 'bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' : 'hover:bg-muted/30'}`}>
+    <tr className={`border-b border-slate-100 last:border-0 ${highlight ? 'bg-indigo-50/60 font-semibold' : 'hover:bg-slate-50'}`}>
       <td className="px-4 py-2.5"><MetricDimensionCell label={label} highlight={highlight} isServiceLine={isServiceLine} /></td>
       <td className="px-4 py-2.5 text-right tabular-nums font-medium">{vacant != null ? Math.round(vacant).toLocaleString() : '—'}</td>
       <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{total != null ? Math.round(total).toLocaleString() : '—'}</td>
@@ -231,10 +231,10 @@ function VacRow({ label, vacant, total, avgDays, highlight, isServiceLine }: { l
 function CompRow({ label, variance, highlight, isServiceLine }: { label: string; variance: number; highlight?: boolean; isServiceLine?: boolean }) {
   const neg = variance < 0;
   return (
-    <tr className={`border-b border-border last:border-0 ${highlight ? 'bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' : 'hover:bg-muted/30'}`}>
+    <tr className={`border-b border-slate-100 last:border-0 ${highlight ? 'bg-indigo-50/60 font-semibold' : 'hover:bg-slate-50'}`}>
       <td className="px-4 py-2.5"><MetricDimensionCell label={label} highlight={highlight} isServiceLine={isServiceLine} /></td>
       <td className="px-4 py-2.5 text-right">
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold ${neg ? 'text-rose-600 bg-rose-50 dark:bg-rose-950/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30'}`}>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold ${neg ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50'}`}>
           {neg ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
           {variance >= 0 ? '+' : ''}{variance.toFixed(1)}%
         </span>
@@ -247,7 +247,7 @@ function CompRow({ label, variance, highlight, isServiceLine }: { label: string;
 function PayerRow({ label, privatePay, medicaid, medicare, highlight, isServiceLine }: { label: string; privatePay: number|null; medicaid: number|null; medicare: number|null; highlight?: boolean; isServiceLine?: boolean }) {
   const other = (privatePay != null && medicaid != null && medicare != null) ? Math.max(0, 100 - privatePay - medicaid - medicare) : null;
   return (
-    <tr className={`border-b border-border last:border-0 ${highlight ? 'bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' : 'hover:bg-muted/30'}`}>
+    <tr className={`border-b border-slate-100 last:border-0 ${highlight ? 'bg-indigo-50/60 font-semibold' : 'hover:bg-slate-50'}`}>
       <td className="px-4 py-2.5"><MetricDimensionCell label={label} highlight={highlight} isServiceLine={isServiceLine} /></td>
       <td className="px-4 py-2.5 text-right tabular-nums">{privatePay != null ? `${privatePay.toFixed(1)}%` : '—'}</td>
       <td className="px-4 py-2.5 text-right tabular-nums">{medicaid  != null ? `${medicaid.toFixed(1)}%`  : '—'}</td>
@@ -260,7 +260,7 @@ function PayerRow({ label, privatePay, medicaid, medicare, highlight, isServiceL
 function VolRow({ label, inquiries, tours, highlight, isServiceLine }: { label: string; inquiries: number|null; tours: number|null; highlight?: boolean; isServiceLine?: boolean }) {
   const conv = (inquiries && tours && inquiries > 0) ? ((tours / inquiries) * 100) : null;
   return (
-    <tr className={`border-b border-border last:border-0 ${highlight ? 'bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' : 'hover:bg-muted/30'}`}>
+    <tr className={`border-b border-slate-100 last:border-0 ${highlight ? 'bg-indigo-50/60 font-semibold' : 'hover:bg-slate-50'}`}>
       <td className="px-4 py-2.5"><MetricDimensionCell label={label} highlight={highlight} isServiceLine={isServiceLine} /></td>
       <td className="px-4 py-2.5 text-right tabular-nums">{inquiries != null ? Math.round(inquiries).toLocaleString() : '—'}</td>
       <td className="px-4 py-2.5 text-right tabular-nums">{tours != null ? Math.round(tours).toLocaleString() : '—'}</td>
@@ -1113,12 +1113,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
       {/* ── Unified Metric Reference Data Panel ── */}
       {locationId && (
-        <div className="rounded-xl border border-border bg-white dark:bg-gray-900 overflow-hidden">
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-slate-50/60 dark:bg-gray-800/60">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800/50 flex items-center justify-center">
-                <BarChart2 className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              <div className="w-7 h-7 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                <BarChart2 className="h-3.5 w-3.5 text-indigo-600" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-foreground leading-none">Metric Reference Data</p>
@@ -1153,7 +1153,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             </div>
           ) : (
             <Tabs value={metricsTab} onValueChange={setMetricsTab}>
-              <TabsList className="w-full rounded-none border-b border-border bg-slate-50/40 dark:bg-gray-800/30 px-3 justify-start gap-0.5 h-9">
+              <TabsList className="w-full rounded-none border-b border-slate-200 bg-slate-50 px-3 justify-start gap-0.5 h-9">
                 {[
                   { key: 'occupancy',  label: 'Occupancy' },
                   { key: 'vacancies',  label: 'Vacancies' },
@@ -1162,7 +1162,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                   { key: 'volume',     label: 'Volume' },
                   { key: 'ihstreet',   label: 'IH→Street' },
                 ].map(t => (
-                  <TabsTrigger key={t.key} value={t.key} className="text-xs h-7 px-2.5 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-900">
+                  <TabsTrigger key={t.key} value={t.key} className="text-xs h-7 px-2.5 data-[state=active]:bg-white data-[state=active]:text-slate-900 text-slate-500">
                     {t.label}
                   </TabsTrigger>
                 ))}
@@ -1175,19 +1175,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Dimension</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Occ %</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Occupied</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Total</th>
+                      <thead><tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="text-left px-4 py-2 font-medium text-slate-500">Dimension</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Occ %</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Occupied</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Total</th>
                       </tr></thead>
                       <tbody>
-                        <OccRow label="Campus (All)" occPct={campusSnapshot.occupancy?.campus} occupied={campusSnapshot.totalUnits?.campus != null && campusSnapshot.vacantUnits?.campus != null ? campusSnapshot.totalUnits.campus - campusSnapshot.vacantUnits.campus : null} total={campusSnapshot.totalUnits?.campus} highlight />
                         {Object.entries(campusSnapshot.occupancy?.byServiceLine || {}).sort(([a],[b])=>a.localeCompare(b)).map(([sl, pct]) => (
                           <OccRow key={sl} label={sl} occPct={pct as number} occupied={campusSnapshot.totalUnits?.byServiceLine?.[sl] != null && campusSnapshot.vacantUnits?.byServiceLine?.[sl] != null ? campusSnapshot.totalUnits.byServiceLine[sl] - campusSnapshot.vacantUnits.byServiceLine[sl] : null} total={campusSnapshot.totalUnits?.byServiceLine?.[sl] ?? null} isServiceLine />
                         ))}
                         {Object.keys(campusSnapshot.occupancy?.byRoomType || {}).length > 0 && (
-                          <tr className="border-t-2 border-border"><td colSpan={4} className="px-4 py-1 text-xs text-muted-foreground font-medium bg-muted/20">By Room Type</td></tr>
+                          <tr className="border-t-2 border-slate-100"><td colSpan={4} className="px-4 py-1 text-xs text-slate-500 font-medium bg-slate-50">By Room Type</td></tr>
                         )}
                         {Object.entries(campusSnapshot.occupancy?.byRoomType || {}).sort(([a],[b])=>a.localeCompare(b)).map(([rt, pct]) => (
                           <OccRow key={rt} label={rt} occPct={pct as number} occupied={campusSnapshot.totalUnits?.byRoomType?.[rt] != null && campusSnapshot.vacantUnits?.byRoomType?.[rt] != null ? campusSnapshot.totalUnits.byRoomType[rt] - campusSnapshot.vacantUnits.byRoomType[rt] : null} total={campusSnapshot.totalUnits?.byRoomType?.[rt] ?? null} />
@@ -1205,19 +1204,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Dimension</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Vacant</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Total</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg Days Vacant</th>
+                      <thead><tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="text-left px-4 py-2 font-medium text-slate-500">Dimension</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Vacant</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Total</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Avg Days Vacant</th>
                       </tr></thead>
                       <tbody>
-                        <VacRow label="Campus (All)" vacant={campusSnapshot.vacantUnits?.campus} total={campusSnapshot.totalUnits?.campus} avgDays={campusSnapshot.avgDaysVacant?.campus} highlight />
                         {Object.keys(campusSnapshot.vacantUnits?.byServiceLine || {}).sort().map(sl => (
                           <VacRow key={sl} label={sl} vacant={campusSnapshot.vacantUnits.byServiceLine[sl]} total={campusSnapshot.totalUnits?.byServiceLine?.[sl] ?? null} avgDays={campusSnapshot.avgDaysVacant?.byServiceLine?.[sl] ?? null} isServiceLine />
                         ))}
                         {Object.keys(campusSnapshot.vacantUnits?.byRoomType || {}).length > 0 && (
-                          <tr className="border-t-2 border-border"><td colSpan={4} className="px-4 py-1 text-xs text-muted-foreground font-medium bg-muted/20">By Room Type</td></tr>
+                          <tr className="border-t-2 border-slate-100"><td colSpan={4} className="px-4 py-1 text-xs text-slate-500 font-medium bg-slate-50">By Room Type</td></tr>
                         )}
                         {Object.keys(campusSnapshot.vacantUnits?.byRoomType || {}).sort().map(rt => (
                           <VacRow key={rt} label={rt} vacant={campusSnapshot.vacantUnits.byRoomType[rt]} total={campusSnapshot.totalUnits?.byRoomType?.[rt] ?? null} avgDays={campusSnapshot.avgDaysVacant?.byRoomType?.[rt] ?? null} />
@@ -1237,27 +1235,24 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Dimension</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Street vs Comp</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Position</th>
+                      <thead><tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="text-left px-4 py-2 font-medium text-slate-500">Dimension</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Street vs Comp</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Position</th>
                       </tr></thead>
                       <tbody>
-                        {campusSnapshot.competitorVariance?.campus != null && (
-                          <CompRow label="Campus (All)" variance={campusSnapshot.competitorVariance.campus} highlight />
-                        )}
                         {Object.entries(campusSnapshot.competitorVariance?.byServiceLine || {}).sort(([a],[b])=>a.localeCompare(b)).map(([sl, v]) => (
                           <CompRow key={sl} label={sl} variance={v as number} isServiceLine />
                         ))}
                         {Object.keys(campusSnapshot.competitorVariance?.byRoomType || {}).length > 0 && (
-                          <tr className="border-t-2 border-border"><td colSpan={3} className="px-4 py-1 text-xs text-muted-foreground font-medium bg-muted/20">By Room Type</td></tr>
+                          <tr className="border-t-2 border-slate-100"><td colSpan={3} className="px-4 py-1 text-xs text-slate-500 font-medium bg-slate-50">By Room Type</td></tr>
                         )}
                         {Object.entries(campusSnapshot.competitorVariance?.byRoomType || {}).sort(([a],[b])=>a.localeCompare(b)).map(([rt, v]) => (
                           <CompRow key={rt} label={rt} variance={v as number} />
                         ))}
                       </tbody>
                     </table>
-                    <p className="text-xs text-muted-foreground px-4 py-2 border-t border-border">
+                    <p className="text-xs text-slate-400 px-4 py-2 border-t border-slate-100">
                       (Street rate − competitor rate) ÷ competitor rate × 100. Positive = priced above market.
                     </p>
                   </div>
@@ -1271,23 +1266,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Service Line</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Private Pay</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Medicaid</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Medicare</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Other</th>
+                      <thead><tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="text-left px-4 py-2 font-medium text-slate-500">Service Line</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Private Pay</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Medicaid</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Medicare</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Other</th>
                       </tr></thead>
                       <tbody>
-                        {campusSnapshot.payerMix?.campus && (
-                          <PayerRow label="Campus (All)" privatePay={campusSnapshot.payerMix.campus.privatePay} medicaid={campusSnapshot.payerMix.campus.medicaid} medicare={campusSnapshot.payerMix.campus.medicare} highlight />
-                        )}
                         {Object.entries(campusSnapshot.payerMix?.byServiceLine || {}).sort(([a],[b])=>a.localeCompare(b)).map(([sl, mix]) => (
                           <PayerRow key={sl} label={sl} privatePay={(mix as any).privatePay} medicaid={(mix as any).medicaid} medicare={(mix as any).medicare} isServiceLine />
                         ))}
                       </tbody>
                     </table>
-                    <p className="text-xs text-muted-foreground px-4 py-2 border-t border-border">
+                    <p className="text-xs text-slate-400 px-4 py-2 border-t border-slate-100">
                       Occupied units only. Percentages from payorType field. Other = 100% − shown categories.
                     </p>
                   </div>
@@ -1301,22 +1293,19 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Service Line</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Inquiries</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Tours</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Conversion</th>
+                      <thead><tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="text-left px-4 py-2 font-medium text-slate-500">Service Line</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Inquiries</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Tours</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Conversion</th>
                       </tr></thead>
                       <tbody>
-                        {campusSnapshot.inquiryVolume?.campus && (
-                          <VolRow label="Campus (All)" inquiries={campusSnapshot.inquiryVolume.campus.inquiries} tours={campusSnapshot.inquiryVolume.campus.tours} highlight />
-                        )}
                         {Object.entries(campusSnapshot.inquiryVolume?.byServiceLine || {}).sort(([a],[b])=>a.localeCompare(b)).map(([sl, vol]) => (
                           <VolRow key={sl} label={sl} inquiries={(vol as any).inquiries} tours={(vol as any).tours} isServiceLine />
                         ))}
                       </tbody>
                     </table>
-                    <p className="text-xs text-muted-foreground px-4 py-2 border-t border-border">
+                    <p className="text-xs text-slate-400 px-4 py-2 border-t border-slate-100">
                       Source: inquiry_metrics table. Conversion = tours ÷ inquiries × 100.
                     </p>
                   </div>
@@ -1332,12 +1321,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead><tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Service Line</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg IH Rate/mo</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg Street/mo</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Variance %</th>
-                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Units</th>
+                      <thead><tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="text-left px-4 py-2 font-medium text-slate-500">Service Line</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Avg IH Rate/mo</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Avg Street/mo</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Variance %</th>
+                        <th className="text-right px-4 py-2 font-medium text-slate-500">Units</th>
                       </tr></thead>
                       <tbody>
                         {[
@@ -1348,34 +1337,34 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           const isAll = row.serviceLine === 'ALL';
                           const neg = pct < 0;
                           return (
-                            <tr key={row.serviceLine} className={`border-b border-border last:border-0 ${isAll ? 'bg-teal-50/60 dark:bg-teal-950/20 font-semibold' : 'hover:bg-muted/30'}`}>
+                            <tr key={row.serviceLine} className={`border-b border-slate-100 last:border-0 ${isAll ? 'bg-teal-50/60 font-semibold' : 'hover:bg-slate-50'}`}>
                               <td className="px-4 py-2.5">
                                 {isAll ? (
-                                  <span className="inline-flex px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 text-xs font-semibold">All (Blended)</span>
+                                  <span className="inline-flex px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 text-xs font-semibold">All (Blended)</span>
                                 ) : (
-                                  <span className="inline-flex px-2 py-0.5 rounded-full bg-muted/60 text-foreground text-xs">
-                                    {row.serviceLine}{(row.serviceLine === 'HC' || row.serviceLine === 'HC/MC') && <span className="ml-1 text-muted-foreground">(×30.44)</span>}
+                                  <span className="inline-flex px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs">
+                                    {row.serviceLine}{(row.serviceLine === 'HC' || row.serviceLine === 'HC/MC') && <span className="ml-1 text-slate-400">(×30.44)</span>}
                                   </span>
                                 )}
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">{row.avgInHouseMonthly != null ? `$${Math.round(row.avgInHouseMonthly).toLocaleString()}` : '—'}</td>
-                              <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.avgStreetMonthly != null ? `$${Math.round(row.avgStreetMonthly).toLocaleString()}` : '—'}</td>
+                              <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">{row.avgStreetMonthly != null ? `$${Math.round(row.avgStreetMonthly).toLocaleString()}` : '—'}</td>
                               <td className="px-4 py-2.5 text-right">
                                 {row.variancePct != null ? (
-                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold ${neg ? 'text-rose-600 bg-rose-50 dark:bg-rose-950/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30'}`}>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold ${neg ? 'text-rose-600 bg-rose-50' : 'text-emerald-600 bg-emerald-50'}`}>
                                     {neg ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
                                     {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
                                   </span>
                                 ) : '—'}
                               </td>
-                              <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.unitCount}</td>
+                              <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">{row.unitCount}</td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
                     {ihVarianceRows[0]?.calculatedAt && (
-                      <p className="text-xs text-muted-foreground px-4 py-2 border-t border-border">
+                      <p className="text-xs text-slate-400 px-4 py-2 border-t border-slate-100">
                         SH = non-companion rooms · HC = private pay · HC rates ×30.44 → monthly · Calculated: {new Date(ihVarianceRows[0].calculatedAt).toLocaleString()}
                       </p>
                     )}
