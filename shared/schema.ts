@@ -167,6 +167,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   inquiryCount: integer("inquiry_count").default(0), // Number of inquiries for this unit in trailing 30 days
   tourCount: integer("tour_count").default(0), // Number of tours for this unit in trailing 30 days
   sameStore: boolean("same_store").default(true), // Same Store comparison flag - true if location existed in prior year
+  sourceRoomType: text("source_room_type"), // Raw room type string from import, before normalization
   clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this record
   createdAt: timestamp("created_at").defaultNow(),
 });

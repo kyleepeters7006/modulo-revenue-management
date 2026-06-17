@@ -2445,6 +2445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             locationId: location.id,
             roomNumber: row['Room Number'] || '',
             roomType: normalizeRoomType(row['Room Type'] || 'Studio'),
+            sourceRoomType: row['Room Type'] || null,
             serviceLine: row['Service Line'] || 'AL',
             occupiedYN: row['Occupied Y/N'] === 'Y',
             daysVacant: parseInt(row['Days Vacant']) || 0,
@@ -4438,7 +4439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           division: locations.division,
           serviceLine: rentRollData.serviceLine,
           roomType: rentRollData.roomType,
-          rawRoomType: rentRollData.rawRoomType,
+          sourceRoomType: rentRollData.sourceRoomType,
           streetRate: rentRollData.streetRate,
           moduloSuggestedRate: rentRollData.moduloSuggestedRate,
           ruleAdjustedRate: rentRollData.ruleAdjustedRate,
@@ -4468,13 +4469,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const allRows = units.map(u => {
         const moduloRate = u.ruleAdjustedRate ?? u.moduloSuggestedRate;
-        const roomTypeDisplay = u.rawRoomType || u.roomType;
+        const roomTypeDisplay = u.sourceRoomType || u.roomType;
         return {
           'Division': u.division || '',
           'Location': u.location,
           'Service Line': u.serviceLine,
           'Room Type': roomTypeDisplay,
-          'Room Type Group': normalizeRoomType(u.roomType),
+          'Room Type Group': u.roomType,
           'Current Street Rate': u.streetRate ?? '',
           'Modulo Suggested Rate': moduloRate ?? '',
           'Adjustment': formatAdj(moduloRate, u.streetRate),
@@ -4483,10 +4484,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
 
-      // Deduplicate: one row per unique Division + Location + Service Line + Room Type
+      // Deduplicate: one row per unique Division + Location + Service Line + normalized Room Type Group
       const dedupeMap = new Map<string, typeof allRows[0]>();
       for (const row of allRows) {
-        const key = `${row['Division']}|${row['Location']}|${row['Service Line']}|${row['Room Type']}`;
+        const key = `${row['Division']}|${row['Location']}|${row['Service Line']}|${row['Room Type Group']}`;
         if (!dedupeMap.has(key)) {
           dedupeMap.set(key, row);
         }
@@ -6447,6 +6448,7 @@ Service line mix: ${Object.entries(slBreakdown).map(([sl, n]) => `${sl}: ${n}`).
           locationId: locationIdMap.get((getRowValue(row, 'Location', 'location') || '').toLowerCase().trim()) || null,
           roomNumber: getRowValue(row, 'Room_Bed', 'Room Number', 'room number', 'RoomNumber', 'roomNumber') || '',
           roomType: normalizeRoomType(cleanRoomType),
+          sourceRoomType: rawRoomType || null,
           serviceLine: normalizedServiceLine,
           occupiedYN: isOccupied,
           daysVacant: parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0,
