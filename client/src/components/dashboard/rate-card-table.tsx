@@ -27,7 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Brain, Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Brain, Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -57,6 +57,7 @@ export default function RateCardTable({
   const [sortColumn, setSortColumn] = useState<string | null>('status');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const ITEMS_PER_PAGE = 50;
 
   // Refs for syncing top + bottom horizontal scrollbars
@@ -96,6 +97,14 @@ export default function RateCardTable({
     }
     isSyncingScroll.current = false;
   }, []);
+
+  // ESC key closes fullscreen
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const [activeModuloJobId, setActiveModuloJobId] = useState<string | null>(null);
   const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
   const { toast } = useToast();
@@ -735,11 +744,24 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
       )}
 
       {/* Detailed Unit View */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Unit-Level Detail</CardTitle>
+      <div className={isFullscreen ? "fixed inset-0 z-50 flex flex-col bg-white" : ""}>
+      <Card className={isFullscreen ? "h-full rounded-none border-0 flex flex-col overflow-hidden shadow-none" : ""}>
+        <CardHeader className={isFullscreen ? "flex-shrink-0 border-b py-3 px-6" : ""}>
+          <div className="flex items-center justify-between">
+            <CardTitle>Unit-Level Detail</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFullscreen(f => !f)}
+              className="gap-1.5 ml-auto"
+            >
+              {isFullscreen
+                ? <><Minimize2 className="w-4 h-4" /> Exit Full Screen</>
+                : <><Maximize2 className="w-4 h-4" /> Full Screen</>}
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className={isFullscreen ? "flex-1 overflow-hidden flex flex-col pt-4 px-6 pb-4" : ""}>
           {filteredUnits.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500">No data available for {selectedMonth}</p>
@@ -759,10 +781,10 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             <div
               ref={bottomScrollRef}
               onScroll={handleBottomScroll}
-              className="overflow-x-auto"
+              className={isFullscreen ? "flex-1 overflow-auto" : "overflow-x-auto"}
             >
               <Table className="min-w-max">
-                <TableHeader>
+                <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
                   <TableRow>
                     <TableHead 
                       className="cursor-pointer hover:bg-slate-50 select-none"
@@ -1165,7 +1187,8 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
           )}
         </CardContent>
       </Card>
-      
+      </div>{/* /fullscreen wrapper */}
+
       {/* AI Calculation Dialog */}
       {aiDialogUnit && (
         <AICalculationDialog
