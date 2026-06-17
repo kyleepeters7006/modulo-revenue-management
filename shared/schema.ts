@@ -151,6 +151,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   aiCalculationDetails: text("ai_calculation_details"), // JSON string of AI calculation breakdown
   ruleAdjustedRate: real("rule_adjusted_rate"), // Rate after applying adjustment rules (e.g., 5% AL increase)
   appliedRuleName: text("applied_rule_name"), // Name of the rule that was applied
+  ruleRateCalculatedAt: timestamp("rule_rate_calculated_at"), // Timestamp when ruleAdjustedRate was last written
   promotionAllowance: real("promotion_allowance"),
   // MatrixCare specific fields
   residentId: text("resident_id"), // Unique resident identifier for MatrixCare

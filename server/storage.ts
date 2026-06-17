@@ -803,6 +803,7 @@ export class DatabaseStorage implements IStorage {
       );
       
       // Execute single bulk update query
+      const now = new Date();
       await db.execute(sql`
         UPDATE ${rentRollData}
         SET 
@@ -821,7 +822,8 @@ export class DatabaseStorage implements IStorage {
           applied_rule_name = CASE
             ${sql.join(ruleNameCases, sql.raw(' '))}
             ELSE applied_rule_name
-          END
+          END,
+          rule_rate_calculated_at = ${now}
         WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})
       `);
       

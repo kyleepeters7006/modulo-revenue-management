@@ -4447,6 +4447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           moduloSuggestedRate: rentRollData.moduloSuggestedRate,
           ruleAdjustedRate: rentRollData.ruleAdjustedRate,
           aiSuggestedRate: rentRollData.aiSuggestedRate,
+          ruleRateCalculatedAt: rentRollData.ruleRateCalculatedAt,
         })
         .from(rentRollData)
         .leftJoin(locations, eq(rentRollData.locationId, locations.id))
@@ -4506,9 +4507,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // for any group where at least one unit had rules applied; only falls back to the signal
       // median (moduloSuggestedRate) when no units in the group had rules fire at all.
       // This prevents signal rates from diluting the adjustment % for mixed groups.
+      //
+      // Timestamp guard: when computing medRuleAdj and medSignal, only include members whose
+      // ruleRateCalculatedAt is within 1 hour of the most recent calculation in the group.
+      // This prevents stale rates (from prior scoped runs) from diluting the group median.
+      // Falls back to all members only when no member has a timestamp (legacy data).
+      const ONE_HOUR_MS = 60 * 60 * 1000;
       const rows = Array.from(groupMap.values()).map(({ meta, roomTypeDisplay, members }) => {
-        const medRuleAdj = median(members.map(m => m.ruleAdjustedRate));
-        const medSignal  = median(members.map(m => m.moduloSuggestedRate));
+        // Find the max timestamp in this group
+        const timestamps = members
+          .map(m => m.ruleRateCalculatedAt)
+          .filter((t): t is Date => t != null);
+        const maxTs = timestamps.length > 0
+          ? new Date(Math.max(...timestamps.map(t => t.getTime())))
+          : null;
+
+        // Filter to fresh members only when a timestamp exists in the group
+        const freshMembers = maxTs
+          ? members.filter(m =>
+              m.ruleRateCalculatedAt != null &&
+              maxTs.getTime() - m.ruleRateCalculatedAt.getTime() <= ONE_HOUR_MS
+            )
+          : members;
+
+        const medRuleAdj = median(freshMembers.map(m => m.ruleAdjustedRate));
+        const medSignal  = median(freshMembers.map(m => m.moduloSuggestedRate));
         const medModulo  = medRuleAdj ?? medSignal;
         const medAI     = median(members.map(m => m.aiSuggestedRate));
         const medStreet = median(members.map(m => m.streetRate));

@@ -149,6 +149,19 @@ app.use((req, res, next) => {
     log(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: ensure rule_rate_calculated_at column exists on rent_roll_data.
+  // Added to shared/schema.ts to stamp calculation time on each ruleAdjustedRate write so
+  // the CSV export can exclude stale rates from scoped calculation runs.
+  try {
+    await db.execute(sql`
+      ALTER TABLE rent_roll_data
+        ADD COLUMN IF NOT EXISTS rule_rate_calculated_at timestamptz
+    `);
+    log("[migration] rent_roll_data rule_rate_calculated_at column ensured");
+  } catch (migErr) {
+    log(`[migration] rule_rate_calculated_at column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background
