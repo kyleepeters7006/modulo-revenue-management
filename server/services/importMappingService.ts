@@ -525,6 +525,9 @@ export class ImportMappingService {
       if (mapping.targetField && mapping.sourceColumn in row) {
         const value = row[mapping.sourceColumn];
         result[mapping.targetField] = this.transformValue(value, mapping.targetField);
+        if (mapping.targetField === 'roomType' && value != null && value !== '') {
+          result['sourceRoomType'] = String(value).trim();
+        }
       }
     }
 

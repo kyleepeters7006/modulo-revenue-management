@@ -3811,6 +3811,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             locationId: location.id,
             roomNumber: row.Room_Number || row.Unit_Number || '',
             roomType: row.Room_Type || row.Unit_Type || 'Studio',
+            sourceRoomType: row.Room_Type || row.Unit_Type || null,
             serviceLine: row.Service_Line || 'AL',
             occupiedYN: row.Occupied_YN === 'Y' || row.Occupied === 'Y',
             daysVacant: parseInt(row.Days_Vacant) || 0,
