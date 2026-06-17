@@ -243,6 +243,14 @@ export async function generateDemoData(): Promise<{
   const stats = { locations: 0, rentRoll: 0, competitive: 0, inquiry: 0 };
   const BATCH_SIZE = 500;
 
+  // ── 0. Clear existing demo data so re-seeds are idempotent ────────────────
+  console.log('[demo] Clearing existing demo data...');
+  await db.execute(drizzleSql.raw(`DELETE FROM inquiry_metrics WHERE client_id = 'demo'`));
+  await db.execute(drizzleSql.raw(`DELETE FROM competitive_survey_data WHERE client_id = 'demo'`));
+  await db.execute(drizzleSql.raw(`DELETE FROM rent_roll_data WHERE client_id = 'demo'`));
+  await db.execute(drizzleSql.raw(`DELETE FROM revenue_growth_targets WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+  await db.execute(drizzleSql.raw(`DELETE FROM guardrails WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+
   // ── 1. Insert Locations ────────────────────────────────────────────────────
   console.log('[demo] Inserting 50 locations...');
   const insertedLocations: Array<{ id: string; name: string; region: string; division: string; size: string }> = [];

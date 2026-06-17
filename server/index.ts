@@ -359,21 +359,40 @@ app.use((req, res, next) => {
 
   // Seed demo data in the background after the server is already accepting requests.
   // On first cold start the seed takes ~15 s; on subsequent restarts the
-  // COUNT query short-circuits in <100 ms. Either way it must not block server startup.
+  // COUNT + MAX(upload_month) query short-circuits in <100 ms.
+  // We also re-seed whenever the latest demo month is behind the current calendar month,
+  // so the Revenue Growth chart always has data through the present month.
   setTimeout(async () => {
     try {
-      const countResult = await db
-        .select({ count: sql<number>`COUNT(*)::int` })
-        .from(rentRollData)
-        .where(eq(rentRollData.clientId, 'demo'));
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const [countResult, latestMonthResult] = await Promise.all([
+        db.select({ count: sql<number>`COUNT(*)::int` })
+          .from(rentRollData)
+          .where(eq(rentRollData.clientId, 'demo')),
+        db.select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
+          .from(rentRollData)
+          .where(eq(rentRollData.clientId, 'demo')),
+      ]);
+
       const demoCount = countResult[0]?.count ?? 0;
+      const latestMonth = latestMonthResult[0]?.month ?? null;
+
       if (demoCount === 0) {
-        log("[demo] No rent roll data for demo client — seeding now (this only happens once)...");
+        log("[demo] No rent roll data for demo client — seeding now...");
         const { generateDemoData } = await import('./seedDemoData');
         const seedResult = await generateDemoData();
         log(`[demo] Seeded: ${seedResult.locations} locations, ${seedResult.rentRoll} rent roll, ${seedResult.competitive} competitive, ${seedResult.inquiry} inquiry records`);
+      } else if (!latestMonth || latestMonth < currentMonth) {
+        // Data exists but doesn't reach the current month — re-seed so the
+        // Revenue Growth chart has a complete trailing-12-month window.
+        log(`[demo] Demo data stale (latest month: ${latestMonth ?? 'none'}, current: ${currentMonth}) — regenerating to include recent months...`);
+        const { generateDemoData } = await import('./seedDemoData');
+        const seedResult = await generateDemoData();
+        log(`[demo] Re-seeded: ${seedResult.locations} locations, ${seedResult.rentRoll} rent roll, ${seedResult.competitive} competitive, ${seedResult.inquiry} inquiry records`);
       } else {
-        log(`[demo] Demo rent roll data present (${demoCount} rows) — skipping seed`);
+        log(`[demo] Demo rent roll data present and current (${demoCount} rows, latest: ${latestMonth}) — skipping seed`);
       }
     } catch (seedError) {
       log(`[demo] Auto-seed error (non-fatal): ${seedError instanceof Error ? seedError.message : String(seedError)}`);
