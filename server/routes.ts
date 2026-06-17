@@ -4502,11 +4502,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Build one CSV row per group using median rates across all members.
-      // "Modulo Suggested Rate" uses ruleAdjustedRate when present, falling back to
-      // moduloSuggestedRate — mirroring the Rate Card display so the exported rate and
-      // adjustment % match what the user sees on screen.
+      // "Modulo Suggested Rate" and "Adjustment" use the rules-based median (ruleAdjustedRate)
+      // for any group where at least one unit had rules applied; only falls back to the signal
+      // median (moduloSuggestedRate) when no units in the group had rules fire at all.
+      // This prevents signal rates from diluting the adjustment % for mixed groups.
       const rows = Array.from(groupMap.values()).map(({ meta, roomTypeDisplay, members }) => {
-        const medModulo = median(members.map(m => m.ruleAdjustedRate ?? m.moduloSuggestedRate));
+        const medRuleAdj = median(members.map(m => m.ruleAdjustedRate));
+        const medSignal  = median(members.map(m => m.moduloSuggestedRate));
+        const medModulo  = medRuleAdj ?? medSignal;
         const medAI     = median(members.map(m => m.aiSuggestedRate));
         const medStreet = median(members.map(m => m.streetRate));
         return {
