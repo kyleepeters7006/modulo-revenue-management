@@ -198,9 +198,26 @@ async function getBestCompetitorRate(
     }
     
     // Query competitive survey data for this location
-    const surveyRecords = await db.select()
+    let surveyRecords = await db.select()
       .from(competitiveSurveyData)
-      .where(and(...conditions));
+      .where(and(...conditions))
+      .orderBy(desc(competitiveSurveyData.surveyMonth));
+    
+    // If no exact-month match, retry without month filter to use latest available survey data.
+    // This handles cases where the rent roll upload month has no corresponding survey month
+    // (e.g. 2026-03 rent roll but surveys only exist for 2026-05, 2025-12, 2025-11).
+    if (surveyRecords.length === 0 && surveyMonth) {
+      const anyMonthConditions = [
+        eq(competitiveSurveyData.keyStatsLocation, location),
+        eq(competitiveSurveyData.competitorType, competitorType),
+        eq(competitiveSurveyData.roomType, mappedRoomType),
+        sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
+      ];
+      surveyRecords = await db.select()
+        .from(competitiveSurveyData)
+        .where(and(...anyMonthConditions))
+        .orderBy(desc(competitiveSurveyData.surveyMonth));
+    }
     
     if (surveyRecords.length === 0) {
       // No survey row for this location + competitor type + room type.
@@ -221,9 +238,23 @@ async function getBestCompetitorRate(
           fallbackTypeConditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
         }
 
-        const fallbackTypeRecords = await db.select()
+        let fallbackTypeRecords = await db.select()
           .from(competitiveSurveyData)
-          .where(and(...fallbackTypeConditions));
+          .where(and(...fallbackTypeConditions))
+          .orderBy(desc(competitiveSurveyData.surveyMonth));
+
+        // Same month fallback: if exact month has no data, retry without month filter
+        if (fallbackTypeRecords.length === 0 && surveyMonth) {
+          const anyMonthFallbackConditions = [
+            eq(competitiveSurveyData.keyStatsLocation, location),
+            eq(competitiveSurveyData.competitorType, fallbackType),
+            sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
+          ];
+          fallbackTypeRecords = await db.select()
+            .from(competitiveSurveyData)
+            .where(and(...anyMonthFallbackConditions))
+            .orderBy(desc(competitiveSurveyData.surveyMonth));
+        }
 
         if (fallbackTypeRecords.length > 0) {
           const record = fallbackTypeRecords[0];
