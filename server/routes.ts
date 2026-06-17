@@ -4432,14 +4432,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "No rent roll data found for this client" });
       }
 
-      // Fetch units for the latest month, joining locations for division
+      // Fetch units for the latest month, joining locations for division.
+      // source_room_type stores the raw import string before normalization;
+      // it was added via ALTER TABLE migration and may be NULL for records
+      // imported before the column existed — fall back to roomType in that case.
       const units = await db
         .select({
           location: rentRollData.location,
           division: locations.division,
           serviceLine: rentRollData.serviceLine,
           roomType: rentRollData.roomType,
-          sourceRoomType: rentRollData.sourceRoomType,
+          sourceRoomType: sql<string | null>`${rentRollData.sourceRoomType}`,
           streetRate: rentRollData.streetRate,
           moduloSuggestedRate: rentRollData.moduloSuggestedRate,
           ruleAdjustedRate: rentRollData.ruleAdjustedRate,
@@ -4469,7 +4472,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const allRows = units.map(u => {
         const moduloRate = u.ruleAdjustedRate ?? u.moduloSuggestedRate;
-        const roomTypeDisplay = u.sourceRoomType || u.roomType;
+        // Prefer the original import room type string; fall back to normalized roomType
+        const roomTypeDisplay = (u.sourceRoomType ?? null) || u.roomType;
         return {
           'Division': u.division || '',
           'Location': u.location,

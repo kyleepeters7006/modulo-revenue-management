@@ -135,6 +135,20 @@ app.use((req, res, next) => {
     log(`[migration] ih_street_variance migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: ensure source_room_type column exists on rent_roll_data.
+  // Added to shared/schema.ts (Task #294) but never applied to the live DB, causing
+  // POST /api/publish to throw "TypeError: Cannot convert undefined or null to object"
+  // and return {"error":"Failed to publish CSV"}.
+  try {
+    await db.execute(sql`
+      ALTER TABLE rent_roll_data
+        ADD COLUMN IF NOT EXISTS source_room_type text
+    `);
+    log("[migration] rent_roll_data source_room_type column ensured");
+  } catch (migErr) {
+    log(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // Run room type normalization backfill asynchronously in background
