@@ -4502,10 +4502,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Build one CSV row per group using median rates across all members.
-      // "Modulo Suggested Rate" uses the median of moduloSuggestedRate specifically,
-      // so the exported rate is a genuine statistical representative for that room type.
+      // "Modulo Suggested Rate" uses ruleAdjustedRate when present, falling back to
+      // moduloSuggestedRate — mirroring the Rate Card display so the exported rate and
+      // adjustment % match what the user sees on screen.
       const rows = Array.from(groupMap.values()).map(({ meta, roomTypeDisplay, members }) => {
-        const medModulo = median(members.map(m => m.moduloSuggestedRate));
+        const medModulo = median(members.map(m => m.ruleAdjustedRate ?? m.moduloSuggestedRate));
         const medAI     = median(members.map(m => m.aiSuggestedRate));
         const medStreet = median(members.map(m => m.streetRate));
         return {
