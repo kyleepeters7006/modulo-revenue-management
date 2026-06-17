@@ -92,18 +92,49 @@ export default function RateCardTable({
   const bottomScrollRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
 
-  // Mirror top scrollbar — a native scrollbar whose inner width tracks the table
+  // Mirror top scrollbar — native scroll synced to the shadcn Table wrapper div
+  // NOTE: shadcn <Table> renders <div class="relative w-full overflow-auto"><table /></div>
+  // The INNER div is the real scroll container, not bottomScrollRef.
   const topScrollRef    = useRef<HTMLDivElement>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const isSyncingScroll = useRef(false);
 
-  // Run after every render so we catch the table appearing after data loads
+  // Helper: get the actual scrollable div (shadcn Table's wrapper, first child of outer div)
+  const getInnerScroller = useCallback((): HTMLElement | null => {
+    const outer = bottomScrollRef.current;
+    if (!outer) return null;
+    return (outer.firstElementChild as HTMLElement) ?? null;
+  }, []);
+
+  // Tracks cleanup for the inner-scroller scroll listener
+  const scrollListenerCleanup = useRef<(() => void) | null>(null);
+
+  // Runs after every render — updates spacer width AND attaches listener once available
   useLayoutEffect(() => {
     const table = tableRef.current;
     if (table) setTableScrollWidth(table.offsetWidth);
+
+    if (!scrollListenerCleanup.current) {
+      const inner = getInnerScroller();
+      if (inner) {
+        const onScroll = () => {
+          if (isSyncingScroll.current) return;
+          const top = topScrollRef.current;
+          if (!top) return;
+          isSyncingScroll.current = true;
+          top.scrollLeft = inner.scrollLeft;
+          isSyncingScroll.current = false;
+        };
+        inner.addEventListener('scroll', onScroll, { passive: true });
+        scrollListenerCleanup.current = () => inner.removeEventListener('scroll', onScroll);
+      }
+    }
   });
 
-  // Also keep in sync when the table or container is resized
+  // Clean up the inner-scroller listener on unmount
+  useEffect(() => () => { scrollListenerCleanup.current?.(); }, []);
+
+  // Also keep spacer width in sync when anything resizes
   useEffect(() => {
     const update = () => {
       const table = tableRef.current;
@@ -115,27 +146,19 @@ export default function RateCardTable({
     return () => observer.disconnect();
   }, []);
 
-  // Top scroll → bottom container
+  // Top scroll → inner scroller
   const handleTopScroll = useCallback(() => {
     if (isSyncingScroll.current) return;
-    const top    = topScrollRef.current;
-    const bottom = bottomScrollRef.current;
-    if (!top || !bottom) return;
+    const top   = topScrollRef.current;
+    const inner = getInnerScroller();
+    if (!top || !inner) return;
     isSyncingScroll.current = true;
-    bottom.scrollLeft = top.scrollLeft;
+    inner.scrollLeft = top.scrollLeft;
     isSyncingScroll.current = false;
-  }, []);
+  }, [getInnerScroller]);
 
-  // Bottom container → top scroll
-  const handleBottomScroll = useCallback(() => {
-    if (isSyncingScroll.current) return;
-    const top    = topScrollRef.current;
-    const bottom = bottomScrollRef.current;
-    if (!top || !bottom) return;
-    isSyncingScroll.current = true;
-    top.scrollLeft = bottom.scrollLeft;
-    isSyncingScroll.current = false;
-  }, []);
+  // handleBottomScroll kept as no-op — real sync handled by native listener above
+  const handleBottomScroll = useCallback(() => {}, []);
 
   // ESC key closes fullscreen
   useEffect(() => {
