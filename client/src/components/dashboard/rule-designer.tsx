@@ -293,6 +293,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
 
+  // Combined stats (unique campus/unit counts + per-rule breakdown for click-throughs)
+  const [combinedStats, setCombinedStats] = useState<{
+    uniqueCampuses: number; uniqueUnits: number;
+    combinedMonthly: number; combinedAnnual: number;
+    breakdown: Array<{ id: string; name: string; campuses: number; units: number; monthlyImpact: number; annualImpact: number }>;
+  } | null>(null);
+  const [statsDialogOpen, setStatsDialogOpen] = useState(false);
+  const [statsDialogFocus, setStatsDialogFocus] = useState<'campuses' | 'units' | 'monthly' | 'annual'>('campuses');
+
   // IH-to-Street variance panel state
   const [ihVarianceRows, setIhVarianceRows] = useState<IhVarianceRow[]>([]);
   const [isLoadingVariance, setIsLoadingVariance] = useState(false);
@@ -330,6 +339,21 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   }, [locationId, serviceLine]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  // Fetch unique campus/unit counts whenever active rules change
+  const fetchCombinedStats = useCallback(async () => {
+    const activeRules = rules.filter(r => r.isActive);
+    if (!activeRules.length) { setCombinedStats(null); return; }
+    try {
+      const params = new URLSearchParams();
+      if (locationId) params.set('locationId', locationId);
+      if (serviceLine) params.set('serviceLine', serviceLine);
+      const res = await fetch(`/api/adjustment-rules/combined-stats${params.toString() ? `?${params}` : ''}`);
+      if (res.ok) setCombinedStats(await res.json());
+    } catch { /* silent */ }
+  }, [rules, locationId, serviceLine]);
+
+  useEffect(() => { fetchCombinedStats(); }, [fetchCombinedStats]);
 
   // Fetch IH-to-Street variance rows for the selected campus
   const fetchIhVariance = useCallback(async () => {
@@ -1419,7 +1443,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             const blob = await res.blob();
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement('a');
-            a.href = url; a.download = 'rules-impact-detail.csv'; a.click();
+            a.href = url; a.download = 'rules-impact.xlsx'; a.click();
             URL.revokeObjectURL(url);
           } catch {
             toast({ title: 'Export failed', variant: 'destructive' });
@@ -1475,7 +1499,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           onClick={e => { e.stopPropagation(); exportRules(); }}
                         >
                           <Download className="h-3 w-3" />
-                          Export CSV
+                          Export Excel
                         </Button>
                         <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
                       </div>
@@ -1513,21 +1537,30 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           )}
                         </div>
                         <div className="grid grid-cols-4 gap-2">
-                          {[
-                            { label: 'Campuses', value: combinedCampuses.toLocaleString(), money: false },
-                            { label: 'Units',    value: combinedUnits.toLocaleString(),    money: false },
-                            { label: 'Monthly',  value: fmt(combinedMonthly),              money: true  },
-                            { label: 'Annual',   value: fmt(combinedAnnual),               money: true  },
-                          ].map(({ label, value, money }) => (
-                            <div key={label} className="rounded-lg bg-white border border-gray-100 px-3 py-2.5 text-center">
-                              <p className={`text-base font-bold tracking-tight leading-none mb-1 ${
-                                money
-                                  ? (combinedAnnual >= 0 ? 'text-green-700' : 'text-red-700')
-                                  : 'text-gray-900'
-                              }`}>{value}</p>
-                              <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">{label}</p>
-                            </div>
-                          ))}
+                          {(() => {
+                            const uCampuses = combinedStats?.uniqueCampuses  ?? combinedCampuses;
+                            const uUnits    = combinedStats?.uniqueUnits     ?? combinedUnits;
+                            const uMonthly  = combinedStats?.combinedMonthly ?? combinedMonthly;
+                            const uAnnual   = combinedStats?.combinedAnnual  ?? combinedAnnual;
+                            const tiles: Array<{ label: string; value: string; money: boolean; focus: 'campuses'|'units'|'monthly'|'annual' }> = [
+                              { label: 'Campuses', value: uCampuses.toLocaleString(), money: false, focus: 'campuses' },
+                              { label: 'Units',    value: uUnits.toLocaleString(),    money: false, focus: 'units'    },
+                              { label: 'Monthly',  value: fmt(uMonthly),              money: true,  focus: 'monthly'  },
+                              { label: 'Annual',   value: fmt(uAnnual),               money: true,  focus: 'annual'   },
+                            ];
+                            return tiles.map(({ label, value, money, focus }) => (
+                              <button
+                                key={label}
+                                onClick={() => { setStatsDialogFocus(focus); setStatsDialogOpen(true); }}
+                                className="rounded-lg bg-white border border-gray-100 px-3 py-2.5 text-center hover:border-teal-300 hover:bg-teal-50/40 transition-colors cursor-pointer w-full"
+                              >
+                                <p className={`text-base font-bold tracking-tight leading-none mb-1 ${
+                                  money ? (uAnnual >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-900'
+                                }`}>{value}</p>
+                                <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">{label}</p>
+                              </button>
+                            ));
+                          })()}
                         </div>
                       </div>
                     )}
@@ -1726,6 +1759,71 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 </CollapsibleContent>
               </Card>
             </Collapsible>
+
+            {/* ── Stats Breakdown Dialog ── */}
+            <Dialog open={statsDialogOpen} onOpenChange={setStatsDialogOpen}>
+              <DialogContent className="max-w-2xl bg-white border border-gray-200">
+                <DialogHeader>
+                  <DialogTitle className="text-gray-900 text-base">
+                    {{
+                      campuses: 'Campus Coverage — Active Rules',
+                      units:    'Unit Coverage — Active Rules',
+                      monthly:  'Monthly Impact — Active Rules',
+                      annual:   'Annual Impact — Active Rules',
+                    }[statsDialogFocus]}
+                  </DialogTitle>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {statsDialogFocus === 'campuses' && combinedStats
+                      ? `${combinedStats.uniqueCampuses} unique campus${combinedStats.uniqueCampuses !== 1 ? 'es' : ''} across all active rules (overlap removed)`
+                      : statsDialogFocus === 'units' && combinedStats
+                      ? `${combinedStats.uniqueUnits.toLocaleString()} unique units matched by at least one active rule`
+                      : 'Monetary impact reflects expected new admissions only'}
+                  </p>
+                </DialogHeader>
+                {combinedStats && combinedStats.breakdown.length > 0 ? (
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Rule</th>
+                          <th className={`text-right px-3 py-2 text-xs font-semibold uppercase tracking-wide ${statsDialogFocus === 'campuses' ? 'text-teal-700 bg-teal-50' : 'text-gray-600'}`}>Campuses</th>
+                          <th className={`text-right px-3 py-2 text-xs font-semibold uppercase tracking-wide ${statsDialogFocus === 'units' ? 'text-teal-700 bg-teal-50' : 'text-gray-600'}`}>Units</th>
+                          <th className={`text-right px-3 py-2 text-xs font-semibold uppercase tracking-wide ${statsDialogFocus === 'monthly' ? 'text-teal-700 bg-teal-50' : 'text-gray-600'}`}>Monthly</th>
+                          <th className={`text-right px-3 py-2 text-xs font-semibold uppercase tracking-wide ${statsDialogFocus === 'annual' ? 'text-teal-700 bg-teal-50' : 'text-gray-600'}`}>Annual</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {combinedStats.breakdown.map((row, i) => (
+                          <tr key={row.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                            <td className="px-3 py-2.5 font-medium text-gray-800 max-w-[200px] truncate">{row.name}</td>
+                            <td className={`px-3 py-2.5 text-right tabular-nums text-gray-700 ${statsDialogFocus === 'campuses' ? 'font-semibold text-teal-700 bg-teal-50/50' : ''}`}>{row.campuses.toLocaleString()}</td>
+                            <td className={`px-3 py-2.5 text-right tabular-nums text-gray-700 ${statsDialogFocus === 'units' ? 'font-semibold text-teal-700 bg-teal-50/50' : ''}`}>{row.units.toLocaleString()}</td>
+                            <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'monthly' ? 'font-semibold bg-teal-50/50' : ''} ${row.monthlyImpact >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(row.monthlyImpact)}</td>
+                            <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'annual' ? 'font-semibold bg-teal-50/50' : ''} ${row.annualImpact >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(row.annualImpact)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+                          <td className="px-3 py-2.5 text-gray-800">Total (unique)</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'campuses' ? 'text-teal-700 bg-teal-50/50' : 'text-gray-800'}`}>{(combinedStats.uniqueCampuses).toLocaleString()}</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'units' ? 'text-teal-700 bg-teal-50/50' : 'text-gray-800'}`}>{(combinedStats.uniqueUnits).toLocaleString()}</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'monthly' ? 'bg-teal-50/50' : ''} ${combinedStats.combinedMonthly >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(combinedStats.combinedMonthly)}</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'annual' ? 'bg-teal-50/50' : ''} ${combinedStats.combinedAnnual >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(combinedStats.combinedAnnual)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                    {(statsDialogFocus === 'campuses' || statsDialogFocus === 'units') && (
+                      <p className="text-[11px] text-gray-400 mt-3 px-1">
+                        Per-rule counts may sum to more than the total — campuses and units covered by multiple rules are only counted once in the total row.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center text-gray-400 text-sm">No data available.</div>
+                )}
+              </DialogContent>
+            </Dialog>
 
             {/* ── Bubble Map Dialog ── */}
             <Dialog open={bubbleMapOpen} onOpenChange={setBubbleMapOpen}>

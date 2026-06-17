@@ -85,6 +85,7 @@ import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
+import ExcelJS from 'exceljs';
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import express from "express";
@@ -14157,6 +14158,124 @@ Respond in JSON format:
     }
   });
   
+  // ── Combined unique campus/unit stats across all active rules ─────────────
+  app.get("/api/adjustment-rules/combined-stats", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLine } = req.query;
+
+      const latestRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+        [clientId]
+      );
+      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
+      if (!latestMonth) {
+        return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
+      }
+
+      const activeRules = await db.select().from(adjustmentRules)
+        .where(eq(adjustmentRules.isActive, true));
+      if (!activeRules.length) {
+        return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
+      }
+
+      const breakdown: any[] = [];
+      const unionSubqueries: string[] = [];
+      const unionParams: any[] = [clientId, latestMonth]; // $1, $2 shared across all subqueries
+      let uIdx = 3;
+
+      for (const rule of activeRules) {
+        const action = rule.action as any;
+        const filters = action?.filters || {};
+        const adjustmentType: string = action?.adjustmentType || 'percentage';
+        const adjustmentValue: number = action?.adjustmentValue ?? 0;
+        const rateCol = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
+
+        // Per-rule independent query (its own params array)
+        const rWhere: string[] = ['rrd.client_id = $1', 'rrd.upload_month = $2'];
+        const rParams: any[] = [clientId, latestMonth];
+        let rIdx = 3;
+
+        // Union subquery shares $1/$2 but gets its own positional params at uIdx+
+        const uWhere: string[] = ['client_id = $1', 'upload_month = $2'];
+
+        if (locationId) {
+          rWhere.push(`rrd.location_id = $${rIdx}`); rParams.push(locationId as string); rIdx++;
+          uWhere.push(`location_id = $${uIdx}`); unionParams.push(locationId as string); uIdx++;
+        }
+        if (filters.roomType?.length) {
+          rWhere.push(`rrd.room_type = ANY($${rIdx}::text[])`); rParams.push(filters.roomType); rIdx++;
+          uWhere.push(`room_type = ANY($${uIdx}::text[])`); unionParams.push(filters.roomType); uIdx++;
+        }
+        if (filters.serviceLine?.length) {
+          rWhere.push(`rrd.service_line = ANY($${rIdx}::text[])`); rParams.push(filters.serviceLine); rIdx++;
+          uWhere.push(`service_line = ANY($${uIdx}::text[])`); unionParams.push(filters.serviceLine); uIdx++;
+        } else if (serviceLine) {
+          rWhere.push(`rrd.service_line = $${rIdx}`); rParams.push(serviceLine as string); rIdx++;
+          uWhere.push(`service_line = $${uIdx}`); unionParams.push(serviceLine as string); uIdx++;
+        }
+        if (filters.occupancyStatus === 'vacant') {
+          const clause = '(occupied_yn = false OR occupied_yn IS NULL)';
+          rWhere.push(`rrd.${clause}`); uWhere.push(clause);
+        } else if (filters.occupancyStatus === 'occupied') {
+          rWhere.push('rrd.occupied_yn = true'); uWhere.push('occupied_yn = true');
+        }
+        if (filters.vacancyDuration) {
+          const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
+          rWhere.push(`rrd.days_vacant ${operator} $${rIdx}`); rParams.push(days); rIdx++;
+          uWhere.push(`days_vacant ${operator} $${uIdx}`); unionParams.push(days); uIdx++;
+        }
+
+        unionSubqueries.push(
+          `SELECT id, location_id FROM rent_roll_data WHERE ${uWhere.join(' AND ')}`
+        );
+
+        // Per-rule aggregate stats
+        const { rows: rStats } = await pool.query(`
+          SELECT
+            COUNT(*)::int                                 AS unit_count,
+            COUNT(DISTINCT rrd.location_id)::int          AS campus_count,
+            COALESCE(SUM(rrd.${rateCol}), 0)::float      AS total_rate
+          FROM rent_roll_data rrd
+          WHERE ${rWhere.join(' AND ')}
+        `, rParams);
+
+        const st = rStats[0] || { unit_count: 0, campus_count: 0, total_rate: 0 };
+        const monthly = adjustmentType === 'percentage'
+          ? st.total_rate * (adjustmentValue / 100)
+          : st.unit_count * adjustmentValue;
+
+        breakdown.push({
+          id: rule.id,
+          name: rule.name,
+          campuses: st.campus_count,
+          units: st.unit_count,
+          monthlyImpact: Math.round(monthly),
+          annualImpact: Math.round(monthly * 12),
+        });
+      }
+
+      // Single UNION query gives truly unique campus + unit counts across all rules
+      const { rows: uniq } = await pool.query(`
+        SELECT COUNT(*)::int                       AS unique_units,
+               COUNT(DISTINCT location_id)::int    AS unique_campuses
+        FROM   (${unionSubqueries.join(' UNION ')}) combined
+      `, unionParams);
+
+      res.json({
+        uniqueCampuses:  uniq[0]?.unique_campuses ?? 0,
+        uniqueUnits:     uniq[0]?.unique_units     ?? 0,
+        combinedMonthly: breakdown.reduce((s, r) => s + r.monthlyImpact, 0),
+        combinedAnnual:  breakdown.reduce((s, r) => s + r.annualImpact,  0),
+        breakdown,
+      });
+    } catch (error) {
+      console.error('Error getting combined stats:', error);
+      res.status(500).json({ error: 'Failed to compute combined stats' });
+    }
+  });
+
+  // ── Export active rules as formatted Excel ─────────────────────────────────
   app.get("/api/adjustment-rules/export", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
@@ -14175,10 +14294,12 @@ Respond in JSON format:
       );
       const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
 
-      const escapeCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const csvLines: string[] = [
-        ['Rule Name', 'Active', 'Campus', 'Service Line', 'Units Affected', 'Monthly Impact ($)', 'Annual Impact ($)', '3-Month ($)', '6-Month ($)'].join(',')
-      ];
+      // Collect all data rows first
+      interface DataRow {
+        ruleName: string; active: string; campus: string; serviceLine: string;
+        units: number; monthly: number; annual: number; threeMonth: number; sixMonth: number;
+      }
+      const dataRows: DataRow[] = [];
 
       if (latestMonth) {
         for (const rule of rules) {
@@ -14218,27 +14339,74 @@ Respond in JSON format:
           `, params);
 
           for (const row of breakdown) {
-            const monthlyImpact = adjustmentType === 'percentage'
+            const m = adjustmentType === 'percentage'
               ? row.total_rate * (adjustmentValue / 100)
               : row.unit_count * adjustmentValue;
-            csvLines.push([
-              escapeCsv(rule.name),
-              rule.isActive ? 'Yes' : 'No',
-              escapeCsv(row.campus_name),
-              escapeCsv(row.service_line || ''),
-              row.unit_count,
-              Math.round(monthlyImpact),
-              Math.round(monthlyImpact * 12),
-              Math.round(monthlyImpact * 3),
-              Math.round(monthlyImpact * 6),
-            ].join(','));
+            dataRows.push({
+              ruleName: rule.name ?? '',
+              active: rule.isActive ? 'Yes' : 'No',
+              campus: row.campus_name ?? '',
+              serviceLine: row.service_line ?? '',
+              units: row.unit_count,
+              monthly: Math.round(m),
+              annual: Math.round(m * 12),
+              threeMonth: Math.round(m * 3),
+              sixMonth: Math.round(m * 6),
+            });
           }
         }
       }
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename="rules-impact-detail.csv"');
-      res.send(csvLines.join('\n'));
+      // Build formatted Excel workbook with ExcelJS
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Modulo';
+      wb.created = new Date();
+      const ws = wb.addWorksheet('Rules Impact');
+
+      ws.columns = [
+        { key: 'ruleName',    header: 'Rule Name',           width: 32 },
+        { key: 'active',      header: 'Active',              width: 9  },
+        { key: 'campus',      header: 'Campus',              width: 28 },
+        { key: 'serviceLine', header: 'Service Line',        width: 16 },
+        { key: 'units',       header: 'Units Affected',      width: 15 },
+        { key: 'monthly',     header: 'Monthly Impact ($)',  width: 19 },
+        { key: 'annual',      header: 'Annual Impact ($)',   width: 18 },
+        { key: 'threeMonth',  header: '3-Month ($)',         width: 14 },
+        { key: 'sixMonth',    header: '6-Month ($)',         width: 14 },
+      ];
+
+      // Style header row
+      const headerRow = ws.getRow(1);
+      headerRow.height = 20;
+      headerRow.eachCell(cell => {
+        cell.font = { bold: true, color: { argb: 'FF0F172A' }, size: 11 };
+        cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCFBF1' } };
+        cell.border = {
+          bottom: { style: 'medium', color: { argb: 'FF0D9488' } },
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      });
+
+      // Add data rows with alternating shading
+      dataRows.forEach((row, i) => {
+        const r = ws.addRow(row);
+        r.height = 16;
+        const bg = i % 2 === 0 ? 'FFFFFFFF' : 'FFF0FDFA';
+        r.eachCell(cell => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+          cell.alignment = { vertical: 'middle' };
+          // Right-align numeric columns
+          const col = cell.col as unknown as number;
+          if (col >= 5) cell.alignment = { vertical: 'middle', horizontal: 'right' };
+        });
+      });
+
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+      const buf = await wb.xlsx.writeBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="rules-impact.xlsx"');
+      res.send(Buffer.from(buf));
     } catch (error) {
       console.error('Error exporting rules:', error);
       res.status(500).json({ error: 'Export failed' });
