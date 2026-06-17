@@ -8,10 +8,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ChevronDown, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2, RefreshCw } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChevronDown, ChevronUp, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2, RefreshCw, Pencil, ExternalLink, SlidersHorizontal } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 // Helper functions for localStorage persistence - using shared key for cross-page sync
 const saveCompetitorFiltersToStorage = (filters: any) => {
@@ -57,6 +59,15 @@ export default function CompetitorAnalysis() {
             ? [savedFilters.serviceLine] 
             : ['AL']));
   const [selectedServiceLines, setSelectedServiceLines] = useState<string[]>(initialServiceLines);
+
+  // Sorting state for the rate comparison table
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  // Inline-editing state: which cell is currently being edited
+  const [editCell, setEditCell] = useState<{ id: string; field: string; value: string } | null>(null);
+  // Pricing-weights panel state
+  const [weightSl, setWeightSl] = useState<string>('');
+  const [weightEdits, setWeightEdits] = useState<Record<string, number> | null>(null);
 
   // Save filters to localStorage whenever they change
   useEffect(() => {
@@ -127,6 +138,72 @@ export default function CompetitorAnalysis() {
       return res.json();
     },
     enabled: selectedLocations.length === 1,
+  });
+
+  const { toast } = useToast();
+
+  // Derive locationId for the selected single location (needed for weights)
+  const locationId = (locationsData as any)?.locations?.find(
+    (l: any) => l.name === selectedLocations[0]
+  )?.id as string | undefined;
+
+  // Weights query — respects 3-tier fallback on the backend
+  const { data: weightsData, isLoading: isLoadingWeights } = useQuery({
+    queryKey: ["/api/weights", locationId, weightSl],
+    queryFn: async () => {
+      if (!locationId) return null;
+      const params = new URLSearchParams({ locationId });
+      if (weightSl) params.set('serviceLine', weightSl);
+      const res = await fetch(`/api/weights?${params}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!locationId && selectedLocations.length === 1,
+  });
+
+  // Mutation: save edits to a competitor survey row's rate fields
+  const updateSurveyMutation = useMutation({
+    mutationFn: async ({ id, ...updates }: { id: string; baseRate?: number; careLevel2Adjustment?: number; medMgmtFee?: number }) => {
+      const res = await fetch(`/api/competitive-survey/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Update failed'); }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/competitor-rate-comparison", selectedLocations[0], selectedServiceLines] });
+      setEditCell(null);
+      toast({ title: 'Rate updated' });
+    },
+    onError: (e: any) => toast({ title: e.message || 'Update failed', variant: 'destructive' }),
+  });
+
+  // Mutation: save pricing weights for this location / service line
+  const saveWeightsMutation = useMutation({
+    mutationFn: async (weights: Record<string, number>) => {
+      const res = await fetch('/api/weights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location_id: locationId,
+          service_line: weightSl || undefined,
+          occupancy_pressure: weights.occupancyPressure,
+          days_vacant_decay: weights.daysVacantDecay,
+          seasonality: weights.seasonality,
+          competitor_rates: weights.competitorRates,
+          stock_market: weights.stockMarket,
+          inquiry_tour_volume: weights.inquiryTourVolume,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Save failed'); }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/weights", locationId, weightSl] });
+      setWeightEdits(null);
+      toast({ title: 'Weights saved' });
+    },
+    onError: (e: any) => toast({ title: e.message || 'Save failed', variant: 'destructive' }),
   });
 
   // Extract unique regions, divisions, and locations - sorted alphabetically
@@ -543,79 +620,288 @@ export default function CompetitorAnalysis() {
               <div className="text-center py-8 text-gray-500">
                 No competitor data available for this location and service line combination.
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Competitor</TableHead>
-                      <TableHead>Service Line</TableHead>
-                      <TableHead>Room Type</TableHead>
-                      <TableHead className="text-right">Distance</TableHead>
-                      <TableHead className="text-right">Base Rate</TableHead>
-                      <TableHead className="text-right">Care Adj.</TableHead>
-                      <TableHead className="text-right">Med Mgmt</TableHead>
-                      <TableHead className="text-right">Adjusted Rate</TableHead>
-                      <TableHead className="text-right">Trilogy Rate</TableHead>
-                      <TableHead className="text-right">Market Position</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {competitorRateData.data.map((row: any) => {
-                      const positionColor = row.marketPosition >= 100 
-                        ? "text-green-600" 
-                        : row.marketPosition >= 90 
-                        ? "text-yellow-600" 
-                        : "text-red-600";
-                      const PositionIcon = row.marketPosition > 100 
-                        ? TrendingUp 
-                        : row.marketPosition >= 90 
-                        ? Minus 
-                        : TrendingDown;
-                      return (
-                        <TableRow key={row.id} data-testid={`row-competitor-${row.id}`}>
-                          <TableCell className="font-medium">{row.competitorName}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{row.serviceLine}</Badge>
-                          </TableCell>
-                          <TableCell>{row.roomType || 'N/A'}</TableCell>
-                          <TableCell className="text-right">
-                            {row.distanceMiles ? `${row.distanceMiles.toFixed(1)} mi` : 'N/A'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            ${row.baseRate?.toLocaleString() || 0}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {row.careLevel2Adjustment > 0
-                              ? `+$${row.careLevel2Adjustment.toLocaleString()}`
-                              : row.careLevel2Adjustment < 0
-                              ? `-$${Math.abs(row.careLevel2Adjustment).toLocaleString()}`
-                              : '-'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {row.medMgmtAdjustment > 0 ? `+$${row.medMgmtAdjustment.toLocaleString()}` : '-'}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold">
-                            ${row.adjustedRate?.toLocaleString() || 0}
-                          </TableCell>
-                          <TableCell className="text-right font-semibold text-blue-600">
-                            ${row.trilogyRate?.toLocaleString() || 0}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className={`flex items-center justify-end gap-1 ${positionColor}`}>
-                              <PositionIcon className="h-4 w-4" />
-                              <span className="font-semibold">{row.marketPosition.toFixed(1)}%</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+            ) : (() => {
+              // ── Sort helpers ──────────────────────────────────────────
+              const handleSort = (field: string) => {
+                if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                else { setSortField(field); setSortDir('asc'); }
+              };
+              const SortIndicator = ({ field }: { field: string }) =>
+                sortField !== field
+                  ? <ChevronDown className="h-3 w-3 ml-0.5 opacity-25" />
+                  : sortDir === 'asc'
+                    ? <ChevronUp className="h-3 w-3 ml-0.5 opacity-80 text-teal-600" />
+                    : <ChevronDown className="h-3 w-3 ml-0.5 opacity-80 text-teal-600" />;
+              const SortableHead = ({ field, label, right }: { field: string; label: string; right?: boolean }) => (
+                <TableHead
+                  className={`cursor-pointer select-none hover:bg-gray-50 whitespace-nowrap ${right ? 'text-right' : ''}`}
+                  onClick={() => handleSort(field)}
+                >
+                  <span className={`inline-flex items-center gap-0 ${right ? 'flex-row-reverse' : ''}`}>
+                    {label}<SortIndicator field={field} />
+                  </span>
+                </TableHead>
+              );
+
+              // ── Sort data ─────────────────────────────────────────────
+              const sortedData = [...competitorRateData.data].sort((a: any, b: any) => {
+                if (!sortField) return 0;
+                const va = a[sortField]; const vb = b[sortField];
+                if (va == null) return 1; if (vb == null) return -1;
+                if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+                return sortDir === 'asc' ? va - vb : vb - va;
+              });
+
+              // ── Inline-edit helpers ───────────────────────────────────
+              const startEdit = (id: string, field: string, value: number) =>
+                setEditCell({ id, field, value: String(value) });
+              const commitEdit = () => {
+                if (!editCell) return;
+                const val = parseFloat(editCell.value);
+                if (isNaN(val)) { setEditCell(null); return; }
+                const updates: any = { id: editCell.id };
+                if (editCell.field === 'baseRate') updates.baseRate = val;
+                else if (editCell.field === 'careAdj') updates.careLevel2Adjustment = val;
+                else if (editCell.field === 'medMgmt') updates.medMgmtFee = val;
+                updateSurveyMutation.mutate(updates);
+              };
+              const EditableCell = ({ row, field, value, sign = false }: { row: any; field: string; value: number; sign?: boolean }) => {
+                const isEditing = editCell?.id === String(row.id) && editCell.field === field;
+                if (isEditing) {
+                  return (
+                    <TableCell className="text-right p-1.5">
+                      <input
+                        autoFocus
+                        type="number"
+                        className="w-24 text-right border border-teal-400 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+                        value={editCell!.value}
+                        onChange={e => setEditCell({ ...editCell!, value: e.target.value })}
+                        onBlur={commitEdit}
+                        onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }}
+                      />
+                    </TableCell>
+                  );
+                }
+                const display = value === 0 ? '—'
+                  : sign ? (value > 0 ? `+$${value.toLocaleString()}` : `−$${Math.abs(value).toLocaleString()}`)
+                  : `$${value.toLocaleString()}`;
+                return (
+                  <TableCell
+                    className="text-right cursor-pointer group"
+                    onClick={() => startEdit(String(row.id), field, value)}
+                    title="Click to edit"
+                  >
+                    <span className="inline-flex items-center justify-end gap-1">
+                      <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-40 text-gray-400 flex-shrink-0" />
+                      {display}
+                    </span>
+                  </TableCell>
+                );
+              };
+
+              return (
+                <div className="overflow-x-auto">
+                  {competitorRateData.usingDistanceFallback && (
+                    <p className="text-xs text-amber-600 mb-2 flex items-center gap-1">
+                      <Info className="h-3 w-3 flex-shrink-0" />
+                      No weighted competitors configured — showing 5 closest by distance.
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mb-2">
+                    Click any <Pencil className="h-3 w-3 inline" /> cell to edit. Press Enter to save, Escape to cancel.
+                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <SortableHead field="competitorName" label="Competitor" />
+                        <SortableHead field="serviceLine" label="Service Line" />
+                        <SortableHead field="roomType" label="Room Type" />
+                        <SortableHead field="distanceMiles" label="Distance" right />
+                        <SortableHead field="baseRate" label="Base Rate" right />
+                        <SortableHead field="careLevel2Adjustment" label="Care Adj." right />
+                        <SortableHead field="medMgmtAdjustment" label="Med Mgmt" right />
+                        <SortableHead field="adjustedRate" label="Adjusted Rate" right />
+                        <SortableHead field="trilogyRate" label="Trilogy Rate" right />
+                        <SortableHead field="marketPosition" label="Market Position" right />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sortedData.map((row: any) => {
+                        const positionColor = row.marketPosition >= 100
+                          ? "text-green-600"
+                          : row.marketPosition >= 90
+                          ? "text-yellow-600"
+                          : "text-red-600";
+                        const PositionIcon = row.marketPosition > 100
+                          ? TrendingUp
+                          : row.marketPosition >= 90
+                          ? Minus
+                          : TrendingDown;
+                        return (
+                          <TableRow key={row.id} data-testid={`row-competitor-${row.id}`}>
+                            <TableCell className="font-medium">{row.competitorName}</TableCell>
+                            <TableCell><Badge variant="outline">{row.serviceLine}</Badge></TableCell>
+                            <TableCell>{row.roomType || 'N/A'}</TableCell>
+                            <TableCell className="text-right">
+                              {row.distanceMiles ? `${row.distanceMiles.toFixed(1)} mi` : 'N/A'}
+                            </TableCell>
+                            <EditableCell row={row} field="baseRate" value={row.baseRate ?? 0} />
+                            <EditableCell row={row} field="careAdj" value={row.careLevel2Adjustment ?? 0} sign />
+                            <EditableCell row={row} field="medMgmt" value={row.medMgmtAdjustment ?? 0} sign />
+                            <TableCell className="text-right font-semibold">
+                              ${row.adjustedRate?.toLocaleString() ?? 0}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold">
+                              <button
+                                className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 ml-auto"
+                                onClick={() => {
+                                  localStorage.setItem('appFilters', JSON.stringify({
+                                    locations: [selectedLocations[0]],
+                                    serviceLine: row.serviceLine,
+                                    serviceLines: [row.serviceLine],
+                                    roomType: row.roomType,
+                                    regions: selectedRegions,
+                                    divisions: selectedDivisions,
+                                  }));
+                                  window.location.href = '/rate-card';
+                                }}
+                                title="Open in Rate Card filtered to this service line & room type"
+                              >
+                                ${row.trilogyRate?.toLocaleString() ?? 0}
+                                <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                              </button>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className={`flex items-center justify-end gap-1 ${positionColor}`}>
+                                <PositionIcon className="h-4 w-4" />
+                                <span className="font-semibold">{row.marketPosition.toFixed(1)}%</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
+
+        {/* Pricing Weights Panel */}
+        {selectedLocations.length === 1 && locationId && (
+          <Card className="mt-6">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-5 w-5 text-teal-600" />
+                  <CardTitle className="text-base">Pricing Weights — {selectedLocations[0]}</CardTitle>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Scope:</span>
+                  <Select
+                    value={weightSl || "__all__"}
+                    onValueChange={v => { setWeightSl(v === "__all__" ? "" : v); setWeightEdits(null); }}
+                  >
+                    <SelectTrigger className="h-8 w-44 text-xs">
+                      <SelectValue placeholder="All Service Lines" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All Service Lines</SelectItem>
+                      {serviceLineOptions.map(sl => (
+                        <SelectItem key={sl} value={sl}>{sl}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <CardDescription>
+                Controls how each factor influences Modulo pricing recommendations for this location.
+                Values must sum to 100%. Changes apply from the next calculation run.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingWeights ? (
+                <div className="flex items-center gap-2 py-4 text-gray-500 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading weights…
+                </div>
+              ) : !weightsData ? (
+                <div className="text-center py-4 text-gray-500 text-sm">No weights found for this location.</div>
+              ) : (() => {
+                const current: Record<string, number> = weightEdits ?? {
+                  occupancyPressure: weightsData.occupancy_pressure ?? 0,
+                  daysVacantDecay: weightsData.days_vacant_decay ?? 0,
+                  seasonality: weightsData.seasonality ?? 0,
+                  competitorRates: weightsData.competitor_rates ?? 0,
+                  stockMarket: weightsData.stock_market ?? 0,
+                  inquiryTourVolume: weightsData.inquiry_tour_volume ?? 0,
+                };
+                const total = Object.values(current).reduce((s, v) => s + v, 0);
+                const weightFields: { key: string; label: string }[] = [
+                  { key: 'occupancyPressure', label: 'Occupancy Pressure' },
+                  { key: 'daysVacantDecay', label: 'Days Vacant Decay' },
+                  { key: 'seasonality', label: 'Seasonality' },
+                  { key: 'competitorRates', label: 'Competitor Rates' },
+                  { key: 'stockMarket', label: 'Stock Market' },
+                  { key: 'inquiryTourVolume', label: 'Inquiry & Tour Vol.' },
+                ];
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                      {weightFields.map(({ key, label }) => (
+                        <div key={key} className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 block">{label}</label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm pr-7 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+                              value={current[key]}
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setWeightEdits({ ...current, [key]: val });
+                              }}
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                      <span className={`text-sm font-medium ${total === 100 ? 'text-green-600' : 'text-red-500'}`}>
+                        Total: {total}%
+                        {total !== 100 && (
+                          <span className="ml-1 font-normal text-xs">
+                            ({total > 100 ? `+${total - 100}` : total - 100} from 100)
+                          </span>
+                        )}
+                        {total === 100 && ' ✓'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {weightEdits && (
+                          <Button variant="ghost" size="sm" className="text-xs" onClick={() => setWeightEdits(null)}>
+                            Reset
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          disabled={total !== 100 || saveWeightsMutation.isPending || !weightEdits}
+                          onClick={() => weightEdits && saveWeightsMutation.mutate(weightEdits)}
+                          className="bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50"
+                        >
+                          {saveWeightsMutation.isPending ? (
+                            <><Loader2 className="h-3 w-3 animate-spin mr-1" />Saving…</>
+                          ) : 'Save Weights'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

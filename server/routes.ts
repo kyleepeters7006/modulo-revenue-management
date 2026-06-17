@@ -11926,6 +11926,57 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
 
+  // Inline edit: update rate fields on a competitive survey record
+  app.patch("/api/competitive-survey/:id", async (req: any, res) => {
+    try {
+      const id = req.params.id as string;
+      const clientId = req.clientId || 'demo';
+      const { baseRate, careLevel2Adjustment, medMgmtFee } = req.body;
+
+      const records = await db.select().from(competitiveSurveyData)
+        .where(eq(competitiveSurveyData.id, id)).limit(1);
+      if (!records.length) return res.status(404).json({ error: 'Record not found' });
+      const record = records[0];
+
+      const updates: Record<string, any> = {};
+      if (baseRate !== undefined) updates.monthlyRateAvg = parseFloat(baseRate);
+      if (medMgmtFee !== undefined) updates.medicationManagementFee = parseFloat(medMgmtFee);
+
+      if (careLevel2Adjustment !== undefined) {
+        // careAdj displayed = competitor.careL2 − trilogy.careL2
+        // → competitor.careL2 = careAdj + trilogy.careL2
+        const COMP_TO_SL: Record<string, string> = {
+          'HC': 'HC', 'SMC': 'HC/MC', 'HC/MC': 'HC/MC',
+          'AL': 'AL', 'AL/MC': 'AL/MC', 'IL_IL': 'SL', 'IL_Villa': 'VIL'
+        };
+        const trilogySL = COMP_TO_SL[record.competitorType || ''] || record.competitorType || '';
+        const locRecord = await db.select({ id: locations.id })
+          .from(locations)
+          .where(and(eq(locations.name, record.keyStatsLocation || ''), eq(locations.clientId, clientId)))
+          .limit(1);
+        let trilogyCareL2 = 0;
+        if (locRecord.length) {
+          const careRow = await db.select({ level2Rate: careLevelRates.level2Rate })
+            .from(careLevelRates)
+            .where(and(
+              eq(careLevelRates.locationId, locRecord[0].id),
+              eq(careLevelRates.clientId, clientId),
+              eq(careLevelRates.serviceLine, trilogySL)
+            )).limit(1);
+          trilogyCareL2 = careRow[0]?.level2Rate ?? 0;
+        }
+        updates.careLevel2Rate = parseFloat(careLevel2Adjustment) + trilogyCareL2;
+      }
+
+      if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
+      await db.update(competitiveSurveyData).set(updates).where(eq(competitiveSurveyData.id, id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating competitive survey record:', error);
+      res.status(500).json({ error: 'Update failed' });
+    }
+  });
+
   // Job-based competitor rate matching - Start a new job
   app.post("/api/competitor-rates/job/start", async (req: any, res) => {
     try {
