@@ -957,12 +957,12 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
               onScroll={handleBottomScroll}
               className={isFullscreen ? "scroll-track-bottom flex-1 overflow-auto" : "scroll-track-bottom"}
             >
-              <Table ref={tableRef} className="min-w-max">
+              <Table ref={tableRef} className="w-full text-xs">
                 <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
                   <TableRow>
                     {/* Location — sort + text search filter */}
                     <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-0 z-[31] bg-white min-w-[180px] w-[180px]"
+                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-0 z-[31] bg-white w-[130px]"
                       onClick={() => handleSort('location')}
                       data-testid="sort-location"
                     >
@@ -986,7 +986,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
 
                     {/* Unit — sort + text search filter */}
                     <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-[180px] z-[31] bg-white min-w-[80px] w-[80px]"
+                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-[130px] z-[31] bg-white w-[65px]"
                       onClick={() => handleSort('unit')}
                       data-testid="sort-unit"
                     >
@@ -1010,7 +1010,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
 
                     {/* Room Type — sort + multi-select filter */}
                     <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-[260px] z-[31] bg-white min-w-[110px] w-[110px] border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
+                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-[195px] z-[31] bg-white w-[90px] border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
                       onClick={() => handleSort('roomType')}
                       data-testid="sort-room-type"
                     >
@@ -1039,7 +1039,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                       </div>
                     </TableHead>
 
-                    <TableHead className="min-w-[120px]">Attributes</TableHead>
+                    <TableHead className="w-[80px]">Attributes</TableHead>
 
                     {/* Service Line — sort + multi-select filter */}
                     <TableHead
@@ -1188,13 +1188,13 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                       id={`unit-row-${unit.id}`}
                       className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
                     >
-                      <TableCell className={`text-sm truncate sticky left-0 z-10 min-w-[180px] w-[180px] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
+                      <TableCell className={`truncate sticky left-0 z-10 w-[130px] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
                         {unit.location || unit.locationName || unit.campusName || '-'}
                       </TableCell>
-                      <TableCell className={`font-medium sticky left-[180px] z-10 min-w-[80px] w-[80px] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>
+                      <TableCell className={`font-medium sticky left-[130px] z-10 w-[65px] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>
                         {unit.roomNumber}
                       </TableCell>
-                      <TableCell className={`sticky left-[260px] z-10 min-w-[110px] w-[110px] border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>{unit.roomType}</TableCell>
+                      <TableCell className={`sticky left-[195px] z-10 w-[90px] border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>{unit.roomType}</TableCell>
                       <TableCell>
                         <button
                           type="button"
