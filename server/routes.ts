@@ -15243,6 +15243,294 @@ Respond in JSON format:
   });
 
   // ============================================
+  // REFERENCE DATA — wide Excel-like metric grid
+  // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=
+  // One row per (Division, Campus, Service Line, Room Type) with Spot/T3/T6/T12
+  // metrics computed across the latest 12 upload_months of rent_roll_data.
+  // ============================================
+  app.get("/api/reference-data", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const q = req.query as Record<string, string | undefined>;
+      const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
+      const regions     = csv(q.regions);
+      const divisions   = csv(q.divisions);
+      const locations   = csv(q.locations);
+      const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
+
+      // 1) Latest 12 upload months for this client
+      const monthsRes = await pool.query<{ m: string }>(
+        `SELECT DISTINCT upload_month AS m FROM rent_roll_data WHERE client_id=$1 AND upload_month IS NOT NULL ORDER BY upload_month DESC LIMIT 12`,
+        [clientId]
+      );
+      const months = monthsRes.rows.map(r => r.m);
+      if (months.length === 0) return res.json({ rows: [], months: [], calculatedAt: null });
+      const spotMonth = months[0];
+      const t3Months  = months.slice(0, 3);
+      const t6Months  = months.slice(0, 6);
+      const t12Months = months.slice(0, 12);
+
+      // 2) Filter clause (shared)
+      const params: any[] = [clientId, months];
+      let where = `rr.client_id = $1 AND rr.upload_month = ANY($2)`;
+      if (serviceLine) { params.push(serviceLine); where += ` AND rr.service_line = $${params.length}`; }
+      if (locations.length)  { params.push(locations);  where += ` AND rr.location = ANY($${params.length})`; }
+      if (regions.length)    { params.push(regions);    where += ` AND loc.region = ANY($${params.length})`; }
+      if (divisions.length)  { params.push(divisions);  where += ` AND loc.division = ANY($${params.length})`; }
+
+      // 3) Per-month per-combo aggregation
+      const aggRes = await pool.query(`
+        SELECT
+          rr.location_id                                   AS location_id,
+          rr.location                                      AS campus,
+          COALESCE(loc.division, '—')                      AS division,
+          rr.service_line                                  AS service_line,
+          rr.room_type                                     AS room_type,
+          rr.upload_month                                  AS month,
+          COUNT(*)                                         AS total,
+          COUNT(*) FILTER (WHERE rr.occupied_yn)           AS occupied,
+          AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
+          AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0)                          AS avg_street,
+          AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
+          AVG(rr.competitor_rate) FILTER (WHERE rr.competitor_rate > 100)                AS avg_comp_base,
+          AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
+          AVG(COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate))
+            FILTER (WHERE COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate) > 0) AS avg_proposed
+        FROM rent_roll_data rr
+        LEFT JOIN locations loc ON loc.id = rr.location_id
+        WHERE ${where}
+        GROUP BY rr.location_id, rr.location, loc.division, rr.service_line, rr.room_type, rr.upload_month
+      `, params);
+
+      // 4) Inquiry / tour by location+serviceLine+month
+      const inqParams: any[] = [clientId, months];
+      let inqWhere = `client_id = $1 AND upload_month = ANY($2)`;
+      if (serviceLine) { inqParams.push(serviceLine); inqWhere += ` AND service_line = $${inqParams.length}`; }
+      if (locations.length) { inqParams.push(locations); inqWhere += ` AND location = ANY($${inqParams.length})`; }
+      if (regions.length)   { inqParams.push(regions);   inqWhere += ` AND region = ANY($${inqParams.length})`; }
+      if (divisions.length) { inqParams.push(divisions); inqWhere += ` AND division = ANY($${inqParams.length})`; }
+      const inqRes = await pool.query(`
+        SELECT location, service_line, upload_month AS month,
+               SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
+        FROM inquiry_metrics WHERE ${inqWhere}
+        GROUP BY location, service_line, upload_month
+      `, inqParams);
+
+      // 5) T3 move-ins per (location, service_line) — distinct move-in events in last 3 months
+      const moveParams: any[] = [clientId, t3Months];
+      let moveWhere = `rr.client_id = $1`;
+      if (serviceLine) { moveParams.push(serviceLine); moveWhere += ` AND rr.service_line = $${moveParams.length}`; }
+      if (locations.length) { moveParams.push(locations); moveWhere += ` AND rr.location = ANY($${moveParams.length})`; }
+      if (regions.length)   { moveParams.push(regions);   moveWhere += ` AND loc.region = ANY($${moveParams.length})`; }
+      if (divisions.length) { moveParams.push(divisions); moveWhere += ` AND loc.division = ANY($${moveParams.length})`; }
+      const moveRes = await pool.query(`
+        WITH ev AS (
+          SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+            rr.location, rr.service_line, rr.room_type, rr.payor_type,
+            CASE
+              WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+              WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+              ELSE NULL END AS dt
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.id = rr.location_id
+          WHERE ${moveWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+          ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+                   (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+        ),
+        valid AS (
+          SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+          FROM ev
+          WHERE dt IS NOT NULL
+            AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+        )
+        SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
+        FROM valid WHERE mm = ANY($2)
+        GROUP BY location, service_line, room_type
+      `, moveParams);
+
+      // ── Roll up in JS ────────────────────────────────────────────────
+      const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
+      const num = (v: any): number | null => (v === null || v === undefined ? null : Number(v));
+
+      type Agg = { month: string; total: number; occupied: number; avgDaysVacant: number|null; avgStreet: number|null; avgIh: number|null; avgCompBase: number|null; avgCompAdj: number|null; avgProposed: number|null };
+      // combo key
+      const comboMap = new Map<string, { division: string; campus: string; serviceLine: string; roomType: string; locationId: string|null; campusKey: string; byMonth: Map<string, Agg> }>();
+      // campus & service-line monthly occupancy: key -> month -> {total, occupied}
+      const campusOcc = new Map<string, Map<string, { total: number; occupied: number }>>();
+      const slOcc     = new Map<string, Map<string, { total: number; occupied: number }>>();
+
+      for (const r of aggRes.rows as any[]) {
+        const division = r.division || '—';
+        const campus = r.campus || '—';
+        const sl = r.service_line || 'Other';
+        const rt = r.room_type || 'Other';
+        // Stable campus identity: location_id disambiguates same-named campuses across divisions/imports
+        const campusKey = `${r.location_id ?? ''}||${division}||${campus}`;
+        const key = `${campusKey}||${sl}||${rt}`;
+        if (!comboMap.has(key)) comboMap.set(key, { division, campus, serviceLine: sl, roomType: rt, locationId: r.location_id ?? null, campusKey, byMonth: new Map() });
+        comboMap.get(key)!.byMonth.set(r.month, {
+          month: r.month,
+          total: Number(r.total) || 0,
+          occupied: Number(r.occupied) || 0,
+          avgDaysVacant: num(r.avg_days_vacant),
+          avgStreet: num(r.avg_street),
+          avgIh: num(r.avg_ih),
+          avgCompBase: num(r.avg_comp_base),
+          avgCompAdj: num(r.avg_comp_adj),
+          avgProposed: num(r.avg_proposed),
+        });
+        // campus rollup
+        const cKey = campusKey;
+        if (!campusOcc.has(cKey)) campusOcc.set(cKey, new Map());
+        const cm = campusOcc.get(cKey)!;
+        const cEntry = cm.get(r.month) || { total: 0, occupied: 0 };
+        cEntry.total += Number(r.total) || 0; cEntry.occupied += Number(r.occupied) || 0;
+        cm.set(r.month, cEntry);
+        // service-line rollup
+        const sKey = `${campusKey}||${sl}`;
+        if (!slOcc.has(sKey)) slOcc.set(sKey, new Map());
+        const sm = slOcc.get(sKey)!;
+        const sEntry = sm.get(r.month) || { total: 0, occupied: 0 };
+        sEntry.total += Number(r.total) || 0; sEntry.occupied += Number(r.occupied) || 0;
+        sm.set(r.month, sEntry);
+      }
+
+      // inquiry/tour map: `${location}||${sl}` -> month -> {inq, tour}
+      const inqMap = new Map<string, Map<string, { inq: number; tour: number }>>();
+      for (const r of inqRes.rows as any[]) {
+        const key = `${r.location}||${r.service_line || 'Other'}`;
+        if (!inqMap.has(key)) inqMap.set(key, new Map());
+        inqMap.get(key)!.set(r.month, { inq: Number(r.inq) || 0, tour: Number(r.tour) || 0 });
+      }
+      // move-ins map: `${location}||${sl}||${rt}` -> t3
+      const moveMap = new Map<string, number>();
+      for (const r of moveRes.rows as any[]) moveMap.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
+
+      // occupancy % helper across a window of months for a rollup map entry
+      const occPctWindow = (m: Map<string, { total: number; occupied: number }> | undefined, window: string[]): number | null => {
+        if (!m) return null;
+        const pcts = window.map(mm => m.get(mm)).filter(Boolean).map(e => e!.total > 0 ? (e!.occupied / e!.total) * 100 : 0);
+        return pcts.length ? avg(pcts) : null;
+      };
+      const rateWindow = (byMonth: Map<string, Agg>, window: string[], field: keyof Agg): number | null => {
+        const vals = window.map(mm => byMonth.get(mm)?.[field]).filter(v => v !== null && v !== undefined) as number[];
+        return vals.length ? avg(vals) : null;
+      };
+      const vacWindow = (byMonth: Map<string, Agg>, window: string[]): number | null => {
+        const vals = window.map(mm => { const a = byMonth.get(mm); return a ? a.total - a.occupied : null; }).filter(v => v !== null) as number[];
+        return vals.length ? avg(vals) : null;
+      };
+      const occWindowCombo = (byMonth: Map<string, Agg>, window: string[]): number | null => {
+        const vals = window.map(mm => { const a = byMonth.get(mm); return a && a.total > 0 ? (a.occupied / a.total) * 100 : null; }).filter(v => v !== null) as number[];
+        return vals.length ? avg(vals) : null;
+      };
+      const incPct = (spot: number | null, trailing: number | null): number | null =>
+        (spot !== null && trailing !== null && trailing !== 0) ? (spot - trailing) / trailing : null;
+
+      const rows = Array.from(comboMap.values()).map(c => {
+        const bm = c.byMonth;
+        const spot = bm.get(spotMonth);
+        const cOcc = campusOcc.get(c.campusKey);
+        const sOcc = slOcc.get(`${c.campusKey}||${c.serviceLine}`);
+        const inq  = inqMap.get(`${c.campus}||${c.serviceLine}`);
+
+        // inquiries/tours
+        const inqPrev = inq?.get(spotMonth)?.inq ?? null;
+        const tourPrev = inq?.get(spotMonth)?.tour ?? null;
+        const inqT3Avg = inq ? avg(t3Months.map(m => inq.get(m)?.inq).filter(v => v != null) as number[]) : null;
+        const inqT12Avg = inq ? avg(t12Months.map(m => inq.get(m)?.inq).filter(v => v != null) as number[]) : null;
+        const tourT3Avg = inq ? avg(t3Months.map(m => inq.get(m)?.tour).filter(v => v != null) as number[]) : null;
+        const tourT12Avg = inq ? avg(t12Months.map(m => inq.get(m)?.tour).filter(v => v != null) as number[]) : null;
+
+        const streetSpot = spot?.avgStreet ?? null;
+        const ihSpot = spot?.avgIh ?? null;
+        const compBase = spot?.avgCompBase ?? null;
+        const compAdj = spot?.avgCompAdj ?? null;
+        const proposed = spot?.avgProposed ?? null;
+        const totalUnits = spot?.total ?? rateWindow(bm, t3Months, 'total') ?? 0;
+
+        const monthlyImpact = (proposed !== null && ihSpot !== null) ? (proposed - ihSpot) * (totalUnits || 0) : null;
+
+        return {
+          division: c.division,
+          campus: c.campus,
+          serviceLine: c.serviceLine,
+          roomType: c.roomType,
+          totalUnits,
+          // Vacant units
+          vacantSpot: spot ? spot.total - spot.occupied : null,
+          vacantT3: vacWindow(bm, t3Months),
+          vacantT6: vacWindow(bm, t6Months),
+          vacantT12: vacWindow(bm, t12Months),
+          // Campus occupancy
+          campusOccSpot: occPctWindow(cOcc, [spotMonth]),
+          campusOccT3: occPctWindow(cOcc, t3Months),
+          campusOccT6: occPctWindow(cOcc, t6Months),
+          campusOccT12: occPctWindow(cOcc, t12Months),
+          // Service line occupancy
+          slOccSpot: occPctWindow(sOcc, [spotMonth]),
+          slOccT3: occPctWindow(sOcc, t3Months),
+          slOccT6: occPctWindow(sOcc, t6Months),
+          slOccT12: occPctWindow(sOcc, t12Months),
+          // Room type occupancy (this combo)
+          rtOccSpot: spot ? (spot.total > 0 ? (spot.occupied / spot.total) * 100 : 0) : null,
+          rtOccT3: occWindowCombo(bm, t3Months),
+          rtOccT6: occWindowCombo(bm, t6Months),
+          rtOccT12: occWindowCombo(bm, t12Months),
+          // Days vacant avg
+          daysVacantSpot: spot?.avgDaysVacant ?? null,
+          daysVacantT3: rateWindow(bm, t3Months, 'avgDaysVacant'),
+          daysVacantT6: rateWindow(bm, t6Months, 'avgDaysVacant'),
+          daysVacantT12: rateWindow(bm, t12Months, 'avgDaysVacant'),
+          // Inquiries
+          inqPrevMonth: inqPrev,
+          inqVsT3: (inqPrev !== null && inqT3Avg !== null) ? inqPrev - inqT3Avg : null,
+          inqVsT12: (inqPrev !== null && inqT12Avg !== null) ? inqPrev - inqT12Avg : null,
+          // Tours
+          tourPrevMonth: tourPrev,
+          tourVsT3: (tourPrev !== null && tourT3Avg !== null) ? tourPrev - tourT3Avg : null,
+          tourVsT12: (tourPrev !== null && tourT12Avg !== null) ? tourPrev - tourT12Avg : null,
+          // Street rates - single occupant
+          streetSpot,
+          streetIncT3: incPct(streetSpot, rateWindow(bm, t3Months, 'avgStreet')),
+          streetIncT6: incPct(streetSpot, rateWindow(bm, t6Months, 'avgStreet')),
+          streetIncT12: incPct(streetSpot, rateWindow(bm, t12Months, 'avgStreet')),
+          // Comp rates - top comp
+          compBase,
+          compAdjusted: compAdj,
+          compVarDollar: (compAdj !== null && compBase !== null) ? compAdj - compBase : null,
+          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0) ? (compAdj - compBase) / compBase : null,
+          // In-house rates
+          ihSpot,
+          ihVarStreetDollar: (ihSpot !== null && streetSpot !== null) ? ihSpot - streetSpot : null,
+          ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
+          ihIncT3: incPct(ihSpot, rateWindow(bm, t3Months, 'avgIh')),
+          ihIncT6: incPct(ihSpot, rateWindow(bm, t6Months, 'avgIh')),
+          ihIncT12: incPct(ihSpot, rateWindow(bm, t12Months, 'avgIh')),
+          // Proposed rates
+          proposedRule: proposed,
+          proposedVarDollar: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
+          proposedVarPct: (proposed !== null && ihSpot !== null && ihSpot !== 0) ? (proposed - ihSpot) / ihSpot : null,
+          // Revenue impact
+          revT3MoveIns: moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null,
+          revMonthlyImpact: monthlyImpact,
+          revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
+        };
+      });
+
+      // Sort: division, campus, service line, room type
+      rows.sort((a, b) =>
+        a.division.localeCompare(b.division) || a.campus.localeCompare(b.campus) ||
+        a.serviceLine.localeCompare(b.serviceLine) || a.roomType.localeCompare(b.roomType));
+
+      res.json({ rows, months, spotMonth, calculatedAt: new Date().toISOString() });
+    } catch (error) {
+      console.error("Error building reference data:", error);
+      res.status(500).json({ error: "Failed to build reference data" });
+    }
+  });
+
+  // ============================================
   // FLOOR PLANS API ENDPOINTS
   // ============================================
 

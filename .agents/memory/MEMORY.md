@@ -1,0 +1,1 @@
+- [Reference Data keying](reference-data-keying.md) — /api/reference-data campus rollups must key on location_id, not campus name, or same-named campuses merge.

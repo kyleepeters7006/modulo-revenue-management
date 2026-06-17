@@ -4,6 +4,7 @@ import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, Info, HeartPuls
 import Navigation from "@/components/navigation";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
+import ReferenceDataTable from "@/components/dashboard/reference-data-table";
 import AdjustmentRanges from "@/components/dashboard/adjustment-ranges";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import { Button } from "@/components/ui/button";
@@ -674,6 +675,13 @@ export default function PricingControls() {
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
             locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
+          />
+
+          <ReferenceDataTable
+            selectedServiceLine={selectedServiceLine}
+            selectedRegions={selectedRegions}
+            selectedDivisions={selectedDivisions}
+            selectedLocations={selectedLocations}
           />
 
           {/* Target Annual Revenue Growth Section */}
