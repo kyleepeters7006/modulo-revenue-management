@@ -94,21 +94,23 @@
 .table-hscroll {
   overflow-x: scroll;
   overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #b0b0b0 #e8e8e8;
 }
 .table-hscroll::-webkit-scrollbar {
-  height: 8px;
-  display: block;
+  height: 10px;
 }
 .table-hscroll::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+  background: #e8e8e8;
+  border-radius: 5px;
 }
 .table-hscroll::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+  background: #b0b0b0;
+  border-radius: 5px;
+  min-width: 40px;
 }
 .table-hscroll::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: #888;
 }
 
 @layer components {
