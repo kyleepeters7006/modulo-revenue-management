@@ -99,15 +99,24 @@ export default function RateCardTable({
   const dragStartX         = useRef(0);
   const dragStartScrollLeft = useRef(0);
 
-  // Recalculate thumb geometry from the table's current scroll state
+  // Recalculate thumb geometry from the table's actual rendered width
   const updateThumb = useCallback(() => {
-    const el = bottomScrollRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
-    if (scrollWidth <= clientWidth) { setThumbWidth(0); return; }
-    const w    = Math.max(40, Math.floor(clientWidth * (clientWidth / scrollWidth)));
-    const maxL = clientWidth - w;
-    const left = maxL > 0 ? Math.floor((scrollLeft / (scrollWidth - clientWidth)) * maxL) : 0;
+    const el    = bottomScrollRef.current;
+    const table = tableRef.current;
+    if (!el || !table) return;
+    // Use the TABLE's offsetWidth — reliable even when overflow-x:auto
+    // doesn't propagate scrollWidth to the container on first paint.
+    const contentW = table.offsetWidth;
+    const visibleW = el.clientWidth;
+    if (contentW <= visibleW) {
+      // Table fits — show full-width thumb so track is always visible
+      setThumbWidth(visibleW);
+      setThumbLeft(0);
+      return;
+    }
+    const w    = Math.max(40, Math.floor(visibleW * (visibleW / contentW)));
+    const maxL = visibleW - w;
+    const left = maxL > 0 ? Math.floor((el.scrollLeft / (contentW - visibleW)) * maxL) : 0;
     setThumbWidth(w);
     setThumbLeft(left);
   }, []);
@@ -897,22 +906,26 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             </div>
           ) : (
             <>
-            {/* Custom top scrollbar — JS-controlled thumb, always visible when table overflows */}
-            {thumbWidth > 0 && (
-              <div
-                className="relative mb-1 rounded-sm select-none"
-                style={{ height: 14, background: '#e2e8f0' }}
-                onMouseDown={(e) => {
-                  const el = bottomScrollRef.current;
-                  if (!el) return;
-                  const rect  = e.currentTarget.getBoundingClientRect();
-                  const clickX = e.clientX - rect.left;
-                  const maxL   = el.clientWidth - thumbWidth;
-                  if (maxL <= 0) return;
-                  const ratio  = Math.max(0, Math.min(1, (clickX - thumbWidth / 2) / maxL));
-                  el.scrollLeft = ratio * (el.scrollWidth - el.clientWidth);
-                }}
-              >
+            {/* Custom top scrollbar — always visible track, JS-controlled thumb */}
+            <div
+              className="relative mb-1 rounded-sm select-none"
+              style={{ height: 14, background: '#e2e8f0' }}
+              onMouseDown={(e) => {
+                const el = bottomScrollRef.current;
+                const table = tableRef.current;
+                if (!el || !table) return;
+                const contentW = table.offsetWidth;
+                const visibleW = el.clientWidth;
+                if (contentW <= visibleW) return;
+                const rect   = e.currentTarget.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const maxL   = visibleW - thumbWidth;
+                if (maxL <= 0) return;
+                const ratio  = Math.max(0, Math.min(1, (clickX - thumbWidth / 2) / maxL));
+                el.scrollLeft = ratio * (contentW - visibleW);
+              }}
+            >
+              {thumbWidth > 0 && (
                 <div
                   style={{
                     position: 'absolute',
@@ -922,17 +935,22 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                     width: thumbWidth,
                     background: '#64748b',
                     borderRadius: 4,
-                    cursor: 'grab',
+                    cursor: tableRef.current && bottomScrollRef.current &&
+                      tableRef.current.offsetWidth > bottomScrollRef.current.clientWidth
+                      ? 'grab' : 'default',
                   }}
                   onMouseDown={(e) => {
+                    const table = tableRef.current;
+                    const el    = bottomScrollRef.current;
+                    if (!table || !el || table.offsetWidth <= el.clientWidth) return;
                     e.stopPropagation();
                     isDraggingThumb.current    = true;
                     dragStartX.current         = e.clientX;
-                    dragStartScrollLeft.current = bottomScrollRef.current?.scrollLeft ?? 0;
+                    dragStartScrollLeft.current = el.scrollLeft;
                   }}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             <div
               ref={bottomScrollRef}
