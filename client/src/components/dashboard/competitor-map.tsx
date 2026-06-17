@@ -565,7 +565,7 @@ export function CompetitorMap({
     
     // Initialize when competitors data is available
     if (competitors) {
-      initializeMap();
+      initializeMap().catch(() => {});
     }
     
     return () => {

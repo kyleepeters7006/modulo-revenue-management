@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, ChevronUp, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2, RefreshCw, Pencil, ExternalLink, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, ChevronUp, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2, RefreshCw, Pencil, ExternalLink } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -65,10 +65,6 @@ export default function CompetitorAnalysis() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   // Inline-editing state: which cell is currently being edited
   const [editCell, setEditCell] = useState<{ id: string; field: string; value: string } | null>(null);
-  // Pricing-weights panel state
-  const [weightSl, setWeightSl] = useState<string>('');
-  const [weightEdits, setWeightEdits] = useState<Record<string, number> | null>(null);
-
   // Save filters to localStorage whenever they change
   useEffect(() => {
     const filters = {
@@ -142,25 +138,6 @@ export default function CompetitorAnalysis() {
 
   const { toast } = useToast();
 
-  // Derive locationId for the selected single location (needed for weights)
-  const locationId = (locationsData as any)?.locations?.find(
-    (l: any) => l.name === selectedLocations[0]
-  )?.id as string | undefined;
-
-  // Weights query — respects 3-tier fallback on the backend
-  const { data: weightsData, isLoading: isLoadingWeights } = useQuery({
-    queryKey: ["/api/weights", locationId, weightSl],
-    queryFn: async () => {
-      if (!locationId) return null;
-      const params = new URLSearchParams({ locationId });
-      if (weightSl) params.set('serviceLine', weightSl);
-      const res = await fetch(`/api/weights?${params}`);
-      if (!res.ok) return null;
-      return res.json();
-    },
-    enabled: !!locationId && selectedLocations.length === 1,
-  });
-
   // Mutation: save edits to a competitor survey row's rate fields
   const updateSurveyMutation = useMutation({
     mutationFn: async ({ id, ...updates }: { id: string; baseRate?: number; careLevel2Adjustment?: number; medMgmtFee?: number }) => {
@@ -177,33 +154,6 @@ export default function CompetitorAnalysis() {
       toast({ title: 'Rate updated' });
     },
     onError: (e: any) => toast({ title: e.message || 'Update failed', variant: 'destructive' }),
-  });
-
-  // Mutation: save pricing weights for this location / service line
-  const saveWeightsMutation = useMutation({
-    mutationFn: async (weights: Record<string, number>) => {
-      const res = await fetch('/api/weights', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location_id: locationId,
-          service_line: weightSl || undefined,
-          occupancy_pressure: weights.occupancyPressure,
-          days_vacant_decay: weights.daysVacantDecay,
-          seasonality: weights.seasonality,
-          competitor_rates: weights.competitorRates,
-          stock_market: weights.stockMarket,
-          inquiry_tour_volume: weights.inquiryTourVolume,
-        }),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Save failed'); }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/weights", locationId, weightSl] });
-      setWeightEdits(null);
-      toast({ title: 'Weights saved' });
-    },
-    onError: (e: any) => toast({ title: e.message || 'Save failed', variant: 'destructive' }),
   });
 
   // Extract unique regions, divisions, and locations - sorted alphabetically
@@ -788,120 +738,6 @@ export default function CompetitorAnalysis() {
           </CardContent>
         </Card>
 
-        {/* Pricing Weights Panel */}
-        {selectedLocations.length === 1 && locationId && (
-          <Card className="mt-6">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="h-5 w-5 text-teal-600" />
-                  <CardTitle className="text-base">Pricing Weights — {selectedLocations[0]}</CardTitle>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">Scope:</span>
-                  <Select
-                    value={weightSl || "__all__"}
-                    onValueChange={v => { setWeightSl(v === "__all__" ? "" : v); setWeightEdits(null); }}
-                  >
-                    <SelectTrigger className="h-8 w-44 text-xs">
-                      <SelectValue placeholder="All Service Lines" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All Service Lines</SelectItem>
-                      {serviceLineOptions.map(sl => (
-                        <SelectItem key={sl} value={sl}>{sl}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <CardDescription>
-                Controls how each factor influences Modulo pricing recommendations for this location.
-                Values must sum to 100%. Changes apply from the next calculation run.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoadingWeights ? (
-                <div className="flex items-center gap-2 py-4 text-gray-500 text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading weights…
-                </div>
-              ) : !weightsData ? (
-                <div className="text-center py-4 text-gray-500 text-sm">No weights found for this location.</div>
-              ) : (() => {
-                const current: Record<string, number> = weightEdits ?? {
-                  occupancyPressure: weightsData.occupancy_pressure ?? 0,
-                  daysVacantDecay: weightsData.days_vacant_decay ?? 0,
-                  seasonality: weightsData.seasonality ?? 0,
-                  competitorRates: weightsData.competitor_rates ?? 0,
-                  stockMarket: weightsData.stock_market ?? 0,
-                  inquiryTourVolume: weightsData.inquiry_tour_volume ?? 0,
-                };
-                const total = Object.values(current).reduce((s, v) => s + v, 0);
-                const weightFields: { key: string; label: string }[] = [
-                  { key: 'occupancyPressure', label: 'Occupancy Pressure' },
-                  { key: 'daysVacantDecay', label: 'Days Vacant Decay' },
-                  { key: 'seasonality', label: 'Seasonality' },
-                  { key: 'competitorRates', label: 'Competitor Rates' },
-                  { key: 'stockMarket', label: 'Stock Market' },
-                  { key: 'inquiryTourVolume', label: 'Inquiry & Tour Vol.' },
-                ];
-                return (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                      {weightFields.map(({ key, label }) => (
-                        <div key={key} className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-600 block">{label}</label>
-                          <div className="relative">
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm pr-7 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
-                              value={current[key]}
-                              onChange={e => {
-                                const val = parseFloat(e.target.value) || 0;
-                                setWeightEdits({ ...current, [key]: val });
-                              }}
-                            />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                      <span className={`text-sm font-medium ${total === 100 ? 'text-green-600' : 'text-red-500'}`}>
-                        Total: {total}%
-                        {total !== 100 && (
-                          <span className="ml-1 font-normal text-xs">
-                            ({total > 100 ? `+${total - 100}` : total - 100} from 100)
-                          </span>
-                        )}
-                        {total === 100 && ' ✓'}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {weightEdits && (
-                          <Button variant="ghost" size="sm" className="text-xs" onClick={() => setWeightEdits(null)}>
-                            Reset
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          disabled={total !== 100 || saveWeightsMutation.isPending || !weightEdits}
-                          onClick={() => weightEdits && saveWeightsMutation.mutate(weightEdits)}
-                          className="bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50"
-                        >
-                          {saveWeightsMutation.isPending ? (
-                            <><Loader2 className="h-3 w-3 animate-spin mr-1" />Saving…</>
-                          ) : 'Save Weights'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   );
