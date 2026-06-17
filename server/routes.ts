@@ -4454,10 +4454,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           and(
             eq(rentRollData.uploadMonth, latestMonth),
             eq(rentRollData.clientId, clientId),
+            // Include any unit where at least one rate has been calculated (non-null).
+            // Removed the > 0 guard so units whose rate was calculated as 0 still appear;
+            // empty cells are shown in the CSV where no rate exists.
             sql`(
-              (${rentRollData.moduloSuggestedRate} IS NOT NULL AND ${rentRollData.moduloSuggestedRate} > 0)
-              OR (${rentRollData.ruleAdjustedRate} IS NOT NULL AND ${rentRollData.ruleAdjustedRate} > 0)
-              OR (${rentRollData.aiSuggestedRate} IS NOT NULL AND ${rentRollData.aiSuggestedRate} > 0)
+              ${rentRollData.moduloSuggestedRate} IS NOT NULL
+              OR ${rentRollData.ruleAdjustedRate} IS NOT NULL
+              OR ${rentRollData.aiSuggestedRate} IS NOT NULL
             )`
           )
         );
@@ -4470,33 +4473,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return (rounded >= 0 ? '+' : '') + rounded.toFixed(1) + '%';
       };
 
-      const allRows = units.map(u => {
-        const moduloRate = u.ruleAdjustedRate ?? u.moduloSuggestedRate;
-        // Prefer the original import room type string; fall back to normalized roomType
-        const roomTypeDisplay = (u.sourceRoomType ?? null) || u.roomType;
+      // Helper: compute median of a numeric array (ignoring nulls/zeros)
+      const median = (values: (number | null | undefined)[]): number | null => {
+        const nums = values.filter((v): v is number => v != null && v > 0);
+        if (nums.length === 0) return null;
+        const sorted = [...nums].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 === 0
+          ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+          : sorted[mid];
+      };
+
+      // Group units by dedup key: Division + Location + Service Line + raw Room Type.
+      // Key encoding distinguishes NULL-derived keys from populated ones so a row with
+      // sourceRoomType=NULL (display="Companion") never collides with a row that has
+      // sourceRoomType="Companion" explicitly — they get prefix "norm:" vs "src:".
+      type UnitRow = typeof units[0];
+      const groupMap = new Map<string, { meta: UnitRow; roomTypeDisplay: string; members: UnitRow[] }>();
+      for (const u of units) {
+        const hasSource = u.sourceRoomType != null && u.sourceRoomType !== '';
+        const roomTypeDisplay = hasSource ? u.sourceRoomType! : u.roomType;
+        const keyPrefix = hasSource ? 'src' : 'norm';
+        const key = `${keyPrefix}|${u.division || ''}|${u.location}|${u.serviceLine}|${roomTypeDisplay}`;
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { meta: u, roomTypeDisplay, members: [] });
+        }
+        groupMap.get(key)!.members.push(u);
+      }
+
+      // Build one CSV row per group using median rates across all members.
+      // "Modulo Suggested Rate" uses the median of moduloSuggestedRate specifically,
+      // so the exported rate is a genuine statistical representative for that room type.
+      const rows = Array.from(groupMap.values()).map(({ meta, roomTypeDisplay, members }) => {
+        const medModulo = median(members.map(m => m.moduloSuggestedRate));
+        const medAI     = median(members.map(m => m.aiSuggestedRate));
+        const medStreet = median(members.map(m => m.streetRate));
         return {
-          'Division': u.division || '',
-          'Location': u.location,
-          'Service Line': u.serviceLine,
+          'Division': meta.division || '',
+          'Location': meta.location,
+          'Service Line': meta.serviceLine,
           'Room Type': roomTypeDisplay,
-          'Room Type Group': u.roomType,
-          'Current Street Rate': u.streetRate ?? '',
-          'Modulo Suggested Rate': moduloRate ?? '',
-          'Adjustment': formatAdj(moduloRate, u.streetRate),
-          'Rev Target AI Rate': u.aiSuggestedRate ?? '',
-          'Rev Target AI Adjustment': formatAdj(u.aiSuggestedRate, u.streetRate),
+          'Room Type Group': meta.roomType,
+          'Current Street Rate': medStreet ?? '',
+          'Modulo Suggested Rate': medModulo ?? '',
+          'Adjustment': formatAdj(medModulo, medStreet),
+          'Rev Target AI Rate': medAI ?? '',
+          'Rev Target AI Adjustment': formatAdj(medAI, medStreet),
         };
       });
-
-      // Deduplicate: one row per unique Division + Location + Service Line + raw Room Type
-      const dedupeMap = new Map<string, typeof allRows[0]>();
-      for (const row of allRows) {
-        const key = `${row['Division']}|${row['Location']}|${row['Service Line']}|${row['Room Type']}`;
-        if (!dedupeMap.has(key)) {
-          dedupeMap.set(key, row);
-        }
-      }
-      const rows = Array.from(dedupeMap.values());
 
       const csvContent = Papa.unparse(rows);
       const filename = `pricing_recommendations_${new Date().toISOString().split('T')[0]}.csv`;
