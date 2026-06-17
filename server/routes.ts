@@ -79,7 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import multer from "multer";
@@ -15759,6 +15759,85 @@ Respond in JSON format:
     } catch (error) {
       console.error('Error fetching available months:', error);
       res.status(500).json({ error: "Failed to fetch available months" });
+    }
+  });
+
+  // Upload summary: last upload timestamp + available periods per section
+  app.get("/api/upload-summary", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+
+      // Rent Roll: last upload + distinct periods from upload_history
+      const rrLast = await db
+        .select({
+          lastUploadAt: sql<string>`MAX(processed_at)`,
+          lastFileName: sql<string>`(array_agg(file_name ORDER BY processed_at DESC))[1]`,
+        })
+        .from(uploadHistory)
+        .where(eq(uploadHistory.uploadType, 'rent_roll'));
+
+      const rrPeriods = await db
+        .selectDistinct({ period: uploadHistory.uploadMonth })
+        .from(uploadHistory)
+        .where(eq(uploadHistory.uploadType, 'rent_roll'))
+        .orderBy(sql`${uploadHistory.uploadMonth} DESC`);
+
+      // Inquiry: last upload + distinct periods
+      const inqLast = await db
+        .select({ lastUploadAt: sql<string>`MAX(processed_at)` })
+        .from(uploadHistory)
+        .where(eq(uploadHistory.uploadType, 'inquiry_metrics'));
+
+      const inqPeriods = await db
+        .selectDistinct({ period: uploadHistory.uploadMonth })
+        .from(uploadHistory)
+        .where(eq(uploadHistory.uploadType, 'inquiry_metrics'))
+        .orderBy(sql`${uploadHistory.uploadMonth} DESC`);
+
+      // Competitor: from competitive_survey_data (not tracked in upload_history)
+      const compLast = await db
+        .select({ lastUploadAt: sql<string>`MAX(created_at)` })
+        .from(competitiveSurveyData)
+        .where(eq(competitiveSurveyData.clientId, clientId));
+
+      const compPeriods = await db
+        .selectDistinct({ period: competitiveSurveyData.surveyMonth })
+        .from(competitiveSurveyData)
+        .where(eq(competitiveSurveyData.clientId, clientId))
+        .orderBy(sql`${competitiveSurveyData.surveyMonth} DESC`);
+
+      // Location: from locations table (no monthly periods — just last seen)
+      const locLast = await db
+        .select({
+          lastUploadAt: sql<string>`MAX(created_at)`,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(locations)
+        .where(eq(locations.clientId, clientId));
+
+      res.json({
+        rent_roll: {
+          lastUploadAt: rrLast[0]?.lastUploadAt || null,
+          lastFileName: rrLast[0]?.lastFileName || null,
+          periods: rrPeriods.map(r => r.period).filter(Boolean),
+        },
+        inquiry_metrics: {
+          lastUploadAt: inqLast[0]?.lastUploadAt || null,
+          periods: inqPeriods.map(r => r.period).filter(Boolean),
+        },
+        competitors: {
+          lastUploadAt: compLast[0]?.lastUploadAt || null,
+          periods: compPeriods.map(r => r.period).filter(Boolean),
+        },
+        location: {
+          lastUploadAt: locLast[0]?.lastUploadAt || null,
+          count: Number(locLast[0]?.count || 0),
+          periods: [],
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching upload summary:', error);
+      res.status(500).json({ error: "Failed to fetch upload summary" });
     }
   });
 

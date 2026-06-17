@@ -3,11 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight } from "lucide-react";
 import { useState, useRef } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,9 +20,38 @@ interface FileWithDate {
   error?: string;
 }
 
+type UploadSummaryEntry = {
+  lastUploadAt: string | null;
+  lastFileName?: string | null;
+  periods: string[];
+  count?: number;
+};
+type UploadSummary = {
+  rent_roll: UploadSummaryEntry;
+  inquiry_metrics: UploadSummaryEntry;
+  competitors: UploadSummaryEntry;
+  location: UploadSummaryEntry;
+};
+
+function formatUploadTime(ts: string | null): string {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+}
+
+function formatPeriodLabel(period: string): string {
+  const [year, month] = period.split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+  return date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+
 export default function DataManagement() {
   const [uploadHistory, setUploadHistory] = useState<any[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
+  const [periodsDialog, setPeriodsDialog] = useState<{ label: string; periods: string[]; lastUploadAt: string | null } | null>(null);
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
@@ -31,6 +61,11 @@ export default function DataManagement() {
   const queryClient = useQueryClient();
   const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
   const { isAdmin } = useAuth();
+
+  const { data: uploadSummary } = useQuery<UploadSummary>({
+    queryKey: ['/api/upload-summary'],
+    staleTime: 30_000,
+  });
 
   const regenerateDemoDataMutation = useMutation({
     mutationFn: async () => {
@@ -172,6 +207,7 @@ export default function DataManagement() {
       });
       setUploadHistory(prev => [{ ...data, type: 'rent-roll', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/upload-summary'] });
     },
     onError: (error: Error, variables) => {
       updateUpload(variables.uploadId, { status: 'error', error: error.message });
@@ -210,6 +246,7 @@ export default function DataManagement() {
       });
       setUploadHistory(prev => [{ ...data, type: 'inquiry', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/upload-summary'] });
     },
     onError: (error: Error, variables) => {
       updateUpload(variables.uploadId, { status: 'error', error: error.message });
@@ -267,6 +304,7 @@ export default function DataManagement() {
       }
       setUploadHistory(prev => [{ ...data, type: 'competitor', timestamp: new Date() }, ...prev.slice(0, 9)]);
       queryClient.invalidateQueries({ queryKey: ["/api"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/upload-summary'] });
       
       // Only trigger recalculation if records were actually imported
       if (imported > 0) {
@@ -546,7 +584,7 @@ export default function DataManagement() {
     formData.append('file', file);
     
     const uploadId = addUpload({
-      type,
+      type: type as 'rent-roll' | 'inquiry' | 'competitor' | 'location',
       fileName: file.name,
       status: 'uploading',
     });
@@ -628,6 +666,15 @@ export default function DataManagement() {
               <CardDescription>
                 Upload your organization's locations with region and division hierarchy
               </CardDescription>
+              {uploadSummary?.location?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.location.lastUploadAt)}</span>
+                  {(uploadSummary.location.count ?? 0) > 0 && (
+                    <span className="text-gray-400">· {uploadSummary.location.count} locations active</span>
+                  )}
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
@@ -676,6 +723,22 @@ export default function DataManagement() {
               <CardDescription>
                 Upload monthly rent roll data including occupancy, rates, and unit details
               </CardDescription>
+              {uploadSummary?.rent_roll?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.rent_roll.lastUploadAt)}</span>
+                  {uploadSummary.rent_roll.periods.length > 0 && (
+                    <button
+                      onClick={() => setPeriodsDialog({ label: 'Rent Roll', periods: uploadSummary.rent_roll.periods, lastUploadAt: uploadSummary.rent_roll.lastUploadAt })}
+                      className="flex items-center gap-1 text-teal-600 hover:text-teal-700 font-medium"
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      {uploadSummary.rent_roll.periods.length} period{uploadSummary.rent_roll.periods.length !== 1 ? 's' : ''} uploaded
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
@@ -809,6 +872,22 @@ export default function DataManagement() {
               <CardDescription>
                 Upload inquiry and tour data to track lead sources and conversion metrics
               </CardDescription>
+              {uploadSummary?.inquiry_metrics?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.inquiry_metrics.lastUploadAt)}</span>
+                  {uploadSummary.inquiry_metrics.periods.length > 0 && (
+                    <button
+                      onClick={() => setPeriodsDialog({ label: 'Inquiry Data', periods: uploadSummary.inquiry_metrics.periods, lastUploadAt: uploadSummary.inquiry_metrics.lastUploadAt })}
+                      className="flex items-center gap-1 text-teal-600 hover:text-teal-700 font-medium"
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      {uploadSummary.inquiry_metrics.periods.length} period{uploadSummary.inquiry_metrics.periods.length !== 1 ? 's' : ''} uploaded
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
@@ -857,6 +936,22 @@ export default function DataManagement() {
               <CardDescription>
                 Upload competitor pricing and market analysis data
               </CardDescription>
+              {uploadSummary?.competitors?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.competitors.lastUploadAt)}</span>
+                  {uploadSummary.competitors.periods.length > 0 && (
+                    <button
+                      onClick={() => setPeriodsDialog({ label: 'Competitive Data', periods: uploadSummary.competitors.periods, lastUploadAt: uploadSummary.competitors.lastUploadAt })}
+                      className="flex items-center gap-1 text-teal-600 hover:text-teal-700 font-medium"
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      {uploadSummary.competitors.periods.length} survey month{uploadSummary.competitors.periods.length !== 1 ? 's' : ''}
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
@@ -1429,6 +1524,46 @@ export default function DataManagement() {
           )}
         </div>
       </div>
+
+      {/* Periods Dialog */}
+      <Dialog open={!!periodsDialog} onOpenChange={() => setPeriodsDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-teal-600" />
+              {periodsDialog?.label} — Uploaded Periods
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {periodsDialog?.lastUploadAt && (
+              <div className="flex items-center gap-2 text-sm text-gray-500 pb-3 border-b">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>Last upload: {formatUploadTime(periodsDialog.lastUploadAt)}</span>
+              </div>
+            )}
+            {periodsDialog && periodsDialog.periods.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                {periodsDialog.periods.map(period => (
+                  <div
+                    key={period}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md bg-teal-50 border border-teal-200 text-sm text-teal-800 font-medium"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                    {formatPeriodLabel(period)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-6">No periods found.</p>
+            )}
+            {periodsDialog && periodsDialog.periods.length > 0 && (
+              <p className="text-xs text-gray-400 text-right">
+                {periodsDialog.periods.length} period{periodsDialog.periods.length !== 1 ? 's' : ''} total
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
