@@ -751,8 +751,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
             <div
               ref={topScrollRef}
               onScroll={handleTopScroll}
-              className="overflow-x-auto"
-              style={{ overflowY: 'hidden' }}
+              style={{ overflowX: 'scroll', overflowY: 'hidden', marginBottom: 4 }}
             >
               <div ref={topInnerRef} style={{ height: 1 }} />
             </div>
