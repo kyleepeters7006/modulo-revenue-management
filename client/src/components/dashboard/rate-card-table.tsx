@@ -97,13 +97,18 @@ export default function RateCardTable({
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const isSyncingScroll = useRef(false);
 
-  // Keep the spacer width in sync with the table's rendered width
+  // Run after every render so we catch the table appearing after data loads
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (table) setTableScrollWidth(table.offsetWidth);
+  });
+
+  // Also keep in sync when the table or container is resized
   useEffect(() => {
     const update = () => {
       const table = tableRef.current;
       if (table) setTableScrollWidth(table.offsetWidth);
     };
-    update();
     const observer = new ResizeObserver(update);
     if (tableRef.current)        observer.observe(tableRef.current);
     if (bottomScrollRef.current) observer.observe(bottomScrollRef.current);
@@ -898,7 +903,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
               onScroll={handleBottomScroll}
               className={isFullscreen ? "scroll-track-bottom flex-1 overflow-auto" : "scroll-track-bottom"}
             >
-              <Table ref={tableRef} className="w-full min-w-[950px] text-xs">
+              <Table ref={tableRef} className="min-w-max text-xs">
                 <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
                   <TableRow>
                     {/* Location — sort + text search filter */}

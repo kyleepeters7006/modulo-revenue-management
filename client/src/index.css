@@ -92,7 +92,7 @@
 
 /* ── Top scrollbar mirror: always-visible, fixed 16px tall ── */
 .scroll-mirror-top {
-  overflow-x: scroll;
+  overflow-x: auto;
   overflow-y: hidden;
   height: 16px;
   scrollbar-width: thin;
