@@ -92,9 +92,12 @@ export default function RateCardTable({
   const topScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
   const topInnerRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
   const isSyncingScroll = useRef(false);
 
-  // Keep the top mirror div the same width as the table's scroll content
+  // Keep the top mirror div the same width as the table's scroll content.
+  // We measure the TABLE element (min-w-max) rather than the scroll container
+  // because the container's rendered width stays fixed; only the table grows.
   const syncTopWidth = useCallback(() => {
     if (bottomScrollRef.current && topInnerRef.current) {
       topInnerRef.current.style.width = `${bottomScrollRef.current.scrollWidth}px`;
@@ -104,6 +107,9 @@ export default function RateCardTable({
   useEffect(() => {
     syncTopWidth();
     const observer = new ResizeObserver(syncTopWidth);
+    // Watch the TABLE itself — its width changes from 0 → min-w-max when data
+    // loads, which is when we need to update the top scrollbar mirror.
+    if (tableRef.current) observer.observe(tableRef.current);
     if (bottomScrollRef.current) observer.observe(bottomScrollRef.current);
     return () => observer.disconnect();
   }, [syncTopWidth]);
@@ -892,7 +898,7 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
               onScroll={handleBottomScroll}
               className={isFullscreen ? "flex-1 overflow-auto" : "overflow-x-auto"}
             >
-              <Table className="min-w-max">
+              <Table ref={tableRef} className="min-w-max">
                 <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
                   <TableRow>
                     {/* Location — sort + text search filter */}
