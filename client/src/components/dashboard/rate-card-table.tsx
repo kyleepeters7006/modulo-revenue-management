@@ -27,7 +27,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Brain, Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Brain, Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -58,6 +65,27 @@ export default function RateCardTable({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [columnFilters, setColumnFilters] = useState<{
+    location: string;
+    unit: string;
+    roomType: string[];
+    serviceLine: string[];
+    status: string[];
+    streetRateMin: string;
+    streetRateMax: string;
+    rulesRateMin: string;
+    rulesRateMax: string;
+  }>({
+    location: '',
+    unit: '',
+    roomType: [],
+    serviceLine: [],
+    status: [],
+    streetRateMin: '',
+    streetRateMax: '',
+    rulesRateMin: '',
+    rulesRateMax: '',
+  });
   const ITEMS_PER_PAGE = 50;
 
   // Refs for syncing top + bottom horizontal scrollbars
@@ -386,7 +414,36 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
 
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
-  
+
+  // Derive unique filter option values from data
+  const uniqueRoomTypes = useMemo(() => {
+    const types = new Set(units.map((u: any) => u.roomType).filter(Boolean));
+    return Array.from(types).sort() as string[];
+  }, [units]);
+
+  const uniqueServiceLines = useMemo(() => {
+    const lines = new Set(units.map((u: any) => u.serviceLine).filter(Boolean));
+    return Array.from(lines).sort() as string[];
+  }, [units]);
+
+  // Count how many column filters are currently active
+  const activeFilterCount = [
+    columnFilters.location,
+    columnFilters.unit,
+    ...columnFilters.roomType,
+    ...columnFilters.serviceLine,
+    ...columnFilters.status,
+    columnFilters.streetRateMin,
+    columnFilters.streetRateMax,
+    columnFilters.rulesRateMin,
+    columnFilters.rulesRateMax,
+  ].filter(Boolean).length;
+
+  const clearAllFilters = () => setColumnFilters({
+    location: '', unit: '', roomType: [], serviceLine: [], status: [],
+    streetRateMin: '', streetRateMax: '', rulesRateMin: '', rulesRateMax: '',
+  });
+
   // Filter units by selected service line
   let filteredUnits = selectedServiceLine === "All" 
     ? units 
@@ -394,6 +451,49 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
         // Use the actual serviceLine field from the data
         return unit.serviceLine === selectedServiceLine;
       });
+
+  // Apply column-level filters
+  if (columnFilters.location) {
+    const q = columnFilters.location.toLowerCase();
+    filteredUnits = filteredUnits.filter((u: any) =>
+      (u.location || u.locationName || u.campusName || '').toLowerCase().includes(q)
+    );
+  }
+  if (columnFilters.unit) {
+    const q = columnFilters.unit.toLowerCase();
+    filteredUnits = filteredUnits.filter((u: any) =>
+      (u.roomNumber || '').toLowerCase().includes(q)
+    );
+  }
+  if (columnFilters.roomType.length > 0) {
+    filteredUnits = filteredUnits.filter((u: any) => columnFilters.roomType.includes(u.roomType));
+  }
+  if (columnFilters.serviceLine.length > 0) {
+    filteredUnits = filteredUnits.filter((u: any) => columnFilters.serviceLine.includes(u.serviceLine));
+  }
+  if (columnFilters.status.length > 0) {
+    filteredUnits = filteredUnits.filter((u: any) => {
+      if (columnFilters.status.includes('Occupied') && u.occupiedYN) return true;
+      if (columnFilters.status.includes('Vacant') && !u.occupiedYN) return true;
+      return false;
+    });
+  }
+  if (columnFilters.streetRateMin !== '') {
+    filteredUnits = filteredUnits.filter((u: any) => (u.streetRate || 0) >= parseFloat(columnFilters.streetRateMin));
+  }
+  if (columnFilters.streetRateMax !== '') {
+    filteredUnits = filteredUnits.filter((u: any) => (u.streetRate || 0) <= parseFloat(columnFilters.streetRateMax));
+  }
+  if (columnFilters.rulesRateMin !== '') {
+    filteredUnits = filteredUnits.filter((u: any) =>
+      (u.ruleAdjustedRate || u.moduloSuggestedRate || 0) >= parseFloat(columnFilters.rulesRateMin)
+    );
+  }
+  if (columnFilters.rulesRateMax !== '') {
+    filteredUnits = filteredUnits.filter((u: any) =>
+      (u.ruleAdjustedRate || u.moduloSuggestedRate || 0) <= parseFloat(columnFilters.rulesRateMax)
+    );
+  }
   
   // If a specific unit is selected, ensure it's visible
   // Also prepare for highlighting
@@ -747,8 +847,17 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
       <div className={isFullscreen ? "fixed inset-0 z-50 flex flex-col bg-white" : ""}>
       <Card className={isFullscreen ? "h-full rounded-none border-0 flex flex-col overflow-hidden shadow-none" : ""}>
         <CardHeader className={isFullscreen ? "flex-shrink-0 border-b py-3 px-6" : ""}>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <CardTitle>Unit-Level Detail</CardTitle>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-800 border border-teal-200 rounded-full px-2 py-0.5 bg-teal-50 hover:bg-teal-100 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active — clear
+              </button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -786,94 +895,221 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
               <Table className="min-w-max">
                 <TableHeader className={isFullscreen ? "sticky top-0 z-20 [&_th]:bg-white [&_th]:shadow-[0_1px_0_0_#e5e7eb]" : ""}>
                   <TableRow>
-                    <TableHead 
+                    {/* Location — sort + text search filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('location')}
                       data-testid="sort-location"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Location
                         <SortIcon column="location" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${columnFilters.location ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-52 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Location</p>
+                            <Input placeholder="Search…" value={columnFilters.location} onChange={e => { setColumnFilters(p => ({ ...p, location: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                            {columnFilters.location && <button onClick={() => setColumnFilters(p => ({ ...p, location: '' }))} className="mt-1.5 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
-                    <TableHead 
+
+                    {/* Unit — sort + text search filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('unit')}
                       data-testid="sort-unit"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Unit
                         <SortIcon column="unit" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${columnFilters.unit ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-48 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Unit</p>
+                            <Input placeholder="Search…" value={columnFilters.unit} onChange={e => { setColumnFilters(p => ({ ...p, unit: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                            {columnFilters.unit && <button onClick={() => setColumnFilters(p => ({ ...p, unit: '' }))} className="mt-1.5 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
-                    <TableHead 
+
+                    {/* Room Type — sort + multi-select filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('roomType')}
                       data-testid="sort-room-type"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Room Type
                         <SortIcon column="roomType" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${columnFilters.roomType.length > 0 ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-48 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Room Type</p>
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                              {uniqueRoomTypes.map(rt => (
+                                <label key={rt} className="flex items-center gap-2 cursor-pointer">
+                                  <Checkbox checked={columnFilters.roomType.includes(rt)} onCheckedChange={checked => { setColumnFilters(p => ({ ...p, roomType: checked ? [...p.roomType, rt] : p.roomType.filter(x => x !== rt) })); setCurrentPage(1); }} />
+                                  <span className="text-xs">{rt}</span>
+                                </label>
+                              ))}
+                            </div>
+                            {columnFilters.roomType.length > 0 && <button onClick={() => setColumnFilters(p => ({ ...p, roomType: [] }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
+
                     <TableHead className="min-w-[120px]">Attributes</TableHead>
-                    <TableHead 
+
+                    {/* Service Line — sort + multi-select filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('serviceLine')}
                       data-testid="sort-service-line"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Service Line
                         <SortIcon column="serviceLine" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${columnFilters.serviceLine.length > 0 ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-44 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Service Line</p>
+                            <div className="space-y-1.5">
+                              {uniqueServiceLines.map(sl => (
+                                <label key={sl} className="flex items-center gap-2 cursor-pointer">
+                                  <Checkbox checked={columnFilters.serviceLine.includes(sl)} onCheckedChange={checked => { setColumnFilters(p => ({ ...p, serviceLine: checked ? [...p.serviceLine, sl] : p.serviceLine.filter(x => x !== sl) })); setCurrentPage(1); }} />
+                                  <span className="text-xs">{sl}</span>
+                                </label>
+                              ))}
+                            </div>
+                            {columnFilters.serviceLine.length > 0 && <button onClick={() => setColumnFilters(p => ({ ...p, serviceLine: [] }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
-                    <TableHead 
+
+                    {/* Status — sort + multi-select filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('status')}
                       data-testid="sort-status"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Status
                         <SortIcon column="status" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${columnFilters.status.length > 0 ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-40 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Status</p>
+                            <div className="space-y-1.5">
+                              {['Occupied', 'Vacant'].map(s => (
+                                <label key={s} className="flex items-center gap-2 cursor-pointer">
+                                  <Checkbox checked={columnFilters.status.includes(s)} onCheckedChange={checked => { setColumnFilters(p => ({ ...p, status: checked ? [...p.status, s] : p.status.filter(x => x !== s) })); setCurrentPage(1); }} />
+                                  <span className="text-xs">{s}</span>
+                                </label>
+                              ))}
+                            </div>
+                            {columnFilters.status.length > 0 && <button onClick={() => setColumnFilters(p => ({ ...p, status: [] }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
-                    <TableHead 
+
+                    {/* Street Rate — sort + range filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('streetRate')}
                       data-testid="sort-street-rate"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Street Rate
                         <SortIcon column="streetRate" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${(columnFilters.streetRateMin || columnFilters.streetRateMax) ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-44 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Street Rate</p>
+                            <div className="space-y-1.5">
+                              <Input placeholder="Min ($)" type="number" value={columnFilters.streetRateMin} onChange={e => { setColumnFilters(p => ({ ...p, streetRateMin: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                              <Input placeholder="Max ($)" type="number" value={columnFilters.streetRateMax} onChange={e => { setColumnFilters(p => ({ ...p, streetRateMax: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                            </div>
+                            {(columnFilters.streetRateMin || columnFilters.streetRateMax) && <button onClick={() => setColumnFilters(p => ({ ...p, streetRateMin: '', streetRateMax: '' }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
+
                     <TableHead>Applied Rules</TableHead>
-                    <TableHead 
+
+                    {/* Rules Rate — sort + range filter */}
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('modulo')}
                       data-testid="sort-modulo"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Rules Rate
                         <SortIcon column="modulo" />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${(columnFilters.rulesRateMin || columnFilters.rulesRateMax) ? 'text-teal-600' : 'text-slate-400'}`}>
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-44 p-3" align="start" onClick={e => e.stopPropagation()}>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Rules Rate</p>
+                            <div className="space-y-1.5">
+                              <Input placeholder="Min ($)" type="number" value={columnFilters.rulesRateMin} onChange={e => { setColumnFilters(p => ({ ...p, rulesRateMin: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                              <Input placeholder="Max ($)" type="number" value={columnFilters.rulesRateMax} onChange={e => { setColumnFilters(p => ({ ...p, rulesRateMax: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                            </div>
+                            {(columnFilters.rulesRateMin || columnFilters.rulesRateMax) && <button onClick={() => setColumnFilters(p => ({ ...p, rulesRateMin: '', rulesRateMax: '' }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </TableHead>
-                    <TableHead 
+
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('ai')}
                       data-testid="sort-ai"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Rev Target AI
                         <SortIcon column="ai" />
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('competitor')}
                       data-testid="sort-competitor"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-0.5">
                         Competitor
                         <SortIcon column="competitor" />
                       </div>
