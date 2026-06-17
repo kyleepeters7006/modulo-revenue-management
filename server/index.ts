@@ -145,16 +145,6 @@ app.use((req, res, next) => {
         ADD COLUMN IF NOT EXISTS source_room_type text
     `);
     log("[migration] rent_roll_data source_room_type column ensured");
-    // Backfill existing records: set source_room_type = room_type where not already set.
-    // This is a best-effort approximation for historical records whose original import
-    // string was never captured; for new imports the raw value is stored directly.
-    const backfillResult = await db.execute(sql`
-      UPDATE rent_roll_data
-      SET source_room_type = room_type
-      WHERE source_room_type IS NULL
-        AND room_type IS NOT NULL
-    `);
-    log(`[migration] source_room_type backfill complete: ${(backfillResult as any).rowCount ?? 'unknown'} rows updated`);
   } catch (migErr) {
     log(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
