@@ -4488,10 +4488,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
 
-      // Deduplicate: one row per unique Division + Location + Service Line + normalized Room Type Group
+      // Deduplicate: one row per unique Division + Location + Service Line + raw Room Type
       const dedupeMap = new Map<string, typeof allRows[0]>();
       for (const row of allRows) {
-        const key = `${row['Division']}|${row['Location']}|${row['Service Line']}|${row['Room Type Group']}`;
+        const key = `${row['Division']}|${row['Location']}|${row['Service Line']}|${row['Room Type']}`;
         if (!dedupeMap.has(key)) {
           dedupeMap.set(key, row);
         }
