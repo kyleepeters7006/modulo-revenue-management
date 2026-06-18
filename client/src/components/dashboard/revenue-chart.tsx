@@ -320,6 +320,7 @@ export default function RevenueChart() {
               stroke="hsl(180, 65%, 45%)"
               strokeWidth={2}
               dot={false}
+              connectNulls={true}
               activeDot={{ 
                 r: 6, 
                 fill: 'hsl(180, 65%, 45%)', 
@@ -335,6 +336,7 @@ export default function RevenueChart() {
               stroke="hsl(175, 70%, 50%)"
               strokeWidth={2}
               dot={false}
+              connectNulls={true}
               activeDot={{ 
                 r: 6, 
                 fill: 'hsl(175, 70%, 50%)', 
@@ -350,6 +352,7 @@ export default function RevenueChart() {
               stroke="#f97316"
               strokeWidth={2}
               dot={false}
+              connectNulls={true}
               activeDot={{ 
                 r: 6, 
                 fill: '#f97316', 
