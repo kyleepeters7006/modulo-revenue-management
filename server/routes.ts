@@ -5017,25 +5017,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const avgHcDailyRate = hcUnits > 0 ? hcRate / hcUnits : 0;
         const avgSeniorHousingMonthlyRate = seniorHousingUnits > 0 ? seniorHousingRate / seniorHousingUnits : 0;
         
-        // Calculate market position using adjusted competitor rates from rent roll data
-        // Use competitorFinalRate which already has all adjustments applied
-        let totalTrilogyRate = 0;
-        let totalCompetitorRate = 0;
-        let unitsWithCompetitorData = 0;
-        
+        // Market position is benchmarked against the TOP (highest) competitor adjusted
+        // rate from the competitive data — NOT the average competitor rate. Comparing
+        // against the average overstated our premium (e.g. a campus could show +94%
+        // vs a low blended average). The top comp is the most relevant pricing ceiling.
+        //
+        // Rates have two incompatible bases: HC / HC/MC are daily; senior housing
+        // (AL, AL/MC, SL, VIL, IL) is monthly. We compute top comp + avg in-house rate
+        // PER BASIS so daily and monthly rates are never mixed, then combine into a
+        // single unit-weighted position. Outlier guards drop bad imports (negative
+        // rates, daily rates parsed as monthly, the occasional six-figure VIL error).
+        const DAILY_SERVICE_LINES = new Set(['HC', 'HC/MC', 'SMC']);
+        const isValidCompRate = (rate: number, daily: boolean): boolean =>
+          daily ? (rate >= 50 && rate <= 2000) : (rate >= 1000 && rate <= 50000);
+
+        const basisAcc: Record<'daily' | 'monthly', { trilogySum: number; count: number; topComp: number }> = {
+          daily: { trilogySum: 0, count: 0, topComp: 0 },
+          monthly: { trilogySum: 0, count: 0, topComp: 0 },
+        };
+
         metrics.units.forEach((unit: any) => {
-          // Only include units that have competitor data
-          if (unit.competitorFinalRate && unit.competitorFinalRate > 0) {
-            const trilogyRate = unit.streetRate || unit.inHouseRate || 0;
-            if (trilogyRate > 0) {
-              totalTrilogyRate += trilogyRate;
-              totalCompetitorRate += unit.competitorFinalRate;
-              unitsWithCompetitorData++;
-            }
-          }
+          const comp = unit.competitorFinalRate || 0;
+          if (comp <= 0) return;
+          const daily = DAILY_SERVICE_LINES.has(unit.serviceLine);
+          if (!isValidCompRate(comp, daily)) return;
+          const trilogyRate = unit.streetRate || unit.inHouseRate || 0;
+          if (trilogyRate <= 0) return;
+          const b = daily ? basisAcc.daily : basisAcc.monthly;
+          b.trilogySum += trilogyRate;
+          b.count++;
+          if (comp > b.topComp) b.topComp = comp;
         });
 
-        // Fallback: if no units have competitorFinalRate, use competitive_survey_data
+        let unitsWithCompetitorData = basisAcc.daily.count + basisAcc.monthly.count;
+
+        // Fallback: if no units have competitorFinalRate, use competitive_survey_data.
+        // Take the TOP (max) survey rate per room type, still bucketed by rate basis.
         if (unitsWithCompetitorData === 0) {
           const locSurveyMap = surveyRateMap.get(campusId);
           if (locSurveyMap) {
@@ -5050,31 +5067,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const fallbackKey = `${compType}:ALL`;
               const rates = locSurveyMap.get(key) || locSurveyMap.get(fallbackKey);
               if (rates && rates.length > 0) {
-                const avg = rates.reduce((s: number, r: number) => s + r, 0) / rates.length;
-                if (avg > 0) {
-                  totalTrilogyRate += trilogyRate;
-                  totalCompetitorRate += avg;
-                  unitsWithCompetitorData++;
-                }
+                const daily = DAILY_SERVICE_LINES.has(unit.serviceLine);
+                const validRates = rates.filter((r: number) => isValidCompRate(r, daily));
+                if (validRates.length === 0) return;
+                const top = Math.max(...validRates);
+                const b = daily ? basisAcc.daily : basisAcc.monthly;
+                b.trilogySum += trilogyRate;
+                b.count++;
+                if (top > b.topComp) b.topComp = top;
               }
             });
+            unitsWithCompetitorData = basisAcc.daily.count + basisAcc.monthly.count;
           }
         }
-        
-        // Calculate average rates for units with competitor data
-        const avgTrilogyRateWithComp = unitsWithCompetitorData > 0 
-          ? totalTrilogyRate / unitsWithCompetitorData 
-          : 0;
-        const avgCompetitorRate = unitsWithCompetitorData > 0 
-          ? totalCompetitorRate / unitsWithCompetitorData 
-          : 0;
-        
-        // Calculate price position using adjusted competitor rates
-        // This gives us the actual market position using properly adjusted rates
+
+        // Price position vs the top competitor, computed per basis then unit-weighted.
         let pricePosition = 0;
-        if (avgCompetitorRate > 0 && avgTrilogyRateWithComp > 0) {
-          pricePosition = ((avgTrilogyRateWithComp - avgCompetitorRate) / avgCompetitorRate) * 100;
+        let weightedPos = 0;
+        let weightTotal = 0;
+        (['daily', 'monthly'] as const).forEach((key) => {
+          const b = basisAcc[key];
+          if (b.count > 0 && b.topComp > 0) {
+            const avgTril = b.trilogySum / b.count;
+            const pos = ((avgTril - b.topComp) / b.topComp) * 100;
+            weightedPos += pos * b.count;
+            weightTotal += b.count;
+          }
+        });
+        if (weightTotal > 0) pricePosition = weightedPos / weightTotal;
+
+        // Representative top comp + in-house rate for tooltips/exports follow the
+        // campus's PRIMARY rate basis (whichever basis most of its units belong to),
+        // so the single displayed "Top Comp Rate" lines up with the rate shown for the
+        // campus (e.g. a senior-housing campus shows the monthly top comp, not a daily
+        // HC one). The weighted pricePosition above still accounts for both bases.
+        let dailyUnitCount = 0;
+        let monthlyUnitCount = 0;
+        metrics.units.forEach((unit: any) => {
+          if (DAILY_SERVICE_LINES.has(unit.serviceLine)) dailyUnitCount++;
+          else monthlyUnitCount++;
+        });
+        const primaryIsDaily = dailyUnitCount > monthlyUnitCount;
+        let dominantBasis = primaryIsDaily ? basisAcc.daily : basisAcc.monthly;
+        // Fall back to the other basis if the primary one has no competitor data.
+        if (dominantBasis.count === 0) {
+          dominantBasis = primaryIsDaily ? basisAcc.monthly : basisAcc.daily;
         }
+        const avgCompetitorRate = dominantBasis.topComp;
+        const avgTrilogyRateWithComp = dominantBasis.count > 0 ? dominantBasis.trilogySum / dominantBasis.count : 0;
           
         // Calculate revenue impact (simplified)
         const currentMonthlyRevenue = avgRate * metrics.occupiedUnits * 30;

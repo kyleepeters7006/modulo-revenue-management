@@ -52,7 +52,7 @@ interface ExportRow {
   Region: string;
   'Avg Rate': number;
   'Occupancy %': string;
-  'Market Rate': number;
+  'Top Comp Rate': number;
   'Price Position %': string;
 }
 
@@ -125,7 +125,7 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
             )}
             {data.competitorAvgRate && (
               <p className="text-[var(--dashboard-muted)]">
-                Market Avg: ${Math.round(data.competitorAvgRate).toLocaleString()}
+                Top Comp Rate: ${Math.round(data.competitorAvgRate).toLocaleString()}
               </p>
             )}
             {data.pricePosition !== undefined && (
@@ -284,10 +284,10 @@ export function Analytics() {
     if (!analyticsData?.campuses) return [];
     
     return analyticsData.campuses.filter((campus: any) => (campus.occupancy ?? 0) > 0).map((campus: any) => {
-      // Calculate raw price position
-      const rawPricePosition = campus.competitorAvgRate > 0 
-        ? parseFloat((((campus.avgRate - campus.competitorAvgRate) / campus.competitorAvgRate) * 100).toFixed(2))
-        : 0;
+      // Use the backend-computed price position (top competitor rate, per-basis,
+      // unit-weighted). Do NOT recompute from avgRate vs competitorAvgRate here —
+      // that would mix daily/monthly bases and bypass the top-comp logic.
+      const rawPricePosition = parseFloat((campus.pricePosition ?? 0).toFixed(2));
       
       // Clamp to [-100, 200] range for display (200% = 3x market price, which is reasonable max)
       const clampedPricePosition = Math.max(-100, Math.min(200, rawPricePosition));
@@ -382,7 +382,7 @@ export function Analytics() {
       Region: d.region,
       'Avg Rate': d.avgRate,
       'Occupancy %': (d.occupancy * 100).toFixed(1),
-      'Market Rate': d.competitorAvgRate,
+      'Top Comp Rate': d.competitorAvgRate,
       'Price Position %': d.pricePosition.toFixed(1),
     }));
     
@@ -449,7 +449,7 @@ export function Analytics() {
           sum + (c.pricePosition || 0), 0);
         return {
           title: 'Market Position Calculation',
-          formula: 'Average of ((Your Rate - Adjusted Competitor Rate) ÷ Adjusted Competitor Rate × 100)',
+          formula: 'Average of ((Your Rate - Top Competitor Rate) ÷ Top Competitor Rate × 100), benchmarked against the highest adjusted competitor rate per rate basis',
           steps: [
             { label: 'Campuses with adjusted competitor data', value: campusesWithData.length.toString() },
             { label: 'Sum of all price positions', value: `${totalPricePosition > 0 ? '+' : ''}${totalPricePosition.toFixed(1)}%` },
@@ -458,7 +458,7 @@ export function Analytics() {
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,
             value: `${c.pricePosition > 0 ? '+' : ''}${c.pricePosition.toFixed(1)}%`,
-            detail: `Your: $${Math.round(c.avgRate).toLocaleString()} | Market: $${Math.round(c.competitorAvgRate).toLocaleString()}`
+            detail: `Your: $${Math.round(c.avgRate).toLocaleString()} | Top Comp: $${Math.round(c.competitorAvgRate).toLocaleString()}`
           }))
         };
 
@@ -850,8 +850,8 @@ export function Analytics() {
                   <XAxis 
                     type="number" 
                     dataKey="competitorAvgRate" 
-                    name="Market Average Rate"
-                    label={{ value: 'Competitor Average Rate ($)', position: 'insideBottom', offset: -15 }}
+                    name="Top Competitor Rate"
+                    label={{ value: 'Top Competitor Rate ($)', position: 'insideBottom', offset: -15 }}
                     domain={['dataMin - 20', 'dataMax + 20']}
                     tickFormatter={(value) => value.toLocaleString()}
                   />
