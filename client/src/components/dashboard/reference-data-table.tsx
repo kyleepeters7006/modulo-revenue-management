@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,8 @@ import {
   Download,
   X,
   Table2,
+  Play,
+  CheckCircle2,
 } from "lucide-react";
 
 // ── Column metadata ────────────────────────────────────────────────
@@ -266,11 +268,52 @@ export default function ReferenceDataTable({
   selectedDivisions,
   selectedLocations,
 }: ReferenceDataTableProps) {
+  const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
+
+  // ── Calculate Rates job state ───────────────────────────────────
+  const [calcJobId, setCalcJobId] = useState<string | null>(null);
+  const [calcProgress, setCalcProgress] = useState<number>(0);
+  const [calcDone, setCalcDone] = useState(false);
+
+  const calcMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/pricing/scheduled-calculation", { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      return res.json() as Promise<{ jobId: string }>;
+    },
+    onSuccess: (data) => {
+      setCalcJobId(data.jobId);
+      setCalcProgress(0);
+      setCalcDone(false);
+    },
+  });
+
+  // Poll job status while a job is running
+  useQuery({
+    queryKey: ["/api/pricing/job-status", calcJobId],
+    enabled: !!calcJobId && !calcDone,
+    refetchInterval: 2000,
+    queryFn: async () => {
+      const res = await fetch(`/api/pricing/job-status/${calcJobId}`);
+      const data = await res.json();
+      setCalcProgress(data.progress?.percentage ?? 0);
+      if (data.status === "completed" || data.status === "failed") {
+        setCalcDone(true);
+        setCalcJobId(null);
+        // Refresh the reference data to show newly calculated rates
+        queryClient.invalidateQueries({ queryKey: ["/api/reference-data"] });
+      }
+      return data;
+    },
+  });
 
   // scroll sync refs — the bottom div is itself the scroll container
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -629,6 +672,33 @@ export default function ReferenceDataTable({
         )}
       </div>
       <div className="flex items-center gap-2">
+        {/* Calculate Rates button */}
+        {calcDone ? (
+          <Button variant="outline" size="sm" className="h-8 text-emerald-600 border-emerald-500" disabled>
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Rates Calculated
+          </Button>
+        ) : calcJobId ? (
+          <Button variant="outline" size="sm" className="h-8" disabled>
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            Calculating… {calcProgress > 0 ? `${Math.round(calcProgress)}%` : ""}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => calcMutation.mutate()}
+            disabled={calcMutation.isPending}
+            title="Run the Modulo pricing engine for your portfolio to populate Proposed Rates"
+          >
+            {calcMutation.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Calculate Rates
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"

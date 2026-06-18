@@ -9083,64 +9083,53 @@ Service line mix: ${Object.entries(slBreakdown).map(([sl, n]) => `${sl}: ${n}`).
     return generateModuloOptimized(req, res);
   });
   
-  // Scheduled calculation endpoint - for automated daily runs at 6am
+  // Scheduled calculation endpoint - for automated daily runs at 6am AND manual on-demand triggers
   app.post("/api/pricing/scheduled-calculation", async (req, res) => {
     try {
+      // Get clientId from session (falls back to demo for unauthenticated)
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+
       // Get the current date to determine target month
       const now = new Date();
       const targetMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       
-      console.log(`[Scheduled Calculation] Starting scheduled calculation for month: ${targetMonth}`);
-      
-      // Check if we already have a completed calculation today
-      const existingCalc = await storage.getLatestCalculationHistory(null);
-      if (existingCalc) {
-        const calcDate = new Date(existingCalc.startedAt);
-        const today = new Date();
-        if (calcDate.toDateString() === today.toDateString() && existingCalc.status === 'completed') {
-          console.log(`[Scheduled Calculation] Already completed today at ${calcDate.toISOString()}`);
-          return res.json({
-            success: true,
-            message: 'Calculation already completed today',
-            calculationId: existingCalc.id,
-            completedAt: existingCalc.completedAt
-          });
-        }
-      }
+      console.log(`[Scheduled Calculation] Starting calculation for clientId=${clientId}, month=${targetMonth}`);
       
       // Import the job manager
       const { pricingJobManager } = await import('./pricingJobManager');
       
-      // Create a calculation history entry for scheduled run
+      // Create a calculation history entry
       const historyEntry = await storage.createCalculationHistory({
         calculationType: 'scheduled',
         status: 'started',
         startedAt: new Date(),
         completedAt: null,
-        locationId: null, // Portfolio-wide calculation
+        locationId: null,
         uploadMonth: targetMonth,
         totalUnits: null,
         unitsCalculated: null,
         averageModuloRate: null,
         averageAIRate: null,
         errorMessage: null,
-        metadata: { triggeredAt: new Date().toISOString() }
+        metadata: { triggeredAt: new Date().toISOString(), clientId }
       });
       
-      // Create a new background job for portfolio-wide calculation
+      // Create a new background job — pass clientId so it calculates for the right tenant
       const jobId = pricingJobManager.createJob({
         month: targetMonth,
+        clientId,
         calculationHistoryId: historyEntry.id
       });
       
-      console.log(`[Scheduled Calculation] Created pricing job ${jobId} for scheduled calculation`);
+      console.log(`[Scheduled Calculation] Created pricing job ${jobId} for clientId=${clientId}`);
       
       res.json({
         success: true,
-        message: 'Scheduled calculation started',
+        message: 'Calculation started',
         jobId,
         calculationHistoryId: historyEntry.id,
-        targetMonth
+        targetMonth,
+        clientId,
       });
       
     } catch (error) {
@@ -17110,55 +17099,50 @@ Respond in JSON format:
     }
   });
 
-  // Set up scheduled daily calculation at 6am
+  // Set up scheduled daily calculation at 6am — runs for every client tenant
   const triggerScheduledCalculation = async () => {
     try {
       console.log('[Cron Job] Triggering scheduled calculation at:', new Date().toISOString());
       
-      // Get the current date to determine target month
       const now = new Date();
       const targetMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       
-      // Check if we already have a completed calculation today
-      const existingCalc = await storage.getLatestCalculationHistory(null);
-      if (existingCalc) {
-        const calcDate = new Date(existingCalc.startedAt);
-        const today = new Date();
-        if (calcDate.toDateString() === today.toDateString() && existingCalc.status === 'completed') {
-          console.log(`[Cron Job] Calculation already completed today at ${calcDate.toISOString()}`);
-          return;
-        }
-      }
-      
-      // Import the job manager
       const { pricingJobManager } = await import('./pricingJobManager');
       
-      // Create a calculation history entry for scheduled run
-      const historyEntry = await storage.createCalculationHistory({
-        calculationType: 'scheduled',
-        status: 'started',
-        startedAt: new Date(),
-        completedAt: null,
-        locationId: null, // Portfolio-wide calculation
-        uploadMonth: targetMonth,
-        totalUnits: null,
-        unitsCalculated: null,
-        averageModuloRate: null,
-        averageAIRate: null,
-        errorMessage: null,
-        metadata: { 
-          triggeredBy: 'cron',
-          triggeredAt: new Date().toISOString() 
+      // Run portfolio-wide calculation for every client so all tenants stay current
+      const allClientIds = ['demo', 'trilogy', 'glm', 'ssmg'];
+      for (const clientId of allClientIds) {
+        try {
+          const historyEntry = await storage.createCalculationHistory({
+            calculationType: 'scheduled',
+            status: 'started',
+            startedAt: new Date(),
+            completedAt: null,
+            locationId: null,
+            uploadMonth: targetMonth,
+            totalUnits: null,
+            unitsCalculated: null,
+            averageModuloRate: null,
+            averageAIRate: null,
+            errorMessage: null,
+            metadata: { 
+              triggeredBy: 'cron',
+              triggeredAt: new Date().toISOString(),
+              clientId,
+            }
+          });
+          
+          const jobId = pricingJobManager.createJob({
+            month: targetMonth,
+            clientId,
+            calculationHistoryId: historyEntry.id
+          });
+          
+          console.log(`[Cron Job] Created pricing job ${jobId} for clientId=${clientId}`);
+        } catch (clientErr) {
+          console.error(`[Cron Job] Failed to start job for clientId=${clientId}:`, clientErr);
         }
-      });
-      
-      // Create a new background job for portfolio-wide calculation
-      const jobId = pricingJobManager.createJob({
-        month: targetMonth,
-        calculationHistoryId: historyEntry.id
-      });
-      
-      console.log(`[Cron Job] Created pricing job ${jobId} for scheduled calculation`);
+      }
       
     } catch (error) {
       console.error('[Cron Job] Error triggering scheduled calculation:', error);

@@ -511,7 +511,7 @@ class PricingJobManager {
       
       // Get all units for the month, then filter by location if specified
       console.log(`[PricingJob ${jobId}] Fetching units for month: ${targetMonth}`);
-      const allMonthUnits = await storage.getRentRollDataByMonth(targetMonth);
+      const allMonthUnits = await storage.getRentRollDataByMonth(targetMonth, jobClientId_);
       const units = locationFilter && locationFilter.length > 0
         ? allMonthUnits.filter(u => locationFilter.includes(u.locationId ?? ''))
         : allMonthUnits;
