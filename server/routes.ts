@@ -15281,7 +15281,7 @@ Respond in JSON format:
       // 3) Per-month per-combo aggregation
       const aggRes = await pool.query(`
         SELECT
-          rr.location_id                                   AS location_id,
+          loc.id                                           AS location_id,
           rr.location                                      AS campus,
           COALESCE(loc.division, '—')                      AS division,
           rr.service_line                                  AS service_line,
@@ -15297,9 +15297,9 @@ Respond in JSON format:
           AVG(COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate))
             FILTER (WHERE COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate) > 0) AS avg_proposed
         FROM rent_roll_data rr
-        LEFT JOIN locations loc ON loc.id = rr.location_id
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
         WHERE ${where}
-        GROUP BY rr.location_id, rr.location, loc.division, rr.service_line, rr.room_type, rr.upload_month
+        GROUP BY loc.id, rr.location, loc.division, rr.service_line, rr.room_type, rr.upload_month
       `, params);
 
       // 4) Inquiry / tour by location+serviceLine+month
@@ -15332,7 +15332,7 @@ Respond in JSON format:
               WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
               ELSE NULL END AS dt
           FROM rent_roll_data rr
-          LEFT JOIN locations loc ON loc.id = rr.location_id
+          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
           WHERE ${moveWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
           ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
                    (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
@@ -15518,12 +15518,15 @@ Respond in JSON format:
         };
       });
 
+      // Drop stale combos: no units present in the trailing 3 months (all-blank rows)
+      const activeRows = rows.filter(r => (r.totalUnits || 0) > 0);
+
       // Sort: division, campus, service line, room type
-      rows.sort((a, b) =>
+      activeRows.sort((a, b) =>
         a.division.localeCompare(b.division) || a.campus.localeCompare(b.campus) ||
         a.serviceLine.localeCompare(b.serviceLine) || a.roomType.localeCompare(b.roomType));
 
-      res.json({ rows, months, spotMonth, calculatedAt: new Date().toISOString() });
+      res.json({ rows: activeRows, months, spotMonth, calculatedAt: new Date().toISOString() });
     } catch (error) {
       console.error("Error building reference data:", error);
       res.status(500).json({ error: "Failed to build reference data" });
