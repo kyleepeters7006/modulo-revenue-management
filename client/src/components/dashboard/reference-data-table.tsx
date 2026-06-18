@@ -502,8 +502,8 @@ export default function ReferenceDataTable({
           <th
             key={g.id}
             colSpan={g.cols.length}
-            className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
-              gi === 0 ? "left-0 z-40 bg-background" : g.ruleInfo ? "bg-indigo-950/40" : "bg-muted"
+            className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-white ${
+              gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-indigo-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
             }`}
             style={gi === 0 ? { left: 0 } : undefined}
           >
@@ -566,7 +566,7 @@ export default function ReferenceDataTable({
           return (
             <th
               key={c.key}
-              className={`sticky z-10 border-b border-r border-border bg-background px-1.5 py-1 text-[11px] font-medium align-bottom ${
+              className={`sticky z-10 border-b border-r border-border bg-blue-100 px-1.5 py-1 text-[11px] font-bold text-black align-bottom ${
                 isFrozen ? "z-40" : ""
               }`}
               style={{
