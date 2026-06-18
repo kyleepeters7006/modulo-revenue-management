@@ -503,7 +503,7 @@ export default function ReferenceDataTable({
             key={g.id}
             colSpan={g.cols.length}
             className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-white ${
-              gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-indigo-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
+              gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
             }`}
             style={gi === 0 ? { left: 0 } : undefined}
           >
@@ -519,7 +519,7 @@ export default function ReferenceDataTable({
                       {g.label}
                       <Info className="h-2.5 w-2.5 opacity-60" />
                     </span>
-                    <span className="max-w-[120px] truncate text-[9px] font-normal normal-case tracking-normal text-muted-foreground">
+                    <span className="max-w-[120px] truncate text-[9px] font-normal normal-case tracking-normal text-white/80">
                       {g.ruleInfo.name}
                     </span>
                   </button>
