@@ -159,46 +159,77 @@ function parseTrigger(input: string): ParsedTrigger | null {
     }
   }
   
-  // Condition-based triggers
-  if (input.includes('when occupancy') || input.includes('if occupancy')) {
-    const occupancyMatch = input.match(/occupancy\s*(drops below|falls below|below|above|over|exceeds)\s*(\d+)%?/);
-    if (occupancyMatch) {
-      const operator = occupancyMatch[1].includes('below') ? '<' : '>';
-      const value = parseFloat(occupancyMatch[2]);
-      return {
-        type: 'condition',
-        condition: {
-          field: 'occupancy',
-          operator,
-          value: value > 1 ? value / 100 : value, // Convert percentage to decimal
-        }
-      };
+  // ── Generalized condition-based triggers ─────────────────────────────
+  // Comparison operator table — ordered most-specific first.
+  const CMP_OPS: Array<{ re: RegExp; op: '>' | '<' | '>=' | '<=' | '=' }> = [
+    { re: /is\s+greater\s+than\s+or\s+equal\s+to\s+(\d+(?:\.\d+)?)%?/i, op: '>=' },
+    { re: /is\s+less\s+than\s+or\s+equal\s+to\s+(\d+(?:\.\d+)?)%?/i, op: '<=' },
+    { re: /is\s+greater\s+than\s+(\d+(?:\.\d+)?)%?/i, op: '>' },
+    { re: /is\s+less\s+than\s+(\d+(?:\.\d+)?)%?/i, op: '<' },
+    { re: />=\s*(\d+(?:\.\d+)?)%?/i, op: '>=' },
+    { re: /<=\s*(\d+(?:\.\d+)?)%?/i, op: '<=' },
+    { re: />\s*(\d+(?:\.\d+)?)%/, op: '>' },
+    { re: /<\s*(\d+(?:\.\d+)?)%/, op: '<' },
+    { re: /(?:drops?|falls?)\s+below\s+(\d+(?:\.\d+)?)%?/i, op: '<' },
+    { re: /(?:above|over|exceeds?)\s+(\d+(?:\.\d+)?)%?/i, op: '>=' },
+    { re: /(?:below|under)\s+(\d+(?:\.\d+)?)%?/i, op: '<' },
+  ];
+
+  function extractCmp(text: string): { op: '>' | '<' | '>=' | '<=' | '='; value: number } | null {
+    for (const { re, op } of CMP_OPS) {
+      const m = text.match(re);
+      if (m) {
+        const raw = parseFloat(m[1]);
+        return { op, value: raw > 1 ? raw / 100 : raw }; // store as decimal (e.g. 0.90 for 90%)
+      }
     }
+    return null;
   }
-  
+
+  // Service line occupancy (check before generic occupancy — more specific)
+  if (/service.?line\s+occupancy/i.test(input)) {
+    const cmp = extractCmp(input);
+    if (cmp) return { type: 'condition', condition: { field: 'service_line_occupancy', operator: cmp.op, value: cmp.value } };
+  }
+
+  // Room type occupancy
+  if (/room.?type\s+occupancy/i.test(input)) {
+    const cmp = extractCmp(input);
+    if (cmp) return { type: 'condition', condition: { field: 'room_type_occupancy', operator: cmp.op, value: cmp.value } };
+  }
+
+  // General / campus occupancy
+  if (/\boccupancy\b/i.test(input)) {
+    const cmp = extractCmp(input);
+    if (cmp) return { type: 'condition', condition: { field: 'occupancy', operator: cmp.op, value: cmp.value } };
+  }
+
+  // In-house to street rate variance
+  if (/in.?house\s+to\s+street|ih.street\s+var|in_house_to_street|ih_street_var/i.test(input)) {
+    const cmp = extractCmp(input);
+    if (cmp) return { type: 'condition', condition: { field: 'ih_street_variance', operator: cmp.op, value: cmp.value } };
+  }
+
+  // Vacancy duration (days vacant)
   if (input.includes('vacant for') || input.includes('empty for') || input.includes('vacant over') || input.includes('days vacant')) {
     const vacancyMatch = input.match(/(?:vacant|empty)\s*(?:for|over)?\s*(\d+)\s*days?/);
     if (vacancyMatch) {
-      const days = parseInt(vacancyMatch[1]);
-      return {
-        type: 'condition',
-        condition: {
-          field: 'days_vacant',
-          operator: '>',
-          value: days,
-        }
-      };
+      return { type: 'condition', condition: { field: 'days_vacant', operator: '>', value: parseInt(vacancyMatch[1]) } };
     }
   }
-  
+
   // Default to immediate if no specific trigger found
   return { type: 'immediate' };
 }
 
 function parseAction(input: string): ParsedAction | null {
-  // Parse adjustment value
-  // Match both % symbol and the word "percent" or "percentage" - more flexible regex that allows words in between
-  const percentMatch = input.match(/(\d+(?:\.\d+)?)\s*(?:%|percent(?:age)?)/);
+  // Parse adjustment value.
+  // Prefer a match that immediately follows an action verb and "by", so that condition
+  // percentages (e.g. "occupancy >= 90%") are not mistakenly used as the adjustment value.
+  const actionPctMatch =
+    input.match(/(?:increase|raise|reduce|decrease|lower|boost|add|adjust)\s+(?:\w+\s+){0,3}by\s+(\d+(?:\.\d+)?)%/i) ||
+    input.match(/(?:increase|raise|reduce|decrease|lower|boost)\s+(?:rate\s+)?(?:by\s+)?(\d+(?:\.\d+)?)%/i);
+  const percentMatch = actionPctMatch || input.match(/(\d+(?:\.\d+)?)\s*(?:%|percent(?:age)?)/);
   // Only match dollar amounts if explicitly mentioned with $ or "dollar" word, and NOT followed by "percent"
   const dollarMatch = input.match(/\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*dollars?(?!\s*percent)/);
   

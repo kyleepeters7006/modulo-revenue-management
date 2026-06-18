@@ -15424,10 +15424,37 @@ Respond in JSON format:
         GROUP BY location, service_line, room_type
       `, moveParams);
 
-      // 6) Per-rule rates (spot month only): computed live from each rule's definition.
-      //    The rule engine does NOT stamp applied_rule_name on rent_roll_data, so we
-      //    derive the rate each active rule WOULD produce for the units it targets
-      //    (matching the rule's own filters), averaged by (campus, service_line, room_type).
+      // 6a) Pre-compute spot-month occupancy per (campus, SL) from aggRes so we can
+      //     evaluate trigger conditions (e.g. "service_line_occupancy >= 0.90") inline
+      //     when filtering per-rule column rates.  Declared here so Promise.all
+      //     callbacks below can close over them.
+      const refSlOcc     = new Map<string, number>(); // key: "campus||sl" -> occ% (0-1)
+      const refCampusOcc = new Map<string, number>(); // key: "campus"     -> occ% (0-1)
+      {
+        const _slT    = new Map<string, { total: number; occ: number }>();
+        const _campT  = new Map<string, { total: number; occ: number }>();
+        for (const r of aggRes.rows as any[]) {
+          if (r.month !== spotMonth) continue;
+          const loc = r.campus || '';
+          const sl  = r.service_line || '';
+          const tot = Number(r.total) || 0;
+          const occ = Number(r.occupied) || 0;
+          const slKey = `${loc}||${sl}`;
+          const se = _slT.get(slKey) || { total: 0, occ: 0 };
+          se.total += tot; se.occ += occ; _slT.set(slKey, se);
+          const ce = _campT.get(loc) || { total: 0, occ: 0 };
+          ce.total += tot; ce.occ += occ; _campT.set(loc, ce);
+        }
+        _slT.forEach((v, k)   => refSlOcc.set(k,     v.total ? v.occ / v.total : 0));
+        _campT.forEach((v, k) => refCampusOcc.set(k, v.total ? v.occ / v.total : 0));
+      }
+
+      // 6b) Per-rule rates (spot month only): computed live from each rule's definition.
+      //     The rule engine does NOT stamp applied_rule_name on rent_roll_data, so we
+      //     derive the rate each active rule WOULD produce for the units it targets
+      //     (matching the rule's own filters), averaged by (campus, service_line, room_type).
+      //     Trigger conditions (occupancy thresholds etc.) are evaluated against the
+      //     pre-computed occupancy maps so non-firing rules show no rate.
       const rulesRes = await pool.query(`
         SELECT id, name, description, priority, action, trigger, location_id, service_line
         FROM adjustment_rules
@@ -15486,9 +15513,32 @@ Respond in JSON format:
         `, rp);
 
         for (const r of rows as any[]) {
-          if (r.avg_rule_rate !== null) {
-            ruleRatesMap.set(`${r.location}||${r.service_line}||${r.room_type}||${rule.id}`, Number(r.avg_rule_rate));
+          if (r.avg_rule_rate === null) continue;
+
+          // Evaluate the rule's trigger condition against actual spot-month occupancy
+          // (closed over from refSlOcc / refCampusOcc above) so a rule gated on e.g.
+          // "service_line_occupancy >= 0.90" shows no rate for segments below threshold.
+          const trig = rule.trigger as any;
+          if (trig?.type === 'condition' && trig.condition?.field) {
+            const { field, operator, value } = trig.condition as { field: string; operator: string; value: number };
+            let metricVal: number | null = null;
+            if (field === 'service_line_occupancy') {
+              metricVal = refSlOcc.get(`${r.location}||${r.service_line}`) ?? null;
+            } else if (field === 'occupancy' || field === 'campus_occupancy') {
+              metricVal = refCampusOcc.get(r.location) ?? null;
+            }
+            if (metricVal !== null) {
+              const passes =
+                operator === '>='  ? metricVal >= value :
+                operator === '>'   ? metricVal >  value :
+                operator === '<='  ? metricVal <= value :
+                operator === '<'   ? metricVal <  value :
+                Math.abs(metricVal - value) < 0.001;
+              if (!passes) continue; // rule doesn't fire for this segment — omit the column rate
+            }
           }
+
+          ruleRatesMap.set(`${r.location}||${r.service_line}||${r.room_type}||${rule.id}`, Number(r.avg_rule_rate));
         }
       }));
 

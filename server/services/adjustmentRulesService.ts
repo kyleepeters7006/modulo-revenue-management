@@ -223,6 +223,13 @@ export function applyAdjustmentRulesToUnit(
   let currentRate = baseRate;
   const appliedRuleNames: string[] = [];
 
+  // Exclusive/additive semantics:
+  //   • An exclusive rule (action.isAdditive !== true) only fires if no other
+  //     exclusive rule has already claimed this unit — the highest-priority one wins.
+  //   • An additive rule (action.isAdditive === true) always stacks on top,
+  //     regardless of priority order.
+  let exclusiveApplied = false;
+
   for (const rule of sortedRules) {
     // Check scope — skip if rule is scoped to a different location or service line
     if (rule.locationId && rule.locationId !== unit.locationId) continue;
@@ -248,6 +255,13 @@ export function applyAdjustmentRulesToUnit(
       }
       if (filters.occupancyStatus === "vacant" && unit.occupiedYN) continue;
       if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
+    }
+
+    // Enforce exclusive/additive gating
+    const isAdditive = action.isAdditive === true;
+    if (!isAdditive) {
+      if (exclusiveApplied) continue; // a higher-priority exclusive rule already claimed this unit
+      exclusiveApplied = true;
     }
 
     const adjustmentType = action.adjustmentType || "percentage";
