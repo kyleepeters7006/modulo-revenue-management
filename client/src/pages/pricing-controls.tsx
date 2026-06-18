@@ -671,17 +671,17 @@ export default function PricingControls() {
 
 
         <div className="space-y-6 sm:space-y-8">
-          <RuleDesigner
-            locationId={selectedLocationId}
-            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
-            locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
-          />
-
           <ReferenceDataTable
             selectedServiceLine={selectedServiceLine}
             selectedRegions={selectedRegions}
             selectedDivisions={selectedDivisions}
             selectedLocations={selectedLocations}
+          />
+
+          <RuleDesigner
+            locationId={selectedLocationId}
+            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
+            locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
           />
 
           {/* Target Annual Revenue Growth Section */}
