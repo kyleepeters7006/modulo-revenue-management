@@ -1,2 +1,3 @@
 - [Reference Data keying](reference-data-keying.md) — /api/reference-data campus rollups must key on location_id, not campus name, or same-named campuses merge.
 - [Inquiry location normalization](inquiry-location-normalization.md) — inquiry_metrics.location uses 2 client-specific formats (demo 'Name - NNN', trilogy 'Name SL'); join normalization must handle both
+- [Competitor rate data locations](competitor-rate-data.md) — competitors table is empty; real source is competitive_survey_data + care_level_rates + rent_roll_data snapshots; analytics caches in-memory (restart to see DB changes).
