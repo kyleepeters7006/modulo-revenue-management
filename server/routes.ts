@@ -15292,7 +15292,7 @@ Respond in JSON format:
           AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
           AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0)                          AS avg_street,
           AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
-          AVG(rr.competitor_rate) FILTER (WHERE rr.competitor_rate > 100)                AS avg_comp_base,
+          AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
           AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
           AVG(COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate))
             FILTER (WHERE COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate) > 0) AS avg_proposed
