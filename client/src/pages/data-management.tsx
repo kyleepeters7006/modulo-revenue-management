@@ -67,6 +67,16 @@ export default function DataManagement() {
     staleTime: 30_000,
   });
 
+  // Safe JSON parser for error responses — server might return empty body or non-JSON on 5xx/multer errors
+  const parseErrorBody = async (response: Response): Promise<string> => {
+    try {
+      const data = await response.json();
+      return data.message || data.error || `Upload failed (HTTP ${response.status})`;
+    } catch {
+      return `Upload failed (server error ${response.status})`;
+    }
+  };
+
   const regenerateDemoDataMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch('/api/admin/regenerate-demo-data', { method: 'POST' });
@@ -193,8 +203,7 @@ export default function DataManagement() {
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Upload failed');
+        throw new Error(await parseErrorBody(response));
       }
       
       return { data: await response.json(), uploadId };
@@ -232,8 +241,7 @@ export default function DataManagement() {
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Upload failed');
+        throw new Error(await parseErrorBody(response));
       }
       
       return { data: await response.json(), uploadId };
@@ -277,8 +285,7 @@ export default function DataManagement() {
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Upload failed');
+        throw new Error(await parseErrorBody(response));
       }
       
       return { data: await response.json(), uploadId };
@@ -336,8 +343,7 @@ export default function DataManagement() {
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Upload failed');
+        throw new Error(await parseErrorBody(response));
       }
       
       return { data: await response.json(), uploadId };
@@ -492,8 +498,7 @@ export default function DataManagement() {
         });
         
         if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || 'Upload failed');
+          throw new Error(await parseErrorBody(response));
         }
         
         const data = await response.json();
@@ -546,8 +551,7 @@ export default function DataManagement() {
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.message || 'Upload failed');
+        throw new Error(await parseErrorBody(response));
       }
       
       return { data: await response.json(), uploadId };
