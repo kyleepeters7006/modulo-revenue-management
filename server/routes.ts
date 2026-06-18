@@ -5820,8 +5820,46 @@ Focus areas (in order):
       const avgAI = withAI.length ? withAI.reduce((s, u) => s + u.aiSuggestedRate!, 0) / withAI.length : null;
 
       const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
-      const slBreakdown: Record<string, number> = {};
-      filteredData.forEach(u => { const sl = u.serviceLine || 'Unknown'; slBreakdown[sl] = (slBreakdown[sl] || 0) + 1; });
+
+      // Per-service-line occupancy (across current scope)
+      const slOcc: Record<string, { total: number; occupied: number }> = {};
+      filteredData.forEach(u => {
+        const sl = u.serviceLine || 'Unknown';
+        if (!slOcc[sl]) slOcc[sl] = { total: 0, occupied: 0 };
+        slOcc[sl].total++;
+        if (u.occupiedYN) slOcc[sl].occupied++;
+      });
+      const pct = (occ: number, tot: number) => (tot ? (100 * occ / tot).toFixed(1) : '0.0');
+      const slOccStr = Object.entries(slOcc)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([sl, o]) => `${sl}: ${o.occupied}/${o.total} (${pct(o.occupied, o.total)}%)`)
+        .join(', ');
+
+      // Per-campus x service-line occupancy breakdown — gives the AI the granular
+      // data needed to answer questions like "how many campuses have AL/MC under 90%".
+      const campusSl = new Map<string, Map<string, { total: number; occupied: number }>>();
+      for (const u of filteredData) {
+        const camp = u.location || 'Unknown';
+        const sl = u.serviceLine || 'Unknown';
+        if (!campusSl.has(camp)) campusSl.set(camp, new Map());
+        const m = campusSl.get(camp)!;
+        const e = m.get(sl) || { total: 0, occupied: 0 };
+        e.total++; if (u.occupiedYN) e.occupied++;
+        m.set(sl, e);
+      }
+      const campusCount = campusSl.size;
+      const campusOccLines = Array.from(campusSl.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([camp, slMap]) => {
+          let cTot = 0, cOcc = 0;
+          const parts = Array.from(slMap.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([sl, o]) => {
+              cTot += o.total; cOcc += o.occupied;
+              return `${sl} ${o.occupied}/${o.total} (${pct(o.occupied, o.total)}%)`;
+            });
+          return `${camp} [overall ${pct(cOcc, cTot)}%]: ${parts.join(', ')}`;
+        });
 
       let allCompetitors = await storage.getCompetitors(clientId);
       let filteredCompetitors = location && location !== 'all'
@@ -5840,10 +5878,14 @@ Avg street rate: $${Math.round(avgStreet).toLocaleString()} | Avg in-house rate:
 ${avgModulo ? `Modulo suggested avg: $${Math.round(avgModulo).toLocaleString()} (${withModulo.length} units)` : 'Modulo rates: not calculated'}
 ${avgAI ? `AI suggested avg: $${Math.round(avgAI).toLocaleString()} (${withAI.length} units)` : 'AI rates: not calculated'}
 ${avgCompRate ? `Market avg competitor rate: $${Math.round(avgCompRate).toLocaleString()} (${filteredCompetitors.length} competitors)` : 'No competitor rate data'}
-Service line mix: ${Object.entries(slBreakdown).map(([sl, n]) => `${sl}: ${n}`).join(', ')}
+Campuses in scope: ${campusCount}
+Service line occupancy (across scope): ${slOccStr}
+
+CAMPUS x SERVICE LINE OCCUPANCY (latest month — use this for any per-campus or per-service-line occupancy question; format is "<service line> <occupied>/<total beds> (<occupancy %>)"):
+${campusOccLines.join('\n')}
 `.trim();
 
-      const systemPrompt = `You are an expert revenue management advisor for senior living facilities, working inside the Modulo platform. Answer the user's question conversationally and specifically, grounded in the data context provided. Be concise (2-5 sentences unless a detailed breakdown is asked for). Use **bold** for key figures. Never give generic advice — always reference the actual numbers.`;
+      const systemPrompt = `You are an expert revenue management advisor for senior living facilities, working inside the Modulo platform. Answer the user's question conversationally and specifically, grounded in the data context provided. You have access to the full campus-by-service-line occupancy breakdown for the current scope — when asked to count, filter, or compare campuses or service lines by occupancy (e.g. "how many campuses have AL/MC under 90%"), compute the answer directly from the CAMPUS x SERVICE LINE OCCUPANCY table and list the qualifying campuses. Be concise (2-5 sentences unless a detailed breakdown is asked for); for counting questions give the count first, then the supporting campuses. Use **bold** for key figures. Never give generic advice or claim the data is unavailable when it is present in the context — always reference the actual numbers.`;
 
       const userTurn = `Here is the current portfolio data for your reference:\n${dataContext}\n\nUser question: ${message}`;
 
