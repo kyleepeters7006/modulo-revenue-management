@@ -28,6 +28,7 @@ import {
   Table2,
   Play,
   CheckCircle2,
+  Info,
 } from "lucide-react";
 
 // ── Column metadata ────────────────────────────────────────────────
@@ -51,10 +52,13 @@ interface ColDef {
   w: number; // px width
 }
 
+type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any };
+
 interface GroupDef {
   id: string;
   label: string;
   cols: ColDef[];
+  ruleInfo?: ActiveRule;
 }
 
 const GROUPS: GroupDef[] = [
@@ -253,6 +257,7 @@ interface ReferenceDataResponse {
   months: string[];
   spotMonth: string | null;
   calculatedAt: string | null;
+  rules?: ActiveRule[];
 }
 
 interface ReferenceDataTableProps {
@@ -382,12 +387,40 @@ export default function ReferenceDataTable({
 
   const rawRows = data?.rows ?? [];
 
+  // ── dynamic rule column groups ──
+  const dynGroups = useMemo((): GroupDef[] => {
+    const rules = data?.rules ?? [];
+    if (!rules.length) return GROUPS;
+    const ruleGroups: GroupDef[] = rules.map((r, i) => ({
+      id: `rule_${r.id}`,
+      label: `Rule ${i + 1}`,
+      ruleInfo: r,
+      cols: [{
+        key: `__rule_${r.id}`,
+        label: "Rate",
+        type: "money" as ColType,
+        w: 85,
+        tip: `Avg proposed rate for units where the "${r.name}" rule was applied (spot month).`,
+      }],
+    }));
+    const insertAt = GROUPS.findIndex(g => g.id === "inhouse") + 1;
+    return [...GROUPS.slice(0, insertAt), ...ruleGroups, ...GROUPS.slice(insertAt)];
+  }, [data?.rules]);
+
+  const dynAllCols = useMemo(() => dynGroups.flatMap(g => g.cols), [dynGroups]);
+
   // ── filter + sort ──
   const processedRows = useMemo(() => {
-    let rows = rawRows;
+    const rules = data?.rules ?? [];
+    let rows: Record<string, any>[] = rawRows.map(row => {
+      if (!rules.length) return row;
+      const extra: Record<string, any> = {};
+      for (const r of rules) extra[`__rule_${r.id}`] = (row.ruleRates as any)?.[r.name] ?? null;
+      return { ...row, ...extra };
+    });
     const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== "");
     if (activeFilters.length) {
-      const colByKey = Object.fromEntries(ALL_COLS.map((c) => [c.key, c]));
+      const colByKey = Object.fromEntries(dynAllCols.map((c) => [c.key, c]));
       rows = rows.filter((row) =>
         activeFilters.every(([key, term]) => {
           const col = colByKey[key];
@@ -398,7 +431,7 @@ export default function ReferenceDataTable({
       );
     }
     if (sortKey) {
-      const col = ALL_COLS.find((c) => c.key === sortKey);
+      const col = dynAllCols.find((c) => c.key === sortKey);
       const numeric = col ? NUMERIC_TYPES.includes(col.type) : false;
       rows = [...rows].sort((a, b) => {
         const av = a[sortKey];
@@ -412,7 +445,7 @@ export default function ReferenceDataTable({
       });
     }
     return rows;
-  }, [rawRows, filters, sortKey, sortDir]);
+  }, [rawRows, filters, sortKey, sortDir, dynAllCols, data?.rules]);
 
   const toggleSort = (key: string) => {
     if (sortKey === key) {
@@ -431,8 +464,9 @@ export default function ReferenceDataTable({
     const headerRow2: string[] = [];
     const merges: XLSX.Range[] = [];
     let colIdx = 0;
-    for (const g of GROUPS) {
-      headerRow1.push(g.label);
+    for (const g of dynGroups) {
+      const groupLabel = g.ruleInfo ? `${g.label} – ${g.ruleInfo.name}` : g.label;
+      headerRow1.push(groupLabel);
       headerRow2.push(g.cols[0].label);
       for (let i = 1; i < g.cols.length; i++) {
         headerRow1.push("");
@@ -444,17 +478,17 @@ export default function ReferenceDataTable({
       colIdx += g.cols.length;
     }
     const dataRows = processedRows.map((row) =>
-      ALL_COLS.map((c) => rawForExport(row[c.key], c.type))
+      dynAllCols.map((c) => rawForExport(row[c.key], c.type))
     );
     const aoa = [headerRow1, headerRow2, ...dataRows];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws["!merges"] = merges;
-    ws["!cols"] = ALL_COLS.map((c) => ({ wpx: c.w }));
+    ws["!cols"] = dynAllCols.map((c) => ({ wpx: c.w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Reference Data");
     const stamp = data?.spotMonth ?? new Date().toISOString().slice(0, 7);
     XLSX.writeFile(wb, `Reference_Data_${stamp}.xlsx`);
-  }, [processedRows, data?.spotMonth]);
+  }, [processedRows, data?.spotMonth, dynGroups, dynAllCols]);
 
   // ── shared cell styling ──
   const groupBg = (gid: string, idx: number) =>
@@ -464,22 +498,68 @@ export default function ReferenceDataTable({
     <thead className="sticky top-0 z-30">
       {/* Group header row */}
       <tr>
-        {GROUPS.map((g, gi) => (
+        {dynGroups.map((g, gi) => (
           <th
             key={g.id}
             colSpan={g.cols.length}
             className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${
-              gi === 0 ? "left-0 z-40 bg-background" : "bg-muted"
+              gi === 0 ? "left-0 z-40 bg-background" : g.ruleInfo ? "bg-indigo-950/40" : "bg-muted"
             }`}
             style={gi === 0 ? { left: 0 } : undefined}
           >
-            {g.label}
+            {g.ruleInfo ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full flex-col items-center gap-0.5 hover:text-primary focus:outline-none"
+                    title={g.ruleInfo.description}
+                  >
+                    <span className="flex items-center gap-1">
+                      {g.label}
+                      <Info className="h-2.5 w-2.5 opacity-60" />
+                    </span>
+                    <span className="max-w-[120px] truncate text-[9px] font-normal normal-case tracking-normal text-muted-foreground">
+                      {g.ruleInfo.name}
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-3" align="center">
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold leading-tight">{g.ruleInfo.name}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{g.ruleInfo.description}</p>
+                    {g.ruleInfo.action && (
+                      <div className="rounded bg-muted px-2 py-1.5 text-xs space-y-0.5">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Type</span>
+                          <span className="font-medium capitalize">{(g.ruleInfo.action as any).adjustmentType ?? '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Adjustment</span>
+                          <span className="font-medium">
+                            {(g.ruleInfo.action as any).adjustmentType === 'percentage'
+                              ? `${(g.ruleInfo.action as any).adjustmentValue ?? 0}%`
+                              : `$${(g.ruleInfo.action as any).adjustmentValue ?? 0}`}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Priority</span>
+                          <span className="font-medium">{g.ruleInfo.priority ?? 0}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              g.label
+            )}
           </th>
         ))}
       </tr>
       {/* Sub-column header row */}
       <tr>
-        {ALL_COLS.map((c) => {
+        {dynAllCols.map((c) => {
           const isFrozen = !!c.frozen;
           const sorted = sortKey === c.key;
           const hasFilter = (filters[c.key] ?? "").trim() !== "";
@@ -576,7 +656,7 @@ export default function ReferenceDataTable({
     <tbody>
       {processedRows.map((row, ri) => (
         <tr key={ri} className="hover:bg-muted/30" data-testid={`refdata-row-${ri}`}>
-          {GROUPS.map((g, gi) =>
+          {dynGroups.map((g, gi) =>
             g.cols.map((c) => {
               const isFrozen = !!c.frozen;
               const display = fmt(row[c.key], c.type);
@@ -612,7 +692,7 @@ export default function ReferenceDataTable({
       ))}
       {processedRows.length === 0 && (
         <tr>
-          <td colSpan={ALL_COLS.length} className="py-10 text-center text-sm text-muted-foreground">
+          <td colSpan={dynAllCols.length} className="py-10 text-center text-sm text-muted-foreground">
             No reference data for the current filters.
           </td>
         </tr>

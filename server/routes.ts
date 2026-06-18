@@ -15338,6 +15338,43 @@ Respond in JSON format:
         GROUP BY location, service_line, room_type
       `, moveParams);
 
+      // 6) Per-rule rates (spot month only) + active rules for this client
+      const ruleParams: any[] = [clientId, spotMonth];
+      let ruleWhere = `rr.client_id = $1 AND rr.upload_month = $2 AND rr.applied_rule_name IS NOT NULL`;
+      if (serviceLine) { ruleParams.push(serviceLine); ruleWhere += ` AND rr.service_line = $${ruleParams.length}`; }
+      if (locations.length) { ruleParams.push(locations); ruleWhere += ` AND rr.location = ANY($${ruleParams.length})`; }
+      if (regions.length)   { ruleParams.push(regions);   ruleWhere += ` AND loc.region = ANY($${ruleParams.length})`; }
+      if (divisions.length) { ruleParams.push(divisions); ruleWhere += ` AND loc.division = ANY($${ruleParams.length})`; }
+
+      const [ruleRatesRes, rulesRes] = await Promise.all([
+        pool.query(`
+          SELECT rr.location, rr.service_line, rr.room_type, rr.applied_rule_name,
+                 AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_rule_rate
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          WHERE ${ruleWhere}
+          GROUP BY rr.location, rr.service_line, rr.room_type, rr.applied_rule_name
+        `, ruleParams),
+        pool.query(`
+          SELECT id, name, description, priority, action, trigger
+          FROM adjustment_rules
+          WHERE is_active = true
+            AND (location_id IS NULL OR location_id IN (
+              SELECT id FROM locations WHERE client_id = $1
+            ))
+          ORDER BY priority DESC NULLS LAST, created_at ASC
+        `, [clientId]),
+      ]);
+
+      const ruleRatesMap = new Map<string, number>();
+      for (const r of ruleRatesRes.rows as any[]) {
+        if (r.avg_rule_rate !== null) {
+          ruleRatesMap.set(`${r.location}||${r.service_line}||${r.room_type}||${r.applied_rule_name}`, Number(r.avg_rule_rate));
+        }
+      }
+      type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any };
+      const activeRules: ActiveRule[] = rulesRes.rows as any[];
+
       // ── Roll up in JS ────────────────────────────────────────────────
       const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
       const num = (v: any): number | null => (v === null || v === undefined ? null : Number(v));
@@ -15521,6 +15558,15 @@ Respond in JSON format:
           revT3MoveIns: moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null,
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
+          // Per-rule rates (avg rate for units where each rule was applied, spot month)
+          ruleRates: (() => {
+            const rr: Record<string, number | null> = {};
+            for (const rule of activeRules) {
+              const key = `${c.campus}||${c.serviceLine}||${c.roomType}||${rule.name}`;
+              rr[rule.name] = ruleRatesMap.get(key) ?? null;
+            }
+            return rr;
+          })(),
         };
       });
 
@@ -15532,7 +15578,7 @@ Respond in JSON format:
         a.division.localeCompare(b.division) || a.campus.localeCompare(b.campus) ||
         a.serviceLine.localeCompare(b.serviceLine) || a.roomType.localeCompare(b.roomType));
 
-      res.json({ rows: activeRows, months, spotMonth, calculatedAt: new Date().toISOString() });
+      res.json({ rows: activeRows, months, spotMonth, calculatedAt: new Date().toISOString(), rules: activeRules });
     } catch (error) {
       console.error("Error building reference data:", error);
       res.status(500).json({ error: "Failed to build reference data" });
