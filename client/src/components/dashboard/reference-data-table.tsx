@@ -415,7 +415,7 @@ export default function ReferenceDataTable({
     let rows: Record<string, any>[] = rawRows.map(row => {
       if (!rules.length) return row;
       const extra: Record<string, any> = {};
-      for (const r of rules) extra[`__rule_${r.id}`] = (row.ruleRates as any)?.[r.name] ?? null;
+      for (const r of rules) extra[`__rule_${r.id}`] = (row.ruleRates as any)?.[r.id] ?? null;
       return { ...row, ...extra };
     });
     const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== "");

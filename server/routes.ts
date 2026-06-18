@@ -15338,42 +15338,73 @@ Respond in JSON format:
         GROUP BY location, service_line, room_type
       `, moveParams);
 
-      // 6) Per-rule rates (spot month only) + active rules for this client
-      const ruleParams: any[] = [clientId, spotMonth];
-      let ruleWhere = `rr.client_id = $1 AND rr.upload_month = $2 AND rr.applied_rule_name IS NOT NULL`;
-      if (serviceLine) { ruleParams.push(serviceLine); ruleWhere += ` AND rr.service_line = $${ruleParams.length}`; }
-      if (locations.length) { ruleParams.push(locations); ruleWhere += ` AND rr.location = ANY($${ruleParams.length})`; }
-      if (regions.length)   { ruleParams.push(regions);   ruleWhere += ` AND loc.region = ANY($${ruleParams.length})`; }
-      if (divisions.length) { ruleParams.push(divisions); ruleWhere += ` AND loc.division = ANY($${ruleParams.length})`; }
+      // 6) Per-rule rates (spot month only): computed live from each rule's definition.
+      //    The rule engine does NOT stamp applied_rule_name on rent_roll_data, so we
+      //    derive the rate each active rule WOULD produce for the units it targets
+      //    (matching the rule's own filters), averaged by (campus, service_line, room_type).
+      const rulesRes = await pool.query(`
+        SELECT id, name, description, priority, action, trigger, location_id, service_line
+        FROM adjustment_rules
+        WHERE is_active = true
+          AND (location_id IS NULL OR location_id IN (
+            SELECT id FROM locations WHERE client_id = $1
+          ))
+        ORDER BY priority DESC NULLS LAST, created_at ASC
+      `, [clientId]);
 
-      const [ruleRatesRes, rulesRes] = await Promise.all([
-        pool.query(`
-          SELECT rr.location, rr.service_line, rr.room_type, rr.applied_rule_name,
-                 AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_rule_rate
+      type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any; location_id: string | null; service_line: string | null };
+      const activeRules: ActiveRule[] = rulesRes.rows as any[];
+
+      // ruleRatesMap keyed `campus||sl||rt||ruleId` -> avg adjusted rate the rule produces.
+      // Keyed by immutable rule ID (not name) so duplicate rule names don't collide.
+      const ruleRatesMap = new Map<string, number>();
+      await Promise.all(activeRules.map(async (rule) => {
+        const action = (rule.action as any) || {};
+        const filters = action.filters || {};
+        const adjustmentType: string = action.adjustmentType || 'percentage';
+        const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
+        const rateCol = action.target === 'care_rate' ? 'care_rate' : 'street_rate';
+        // Adjusted-rate expression (uniform per unit): percentage scales, fixed adds.
+        const adjExpr = adjustmentType === 'percentage'
+          ? `rr.${rateCol} * (1 + (${adjustmentValue})::numeric / 100.0)`
+          : `rr.${rateCol} + (${adjustmentValue})::numeric`;
+
+        const rp: any[] = [clientId, spotMonth];
+        let rw = `rr.client_id = $1 AND rr.upload_month = $2 AND rr.${rateCol} > 0`;
+        // Page-level filters (so rule rates reflect the current view)
+        if (serviceLine) { rp.push(serviceLine); rw += ` AND rr.service_line = $${rp.length}`; }
+        if (locations.length) { rp.push(locations); rw += ` AND rr.location = ANY($${rp.length})`; }
+        if (regions.length)   { rp.push(regions);   rw += ` AND loc.region = ANY($${rp.length})`; }
+        if (divisions.length) { rp.push(divisions); rw += ` AND loc.division = ANY($${rp.length})`; }
+        // Rule's top-level scope (DB columns) — enforced in addition to action.filters
+        if (rule.location_id) { rp.push(rule.location_id); rw += ` AND rr.location_id = $${rp.length}`; }
+        if (rule.service_line) { rp.push(rule.service_line); rw += ` AND rr.service_line = $${rp.length}`; }
+        // Rule's own action filters
+        if (filters.roomType?.length)    { rp.push(filters.roomType);    rw += ` AND rr.room_type = ANY($${rp.length}::text[])`; }
+        if (filters.serviceLine?.length) { rp.push(filters.serviceLine); rw += ` AND rr.service_line = ANY($${rp.length}::text[])`; }
+        if (filters.location?.length)    { rp.push(filters.location);    rw += ` AND rr.location = ANY($${rp.length}::text[])`; }
+        if (filters.occupancyStatus === 'vacant')   rw += ` AND (rr.occupied_yn = false OR rr.occupied_yn IS NULL)`;
+        else if (filters.occupancyStatus === 'occupied') rw += ` AND rr.occupied_yn = true`;
+        if (filters.vacancyDuration && ['>','>=','<','<=','='].includes(filters.vacancyDuration.operator)) {
+          rp.push(filters.vacancyDuration.days);
+          rw += ` AND rr.days_vacant ${filters.vacancyDuration.operator} $${rp.length}`;
+        }
+
+        const { rows } = await pool.query(`
+          SELECT rr.location, rr.service_line, rr.room_type,
+                 AVG(${adjExpr}) AS avg_rule_rate
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-          WHERE ${ruleWhere}
-          GROUP BY rr.location, rr.service_line, rr.room_type, rr.applied_rule_name
-        `, ruleParams),
-        pool.query(`
-          SELECT id, name, description, priority, action, trigger
-          FROM adjustment_rules
-          WHERE is_active = true
-            AND (location_id IS NULL OR location_id IN (
-              SELECT id FROM locations WHERE client_id = $1
-            ))
-          ORDER BY priority DESC NULLS LAST, created_at ASC
-        `, [clientId]),
-      ]);
+          WHERE ${rw}
+          GROUP BY rr.location, rr.service_line, rr.room_type
+        `, rp);
 
-      const ruleRatesMap = new Map<string, number>();
-      for (const r of ruleRatesRes.rows as any[]) {
-        if (r.avg_rule_rate !== null) {
-          ruleRatesMap.set(`${r.location}||${r.service_line}||${r.room_type}||${r.applied_rule_name}`, Number(r.avg_rule_rate));
+        for (const r of rows as any[]) {
+          if (r.avg_rule_rate !== null) {
+            ruleRatesMap.set(`${r.location}||${r.service_line}||${r.room_type}||${rule.id}`, Number(r.avg_rule_rate));
+          }
         }
-      }
-      type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any };
-      const activeRules: ActiveRule[] = rulesRes.rows as any[];
+      }));
 
       // ── Roll up in JS ────────────────────────────────────────────────
       const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
@@ -15562,8 +15593,8 @@ Respond in JSON format:
           ruleRates: (() => {
             const rr: Record<string, number | null> = {};
             for (const rule of activeRules) {
-              const key = `${c.campus}||${c.serviceLine}||${c.roomType}||${rule.name}`;
-              rr[rule.name] = ruleRatesMap.get(key) ?? null;
+              const key = `${c.campus}||${c.serviceLine}||${c.roomType}||${rule.id}`;
+              rr[rule.id] = ruleRatesMap.get(key) ?? null;
             }
             return rr;
           })(),
