@@ -283,7 +283,7 @@ export function Analytics() {
   const processedData = useMemo(() => {
     if (!analyticsData?.campuses) return [];
     
-    return analyticsData.campuses.map((campus: any) => {
+    return analyticsData.campuses.filter((campus: any) => (campus.occupancy ?? 0) > 0).map((campus: any) => {
       // Calculate raw price position
       const rawPricePosition = campus.competitorAvgRate > 0 
         ? parseFloat((((campus.avgRate - campus.competitorAvgRate) / campus.competitorAvgRate) * 100).toFixed(2))
