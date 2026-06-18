@@ -15319,7 +15319,11 @@ Respond in JSON format:
           COUNT(*)                                         AS total,
           COUNT(*) FILTER (WHERE rr.occupied_yn)           AS occupied,
           AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
-          AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0)                          AS avg_street,
+          -- Street rate is the published SINGLE-OCCUPANT asking rate, which should be uniform
+          -- per room type. Use the mode (most common value) rather than AVG so that
+          -- second-occupant entries and data-entry anomalies (e.g. a stray $159 on a Studio
+          -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
+          mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0)  AS avg_street,
           AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
           AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
           AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,

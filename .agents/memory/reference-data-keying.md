@@ -32,3 +32,21 @@ yet — verify before relying on it). A few campuses have genuinely NULL
 
 **Also:** reference-data drops rows with totalUnits===0 (no units in trailing 3
 months) to hide stale/all-blank combos.
+
+## Street "Spot" rate uses mode(), not AVG()
+
+The `avg_street`/`streetSpot` value in `/api/reference-data` is computed with
+`mode() WITHIN GROUP (ORDER BY street_rate) FILTER (WHERE street_rate > 0)`, NOT
+an average.
+
+**Why:** street_rate is the published SINGLE-OCCUPANT asking price and should be
+uniform per (campus, service line, room type). Some rows carry anomalous low
+street rates (second-occupant entries / data-entry artifacts, e.g. a stray $159
+on a Studio Deluxe whose real published rate is $4,029); AVG let those drag the
+representative rate below the true single-occupant rate. mode() picks the
+predominant published rate and ignores outliers. This feeds streetSpot AND the
+T3/T6/T12 street increments, so they stay consistent.
+
+**How to apply:** keep mode() for any "street/asking rate" rollup. mode() ties
+are resolved by the lowest value (ORDER BY) — acceptable. Do NOT switch in-house
+/ competitor / proposed rates to mode (those are genuinely averaged).
