@@ -15303,12 +15303,13 @@ Respond in JSON format:
       `, params);
 
       // 4) Inquiry / tour by location+serviceLine+month
+      // NOTE: inquiry_metrics uses a different location naming scheme (e.g. "Battle Creek SL") vs
+      // rent_roll_data ("Battle Creek - 501"), so we CANNOT filter by location/region/division here —
+      // the JS-side normalization (normInqLoc / normCampus) handles the matching after the fetch.
+      // We only filter by client, months, and optionally service_line (which is consistent).
       const inqParams: any[] = [clientId, months];
       let inqWhere = `client_id = $1 AND upload_month = ANY($2)`;
       if (serviceLine) { inqParams.push(serviceLine); inqWhere += ` AND service_line = $${inqParams.length}`; }
-      if (locations.length) { inqParams.push(locations); inqWhere += ` AND location = ANY($${inqParams.length})`; }
-      if (regions.length)   { inqParams.push(regions);   inqWhere += ` AND region = ANY($${inqParams.length})`; }
-      if (divisions.length) { inqParams.push(divisions); inqWhere += ` AND division = ANY($${inqParams.length})`; }
       const inqRes = await pool.query(`
         SELECT location, service_line, upload_month AS month,
                SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
@@ -15395,12 +15396,28 @@ Respond in JSON format:
         sm.set(r.month, sEntry);
       }
 
-      // inquiry/tour map: `${location}||${sl}` -> month -> {inq, tour}
+      // inquiry_metrics uses location names like "Battle Creek SL" while rent_roll uses "Battle Creek - 501".
+      // Normalize by: (a) stripping the trailing service-line suffix word from inquiry locations,
+      //               (b) stripping the " - NNN" numeric campus-code suffix from rent_roll campus names.
+      const INQ_SL_SUFFIXES = new Set(['SL','HC','AL','MC','VIL','ALF','AL/MC','HC/MC']);
+      const normInqLoc = (loc: string): string => {
+        const parts = loc.trim().split(/\s+/);
+        const last = parts[parts.length - 1];
+        return (INQ_SL_SUFFIXES.has(last) ? parts.slice(0, -1).join(' ') : loc.trim()).toLowerCase();
+      };
+      const normCampus = (campus: string): string =>
+        campus.replace(/\s*-\s*\d+.*$/, '').trim().toLowerCase();
+
+      // inquiry/tour map: `${normInqLoc}||${sl}` -> month -> {inq, tour}
       const inqMap = new Map<string, Map<string, { inq: number; tour: number }>>();
       for (const r of inqRes.rows as any[]) {
-        const key = `${r.location}||${r.service_line || 'Other'}`;
+        const key = `${normInqLoc(r.location)}||${r.service_line || 'Other'}`;
         if (!inqMap.has(key)) inqMap.set(key, new Map());
-        inqMap.get(key)!.set(r.month, { inq: Number(r.inq) || 0, tour: Number(r.tour) || 0 });
+        const existing = inqMap.get(key)!.get(r.month) || { inq: 0, tour: 0 };
+        inqMap.get(key)!.set(r.month, {
+          inq: existing.inq + (Number(r.inq) || 0),
+          tour: existing.tour + (Number(r.tour) || 0),
+        });
       }
       // move-ins map: `${location}||${sl}||${rt}` -> t3
       const moveMap = new Map<string, number>();
@@ -15432,7 +15449,7 @@ Respond in JSON format:
         const spot = bm.get(spotMonth);
         const cOcc = campusOcc.get(c.campusKey);
         const sOcc = slOcc.get(`${c.campusKey}||${c.serviceLine}`);
-        const inq  = inqMap.get(`${c.campus}||${c.serviceLine}`);
+        const inq  = inqMap.get(`${normCampus(c.campus)}||${c.serviceLine}`);
 
         // inquiries/tours
         const inqPrev = inq?.get(spotMonth)?.inq ?? null;
