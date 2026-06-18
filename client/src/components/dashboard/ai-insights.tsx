@@ -15,7 +15,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
-const AI_INSIGHTS_FILTERS_KEY = 'ai-insights-filters';
+const AI_INSIGHTS_FILTERS_KEY = 'ai-insights-filters-v2';
 
 const saveFilters = (filters: { location: string; serviceLine: string }) => {
   try { localStorage.setItem(AI_INSIGHTS_FILTERS_KEY, JSON.stringify(filters)); } catch {}
@@ -133,9 +133,11 @@ export default function AiInsights() {
   const queryClient = useQueryClient();
 
   const { data: locationsData } = useQuery({ queryKey: ["/api/locations"] });
-  const { data: authData } = useQuery({ queryKey: ["/api/auth/user"] });
 
-  const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a: string, b: string) => a.localeCompare(b));
+  const locationNames: string[] = ((locationsData as any)?.locations || [])
+    .map((loc: any) => loc?.name)
+    .filter((name: unknown): name is string => typeof name === 'string' && name.trim() !== '');
+  const locations: string[] = Array.from(new Set(locationNames)).sort((a, b) => a.localeCompare(b));
   const serviceLines = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
   // Fetch persisted insight from DB
@@ -170,14 +172,6 @@ export default function AiInsights() {
     }
     setIsHydrated(true);
   }, []);
-
-  // ── Demo default: Albany - 215 ────────────────────────────────────────────
-  useEffect(() => {
-    if (!isHydrated) return;
-    if ((authData as any)?.clientId === 'demo' && selectedLocation === 'all') {
-      setSelectedLocation('Albany - 215');
-    }
-  }, [isHydrated, (authData as any)?.clientId]);
 
   // ── Persist filter changes & clear optimistic state ───────────────────────
   useEffect(() => {
