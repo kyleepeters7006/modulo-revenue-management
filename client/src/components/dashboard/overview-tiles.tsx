@@ -127,7 +127,7 @@ export default function OverviewTiles() {
       value: overviewData.currentAnnualRevenue >= 1000000000 
         ? `$${(overviewData.currentAnnualRevenue / 1000000000).toFixed(2)}B`
         : `$${formatNumber(Math.round(overviewData.currentAnnualRevenue / 1000000))}M`,
-      subtitle: "Based on current occupancy",
+      subtitle: "Private pay · based on current occupancy",
       icon: DollarSign,
       color: "amber",
       testId: "metric-current-revenue",
