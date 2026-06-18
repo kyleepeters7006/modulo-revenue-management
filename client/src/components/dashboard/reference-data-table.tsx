@@ -70,7 +70,7 @@ const GROUPS: GroupDef[] = [
       { key: "campus", label: "Campus", type: "text", w: 150, frozen: true, tip: "The community / facility name." },
       { key: "serviceLine", label: "Service Line", type: "text", w: 95, frozen: true, tip: "Care level grouping (AL, SL, HC, MC, VIL, etc.)." },
       { key: "roomType", label: "Room Type", type: "text", w: 130, frozen: true, tip: "Unit / room configuration within the service line." },
-      { key: "totalUnits", label: "Total Units/Beds", type: "int", w: 80, frozen: true, tip: "Count of units (or beds) for this campus / service line / room type in the most recent month." },
+      { key: "totalUnits", label: "Total Units/Beds", type: "int", w: 55, frozen: true, tip: "Count of units (or beds) for this campus / service line / room type in the most recent month." },
     ],
   },
   {
