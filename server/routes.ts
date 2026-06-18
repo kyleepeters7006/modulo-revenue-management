@@ -15458,9 +15458,17 @@ Respond in JSON format:
       //               (b) stripping the " - NNN" numeric campus-code suffix from rent_roll campus names.
       const INQ_SL_SUFFIXES = new Set(['SL','HC','AL','MC','VIL','ALF','AL/MC','HC/MC']);
       const normInqLoc = (loc: string): string => {
-        const parts = loc.trim().split(/\s+/);
+        const trimmed = loc.trim();
+        // Demo inquiry locations share rent_roll's "Name - NNN" format → strip the numeric
+        // campus-code suffix (same logic as normCampus below) so the keys line up.
+        // Trilogy inquiry locations use a "Name SL"/"Name HC" format → strip the trailing
+        // service-line suffix word instead. Detect which format applies per-location.
+        if (/-\s*\d/.test(trimmed)) {
+          return trimmed.replace(/\s*-\s*\d+.*$/, '').trim().toLowerCase();
+        }
+        const parts = trimmed.split(/\s+/);
         const last = parts[parts.length - 1];
-        return (INQ_SL_SUFFIXES.has(last) ? parts.slice(0, -1).join(' ') : loc.trim()).toLowerCase();
+        return (INQ_SL_SUFFIXES.has(last) ? parts.slice(0, -1).join(' ') : trimmed).toLowerCase();
       };
       const normCampus = (campus: string): string =>
         campus.replace(/\s*-\s*\d+.*$/, '').trim().toLowerCase();
