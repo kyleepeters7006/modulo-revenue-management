@@ -34,6 +34,7 @@ const METRICS = [
   'Days To Sell Previously', 'Season', 'Stock Market', 'Inquiry and Tour Volume',
   'Quality Mix',
   'In House to Street Rate var % - Single Occupant',
+  'Street Rate to Top Comp Var %',
 ];
 
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
@@ -150,8 +151,8 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
     if (!filled.length) msgs.push('Add at least one condition value to complete this rule.');
     if (!action.amountValue) msgs.push('Set an amount for the pricing action.');
     if (!action.scope) msgs.push('This rule does not have a target scope.');
-    if (conditions.some(c => c.metric === 'Competitor Rate'))
-      msgs.push('This rule uses Competitor Rate — confirm competitor data is available for all campuses.');
+    if (conditions.some(c => c.metric === 'Competitor Rate' || c.metric === 'Street Rate to Top Comp Var %'))
+      msgs.push('This rule uses competitor data — confirm adjusted competitor rates are available for all campuses.');
     if (action.scope === 'All selected campuses' || !action.scope)
       msgs.push('This rule applies broadly. Confirm before applying.');
   } else {
@@ -420,6 +421,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           metric: 'Days Vacant',
           timePeriod: 'Current Spot',
           operator: trigger.condition.operator === '>=' ? 'is greater than or equal to' : 'is greater than',
+          value: String(trigger.condition.value),
+        });
+      } else if (trigger.condition?.field === 'street_to_comp_var') {
+        const opMap: Record<string, string> = {
+          '<': 'is less than', '>': 'is greater than',
+          '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
+          '=': 'equals', '!=': 'does not equal',
+        };
+        rebuilt.push({
+          id: newConditionId(),
+          metric: 'Street Rate to Top Comp Var %',
+          timePeriod: 'Current Spot',
+          operator: opMap[trigger.condition.operator] ?? 'is greater than',
+          // stored as raw % (e.g. 10 for 10%)
           value: String(trigger.condition.value),
         });
       }

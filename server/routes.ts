@@ -15153,7 +15153,11 @@ Respond in JSON format:
         if (compUnits.length) {
           const avgSt = avgArr(compUnits.map(u => u.street_rate));
           const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));
-          if (avgC > 0) metrics.push({ sl, rt, name: 'competitor_variance_pct', val: (avgSt - avgC) / avgC * 100 });
+          if (avgC > 0) {
+            metrics.push({ sl, rt, name: 'competitor_variance_pct',  val: (avgSt - avgC) / avgC * 100 });
+            // Street rate to top adjusted comp rate var % — raw % (e.g. 15 means 15% above comp)
+            metrics.push({ sl, rt, name: 'street_to_comp_var_pct', val: (avgSt - avgC) / avgC * 100 });
+          }
         }
 
         // Payer mix — campus/SL level only (not RT breakdown)

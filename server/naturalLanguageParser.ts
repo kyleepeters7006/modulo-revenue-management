@@ -204,6 +204,20 @@ function parseTrigger(input: string): ParsedTrigger | null {
     if (cmp) return { type: 'condition', condition: { field: 'occupancy', operator: cmp.op, value: cmp.value } };
   }
 
+  // Street rate to top competitor adjusted rate variance %
+  // Stored as raw % (e.g. 10 for 10%), so we do NOT divide by 100.
+  if (/street\s+rate\s+to\s+(top\s+)?comp|street.to.comp.var|street.*comp.*var\s*%/i.test(input)) {
+    const extractCmpRaw = (text: string): { op: '>' | '<' | '>=' | '<=' | '='; value: number } | null => {
+      for (const { re, op } of CMP_OPS) {
+        const m = text.match(re);
+        if (m) return { op, value: parseFloat(m[1]) }; // keep raw %, no /100
+      }
+      return null;
+    };
+    const cmp = extractCmpRaw(input);
+    if (cmp) return { type: 'condition', condition: { field: 'street_to_comp_var', operator: cmp.op, value: cmp.value } };
+  }
+
   // In-house to street rate variance
   if (/in.?house\s+to\s+street|ih.street\s+var|in_house_to_street|ih_street_var/i.test(input)) {
     const cmp = extractCmp(input);

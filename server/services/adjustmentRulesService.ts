@@ -150,6 +150,11 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
         return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'competitor_variance_pct'));
       }
 
+      // Street rate to top adjusted competitor rate variance % (raw %, e.g. 10 = 10% above comp)
+      if (field === "street_to_comp_var") {
+        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'street_to_comp_var_pct'));
+      }
+
       // Quality / payer mix — private pay %
       if (field === "quality_mix" || field === "private_pay") {
         return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
