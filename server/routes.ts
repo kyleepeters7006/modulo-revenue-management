@@ -7204,22 +7204,24 @@ ${campusOccLines.join('\n')}
 
       const CHUNK_SIZE = 500;
 
+      // Collect unique (month, year) pairs from the upload.
+      // We delete all existing rows for this client matching those month/year pairs
+      // before re-inserting — one DELETE per unique month instead of one per record.
+      const uniqueMonthYears = Array.from(
+        new Map(insertRecords.map(r => [`${r.month}|${r.year}`, { month: r.month, year: r.year }])).values()
+      );
+
       await db.transaction(async (tx) => {
-        // Delete existing rows for all affected 5-column key combinations.
-        for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
-          const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
-          for (const key of chunk) {
-            await tx.delete(roomTypeOccupancyHistory)
-              .where(
-                and(
-                  eq(roomTypeOccupancyHistory.clientId, key.clientId),
-                  eq(roomTypeOccupancyHistory.locationName, key.locationName),
-                  eq(roomTypeOccupancyHistory.normalizedRoomType, key.normalizedRoomType),
-                  eq(roomTypeOccupancyHistory.month, key.month),
-                  eq(roomTypeOccupancyHistory.year, key.year),
-                )
-              );
-          }
+        // Delete existing rows for all affected month/year pairs (1 query per unique month).
+        for (const { month, year } of uniqueMonthYears) {
+          await tx.delete(roomTypeOccupancyHistory)
+            .where(
+              and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                eq(roomTypeOccupancyHistory.month, month),
+                eq(roomTypeOccupancyHistory.year, year),
+              )
+            );
         }
 
         // Insert fully-deduplicated records in chunks.
@@ -16400,13 +16402,20 @@ Respond in JSON format:
         .from(roomTypeOccupancyHistory)
         .where(eq(roomTypeOccupancyHistory.clientId, clientId));
 
-      const rtOccPeriods = await db
-        .selectDistinct({
-          period: sql<string>`to_char(make_date(${roomTypeOccupancyHistory.year}, ${roomTypeOccupancyHistory.month}, 1), 'YYYY-MM')`,
+      const rtOccPeriodsRaw = await db
+        .select({
+          year: roomTypeOccupancyHistory.year,
+          month: roomTypeOccupancyHistory.month,
         })
         .from(roomTypeOccupancyHistory)
-        .where(eq(roomTypeOccupancyHistory.clientId, clientId))
-        .orderBy(sql`${roomTypeOccupancyHistory.year} DESC, ${roomTypeOccupancyHistory.month} DESC`);
+        .where(eq(roomTypeOccupancyHistory.clientId, clientId));
+
+      const rtOccPeriodSet = new Map<string, true>();
+      for (const r of rtOccPeriodsRaw) {
+        const key = `${r.year}-${String(r.month).padStart(2, '0')}`;
+        rtOccPeriodSet.set(key, true);
+      }
+      const rtOccPeriods = Array.from(rtOccPeriodSet.keys()).sort().reverse();
 
       res.json({
         rent_roll: {
