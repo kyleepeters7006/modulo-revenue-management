@@ -7222,10 +7222,13 @@ ${campusOccLines.join('\n')}
           )
         );
 
-      // Insert deduplicated records in chunks (no transaction — avoids Neon per-tx overhead).
+      // Insert deduplicated records in chunks.
+      // ON CONFLICT DO NOTHING is a safety net: the DELETE above removes stale rows,
+      // but if any edge-case duplicate slips through (e.g. a previously-merged
+      // service-line string that differs from the new one) we skip rather than crash.
       for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
         const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
-        await db.insert(roomTypeOccupancyHistory).values(chunk);
+        await db.insert(roomTypeOccupancyHistory).values(chunk).onConflictDoNothing();
       }
 
       res.json({
