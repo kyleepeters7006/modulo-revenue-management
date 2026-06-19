@@ -24,8 +24,6 @@ export type StandardRoomType = typeof STANDARD_ROOM_TYPES[keyof typeof STANDARD_
  * @param rawRoomType - The raw room type string from data import or user input
  * @returns One of the 5 standard room types, or 'Studio' as default
  */
-const _warnedRoomTypes = new Set<string>();
-
 export function normalizeRoomType(rawRoomType: string | null | undefined): StandardRoomType {
   if (!rawRoomType || rawRoomType.trim() === '') {
     return STANDARD_ROOM_TYPES.STUDIO;
@@ -188,12 +186,6 @@ export function normalizeRoomType(rawRoomType: string | null | undefined): Stand
     if (normalized.includes(keyword)) {
       return STANDARD_ROOM_TYPES.STUDIO;
     }
-  }
-
-  // Log each unmapped room type only once to avoid flooding logs on large uploads
-  if (!_warnedRoomTypes.has(rawRoomType)) {
-    _warnedRoomTypes.add(rawRoomType);
-    console.warn(`Unmapped room type: "${rawRoomType}" - defaulting to Studio`);
   }
 
   // Default to Studio if no match found
