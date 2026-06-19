@@ -16454,7 +16454,7 @@ Respond in JSON format:
         },
         room_type_occupancy: {
           lastUploadAt: rtOccLast[0]?.lastUploadAt || null,
-          periods: rtOccPeriods.map(r => r.period).filter(Boolean),
+          periods: rtOccPeriods,
         },
       });
     } catch (error) {

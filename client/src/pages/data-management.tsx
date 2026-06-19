@@ -1005,6 +1005,22 @@ export default function DataManagement() {
               <CardDescription>
                 Upload VO "Avg Occ by Room Type" report data to track occupancy trends by room type
               </CardDescription>
+              {uploadSummary?.room_type_occupancy?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.room_type_occupancy.lastUploadAt)}</span>
+                  {uploadSummary.room_type_occupancy.periods.length > 0 && (
+                    <button
+                      onClick={() => setPeriodsDialog({ label: 'Room Type Occupancy', periods: uploadSummary.room_type_occupancy.periods, lastUploadAt: uploadSummary.room_type_occupancy.lastUploadAt })}
+                      className="flex items-center gap-1 text-teal-600 hover:text-teal-700 font-medium"
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      {uploadSummary.room_type_occupancy.periods.length} month{uploadSummary.room_type_occupancy.periods.length !== 1 ? 's' : ''} uploaded
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert>
@@ -1034,23 +1050,6 @@ export default function DataManagement() {
                   {isUploading('room-type-occupancy') ? 'Processing...' : 'Upload Room Type Occupancy Data'}
                 </Button>
               </div>
-
-              {uploadSummary?.room_type_occupancy?.lastUploadAt && (
-                <div className="flex items-center gap-2 text-xs text-gray-500 pt-1">
-                  <Clock className="h-3 w-3" />
-                  <span>Last upload: {formatUploadTime(uploadSummary.room_type_occupancy.lastUploadAt)}</span>
-                  {uploadSummary.room_type_occupancy.periods.length > 0 && (
-                    <button
-                      className="flex items-center gap-0.5 text-blue-600 hover:underline"
-                      onClick={() => setPeriodsDialog({ label: 'Room Type Occupancy', periods: uploadSummary.room_type_occupancy.periods, lastUploadAt: uploadSummary.room_type_occupancy.lastUploadAt })}
-                    >
-                      <CalendarDays className="h-3 w-3" />
-                      {uploadSummary.room_type_occupancy.periods.length} period{uploadSummary.room_type_occupancy.periods.length !== 1 ? 's' : ''} uploaded
-                      <ChevronRight className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              )}
 
               <input
                 ref={roomTypeOccFileInputRef}
