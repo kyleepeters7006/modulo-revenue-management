@@ -7030,10 +7030,10 @@ ${campusOccLines.join('\n')}
         const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
         jsonData = parsed.data as any[];
       } else if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
-        const workbook = xlsx.read(buffer, { type: 'buffer' });
+        const workbook = xlsx.read(buffer, { type: 'buffer', cellFormula: false, cellHTML: false, cellNF: false });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        jsonData = xlsx.utils.sheet_to_json(worksheet);
+        jsonData = xlsx.utils.sheet_to_json(worksheet, { raw: true, defval: '' });
       } else {
         return res.status(400).json({ error: 'Unsupported file format. Please use CSV or Excel files.' });
       }
@@ -7202,34 +7202,31 @@ ${campusOccLines.join('\n')}
       }
       const insertRecords = Array.from(fiveKeyMap.values());
 
-      const CHUNK_SIZE = 500;
+      const CHUNK_SIZE = 1000;
 
-      // Collect unique (month, year) pairs from the upload.
-      // We delete all existing rows for this client matching those month/year pairs
-      // before re-inserting — one DELETE per unique month instead of one per record.
+      // Collect unique (month, year) pairs and delete in ONE query using OR conditions.
       const uniqueMonthYears = Array.from(
         new Map(insertRecords.map(r => [`${r.month}|${r.year}`, { month: r.month, year: r.year }])).values()
       );
 
-      await db.transaction(async (tx) => {
-        // Delete existing rows for all affected month/year pairs (1 query per unique month).
-        for (const { month, year } of uniqueMonthYears) {
-          await tx.delete(roomTypeOccupancyHistory)
-            .where(
+      await db.delete(roomTypeOccupancyHistory)
+        .where(
+          and(
+            eq(roomTypeOccupancyHistory.clientId, clientId),
+            or(...uniqueMonthYears.map(({ month, year }) =>
               and(
-                eq(roomTypeOccupancyHistory.clientId, clientId),
                 eq(roomTypeOccupancyHistory.month, month),
                 eq(roomTypeOccupancyHistory.year, year),
               )
-            );
-        }
+            ))
+          )
+        );
 
-        // Insert fully-deduplicated records in chunks.
-        for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
-          const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
-          await tx.insert(roomTypeOccupancyHistory).values(chunk);
-        }
-      });
+      // Insert deduplicated records in chunks (no transaction — avoids Neon per-tx overhead).
+      for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
+        const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
+        await db.insert(roomTypeOccupancyHistory).values(chunk);
+      }
 
       res.json({
         message: 'Upload successful',
