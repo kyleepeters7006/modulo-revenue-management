@@ -16394,6 +16394,20 @@ Respond in JSON format:
         .from(locations)
         .where(eq(locations.clientId, clientId));
 
+      // Room Type Occupancy: from room_type_occupancy_history table
+      const rtOccLast = await db
+        .select({ lastUploadAt: sql<string>`MAX(uploaded_at)` })
+        .from(roomTypeOccupancyHistory)
+        .where(eq(roomTypeOccupancyHistory.clientId, clientId));
+
+      const rtOccPeriods = await db
+        .selectDistinct({
+          period: sql<string>`to_char(make_date(${roomTypeOccupancyHistory.year}, ${roomTypeOccupancyHistory.month}, 1), 'YYYY-MM')`,
+        })
+        .from(roomTypeOccupancyHistory)
+        .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+        .orderBy(sql`${roomTypeOccupancyHistory.year} DESC, ${roomTypeOccupancyHistory.month} DESC`);
+
       res.json({
         rent_roll: {
           lastUploadAt: rrLast[0]?.lastUploadAt || null,
@@ -16412,6 +16426,10 @@ Respond in JSON format:
           lastUploadAt: locLast[0]?.lastUploadAt || null,
           count: Number(locLast[0]?.count || 0),
           periods: [],
+        },
+        room_type_occupancy: {
+          lastUploadAt: rtOccLast[0]?.lastUploadAt || null,
+          periods: rtOccPeriods.map(r => r.period).filter(Boolean),
         },
       });
     } catch (error) {

@@ -31,6 +31,7 @@ type UploadSummary = {
   inquiry_metrics: UploadSummaryEntry;
   competitors: UploadSummaryEntry;
   location: UploadSummaryEntry;
+  room_type_occupancy: UploadSummaryEntry;
 };
 
 function formatUploadTime(ts: string | null): string {
@@ -588,7 +589,7 @@ export default function DataManagement() {
     formData.append('file', file);
     
     const uploadId = addUpload({
-      type: type as 'rent-roll' | 'inquiry' | 'competitor' | 'location',
+      type: type,
       fileName: file.name,
       status: 'uploading',
     });
@@ -1033,6 +1034,23 @@ export default function DataManagement() {
                   {isUploading('room-type-occupancy') ? 'Processing...' : 'Upload Room Type Occupancy Data'}
                 </Button>
               </div>
+
+              {uploadSummary?.room_type_occupancy?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 pt-1">
+                  <Clock className="h-3 w-3" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.room_type_occupancy.lastUploadAt)}</span>
+                  {uploadSummary.room_type_occupancy.periods.length > 0 && (
+                    <button
+                      className="flex items-center gap-0.5 text-blue-600 hover:underline"
+                      onClick={() => setPeriodsDialog({ label: 'Room Type Occupancy', periods: uploadSummary.room_type_occupancy.periods, lastUploadAt: uploadSummary.room_type_occupancy.lastUploadAt })}
+                    >
+                      <CalendarDays className="h-3 w-3" />
+                      {uploadSummary.room_type_occupancy.periods.length} period{uploadSummary.room_type_occupancy.periods.length !== 1 ? 's' : ''} uploaded
+                      <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              )}
 
               <input
                 ref={roomTypeOccFileInputRef}
