@@ -4446,8 +4446,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           streetRate: rentRollData.streetRate,
           moduloSuggestedRate: rentRollData.moduloSuggestedRate,
           ruleAdjustedRate: rentRollData.ruleAdjustedRate,
+          appliedRuleName: rentRollData.appliedRuleName,
           aiSuggestedRate: rentRollData.aiSuggestedRate,
-          ruleRateCalculatedAt: rentRollData.ruleRateCalculatedAt,
         })
         .from(rentRollData)
         .leftJoin(locations, eq(rentRollData.locationId, locations.id))
@@ -4474,7 +4474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return (rounded >= 0 ? '+' : '') + rounded.toFixed(1) + '%';
       };
 
-      // Helper: compute median of a numeric array (ignoring nulls/zeros)
+      // Helper: compute median of a numeric array (ignoring nulls/zeros) — used for AI rates only
       const median = (values: (number | null | undefined)[]): number | null => {
         const nums = values.filter((v): v is number => v != null && v > 0);
         if (nums.length === 0) return null;
@@ -4485,69 +4485,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : sorted[mid];
       };
 
-      // Group units by dedup key: Division + Location + Service Line + raw Room Type.
-      // Key encoding distinguishes NULL-derived keys from populated ones so a row with
-      // sourceRoomType=NULL (display="Companion") never collides with a row that has
-      // sourceRoomType="Companion" explicitly — they get prefix "norm:" vs "src:".
+      // Group units by: Division + Location + Service Line + raw Room Type + Recommended Rate.
+      // Recommended Rate = ruleAdjustedRate if rules fired, else moduloSuggestedRate (rounded to
+      // nearest dollar) — exactly what the Rate Card displays in its "Rules Rate" column.
+      // Units sharing the same room type AND the same recommended rate collapse into one row;
+      // units with the same room type but a different recommended rate get their own row.
+      // Key encoding distinguishes NULL-derived room type keys from populated ones.
       type UnitRow = typeof units[0];
-      const groupMap = new Map<string, { meta: UnitRow; roomTypeDisplay: string; members: UnitRow[] }>();
+      type GroupEntry = {
+        meta: UnitRow;
+        roomTypeDisplay: string;
+        recommendedRate: number;
+        unitCount: number;
+        streetRate: number | null;
+        appliedRuleNames: Set<string>;
+        aiRates: (number | null | undefined)[];
+      };
+      const groupMap = new Map<string, GroupEntry>();
       for (const u of units) {
         const hasSource = u.sourceRoomType != null && u.sourceRoomType !== '';
         const roomTypeDisplay = hasSource ? u.sourceRoomType! : u.roomType;
         const keyPrefix = hasSource ? 'src' : 'norm';
-        const key = `${keyPrefix}|${u.division || ''}|${u.location}|${u.serviceLine}|${roomTypeDisplay}`;
+
+        // Compute this unit's recommended rate (mirrors Rate Card "Rules Rate" logic)
+        const rawRecommended = u.ruleAdjustedRate ?? u.moduloSuggestedRate;
+        if (rawRecommended == null) continue; // skip units with no rate at all
+        const recommendedRate = Math.round(rawRecommended);
+
+        const key = `${keyPrefix}|${u.division || ''}|${u.location}|${u.serviceLine}|${roomTypeDisplay}|${recommendedRate}`;
         if (!groupMap.has(key)) {
-          groupMap.set(key, { meta: u, roomTypeDisplay, members: [] });
+          groupMap.set(key, {
+            meta: u,
+            roomTypeDisplay,
+            recommendedRate,
+            unitCount: 0,
+            streetRate: u.streetRate != null && u.streetRate > 0 ? u.streetRate : null,
+            appliedRuleNames: new Set(),
+            aiRates: [],
+          });
         }
-        groupMap.get(key)!.members.push(u);
+        const entry = groupMap.get(key)!;
+        entry.unitCount += 1;
+        if (entry.streetRate == null && u.streetRate != null && u.streetRate > 0) {
+          entry.streetRate = u.streetRate;
+        }
+        if (u.appliedRuleName) entry.appliedRuleNames.add(u.appliedRuleName);
+        entry.aiRates.push(u.aiSuggestedRate);
       }
 
-      // Build one CSV row per group using median rates across all members.
-      // "Modulo Suggested Rate" and "Adjustment" use the rules-based median (ruleAdjustedRate)
-      // for any group where at least one unit had rules applied; only falls back to the signal
-      // median (moduloSuggestedRate) when no units in the group had rules fire at all.
-      // This prevents signal rates from diluting the adjustment % for mixed groups.
-      //
-      // Timestamp guard: when computing medRuleAdj and medSignal, only include members whose
-      // ruleRateCalculatedAt is within 1 hour of the most recent calculation in the group.
-      // This prevents stale rates (from prior scoped runs) from diluting the group median.
-      // Falls back to all members only when no member has a timestamp (legacy data).
-      const ONE_HOUR_MS = 60 * 60 * 1000;
-      const rows = Array.from(groupMap.values()).map(({ meta, roomTypeDisplay, members }) => {
-        // Find the max timestamp in this group
-        const timestamps = members
-          .map(m => m.ruleRateCalculatedAt)
-          .filter((t): t is Date => t != null);
-        const maxTs = timestamps.length > 0
-          ? new Date(Math.max(...timestamps.map(t => t.getTime())))
-          : null;
-
-        // Filter to fresh members only when a timestamp exists in the group
-        const freshMembers = maxTs
-          ? members.filter(m =>
-              m.ruleRateCalculatedAt != null &&
-              maxTs.getTime() - m.ruleRateCalculatedAt.getTime() <= ONE_HOUR_MS
-            )
-          : members;
-
-        const medRuleAdj = median(freshMembers.map(m => m.ruleAdjustedRate));
-        const medSignal  = median(freshMembers.map(m => m.moduloSuggestedRate));
-        const medModulo  = medRuleAdj ?? medSignal;
-        const medAI     = median(members.map(m => m.aiSuggestedRate));
-        const medStreet = median(members.map(m => m.streetRate));
-        return {
-          'Division': meta.division || '',
-          'Location': meta.location,
-          'Service Line': meta.serviceLine,
-          'Room Type': roomTypeDisplay,
-          'Room Type Group': meta.roomType,
-          'Current Street Rate': medStreet ?? '',
-          'Modulo Suggested Rate': medModulo ?? '',
-          'Adjustment': formatAdj(medModulo, medStreet),
-          'Rev Target AI Rate': medAI ?? '',
-          'Rev Target AI Adjustment': formatAdj(medAI, medStreet),
-        };
-      });
+      // Build one CSV row per group, sorted by Location → Service Line → Room Type →
+      // Recommended Rate descending.
+      const rows = Array.from(groupMap.values())
+        .sort((a, b) => {
+          const locCmp = (a.meta.location ?? '').localeCompare(b.meta.location ?? '');
+          if (locCmp !== 0) return locCmp;
+          const slCmp = (a.meta.serviceLine ?? '').localeCompare(b.meta.serviceLine ?? '');
+          if (slCmp !== 0) return slCmp;
+          const rtCmp = (a.roomTypeDisplay ?? '').localeCompare(b.roomTypeDisplay ?? '');
+          if (rtCmp !== 0) return rtCmp;
+          return b.recommendedRate - a.recommendedRate; // descending by rate
+        })
+        .map(({ meta, roomTypeDisplay, recommendedRate, unitCount, streetRate, appliedRuleNames, aiRates }) => {
+          const medAI = median(aiRates);
+          const appliedRulesStr = appliedRuleNames.size > 0
+            ? Array.from(appliedRuleNames).join(' + ')
+            : '';
+          return {
+            'Division': meta.division || '',
+            'Location': meta.location,
+            'Service Line': meta.serviceLine,
+            'Room Type': roomTypeDisplay,
+            'Unit Count': unitCount,
+            'Current Street Rate': streetRate ?? '',
+            'Applied Rules': appliedRulesStr,
+            'Recommended Rate': recommendedRate,
+            'Adjustment %': formatAdj(recommendedRate, streetRate),
+            'Rev Target AI Rate': medAI ?? '',
+            'Rev Target AI Adjustment %': formatAdj(medAI, streetRate),
+          };
+        });
 
       const csvContent = Papa.unparse(rows);
       const filename = `pricing_recommendations_${new Date().toISOString().split('T')[0]}.csv`;
