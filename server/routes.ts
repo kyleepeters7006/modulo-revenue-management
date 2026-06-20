@@ -7502,6 +7502,64 @@ ${campusOccLines.join('\n')}
       
       // Get unique campus count
       const uniqueCampuses = new Set(allRentRollData.map((u: any) => u.location)).size;
+
+      // ── Room Type Occupancy History: occupancy stats from the dedicated upload ──
+      // Fetch the most recent (year, month) available in room_type_occupancy_history
+      // and build three look-up maps for the occupancy overrides below.
+      const rtoByRT   = new Map<string, { occ: number; avail: number }>(); // normalizedRoomType
+      const rtoBySL   = new Map<string, { occ: number; avail: number }>(); // serviceLine
+      const rtoBySLRT = new Map<string, { occ: number; avail: number }>(); // `sl||rt`
+
+      {
+        const rtoMaxYearRes = await db
+          .select({ year: sql<number>`MAX(year)` })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId));
+        const rtoMaxYear = rtoMaxYearRes[0]?.year ?? null;
+
+        if (rtoMaxYear !== null) {
+          const rtoMaxMonthRes = await db
+            .select({ month: sql<number>`MAX(month)` })
+            .from(roomTypeOccupancyHistory)
+            .where(and(
+              eq(roomTypeOccupancyHistory.clientId, clientId),
+              eq(roomTypeOccupancyHistory.year, rtoMaxYear)
+            ));
+          const rtoMaxMonth = rtoMaxMonthRes[0]?.month ?? null;
+
+          if (rtoMaxMonth !== null) {
+            const rtoRows = await db
+              .select()
+              .from(roomTypeOccupancyHistory)
+              .where(and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                eq(roomTypeOccupancyHistory.year, rtoMaxYear),
+                eq(roomTypeOccupancyHistory.month, rtoMaxMonth)
+              ));
+
+            const filteredRto = serviceLineFilter && serviceLineFilter !== 'All'
+              ? rtoRows.filter((r: any) => r.serviceLine === serviceLineFilter)
+              : rtoRows;
+
+            for (const r of filteredRto) {
+              const rt  = r.normalizedRoomType || 'Other';
+              const sl  = r.serviceLine        || 'Other';
+              const occ   = r.occUnits        ?? 0;
+              const avail = r.availableUnits  ?? 0;
+              // by room type
+              const rtE = rtoByRT.get(rt) || { occ: 0, avail: 0 };
+              rtE.occ += occ; rtE.avail += avail; rtoByRT.set(rt, rtE);
+              // by service line
+              const slE = rtoBySL.get(sl) || { occ: 0, avail: 0 };
+              slE.occ += occ; slE.avail += avail; rtoBySL.set(sl, slE);
+              // by service line + room type (for breakdown)
+              const slRtKey = `${sl}||${rt}`;
+              const slRtE = rtoBySLRT.get(slRtKey) || { occ: 0, avail: 0 };
+              slRtE.occ += occ; slRtE.avail += avail; rtoBySLRT.set(slRtKey, slRtE);
+            }
+          }
+        }
+      }
       
       // Log the actual portfolio size for monitoring
       console.log(`Trilogy Portfolio (${mostRecentMonth}): ${allRentRollData.length} total units across ${uniqueCampuses} campuses`);
@@ -7619,23 +7677,33 @@ ${campusOccLines.join('\n')}
           const slPotentialMonthlyRevenue = slCurrentMonthlyRevenue + (slRateForVacantUnits * slAdditionalUnits);
           const slMonthlyRemainder = slPotentialMonthlyRevenue - slCurrentMonthlyRevenue;
           
+          // Override occupancy stats from Room Type Occupancy History (sum occ / sum avail)
+          const rtoSlRt = rtoBySLRT.get(`${serviceLine}||${roomType}`);
+          const slOccupied = rtoSlRt ? Math.round(rtoSlRt.occ) : slStats.occupied;
+          const slTotal    = rtoSlRt ? rtoSlRt.avail : slStats.total;
+
           return {
             serviceLine,
-            occupied: slStats.occupied,
-            total: slStats.total,
-            occupancyRate: slStats.total > 0 ? Math.round((slStats.occupied / slStats.total) * 100) : 0,
+            occupied: slOccupied,
+            total: slTotal,
+            occupancyRate: slTotal > 0 ? Math.round((slOccupied / slTotal) * 100) : 0,
             avgRate: slAvgRate,
             avgCompetitorRate: slAvgCompetitorRate,
             avgModuloRate: slAvgModuloSuggested,
             monthlyRemainder: slMonthlyRemainder
           };
         });
-        
+
+        // Override room-type-level occupancy from RTO (sum occ_units / sum available_units)
+        const rtoRT = rtoByRT.get(roomType);
+        const rtOccupied = rtoRT ? Math.round(rtoRT.occ) : stats.overall.occupied;
+        const rtTotal    = rtoRT ? rtoRT.avail : stats.overall.total;
+
         return {
           roomType,
-          occupied: stats.overall.occupied,
-          total: stats.overall.total,
-          occupancyRate: Math.round((stats.overall.occupied / stats.overall.total) * 100),
+          occupied: rtOccupied,
+          total: rtTotal,
+          occupancyRate: rtTotal > 0 ? Math.round((rtOccupied / rtTotal) * 100) : 0,
           avgRate,
           avgCompetitorRate,
           avgModuloRate: avgModuloSuggested,
@@ -7725,11 +7793,16 @@ ${campusOccLines.join('\n')}
         const potentialMonthlyRevenue = currentMonthlyRevenue + (rateForVacantUnits * additionalUnits);
         const monthlyRemainder = potentialMonthlyRevenue - currentMonthlyRevenue;
         
+        // Override occupancy from RTO (SUM occ_units / SUM available_units across room types)
+        const rtoSL = rtoBySL.get(serviceLine);
+        const slOccRTO   = rtoSL ? Math.round(rtoSL.occ)  : stats.occupied;
+        const slTotalRTO = rtoSL ? rtoSL.avail             : stats.total;
+
         return {
           serviceLine,
-          occupied: stats.occupied,
-          total: stats.total,
-          occupancyRate: Math.round((stats.occupied / stats.total) * 100),
+          occupied: slOccRTO,
+          total: slTotalRTO,
+          occupancyRate: slTotalRTO > 0 ? Math.round((slOccRTO / slTotalRTO) * 100) : 0,
           avgRate,
           avgCompetitorRate,
           avgModuloRate: avgModuloSuggested,
@@ -8109,6 +8182,63 @@ ${campusOccLines.join('\n')}
         }
       }
       
+      // ── Tile occupancy: override monthlyData totals from room_type_occupancy_history ──
+      // SUM(occ_units)/SUM(available_units) per month — never average occ_percent values.
+      if (tileType === 'occupancy') {
+        const rtoMonthPairs = months.map(m => ({ year: parseInt(m.slice(0, 4)), month: parseInt(m.slice(5, 7)), ym: m }));
+        if (rtoMonthPairs.length > 0) {
+          const ymPairs = rtoMonthPairs.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::int)`).join(', ');
+          const rtoParams: any[] = [clientId, ...rtoMonthPairs.flatMap(r => [r.year, r.month])];
+          const rtoRes = await pool.query(`
+            SELECT rto.service_line,
+                   rto.location_name,
+                   rto.month, rto.year,
+                   SUM(rto.occ_units)       AS occ_units,
+                   SUM(rto.available_units) AS avail_units,
+                   BOOL_OR(l.same_store)    AS same_store
+            FROM room_type_occupancy_history rto
+            LEFT JOIN locations l
+              ON l.client_id = rto.client_id AND l.name = rto.location_name
+            WHERE rto.client_id = $1
+              AND (rto.year::int, rto.month::int) IN (${ymPairs})
+            GROUP BY rto.service_line, rto.location_name, rto.month, rto.year
+          `, rtoParams);
+
+          if (rtoRes.rows.length > 0) {
+            // Reset monthlyData and sameStoreData for occupancy with RTO totals
+            for (const month of months) {
+              monthlyData[month] = { total: 0, occupied: 0, byServiceLine: {} };
+              sameStoreData[month] = { total: 0, occupied: 0, byServiceLine: {} };
+            }
+            for (const r of rtoRes.rows as any[]) {
+              const ym  = `${r.year}-${String(r.month).padStart(2, '0')}`;
+              const sl  = r.service_line || 'Other';
+              const occ   = Number(r.occ_units)   || 0;
+              const avail = Number(r.avail_units)  || 0;
+              const isSameStore = r.same_store === true;
+              if (!monthlyData[ym]) continue;
+              monthlyData[ym].total    = (monthlyData[ym].total    || 0) + avail;
+              monthlyData[ym].occupied = (monthlyData[ym].occupied || 0) + occ;
+              if (!monthlyData[ym].byServiceLine[sl]) monthlyData[ym].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
+              monthlyData[ym].byServiceLine[sl].occupied = (monthlyData[ym].byServiceLine[sl].occupied || 0) + occ;
+              monthlyData[ym].byServiceLine[sl].total    = (monthlyData[ym].byServiceLine[sl].total    || 0) + avail;
+              if (isSameStore) {
+                sameStoreData[ym].total    = (sameStoreData[ym].total    || 0) + avail;
+                sameStoreData[ym].occupied = (sameStoreData[ym].occupied || 0) + occ;
+                if (!sameStoreData[ym].byServiceLine[sl]) sameStoreData[ym].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
+                sameStoreData[ym].byServiceLine[sl].occupied = (sameStoreData[ym].byServiceLine[sl].occupied || 0) + occ;
+                sameStoreData[ym].byServiceLine[sl].total    = (sameStoreData[ym].byServiceLine[sl].total    || 0) + avail;
+              }
+              // Update locationStats for most recent month
+              const mostRecentYM = months[months.length - 1];
+              if (ym === mostRecentYM) {
+                locationStats[r.location_name] = (locationStats[r.location_name] || 0) + occ;
+              }
+            }
+          }
+        }
+      }
+
       // Build monthly trend
       for (const month of months) {
         const data = monthlyData[month];
@@ -15446,10 +15576,9 @@ Respond in JSON format:
         GROUP BY location, service_line, room_type
       `, moveParams);
 
-      // 6a) Pre-compute spot-month occupancy per (campus, SL) from aggRes so we can
-      //     evaluate trigger conditions (e.g. "service_line_occupancy >= 0.90") inline
-      //     when filtering per-rule column rates.  Declared here so Promise.all
-      //     callbacks below can close over them.
+      // 6a) Pre-compute spot-month occupancy per (campus, SL) from aggRes (rent_roll_data fallback)
+      //     then override from room_type_occupancy_history (the authoritative source).
+      //     refSlOcc / refCampusOcc are used by the rule trigger evaluator below.
       const refSlOcc     = new Map<string, number>(); // key: "campus||sl" -> occ% (0-1)
       const refCampusOcc = new Map<string, number>(); // key: "campus"     -> occ% (0-1)
       {
@@ -15470,6 +15599,74 @@ Respond in JSON format:
         _slT.forEach((v, k)   => refSlOcc.set(k,     v.total ? v.occ / v.total : 0));
         _campT.forEach((v, k) => refCampusOcc.set(k, v.total ? v.occ / v.total : 0));
       }
+
+      // ── Room Type Occupancy History: fetch all months in T12 window ──
+      // Used to override ALL occupancy stats below (spot + T3/T6/T12 windows).
+      // Key structures: campus||sl||rt  /  campus||sl  /  campus  → YYYY-MM → {occ, avail}
+      type RtoEntry = { occ: number; avail: number };
+      const rtoRTMap     = new Map<string, Map<string, RtoEntry>>(); // campus||sl||rt
+      const rtoSLMap     = new Map<string, Map<string, RtoEntry>>(); // campus||sl
+      const rtoCampusMap = new Map<string, Map<string, RtoEntry>>(); // campus
+
+      {
+        // Convert YYYY-MM strings to (year, month) pairs for the query
+        const rtoMonths = months.map(m => ({ year: parseInt(m.slice(0, 4)), month: parseInt(m.slice(5, 7)), ym: m }));
+        if (rtoMonths.length > 0) {
+          const yearMonthPairs = rtoMonths.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::int)`).join(', ');
+          const rtoParams: any[] = [clientId, ...rtoMonths.flatMap(r => [r.year, r.month])];
+          const rtoRes = await pool.query(`
+            SELECT location_name, service_line, normalized_room_type,
+                   month, year,
+                   SUM(occ_units)        AS occ_units,
+                   SUM(available_units)  AS avail_units
+            FROM room_type_occupancy_history
+            WHERE client_id = $1
+              AND (year::int, month::int) IN (${yearMonthPairs})
+            GROUP BY location_name, service_line, normalized_room_type, month, year
+          `, rtoParams);
+
+          for (const r of rtoRes.rows as any[]) {
+            const ym     = `${r.year}-${String(r.month).padStart(2, '0')}`;
+            const campus = r.location_name || '';
+            const sl     = r.service_line  || '';
+            const rt     = r.normalized_room_type || '';
+            const occ    = Number(r.occ_units)   || 0;
+            const avail  = Number(r.avail_units)  || 0;
+            // per RT combo
+            const rtKey  = `${campus}||${sl}||${rt}`;
+            if (!rtoRTMap.has(rtKey)) rtoRTMap.set(rtKey, new Map());
+            const rtE = rtoRTMap.get(rtKey)!.get(ym) || { occ: 0, avail: 0 };
+            rtE.occ += occ; rtE.avail += avail; rtoRTMap.get(rtKey)!.set(ym, rtE);
+            // per SL
+            const slKey  = `${campus}||${sl}`;
+            if (!rtoSLMap.has(slKey)) rtoSLMap.set(slKey, new Map());
+            const slE = rtoSLMap.get(slKey)!.get(ym) || { occ: 0, avail: 0 };
+            slE.occ += occ; slE.avail += avail; rtoSLMap.get(slKey)!.set(ym, slE);
+            // per campus
+            if (!rtoCampusMap.has(campus)) rtoCampusMap.set(campus, new Map());
+            const cE = rtoCampusMap.get(campus)!.get(ym) || { occ: 0, avail: 0 };
+            cE.occ += occ; cE.avail += avail; rtoCampusMap.get(campus)!.set(ym, cE);
+          }
+        }
+      }
+
+      // Override refSlOcc / refCampusOcc from RTO spot month (sum occ / sum avail)
+      rtoSLMap.forEach((monthMap, slKey) => {
+        const e = monthMap.get(spotMonth);
+        if (e && e.avail > 0) refSlOcc.set(slKey, e.occ / e.avail);
+      });
+      rtoCampusMap.forEach((monthMap, campus) => {
+        const e = monthMap.get(spotMonth);
+        if (e && e.avail > 0) refCampusOcc.set(campus, e.occ / e.avail);
+      });
+
+      // Helper: RTO-based occupancy % over a month window (SUM occ / SUM avail — not an average)
+      const rtoOccWindow = (map: Map<string, RtoEntry> | undefined, window: string[]): number | null => {
+        if (!map) return null;
+        let totalOcc = 0, totalAvail = 0;
+        for (const mm of window) { const e = map.get(mm); if (e) { totalOcc += e.occ; totalAvail += e.avail; } }
+        return totalAvail > 0 ? (totalOcc / totalAvail) * 100 : null;
+      };
 
       // 6b) Per-rule rates (spot month only): computed live from each rule's definition.
       //     The rule engine does NOT stamp applied_rule_name on rent_roll_data, so we
@@ -15702,21 +15899,21 @@ Respond in JSON format:
           vacantT3: vacWindow(bm, t3Months),
           vacantT6: vacWindow(bm, t6Months),
           vacantT12: vacWindow(bm, t12Months),
-          // Campus occupancy
-          campusOccSpot: occPctWindow(cOcc, [spotMonth]),
-          campusOccT3: occPctWindow(cOcc, t3Months),
-          campusOccT6: occPctWindow(cOcc, t6Months),
-          campusOccT12: occPctWindow(cOcc, t12Months),
-          // Service line occupancy
-          slOccSpot: occPctWindow(sOcc, [spotMonth]),
-          slOccT3: occPctWindow(sOcc, t3Months),
-          slOccT6: occPctWindow(sOcc, t6Months),
-          slOccT12: occPctWindow(sOcc, t12Months),
-          // Room type occupancy (this combo)
-          rtOccSpot: spot ? (spot.total > 0 ? (spot.occupied / spot.total) * 100 : 0) : null,
-          rtOccT3: occWindowCombo(bm, t3Months),
-          rtOccT6: occWindowCombo(bm, t6Months),
-          rtOccT12: occWindowCombo(bm, t12Months),
+          // Campus occupancy — from RTO (sum occ/sum avail) with rent_roll fallback
+          campusOccSpot: rtoOccWindow(rtoCampusMap.get(c.campus), [spotMonth]) ?? occPctWindow(cOcc, [spotMonth]),
+          campusOccT3:   rtoOccWindow(rtoCampusMap.get(c.campus), t3Months)   ?? occPctWindow(cOcc, t3Months),
+          campusOccT6:   rtoOccWindow(rtoCampusMap.get(c.campus), t6Months)   ?? occPctWindow(cOcc, t6Months),
+          campusOccT12:  rtoOccWindow(rtoCampusMap.get(c.campus), t12Months)  ?? occPctWindow(cOcc, t12Months),
+          // Service line occupancy — from RTO
+          slOccSpot: rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [spotMonth]) ?? occPctWindow(sOcc, [spotMonth]),
+          slOccT3:   rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t3Months)   ?? occPctWindow(sOcc, t3Months),
+          slOccT6:   rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t6Months)   ?? occPctWindow(sOcc, t6Months),
+          slOccT12:  rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t12Months)  ?? occPctWindow(sOcc, t12Months),
+          // Room type occupancy — from RTO (exact campus/sl/rt match)
+          rtOccSpot: rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [spotMonth]) ?? (spot ? (spot.total > 0 ? (spot.occupied / spot.total) * 100 : 0) : null),
+          rtOccT3:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)   ?? occWindowCombo(bm, t3Months),
+          rtOccT6:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)   ?? occWindowCombo(bm, t6Months),
+          rtOccT12:  rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)  ?? occWindowCombo(bm, t12Months),
           // Days vacant avg
           daysVacantSpot: spot?.avgDaysVacant ?? null,
           daysVacantT3: rateWindow(bm, t3Months, 'avgDaysVacant'),
