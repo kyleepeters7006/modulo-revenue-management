@@ -1,4 +1,5 @@
 import { storage } from "../storage";
+import { pool } from "../db";
 import type { AdjustmentRules } from "@shared/schema";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +35,7 @@ function _lookupIhVariance(clientId: string, locationId: string, serviceLine: st
 //   rt = '' means not room-type specific; rt = 'Studio' means Studio room type
 //
 // Populated by POST /api/metrics/campus-snapshot/recalculate
+// or auto-populated before running rules (via recalculateAndPreloadCampusMetrics)
 // ---------------------------------------------------------------------------
 const _campusMetricsCache = new Map<string, number>();
 
@@ -71,6 +73,147 @@ function _lookupCampusMetric(
   return tryKey('', '');
 }
 
+/**
+ * Recalculate campus metrics from rent_roll_data and store them in the
+ * in-memory cache. Also persists to campus_metrics table so future runs
+ * load fresh values.
+ *
+ * Mirrors the logic in POST /api/metrics/campus-snapshot/recalculate.
+ * Called fresh on every Rules Rate run (no module-level dedup cache) so
+ * metrics are always current at evaluation time.
+ */
+async function recalculateAndPreloadCampusMetrics(
+  clientId: string,
+  locationId: string
+): Promise<void> {
+  try {
+    // Get latest upload_month for this campus
+    const latestRes = await pool.query<{ month: string }>(
+      `SELECT MAX(upload_month) AS month FROM rent_roll_data WHERE location_id=$1 AND client_id=$2`,
+      [locationId, clientId]
+    );
+    const latestMonth = latestRes.rows[0]?.month;
+    if (!latestMonth) return;
+
+    // Fetch all units for the latest month
+    const unitsRes = await pool.query<{
+      service_line: string; room_type: string; occupied_yn: boolean;
+      days_vacant: number; street_rate: number; competitor_final_rate: number; payor_type: string;
+    }>(
+      `SELECT service_line, room_type, occupied_yn, days_vacant,
+              street_rate, competitor_final_rate, payor_type
+       FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
+      [locationId, clientId, latestMonth]
+    );
+    const units = unitsRes.rows;
+    if (!units.length) return;
+
+    // Fetch inquiry/tour volume from inquiry_metrics
+    const inqRes = await pool.query<{ service_line: string; inq: string; tour: string }>(
+      `SELECT service_line, SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
+       FROM inquiry_metrics WHERE location_id=$1 AND client_id=$2 GROUP BY service_line`,
+      [locationId, clientId]
+    );
+
+    // ── Compute metrics ──────────────────────────────────────────────────
+    const avgArr = (arr: number[]) => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+    const pctOf  = (n: number, d: number) => d > 0 ? (n / d) * 100 : 0;
+    type MetricRow = { sl: string | null; rt: string | null; name: string; val: number };
+    const metrics: MetricRow[] = [];
+
+    function pushGroup(sl: string | null, rt: string | null, group: typeof units) {
+      const total = group.length;
+      if (!total) return;
+      const occupied = group.filter(u => u.occupied_yn).length;
+      metrics.push({ sl, rt, name: 'total_units',   val: total });
+      metrics.push({ sl, rt, name: 'vacant_units',  val: total - occupied });
+      metrics.push({ sl, rt, name: 'occupancy_pct', val: pctOf(occupied, total) });
+
+      const vacDays = group.filter(u => !u.occupied_yn && (u.days_vacant || 0) > 0).map(u => u.days_vacant);
+      if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
+
+      const compUnits = group.filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100);
+      if (compUnits.length) {
+        const avgSt = avgArr(compUnits.map(u => u.street_rate));
+        const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));
+        if (avgC > 0) {
+          metrics.push({ sl, rt, name: 'competitor_variance_pct', val: (avgSt - avgC) / avgC * 100 });
+          metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: (avgSt - avgC) / avgC * 100 });
+        }
+      }
+
+      // Payer mix — campus/SL level only
+      if (rt === null) {
+        const occ = group.filter(u => u.occupied_yn);
+        const n = occ.length;
+        if (n > 0) {
+          const up = (s: string) => (s || '').toUpperCase();
+          metrics.push({ sl, rt, name: 'private_pay_pct', val: pctOf(occ.filter(u => up(u.payor_type).includes('PRIVATE')).length,  n) });
+          metrics.push({ sl, rt, name: 'medicaid_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICAID')).length, n) });
+          metrics.push({ sl, rt, name: 'medicare_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICARE')).length, n) });
+        }
+      }
+    }
+
+    // Campus level
+    pushGroup(null, null, units);
+
+    // Per service line
+    const slMap = new Map<string, typeof units>();
+    for (const u of units) { const k = u.service_line || 'Other'; if (!slMap.has(k)) slMap.set(k, []); slMap.get(k)!.push(u); }
+    for (const [sl, g] of slMap) pushGroup(sl, null, g);
+
+    // Per room type — keyed by SL+RT for SL-scoped lookup
+    const slRtMap = new Map<string, typeof units>();
+    for (const u of units) {
+      const k = `${u.service_line || 'Other'}|${u.room_type || 'Other'}`;
+      if (!slRtMap.has(k)) slRtMap.set(k, []);
+      slRtMap.get(k)!.push(u);
+    }
+    for (const [slRt, g] of slRtMap) {
+      const [sl, rt] = slRt.split('|');
+      pushGroup(sl, rt, g);
+    }
+
+    // Inquiry/tour from inquiry_metrics
+    const campInq  = inqRes.rows.reduce((s, r) => s + (Number(r.inq)  || 0), 0);
+    const campTour = inqRes.rows.reduce((s, r) => s + (Number(r.tour) || 0), 0);
+    metrics.push({ sl: null, rt: null, name: 'inquiry_count', val: campInq });
+    metrics.push({ sl: null, rt: null, name: 'tour_count',    val: campTour });
+    for (const r of inqRes.rows) {
+      if (r.service_line) {
+        metrics.push({ sl: r.service_line, rt: null, name: 'inquiry_count', val: Number(r.inq)  || 0 });
+        metrics.push({ sl: r.service_line, rt: null, name: 'tour_count',    val: Number(r.tour) || 0 });
+      }
+    }
+
+    // ── Persist: delete old + bulk insert new ────────────────────────────
+    await pool.query(`DELETE FROM campus_metrics WHERE client_id=$1 AND location_id=$2`, [clientId, locationId]);
+    if (metrics.length > 0) {
+      const now = new Date().toISOString();
+      const vals: any[] = [];
+      const placeholders = metrics.map((m, i) => {
+        const b = i * 7;
+        vals.push(locationId, m.sl, m.rt, m.name, m.val, clientId, now);
+        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`;
+      });
+      await pool.query(
+        `INSERT INTO campus_metrics (location_id,service_line,room_type,metric_name,value,client_id,calculated_at) VALUES ${placeholders.join(',')}`,
+        vals
+      );
+    }
+
+    // Sync in-memory cache
+    preloadCampusMetrics(metrics.map(m => ({
+      clientId, locationId, serviceLine: m.sl, roomType: m.rt, metricName: m.name, value: m.val,
+    })));
+
+    console.log(`[adjustmentRules] Preloaded ${metrics.length} campus metrics for ${locationId}`);
+  } catch (err) {
+    console.warn(`[adjustmentRules] Failed to preload campus metrics for ${locationId}:`, err);
+  }
+}
+
 export interface UnitAdjustmentResult {
   ruleAdjustedRate: number | null;
   appliedRuleName: string | null;
@@ -84,97 +227,121 @@ export interface RuleApplication {
 }
 
 /**
+ * Evaluate a single condition object { field, operator, value } against a unit.
+ */
+function evaluateSingleCondition(
+  condition: { field: string; operator: string; value: number },
+  unit: any,
+  clientId: string
+): boolean {
+  const { field, operator, value } = condition;
+  const sl: string | null = unit.serviceLine || null;
+  const rt: string | null = unit.roomType    || null;
+
+  function cmpMetric(metricVal: number | null): boolean {
+    if (metricVal === null) return false;
+    switch (operator) {
+      case "<":  return metricVal < value;
+      case "<=": return metricVal <= value;
+      case ">":  return metricVal > value;
+      case ">=": return metricVal >= value;
+      case "=": case "==": case "===": return Math.abs(metricVal - value) < 0.01;
+      default: return false;
+    }
+  }
+
+  // IH-to-street variance (separate cache)
+  if (field === "ih_street_variance") {
+    return cmpMetric(_lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL'));
+  }
+
+  // Campus / service-line / room-type occupancy
+  if (field === "occupancy" || field === "campus_occupancy") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, null, null, 'occupancy_pct'));
+  }
+  if (field === "service_line_occupancy") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'occupancy_pct'));
+  }
+  if (field === "room_type_occupancy") {
+    // Bug 3 fix: pass sl (not null) so lookup finds SL+RT specific metric first
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'occupancy_pct'));
+  }
+
+  // Vacant unit counts
+  if (field === "vacant_units" || field === "vacant_beds") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'vacant_units'));
+  }
+
+  // Competitor rate variance %
+  if (field === "competitor_rate" || field === "competitor_variance") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'competitor_variance_pct'));
+  }
+
+  // Street rate to top adjusted competitor rate variance % (raw %, e.g. 10 = 10% above comp)
+  if (field === "street_to_comp_var") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'street_to_comp_var_pct'));
+  }
+
+  // Quality / payer mix — private pay %
+  if (field === "quality_mix" || field === "private_pay") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
+  }
+
+  // Inquiry volume
+  if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count'));
+  }
+  if (field === "tour_count" || field === "tour_volume") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count'));
+  }
+
+  // Average days vacant
+  if (field === "avg_days_vacant" || field === "days_vacant_campus") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'avg_days_vacant'));
+  }
+
+  return false;
+}
+
+/**
  * Evaluate whether a single rule's trigger matches the given unit.
+ * Bug 1 fix: removed hardcoded name-based bypass ("Increase 5% - AL").
+ * Bug 2 fix: added support for trigger.conditions array with AND/OR logic.
  */
 function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
   const trigger = rule.trigger as any;
-
-  // Special-case legacy rule identified by name/description
-  if (
-    rule.name === "Increase 5% - AL" ||
-    rule.description?.includes("increase all vacant units by 5%")
-  ) {
-    return unit.serviceLine === "AL" && !unit.occupiedYN;
-  }
 
   if (trigger.type === "immediate" || trigger.immediate === true) {
     return true;
   }
 
   if (trigger.type === "condition") {
-    // ── New singular trigger.condition format ─────────────────────────────
-    // Used by AI-parsed rules for campus-level metrics like ih_street_variance.
-    if (trigger.condition?.field) {
-      const { field, operator, value } = trigger.condition as { field: string; operator: string; value: number };
+    const clientId: string = unit.clientId || "demo";
 
-      const clientId: string = unit.clientId || "demo";
-      const sl: string | null = unit.serviceLine || null;
-      const rt: string | null = unit.roomType    || null;
+    // ── NEW: Array-based multi-condition format ───────────────────────────
+    // trigger.conditions is an Array of { field, operator, value } objects
+    // combined by trigger.conditionOperator ("AND" | "OR", default "AND")
+    if (Array.isArray(trigger.conditions)) {
+      const condOperator: string = (trigger.conditionOperator || 'AND').toUpperCase();
+      const conditions = trigger.conditions as Array<{ field: string; operator: string; value: number }>;
 
-      /** Generic campus-metric comparator */
-      function cmpMetric(metricVal: number | null): boolean {
-        if (metricVal === null) return false;
-        switch (operator) {
-          case "<":  return metricVal < value;
-          case "<=": return metricVal <= value;
-          case ">":  return metricVal > value;
-          case ">=": return metricVal >= value;
-          case "=": case "==": case "===": return Math.abs(metricVal - value) < 0.01;
-          default: return false;
-        }
+      if (condOperator === 'OR') {
+        return conditions.some(c => evaluateSingleCondition(c, unit, clientId));
       }
-
-      // IH-to-street variance (separate cache)
-      if (field === "ih_street_variance") {
-        return cmpMetric(_lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL'));
-      }
-
-      // Campus / service-line / room-type occupancy
-      if (field === "occupancy" || field === "campus_occupancy") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, null, null, 'occupancy_pct'));
-      }
-      if (field === "service_line_occupancy") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'occupancy_pct'));
-      }
-      if (field === "room_type_occupancy") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, null, rt, 'occupancy_pct'));
-      }
-
-      // Vacant unit counts
-      if (field === "vacant_units" || field === "vacant_beds") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'vacant_units'));
-      }
-
-      // Competitor rate variance % (own street − comp) / comp × 100
-      if (field === "competitor_rate" || field === "competitor_variance") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'competitor_variance_pct'));
-      }
-
-      // Street rate to top adjusted competitor rate variance % (raw %, e.g. 10 = 10% above comp)
-      if (field === "street_to_comp_var") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'street_to_comp_var_pct'));
-      }
-
-      // Quality / payer mix — private pay %
-      if (field === "quality_mix" || field === "private_pay") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
-      }
-
-      // Inquiry volume
-      if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count'));
-      }
-      if (field === "tour_count" || field === "tour_volume") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count'));
-      }
-
-      // Average days vacant (campus or SL level)
-      if (field === "avg_days_vacant" || field === "days_vacant_campus") {
-        return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'avg_days_vacant'));
-      }
+      // Default: AND — all conditions must pass
+      return conditions.every(c => evaluateSingleCondition(c, unit, clientId));
     }
 
-    // ── Legacy plural trigger.conditions format ───────────────────────────
+    // ── Singular trigger.condition format ─────────────────────────────────
+    if (trigger.condition?.field) {
+      return evaluateSingleCondition(
+        trigger.condition as { field: string; operator: string; value: number },
+        unit,
+        clientId
+      );
+    }
+
+    // ── Legacy plural trigger.conditions object format ────────────────────
     const conditions = trigger.conditions || {};
     let matches = true;
 
@@ -209,11 +376,6 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
 /**
  * Apply all matching adjustment rules to a unit's rate, in priority order.
  * Each rule receives the rate produced by the previous rule (stacking).
- *
- * @param unit - The unit to apply rules to
- * @param baseRate - The base rate to adjust (usually Modulo suggested rate)
- * @param activeRules - Array of active adjustment rules sorted by priority descending
- * @returns The final adjusted rate and a '+'-joined list of applied rule names
  */
 export function applyAdjustmentRulesToUnit(
   unit: any,
@@ -228,11 +390,6 @@ export function applyAdjustmentRulesToUnit(
   let currentRate = baseRate;
   const appliedRuleNames: string[] = [];
 
-  // Exclusive/additive semantics:
-  //   • An exclusive rule (action.isAdditive !== true) only fires if no other
-  //     exclusive rule has already claimed this unit — the highest-priority one wins.
-  //   • An additive rule (action.isAdditive === true) always stacks on top,
-  //     regardless of priority order.
   let exclusiveApplied = false;
 
   for (const rule of sortedRules) {
@@ -265,7 +422,7 @@ export function applyAdjustmentRulesToUnit(
     // Enforce exclusive/additive gating
     const isAdditive = action.isAdditive === true;
     if (!isAdditive) {
-      if (exclusiveApplied) continue; // a higher-priority exclusive rule already claimed this unit
+      if (exclusiveApplied) continue;
       exclusiveApplied = true;
     }
 
@@ -293,7 +450,6 @@ export function applyAdjustmentRulesToUnit(
 
 /**
  * Apply adjustment rules to multiple units.
- * Base rate is the unit's street rate (independent of the Modulo engine output).
  */
 export function applyAdjustmentRulesToBatch(
   units: Array<{ id: string; unit: any; [key: string]: any }>,
@@ -312,7 +468,8 @@ export function applyAdjustmentRulesToBatch(
 
 /**
  * Fetch active rules from DB and apply them to a batch of units.
- * Base rate for each unit is its street rate (independent of the Modulo engine output).
+ * Bug 5 fix: auto-preloads campus metrics for all unique locations before
+ * evaluating any rules, so metric-based conditions always have data.
  */
 export async function fetchAndApplyAdjustmentRules(
   units: Array<{ id: string; unit: any; [key: string]: any }>
@@ -326,6 +483,27 @@ export async function fetchAndApplyAdjustmentRules(
         ruleAdjustedRate: null,
         appliedRuleName: null,
       }));
+    }
+
+    // Bug 5 fix: preload campus metrics for all unique locations so that
+    // metric-based conditions (SL occupancy, RT occupancy, competitor variance)
+    // always have data — no manual pre-call to /api/metrics/campus-snapshot/recalculate needed.
+    const hasMetricCondition = activeRules.some(rule => {
+      const t = rule.trigger as any;
+      if (t?.type !== 'condition') return false;
+      if (Array.isArray(t.conditions)) return true;
+      if (t.condition?.field && t.condition.field !== 'days_vacant') return true;
+      return false;
+    });
+
+    if (hasMetricCondition) {
+      const clientId = units.find(u => u.unit?.clientId)?.unit?.clientId || 'demo';
+      const uniqueLocationIds = [...new Set(
+        units.map(u => u.unit?.locationId).filter((id): id is string => Boolean(id))
+      )];
+      await Promise.all(uniqueLocationIds.map(locId =>
+        recalculateAndPreloadCampusMetrics(clientId, locId)
+      ));
     }
 
     console.log(`Found ${activeRules.length} active adjustment rules`);
