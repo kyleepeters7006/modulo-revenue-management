@@ -29,6 +29,8 @@ import {
   Play,
   CheckCircle2,
   Info,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 
 // ── Column metadata ────────────────────────────────────────────────
@@ -59,6 +61,19 @@ interface GroupDef {
   label: string;
   cols: ColDef[];
   ruleInfo?: ActiveRule;
+  /** Groups marked expandable show a +/- toggle that reveals per-month columns */
+  expandable?: boolean;
+  /** Key on each row that holds the { [YYYY-MM]: number|null } history map */
+  historyKey?: string;
+  /** ColType for the dynamic monthly columns */
+  historyColType?: ColType;
+}
+
+// ── month label helper ─────────────────────────────────────────────
+function fmtMonthLabel(ym: string): string {
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [y, m] = ym.split("-");
+  return `${MONTHS[parseInt(m, 10) - 1]} '${y.slice(2)}`;
 }
 
 const GROUPS: GroupDef[] = [
@@ -86,6 +101,9 @@ const GROUPS: GroupDef[] = [
   {
     id: "campusOcc",
     label: "Campus Occupancy",
+    expandable: true,
+    historyKey: "campusOccHistory",
+    historyColType: "pct",
     cols: [
       { key: "campusOccSpot", label: "Spot", type: "pct", w: 70, tip: "Occupied units ÷ total units for the whole campus in the latest month." },
       { key: "campusOccT3", label: "T3", type: "pct", w: 70, tip: "Average campus occupancy % across the trailing 3 months." },
@@ -96,6 +114,9 @@ const GROUPS: GroupDef[] = [
   {
     id: "slOcc",
     label: "Service Line Occupancy",
+    expandable: true,
+    historyKey: "slOccHistory",
+    historyColType: "pct",
     cols: [
       { key: "slOccSpot", label: "Spot", type: "pct", w: 70, tip: "Occupied ÷ total for this service line at this campus in the latest month." },
       { key: "slOccT3", label: "T3", type: "pct", w: 70, tip: "Average service-line occupancy % across the trailing 3 months." },
@@ -106,6 +127,9 @@ const GROUPS: GroupDef[] = [
   {
     id: "rtOcc",
     label: "Room Type Occupancy",
+    expandable: true,
+    historyKey: "rtOccHistory",
+    historyColType: "pct",
     cols: [
       { key: "rtOccSpot", label: "Spot", type: "pct", w: 70, tip: "Occupied ÷ total for this specific room type in the latest month." },
       { key: "rtOccT3", label: "T3", type: "pct", w: 70, tip: "Average room-type occupancy % across the trailing 3 months." },
@@ -144,6 +168,9 @@ const GROUPS: GroupDef[] = [
   {
     id: "street",
     label: "Street Rates – Single Occupant",
+    expandable: true,
+    historyKey: "streetHistory",
+    historyColType: "money",
     cols: [
       { key: "streetSpot", label: "Spot", type: "money", w: 85, tip: "Average published street rate for this room type in the latest month." },
       { key: "streetIncT3", label: "T3 Incr", type: "pctfracsigned", w: 80, tip: "% change of the latest street rate vs the trailing 3-month average." },
@@ -258,6 +285,8 @@ interface ReferenceDataResponse {
   spotMonth: string | null;
   calculatedAt: string | null;
   rules?: ActiveRule[];
+  // Each row also carries history maps (populated by the backend)
+  // campusOccHistory / slOccHistory / rtOccHistory / streetHistory: { [YYYY-MM]: number|null }
 }
 
 interface ReferenceDataTableProps {
@@ -279,6 +308,14 @@ export default function ReferenceDataTable({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
+  // groups that are currently expanded to show per-month columns
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (id: string) =>
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   // ── Calculate Rates job state ───────────────────────────────────
   const [calcJobId, setCalcJobId] = useState<string | null>(null);
@@ -390,32 +427,63 @@ export default function ReferenceDataTable({
   // ── dynamic rule column groups ──
   const dynGroups = useMemo((): GroupDef[] => {
     const rules = data?.rules ?? [];
-    if (!rules.length) return GROUPS;
-    const ruleGroups: GroupDef[] = rules.map((r, i) => ({
-      id: `rule_${r.id}`,
-      label: `Rule ${i + 1}`,
-      ruleInfo: r,
-      cols: [{
-        key: `__rule_${r.id}`,
-        label: "Rate",
-        type: "money" as ColType,
-        w: 85,
-        tip: `Avg proposed rate for units where the "${r.name}" rule was applied (spot month).`,
-      }],
-    }));
-    const insertAt = GROUPS.findIndex(g => g.id === "inhouse") + 1;
-    return [...GROUPS.slice(0, insertAt), ...ruleGroups, ...GROUPS.slice(insertAt)];
-  }, [data?.rules]);
+    const allMonths = data?.months ?? [];
+
+    // Build base groups (with rule groups injected after "inhouse")
+    let base: GroupDef[];
+    if (!rules.length) {
+      base = GROUPS;
+    } else {
+      const ruleGroups: GroupDef[] = rules.map((r, i) => ({
+        id: `rule_${r.id}`,
+        label: `Rule ${i + 1}`,
+        ruleInfo: r,
+        cols: [{
+          key: `__rule_${r.id}`,
+          label: "Rate",
+          type: "money" as ColType,
+          w: 85,
+          tip: `Avg proposed rate for units where the "${r.name}" rule was applied (spot month).`,
+        }],
+      }));
+      const insertAt = GROUPS.findIndex(g => g.id === "inhouse") + 1;
+      base = [...GROUPS.slice(0, insertAt), ...ruleGroups, ...GROUPS.slice(insertAt)];
+    }
+
+    // For expandable groups that are currently open, inject per-month columns
+    if (!allMonths.length) return base;
+    return base.map(g => {
+      if (!g.expandable || !expandedGroups.has(g.id)) return g;
+      const histKey = g.historyKey!;
+      const colType = g.historyColType ?? "pct";
+      const monthCols: ColDef[] = allMonths.map(mm => ({
+        key: `__hist_${histKey}_${mm}`,
+        label: fmtMonthLabel(mm),
+        type: colType,
+        w: colType === "money" ? 80 : 65,
+        tip: `${g.label} — ${mm}`,
+      }));
+      return { ...g, cols: [...g.cols, ...monthCols] };
+    });
+  }, [data?.rules, data?.months, expandedGroups]);
 
   const dynAllCols = useMemo(() => dynGroups.flatMap(g => g.cols), [dynGroups]);
 
   // ── filter + sort ──
   const processedRows = useMemo(() => {
     const rules = data?.rules ?? [];
+    const allMonths = data?.months ?? [];
     let rows: Record<string, any>[] = rawRows.map(row => {
-      if (!rules.length) return row;
       const extra: Record<string, any> = {};
+      // Flatten rule rates
       for (const r of rules) extra[`__rule_${r.id}`] = (row.ruleRates as any)?.[r.id] ?? null;
+      // Flatten monthly history for expandable groups
+      for (const mm of allMonths) {
+        extra[`__hist_campusOccHistory_${mm}`] = (row.campusOccHistory as any)?.[mm] ?? null;
+        extra[`__hist_slOccHistory_${mm}`]     = (row.slOccHistory     as any)?.[mm] ?? null;
+        extra[`__hist_rtOccHistory_${mm}`]     = (row.rtOccHistory     as any)?.[mm] ?? null;
+        extra[`__hist_streetHistory_${mm}`]    = (row.streetHistory    as any)?.[mm] ?? null;
+      }
       return { ...row, ...extra };
     });
     const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== "");
@@ -498,64 +566,83 @@ export default function ReferenceDataTable({
     <thead className="sticky top-0 z-30">
       {/* Group header row */}
       <tr>
-        {dynGroups.map((g, gi) => (
-          <th
-            key={g.id}
-            colSpan={g.cols.length}
-            className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-white ${
-              gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
-            }`}
-            style={gi === 0 ? { left: 0 } : undefined}
-          >
-            {g.ruleInfo ? (
-              <Popover>
-                <PopoverTrigger asChild>
+        {dynGroups.map((g, gi) => {
+          const isExpanded = expandedGroups.has(g.id);
+          return (
+            <th
+              key={g.id}
+              colSpan={g.cols.length}
+              className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-white ${
+                gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
+              }`}
+              style={gi === 0 ? { left: 0 } : undefined}
+            >
+              {g.ruleInfo ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full flex-col items-center gap-0.5 hover:text-primary focus:outline-none"
+                      title={g.ruleInfo.description}
+                    >
+                      <span className="flex items-center gap-1">
+                        {g.label}
+                        <Info className="h-2.5 w-2.5 opacity-60" />
+                      </span>
+                      <span className="max-w-[120px] truncate text-[9px] font-normal normal-case tracking-normal text-white/80">
+                        {g.ruleInfo.name}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72 p-3" align="center">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold leading-tight">{g.ruleInfo.name}</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{g.ruleInfo.description}</p>
+                      {g.ruleInfo.action && (
+                        <div className="rounded bg-muted px-2 py-1.5 text-xs space-y-0.5">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Type</span>
+                            <span className="font-medium capitalize">{(g.ruleInfo.action as any).adjustmentType ?? '—'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Adjustment</span>
+                            <span className="font-medium">
+                              {(g.ruleInfo.action as any).adjustmentType === 'percentage'
+                                ? `${(g.ruleInfo.action as any).adjustmentValue ?? 0}%`
+                                : `$${(g.ruleInfo.action as any).adjustmentValue ?? 0}`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Priority</span>
+                            <span className="font-medium">{g.ruleInfo.priority ?? 0}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : g.expandable ? (
+                /* Expandable group: label + +/- toggle button */
+                <div className="flex items-center justify-center gap-1">
+                  <span>{g.label}</span>
                   <button
                     type="button"
-                    className="flex w-full flex-col items-center gap-0.5 hover:text-primary focus:outline-none"
-                    title={g.ruleInfo.description}
+                    onClick={() => toggleGroup(g.id)}
+                    title={isExpanded ? "Hide monthly history" : "Show monthly history"}
+                    className="flex items-center justify-center rounded border border-white/40 bg-white/10 hover:bg-white/25 transition-colors"
+                    style={{ width: 16, height: 16, minWidth: 16, flexShrink: 0 }}
                   >
-                    <span className="flex items-center gap-1">
-                      {g.label}
-                      <Info className="h-2.5 w-2.5 opacity-60" />
-                    </span>
-                    <span className="max-w-[120px] truncate text-[9px] font-normal normal-case tracking-normal text-white/80">
-                      {g.ruleInfo.name}
-                    </span>
+                    {isExpanded
+                      ? <ChevronDown className="h-2.5 w-2.5" />
+                      : <ChevronRight className="h-2.5 w-2.5" />}
                   </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-72 p-3" align="center">
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold leading-tight">{g.ruleInfo.name}</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{g.ruleInfo.description}</p>
-                    {g.ruleInfo.action && (
-                      <div className="rounded bg-muted px-2 py-1.5 text-xs space-y-0.5">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Type</span>
-                          <span className="font-medium capitalize">{(g.ruleInfo.action as any).adjustmentType ?? '—'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Adjustment</span>
-                          <span className="font-medium">
-                            {(g.ruleInfo.action as any).adjustmentType === 'percentage'
-                              ? `${(g.ruleInfo.action as any).adjustmentValue ?? 0}%`
-                              : `$${(g.ruleInfo.action as any).adjustmentValue ?? 0}`}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Priority</span>
-                          <span className="font-medium">{g.ruleInfo.priority ?? 0}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            ) : (
-              g.label
-            )}
-          </th>
-        ))}
+                </div>
+              ) : (
+                g.label
+              )}
+            </th>
+          );
+        })}
       </tr>
       {/* Sub-column header row */}
       <tr>

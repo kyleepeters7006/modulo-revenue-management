@@ -15481,9 +15481,9 @@ Respond in JSON format:
       const locations   = csv(q.locations);
       const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
 
-      // 1) Latest 12 upload months for this client
+      // 1) Latest 24 upload months for this client (12 for summary windows + 12 more for history drill-down)
       const monthsRes = await pool.query<{ m: string }>(
-        `SELECT DISTINCT upload_month AS m FROM rent_roll_data WHERE client_id=$1 AND upload_month IS NOT NULL ORDER BY upload_month DESC LIMIT 12`,
+        `SELECT DISTINCT upload_month AS m FROM rent_roll_data WHERE client_id=$1 AND upload_month IS NOT NULL ORDER BY upload_month DESC LIMIT 24`,
         [clientId]
       );
       const months = monthsRes.rows.map(r => r.m);
@@ -15952,6 +15952,19 @@ Respond in JSON format:
           revT3MoveIns: moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null,
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
+          // Monthly history for expandable column drill-down (up to 24 months)
+          campusOccHistory: Object.fromEntries(
+            months.map(mm => [mm, rtoOccWindow(rtoCampusMap.get(c.campus), [mm])])
+          ),
+          slOccHistory: Object.fromEntries(
+            months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm])])
+          ),
+          rtOccHistory: Object.fromEntries(
+            months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm])])
+          ),
+          streetHistory: Object.fromEntries(
+            months.map(mm => [mm, bm.get(mm)?.avgStreet ?? null])
+          ),
           // Per-rule rates (avg rate for units where each rule was applied, spot month)
           ruleRates: (() => {
             const rr: Record<string, number | null> = {};
