@@ -39,6 +39,18 @@ const METRICS = [
   'Days To Sell Before', 'Days To Sell After', 'Days To Sell Change',
 ];
 
+// Maps backend trigger field names -> structured-builder metric labels for the
+// rules-pivot metrics, so editing an existing rule rehydrates these conditions.
+const NEW_METRIC_FIELDS: Record<string, string> = {
+  revenue_growth_target: 'Revenue Growth Target',
+  growth_target: 'Revenue Growth Target',
+  price_elasticity: 'Price Elasticity',
+  elasticity: 'Price Elasticity',
+  days_to_sell_before: 'Days To Sell Before',
+  days_to_sell_after: 'Days To Sell After',
+  days_to_sell_change: 'Days To Sell Change',
+};
+
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
 
 const OPERATORS = [
@@ -437,6 +449,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           timePeriod: 'Current Spot',
           operator: opMap[trigger.condition.operator] ?? 'is greater than',
           // stored as raw % (e.g. 10 for 10%)
+          value: String(trigger.condition.value),
+        });
+      } else if (trigger.condition?.field && NEW_METRIC_FIELDS[trigger.condition.field]) {
+        // Revenue growth target, price elasticity, and days-to-sell metrics
+        const opMap: Record<string, string> = {
+          '<': 'is less than', '>': 'is greater than',
+          '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
+          '=': 'equals', '!=': 'does not equal',
+        };
+        rebuilt.push({
+          id: newConditionId(),
+          metric: NEW_METRIC_FIELDS[trigger.condition.field],
+          timePeriod: 'Current Spot',
+          operator: opMap[trigger.condition.operator] ?? 'is greater than',
           value: String(trigger.condition.value),
         });
       }
