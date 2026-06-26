@@ -107,10 +107,10 @@ import {
   insertCompetitorSchema,
   insertGuardrailsSchema
 } from "@shared/schema";
+import { randomUUID } from "crypto";
 import { roomDetectionService, DetectionStrategy } from "./roomDetectionService";
 import { calculateModuloPrice } from "./moduloPricingAlgorithm";
 import {
-  applyRevenueTargetStrategyLayer,
   buildSalesVelocityCache,
   calculatePortfolioProjection,
   calculateUrgencyScore,
@@ -9227,9 +9227,9 @@ ${campusOccLines.join('\n')}
         occupancyCount: number;
         totalStreetRate: number;
         totalModuloRate: number;
-        totalAiRate: number;
+        totalRuleRate: number;
         moduloCount: number;
-        aiCount: number;
+        ruleCount: number;
       }> = {};
       
       // Initialize all service lines with zeros
@@ -9240,9 +9240,9 @@ ${campusOccLines.join('\n')}
           occupancyCount: 0,
           totalStreetRate: 0,
           totalModuloRate: 0,
-          totalAiRate: 0,
+          totalRuleRate: 0,
           moduloCount: 0,
-          aiCount: 0
+          ruleCount: 0
         };
       }
       
@@ -9255,9 +9255,9 @@ ${campusOccLines.join('\n')}
             occupancyCount: 0,
             totalStreetRate: 0,
             totalModuloRate: 0,
-            totalAiRate: 0,
+            totalRuleRate: 0,
             moduloCount: 0,
-            aiCount: 0
+            ruleCount: 0
           };
         }
         
@@ -9274,9 +9274,11 @@ ${campusOccLines.join('\n')}
           summaryByServiceLine[sl].moduloCount++;
         }
         
-        if (unit.aiSuggestedRate && unit.aiSuggestedRate > 0) {
-          summaryByServiceLine[sl].totalAiRate += unit.aiSuggestedRate;
-          summaryByServiceLine[sl].aiCount++;
+        // Rules-only pivot: the Rules Rate (ruleAdjustedRate) is the sole proposed
+        // rate. The separate Revenue Target AI rate has been retired.
+        if (unit.ruleAdjustedRate && unit.ruleAdjustedRate > 0) {
+          summaryByServiceLine[sl].totalRuleRate += unit.ruleAdjustedRate;
+          summaryByServiceLine[sl].ruleCount++;
         }
       }
       
@@ -9289,7 +9291,9 @@ ${campusOccLines.join('\n')}
           occupancyCount: summary.occupancyCount,
           averageStreetRate: summary.totalUnits > 0 ? summary.totalStreetRate / summary.totalUnits : 0,
           averageModuloRate: summary.moduloCount > 0 ? summary.totalModuloRate / summary.moduloCount : null,
-          averageAiRate: summary.aiCount > 0 ? summary.totalAiRate / summary.aiCount : null
+          // Rules Rate is the sole proposed rate; the Revenue Target AI rate is retired.
+          averageRuleRate: summary.ruleCount > 0 ? summary.totalRuleRate / summary.ruleCount : null,
+          averageAiRate: null
         };
       });
 
@@ -9860,716 +9864,17 @@ ${campusOccLines.join('\n')}
 
   // Generate AI pricing suggestions using OpenAI GPT-5 (OPTIMIZED)
   // Optimizations: Single data load, parallel batch processing, pre-cached revenue data
-  app.post("/api/pricing/generate-ai", async (req: any, res) => {
-    try {
-      const clientId = req.clientId || 'demo';
-      const startTime = Date.now();
-      const { month, serviceLine, regions, divisions, locations } = req.body;
-      const targetMonth = month || new Date().toISOString().substring(0, 7);
-      
-      console.log('=== Starting OPTIMIZED AI Generation ===');
-      console.log('Target month:', targetMonth);
-      console.log('Filters:', { serviceLine, regions, divisions, locations });
-      
-      await ensureCacheInitialized(targetMonth);
-      
-      // OPTIMIZATION 1: Load ALL rent roll data ONCE at the start
-      // This eliminates the duplicate call that was loading 391K+ units twice
-      console.log('[AI Pricing] Loading rent roll data (single load)...');
-      const allUnits = await storage.getRentRollData(clientId);
-      console.log(`[AI Pricing] Loaded ${allUnits.length} total units`);
-      
-      // Get units for target month from the already-loaded data
-      let units = allUnits.filter(u => u.uploadMonth === targetMonth);
-      
-      // Apply filters to units
-      if (serviceLine) {
-        units = units.filter(unit => unit.serviceLine === serviceLine);
-      }
-      if (locations && locations.length > 0) {
-        const locationSet = new Set(locations);
-        units = units.filter(unit => unit.location && locationSet.has(unit.location));
-      }
-      
-      if (units.length === 0) {
-        console.log('[AI Pricing] No units to process after filtering');
-        return res.json({ success: true, unitsProcessed: 0 });
-      }
-      
-      // Filter out B beds for senior housing service lines when calculating occupancy
-      const seniorHousingServiceLines = new Set(['AL', 'AL/MC', 'SL', 'VIL', 'IL']);
-      const allUnitsForOccupancy = units.filter(unit => {
-        if (seniorHousingServiceLines.has(unit.serviceLine || '')) {
-          const roomNumber = unit.roomNumber || '';
-          if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
-            return false;
-          }
-        }
-        return true;
-      });
-      
-      console.log(`[AI Pricing] Processing ${units.length} units (${allUnitsForOccupancy.length} for occupancy calc)`);
-      
-      // Calculate service-line-specific occupancy using already-loaded data (no second query!)
-      const serviceLineOccupancy = new Map<string, number>();
-      const serviceLineStats = new Map<string, { occupied: number; total: number }>();
-      
-      for (const unit of allUnits) {
-        const sl = unit.serviceLine || 'Unknown';
-        if (!serviceLineStats.has(sl)) {
-          serviceLineStats.set(sl, { occupied: 0, total: 0 });
-        }
-        const stats = serviceLineStats.get(sl)!;
-        stats.total++;
-        if (unit.occupiedYN) {
-          stats.occupied++;
-        }
-      }
-      
-      for (const [sl, stats] of serviceLineStats) {
-        serviceLineOccupancy.set(sl, stats.total > 0 ? stats.occupied / stats.total : 0.87);
-      }
-      
-      // Build trailing 3-month room type occupancy lookup for the AI pricing engine
-      const aiRtT3OccMap = new Map<string, number>();
-      try {
-        const nowAi = new Date();
-        const aiT3Conditions: ReturnType<typeof and>[] = [];
-        for (let i = 0; i < 3; i++) {
-          let m = nowAi.getMonth() + 1 - i;
-          let y = nowAi.getFullYear();
-          if (m <= 0) { m += 12; y -= 1; }
-          aiT3Conditions.push(and(eq(roomTypeOccupancyHistory.month, m), eq(roomTypeOccupancyHistory.year, y)));
-        }
-        const aiRtOccRows = await db.select().from(roomTypeOccupancyHistory)
-          .where(and(eq(roomTypeOccupancyHistory.clientId, clientId), or(...aiT3Conditions)));
-        const aiRtAccumulator = new Map<string, { total: number; count: number }>();
-        for (const row of aiRtOccRows) {
-          const key = `${row.locationName}|${row.serviceLine}|${row.normalizedRoomType}`;
-          if (!aiRtAccumulator.has(key)) aiRtAccumulator.set(key, { total: 0, count: 0 });
-          const entry = aiRtAccumulator.get(key)!;
-          if (row.occPercent !== null && row.occPercent !== undefined) {
-            entry.total += row.occPercent;
-            entry.count += 1;
-          }
-        }
-        for (const [key, { total, count }] of aiRtAccumulator) {
-          if (count > 0) aiRtT3OccMap.set(key, (total / count) / 100); // stored as %, convert to 0-1
-        }
-        console.log(`[AI Pricing] Loaded room type T3 occupancy data for ${aiRtT3OccMap.size} room type segments`);
-      } catch (err) {
-        console.warn('[AI Pricing] Failed to load room type T3 occupancy data, proceeding without it:', err);
-      }
-
-      // Load all supporting data in parallel
-      const [currentWeights, guardrailsData, revenueGrowthTargets, competitors] = await Promise.all([
-        storage.getAiPricingWeights().then(w => w || {
-          occupancyPressure: 30,
-          daysVacantDecay: 25,
-          competitorRates: 10,
-          seasonality: 5,
-          stockMarket: 5,
-          inquiryTourVolume: 10
-        }),
-        storage.getCurrentGuardrails(),
-        storage.getRevenueGrowthTargets(),
-        storage.getCompetitors(clientId)
-      ]);
-      
-      // Build market context for OpenAI
-      const totalUnits = units.length;
-      const vacantUnits = units.filter(u => !u.occupiedYN).length;
-      const avgStreetRate = units.reduce((sum, u) => sum + (u.streetRate || 0), 0) / Math.max(totalUnits, 1);
-      const avgDaysVacant = units.filter(u => !u.occupiedYN).reduce((sum, u) => sum + (u.daysVacant || 0), 0) / Math.max(vacantUnits, 1);
-      const unitsOver30DaysVacant = units.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
-      
-      const avgCompetitorRate = competitors.length > 0 
-        ? competitors.reduce((sum, c) => sum + (c.baseRate || 0), 0) / competitors.length 
-        : avgStreetRate;
-      
-      // Build service line breakdown
-      const serviceLineBreakdown: Record<string, { total: number; vacant: number; avgRate: number }> = {};
-      units.forEach(u => {
-        const sl = u.serviceLine || 'Unknown';
-        if (!serviceLineBreakdown[sl]) {
-          serviceLineBreakdown[sl] = { total: 0, vacant: 0, avgRate: 0 };
-        }
-        serviceLineBreakdown[sl].total++;
-        if (!u.occupiedYN) serviceLineBreakdown[sl].vacant++;
-        serviceLineBreakdown[sl].avgRate += u.streetRate || 0;
-      });
-      Object.keys(serviceLineBreakdown).forEach(sl => {
-        serviceLineBreakdown[sl].avgRate = serviceLineBreakdown[sl].avgRate / serviceLineBreakdown[sl].total;
-      });
-      
-      const slBreakdownStr = Object.entries(serviceLineBreakdown)
-        .map(([sl, data]) => `${sl}: ${data.total} units, ${data.vacant} vacant (${Math.round((1 - data.vacant/data.total) * 100)}% occ), avg $${Math.round(data.avgRate)}`)
-        .join('\n');
-      
-      // Call OpenAI GPT-5 for weight suggestions
-      console.log('[AI Pricing] Calling OpenAI GPT-5 for weight suggestions...');
-      
-      const weightPrompt = `You are an expert senior living revenue management AI. Analyze the following market data and suggest optimal pricing factor weights for maximizing revenue while maintaining competitive occupancy.
-
-CURRENT MARKET DATA:
-- Total Units: ${totalUnits}
-- Vacant Units: ${vacantUnits} (${Math.round((1 - vacantUnits/totalUnits) * 100)}% occupancy)
-- Average Street Rate: $${Math.round(avgStreetRate)}
-- Average Days Vacant: ${Math.round(avgDaysVacant)} days
-- Units Vacant 30+ Days: ${unitsOver30DaysVacant}
-- Average Competitor Rate: $${Math.round(avgCompetitorRate)}
-- Market Month: ${targetMonth}
-
-SERVICE LINE BREAKDOWN:
-${slBreakdownStr}
-
-CURRENT WEIGHTS (must sum to 100):
-- Occupancy Pressure: ${currentWeights.occupancyPressure}% (higher = more aggressive pricing when occupancy is low)
-- Days Vacant Decay: ${currentWeights.daysVacantDecay}% (higher = faster price reduction for long-vacant units)
-- Competitor Rates: ${currentWeights.competitorRates}% (higher = more sensitivity to competitor pricing)
-- Seasonality: ${currentWeights.seasonality}% (higher = more seasonal adjustments)
-- Stock Market: ${currentWeights.stockMarket}% (higher = more macro-economic sensitivity)
-- Inquiry/Tour Volume: ${currentWeights.inquiryTourVolume}% (higher = more demand-responsive)
-
-Based on this data, provide optimized weights that will maximize revenue. Consider:
-1. If occupancy is low, increase occupancy pressure and days vacant weights
-2. If we're priced above competitors, increase competitor weight
-3. If many units are vacant 30+ days, increase days vacant decay
-4. Seasonal patterns for senior living (typically higher demand in spring/fall)
-
-Respond with ONLY a JSON object in this exact format:
-{
-  "occupancyPressure": <number>,
-  "daysVacantDecay": <number>,
-  "competitorRates": <number>,
-  "seasonality": <number>,
-  "stockMarket": <number>,
-  "inquiryTourVolume": <number>,
-  "reasoning": "<brief explanation of your weight choices>"
-}
-
-Ensure all weights are positive integers and sum to exactly 100.`;
-
-      let aiSuggestedWeights = currentWeights;
-      let aiReasoning = '';
-      
-      try {
-        const rawText = await callClaudeThenGPT(
-          'You are an expert senior living revenue management AI.',
-          weightPrompt,
-          'Based on the analysis, produce ONLY a JSON object with fields: occupancyPressure, daysVacantDecay, competitorRates, seasonality, stockMarket, inquiryTourVolume (positive integers summing to exactly 100), and reasoning (brief string). No other text.',
-          { label: 'pricing-weights', claudeMaxTokens: 512, gptMaxTokens: 500 }
-        );
-        const parsed = JSON.parse(rawText);
-        aiSuggestedWeights = {
-          occupancyPressure: parsed.occupancyPressure || currentWeights.occupancyPressure,
-          daysVacantDecay: parsed.daysVacantDecay || currentWeights.daysVacantDecay,
-          competitorRates: parsed.competitorRates || currentWeights.competitorRates,
-          seasonality: parsed.seasonality || currentWeights.seasonality,
-          stockMarket: parsed.stockMarket || currentWeights.stockMarket,
-          inquiryTourVolume: parsed.inquiryTourVolume || currentWeights.inquiryTourVolume
-        };
-        aiReasoning = parsed.reasoning || '';
-        console.log('[AI Pricing] Suggested weights:', aiSuggestedWeights);
-        console.log('[AI Pricing] Reasoning:', aiReasoning);
-      } catch (parseError) {
-        console.warn('[AI Pricing] Failed to parse AI response, using current weights:', parseError);
-      }
-      
-      // OPTIMIZATION 2: Pre-compute ALL revenue performance data in a Map for O(1) lookup
-      console.log('[AI Pricing] Pre-computing revenue performance cache...');
-      const revenuePerformanceCache = new Map<string, { yoyGrowth: number }>();
-      
-      // Build location name -> locationId map from locations table (not from rent_roll_data)
-      // This ensures we always have the correct locationId even if some units have null locationId
-      const allLocations = await storage.getLocations(clientId);
-      const locationIdMap = new Map<string, string | undefined>();
-      for (const loc of allLocations) {
-        locationIdMap.set(loc.name, loc.id);
-      }
-      console.log(`[AI Pricing] Built locationIdMap from ${allLocations.length} locations`);
-      
-      // Build unique location/serviceLine combinations
-      const uniqueCombinations = new Set<string>();
-      for (const unit of units) {
-        const key = `${unit.location || ''}|${unit.serviceLine || ''}`;
-        uniqueCombinations.add(key);
-      }
-      
-      // Pre-compute revenue performance for all unique combinations
-      for (const combo of uniqueCombinations) {
-        const [locationName, sl] = combo.split('|');
-        const result = getRevenuePerformanceForScope(allUnits, locationName, sl, targetMonth);
-        revenuePerformanceCache.set(combo, { yoyGrowth: result.performance.yoyGrowth });
-      }
-      console.log(`[AI Pricing] Pre-computed revenue performance for ${revenuePerformanceCache.size} location/serviceLine combinations`);
-      
-      // Helper function for O(1) revenue gap lookup - returns full revenue target info for calculation display
-      const getRevenueGap = (locationName: string, sl: string): { 
-        gap: number | undefined; 
-        target: number | undefined;
-        actualYOY: number | undefined;
-        adjustmentApplied: number | undefined;
-      } => {
-        const cacheKey = `${locationName}|${sl}`;
-        const performance = revenuePerformanceCache.get(cacheKey);
-        
-        if (!performance) {
-          return { gap: undefined, target: undefined, actualYOY: undefined, adjustmentApplied: undefined };
-        }
-        
-        const locationId = locationIdMap.get(locationName);
-        const target = revenueGrowthTargets.find(
-          t => t.locationId === locationId && t.serviceLine === sl
-        );
-        
-        if (!target) {
-          // Debug: Log why target was not found
-          console.log(`[AI Pricing] No revenue target found for location='${locationName}' (id=${locationId}) sl='${sl}'`);
-          return { gap: undefined, target: undefined, actualYOY: performance.yoyGrowth, adjustmentApplied: undefined };
-        }
-        
-        const gap = performance.yoyGrowth - target.targetGrowthPercent;
-        
-        // Calculate the adjustment that will be applied (matches signalRevenueGrowthTarget logic)
-        let adjustmentApplied = 0;
-        if (gap >= 0) {
-          // Ahead of target - slight positive signal (max 0.2)
-          const signal = Math.min(0.2, gap / 10);
-          adjustmentApplied = signal * 0.05; // cfg.revenueGrowthSpan = 0.05 (5%)
-        } else {
-          // Behind target - upward pricing pressure
-          const signal = Math.min(1.0, Math.abs(gap) / 10);
-          adjustmentApplied = signal * 0.05;
-        }
-        
-        return { 
-          gap, 
-          target: target.targetGrowthPercent, 
-          actualYOY: performance.yoyGrowth,
-          adjustmentApplied 
-        };
-      };
-      
-      console.log(`[AI Pricing] Loaded ${revenueGrowthTargets.length} revenue growth targets`);
-      
-      // OPTIMIZATION 3: Pre-cache competitor data keyed by campus|serviceLine|roomType so the
-      // distance fallback is room-type-aware.  Care/med rates are keyed by campus|serviceLine.
-      const competitorCache = new Map<string, { surveyRows: any[]; trilogyCareLevel2Rate: number | null; trilogyMedMgmtFee: number }>();
-      const aiCareRateCache = new Map<string, { trilogyCareLevel2Rate: number | null; trilogyMedMgmtFee: number }>();
-      const uniqueCampusServiceLines = new Set<string>(); // campus|serviceLine pairs
-      const uniqueCampusServiceLineRooms = new Set<string>(); // campus|serviceLine|roomType triples
-
-      for (const unit of units) {
-        if (unit.location && unit.serviceLine) {
-          const slKey = `${unit.location}|${unit.serviceLine}`;
-          uniqueCampusServiceLines.add(slKey);
-          uniqueCampusServiceLineRooms.add(`${slKey}|${unit.roomType || ''}`);
-        }
-      }
-
-      // First pass: care/med rates per campus|serviceLine
-      const aiCareRatePromises = Array.from(uniqueCampusServiceLines).map(async (key) => {
-        const [campus, sl] = key.split('|');
-        try {
-          const [trilogyCareLevel2Rate, trilogyMedMgmtFee] = await Promise.all([
-            storage.getTrilogyCareLevel2Rate(campus, sl, clientId),
-            storage.getTrilogyMedicationManagementFee(campus, sl)
-          ]);
-          aiCareRateCache.set(key, { trilogyCareLevel2Rate, trilogyMedMgmtFee });
-        } catch {
-          aiCareRateCache.set(key, { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 });
-        }
-      });
-      await Promise.all(aiCareRatePromises);
-
-      // Second pass: survey rows per campus|serviceLine|roomType (room-type-aware distance fallback)
-      const aiCompetitorPromises = Array.from(uniqueCampusServiceLineRooms).map(async (key) => {
-        const parts = key.split('|');
-        const campus = parts[0];
-        const sl = parts[1];
-        const roomType = parts[2] || '';
-        const slKey = `${campus}|${sl}`;
-        const careRates = aiCareRateCache.get(slKey) || { trilogyCareLevel2Rate: null, trilogyMedMgmtFee: 0 };
-        try {
-          const surveyRows = await storage.getTopSurveyCompetitorForLocation(campus, sl, roomType || undefined, clientId);
-          competitorCache.set(key, { surveyRows: surveyRows || [], ...careRates });
-        } catch {
-          competitorCache.set(key, { surveyRows: [], ...careRates });
-        }
-      });
-
-      await Promise.all(aiCompetitorPromises);
-      console.log(`[AI Pricing] Pre-cached survey competitor data for ${competitorCache.size} campus/serviceLine/roomType combinations`);
-
-      // Revenue Target Strategy Layer — build sales velocity cache once before unit loop
-      const today = new Date();
-      const monthsRemaining = getMonthsRemainingInYear(today);
-      const weeksRemaining = getWeeksRemainingInYear(today);
-      const velocityCache = buildSalesVelocityCache(units, defaultStrategyConfig);
-      console.log(`[AI Pricing] Built velocity cache: ${velocityCache.size} location/SL/roomType buckets, ${monthsRemaining.toFixed(1)} months remaining in year`);
-
-      // Collect per-unit strategy layer outputs for portfolio projection
-      const unitProjections: UnitProjectionInput[] = [];
-      
-      // OPTIMIZATION 4: Process units in parallel batches (like the Modulo endpoint)
-      const BATCH_SIZE = 500;
-      const MAX_CONCURRENT_BATCHES = 8;
-      const monthIndex = new Date().getMonth() + 1;
-      
-      console.log(`[AI Pricing] Processing ${units.length} units in batches of ${BATCH_SIZE}...`);
-      
-      // Helper function to process a single unit
-      const processUnit = async (unit: any): Promise<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> => {
-        const serviceLineOcc = serviceLineOccupancy.get(unit.serviceLine) || 0.87;
-        const revenueGapData = getRevenueGap(unit.location || '', unit.serviceLine || '');
-        
-        // Get competitor prices from survey cache (room-type specific) — neutral state if no data
-        let competitorAverageRateRaw: number | undefined;
-        let competitorPrices: number[] = [];
-        let competitorInfo: import('./moduloPricingAlgorithm').CompetitorInfo | undefined;
-        {
-          const competitorKey = `${unit.location}|${unit.serviceLine}|${unit.roomType || ''}`;
-          const cachedCompetitor = competitorCache.get(competitorKey);
-          ({ competitorPrices, competitorInfo } = matchAndAdjustCompetitor(
-            cachedCompetitor?.surveyRows || [],
-            unit.roomType || '',
-            cachedCompetitor?.trilogyCareLevel2Rate || 0,
-            cachedCompetitor?.trilogyMedMgmtFee ?? 0,
-            unit.serviceLine || undefined
-          ));
-          if (competitorPrices.length > 0) competitorAverageRateRaw = competitorPrices[0];
-        }
-        
-        // Normalize roomType at lookup time to guarantee alignment with normalizedRoomType in history table
-        const aiRtKey = `${unit.location}|${unit.serviceLine}|${normalizeRoomType(unit.roomType || '')}`;
-        const pricingInputs: PricingInputs = {
-          occupancy: serviceLineOcc,
-          daysVacant: unit.daysVacant || 0,
-          monthIndex,
-          competitorPrices,
-          marketReturn: 0.03,
-          demandCurrent: 32,
-          demandHistory: [15, 20, 30, 18, 35, 22, 28, 16],
-          serviceLine: unit.serviceLine,
-          revenueGrowthGap: revenueGapData.gap,
-          targetRevenueGrowth: revenueGapData.target,
-          roomTypeOccTrend: aiRtT3OccMap.get(aiRtKey),
-          competitorInfo
-        };
-        
-        const pricingWeights = {
-          ...aiSuggestedWeights,
-          id: 0,
-          locationId: unit.locationId,
-          serviceLine: unit.serviceLine
-        };
-        
-        const orchestratorResult = await calculateAttributedPrice(unit, pricingWeights, pricingInputs, guardrailsData || undefined);
-
-        // ── Revenue Target Strategy Layer ────────────────────────────────────
-        // Guardrail reference: use the unit's previously-stored AI rate when available
-        // so that month-over-month drift is bounded by the configured limits.
-        // Falls back to the current orchestrator output on first calculation.
-        let finalAiRate = orchestratorResult.finalPrice;
-        let strategyLayerOutput: ReturnType<typeof applyRevenueTargetStrategyLayer> | null = null;
-        let batchGuardrailWasApplied = false;
-        let batchGuardrailTrigger: string | null = null;
-        let batchGuardrailLimitPct: number | null = null;
-        let existingAiRateMonthly = 0; // hoisted so guardrail display fields below can use it
-
-        // Resolve previously stored AI rate for guardrail drift protection
-        const storedAiRate = (unit.aiSuggestedRate && unit.aiSuggestedRate > 0)
-          ? unit.aiSuggestedRate
-          : null;
-
-        if (!unit.occupiedYN && defaultStrategyConfig.enableRevenueTargetStrategyLayer) {
-          const sl = unit.serviceLine || '';
-          // Use stored rate as guardrail reference (prevents drift across recalculations).
-          // Safety check: if the stored AI rate is more than 50% above the current street
-          // rate, it is likely a corrupted value from a prior bad calculation. In that case
-          // fall back to the fresh Stage 1 result so the guardrail baseline is reset to a
-          // sensible level and the corrupted rate is not perpetuated.
-          const streetRateMonthly = toMonthlyRate(unit.streetRate || 0, sl);
-          const storedAiMonthly = storedAiRate ? toMonthlyRate(storedAiRate, sl) : null;
-          const storedRateIsValid = storedAiMonthly !== null &&
-            (streetRateMonthly === 0 || storedAiMonthly <= streetRateMonthly * 1.5);
-          existingAiRateMonthly = storedRateIsValid
-            ? storedAiMonthly!
-            : toMonthlyRate(orchestratorResult.finalPrice, sl);
-          const competitorMonthly = competitorAverageRateRaw !== undefined
-            ? toMonthlyRate(competitorAverageRateRaw, sl)
-            : undefined;
-
-          // Derive attribute quality flags from unit data
-          const isPremiumUnit = !!(
-            unit.renovated ||
-            unit.view === 'A' || unit.viewRating === 'A' ||
-            unit.locationRating === 'A' ||
-            unit.otherPremiumFeature
-          );
-          const ratingScore = (
-            (unit.locationRating === 'A' ? 1 : unit.locationRating === 'B' ? 0 : -1) +
-            (unit.sizeRating === 'A' ? 1 : unit.sizeRating === 'B' ? 0 : -1) +
-            (unit.viewRating === 'A' ? 1 : unit.viewRating === 'B' ? 0 : -1) +
-            (unit.renovationRating === 'A' ? 1 : unit.renovationRating === 'B' ? 0 : -1)
-          ) / 4; // -1 to +1
-
-          const urgency = calculateUrgencyScore(revenueGapData.gap, monthsRemaining, defaultStrategyConfig.urgencyDivisor);
-
-          const strategyCtx: UnitStrategyContext = {
-            location: unit.location || '',
-            serviceLine: sl,
-            roomType: unit.roomType || '',
-            roomNumber: unit.roomNumber || '',
-            daysVacant: unit.daysVacant || 0,
-            existingAiRateMonthly,                    // stored AI rate — for display only
-            stage1RateMonthly: toMonthlyRate(orchestratorResult.finalPrice, sl), // Stage 1 fallback
-            streetRateMonthly: toMonthlyRate(unit.streetRate || 0, sl),
-            competitorAverageRateMonthly: competitorMonthly,
-            serviceLineOccupancy: serviceLineOcc,
-            growthGapPct: revenueGapData.gap,
-            targetGrowthPct: revenueGapData.target,
-            actualYtdGrowthPct: revenueGapData.actualYOY,
-            revenueGapDollars: undefined,
-            urgencyScore: urgency,
-            monthsRemaining,
-            weeksRemaining,
-            isPremiumUnit,
-            attributeScore: ratingScore,
-            velocity: velocityCache.get(`${unit.location}|${sl}|${unit.roomType}`) ||
-                      velocityCache.get(`${unit.location}|${sl}|*`) ||
-                      velocityCache.get(`${unit.location}|*|*`) || {
-                        leasesPerMonth: 0,
-                        avgDaysToLease: 7 / defaultStrategyConfig.defaultBaseSaleWeeklyProb,
-                        medianDaysToLease: 7 / defaultStrategyConfig.defaultBaseSaleWeeklyProb * 0.85,
-                        baseSaleWeeklyProb: defaultStrategyConfig.defaultBaseSaleWeeklyProb,
-                        avgDaysVacantForUnitType: 30,
-                        sampleSize: 0,
-                        fallbackLevel: 'default',
-                      },
-            guardrailFloorMonthly: undefined,
-            guardrailCeilingMonthly: undefined,
-            guardrailMaxIncreaseFraction: guardrailsData?.maxRateIncrease ?? 0.15,
-            guardrailMaxDecreaseFraction: guardrailsData?.minRateDecrease ?? 0.05,
-          };
-
-          strategyLayerOutput = applyRevenueTargetStrategyLayer(strategyCtx, defaultStrategyConfig);
-
-          // Convert back to original storage unit (daily for HC/HC-MC, monthly for rest)
-          finalAiRate = fromMonthlyRate(strategyLayerOutput.finalGuardrailedRateMonthly, sl);
-
-          // Capture guardrail info from strategy layer
-          if (strategyLayerOutput.guardrailApplied) {
-            batchGuardrailWasApplied = true;
-            const targetAwareRate = fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, sl);
-            batchGuardrailTrigger = finalAiRate < targetAwareRate ? 'max_increase' : 'max_decrease';
-            batchGuardrailLimitPct = batchGuardrailTrigger === 'max_increase'
-              ? (guardrailsData?.maxRateIncrease ?? 0.15) * 100
-              : (guardrailsData?.minRateDecrease ?? 0.05) * 100;
-          }
-
-          // Collect for portfolio projection
-          unitProjections.push({
-            isVacant: true,
-            hasTarget: revenueGapData.gap !== undefined,
-            existingAiRateMonthly,
-            targetAwareRateMonthly: strategyLayerOutput.targetAwareRateMonthly,
-            expectedRevenueExistingAi: strategyLayerOutput.expectedRevenueExistingAi,
-            expectedRevenueTargetAware: strategyLayerOutput.expectedRevenueTargetAware,
-            segment: strategyLayerOutput.segment,
-            revenueGapDollarsContribution: 0,
-          });
-        } else if (unit.occupiedYN) {
-          // Occupied units skip the strategy layer but still need drift protection.
-          // Clamp the orchestrator result against the previously stored AI rate.
-          if (storedAiRate && guardrailsData) {
-            const maxIncreaseFrac = guardrailsData.maxRateIncrease ?? 0.15;
-            const maxDecreaseFrac = guardrailsData.minRateDecrease ?? 0.05;
-            const rateFloor = storedAiRate * (1 - maxDecreaseFrac);
-            const rateCeiling = storedAiRate * (1 + maxIncreaseFrac);
-            if (finalAiRate > rateCeiling) {
-              finalAiRate = Math.round(rateCeiling);
-              batchGuardrailWasApplied = true;
-              batchGuardrailTrigger = 'max_increase';
-              batchGuardrailLimitPct = (guardrailsData.maxRateIncrease ?? 0.15) * 100;
-            } else if (finalAiRate < rateFloor) {
-              finalAiRate = Math.round(rateFloor);
-              batchGuardrailWasApplied = true;
-              batchGuardrailTrigger = 'max_decrease';
-              batchGuardrailLimitPct = (guardrailsData.minRateDecrease ?? 0.05) * 100;
-            }
-          }
-          unitProjections.push({
-            isVacant: false,
-            hasTarget: false,
-            existingAiRateMonthly: 0,
-            targetAwareRateMonthly: 0,
-            expectedRevenueExistingAi: 0,
-            expectedRevenueTargetAware: 0,
-            segment: 'neutral',
-            revenueGapDollarsContribution: 0,
-          });
-        }
-        // ── End Revenue Target Strategy Layer ────────────────────────────────
-
-        const aiCalculationDetails = {
-          baseRate: orchestratorResult.baseRate,
-          baseRateSource: orchestratorResult.baseRateSource,
-          attributedRate: orchestratorResult.attributedRate,
-          attributeBreakdown: orchestratorResult.attributeBreakdown,
-          adjustments: orchestratorResult.moduloDetails.adjustments?.map((adj: any) => ({
-            ...adj,
-            formula: adj.calculation,
-            description: getSentenceExplanation(adj.factor.toLowerCase(), pricingInputs, adj)
-          })) || [],
-          weights: aiSuggestedWeights,
-          aiReasoning: aiReasoning,
-          totalAdjustment: orchestratorResult.moduloDetails.totalAdjustment,
-          preOverrideTotalAdj: orchestratorResult.moduloDetails.preOverrideTotalAdj,
-          finalRate: Math.round(finalAiRate),
-          moduloRate: orchestratorResult.moduloRate,
-          // v2 guardrail fields — presence of guardrailWasApplied signals v2 format
-          // so the dialog's click-through returns stored data without recomputing.
-          guardrailWasApplied: batchGuardrailWasApplied,
-          guardrailTrigger: batchGuardrailTrigger,
-          guardrailLimitPct: batchGuardrailLimitPct,
-          // preGuardrailAdjustment / effectiveAdjustment: both expressed as % vs street rate
-          // so the dialog text is coherent with the guardrail limit percentage:
-          // "algorithm wanted +X% above street, cap is Y% above street, after guardrail +Y%."
-          preGuardrailAdjustment: (() => {
-            const streetRef = unit.streetRate || orchestratorResult.baseRate;
-            if (strategyLayerOutput && streetRef > 0) {
-              // targetAwareRateMonthly → raw units → vs street rate
-              const preGuardrailRaw = fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, unit.serviceLine || '');
-              return preGuardrailRaw / streetRef - 1;
-            }
-            return orchestratorResult.moduloDetails.totalAdjustment;
-          })(),
-          effectiveAdjustment: (unit.streetRate || orchestratorResult.baseRate) > 0
-            ? (Math.round(finalAiRate) / (unit.streetRate || orchestratorResult.baseRate)) - 1
-            : orchestratorResult.moduloDetails.totalAdjustment,
-          signals: orchestratorResult.moduloDetails.signals,
-          blendedSignal: orchestratorResult.moduloDetails.blendedSignal,
-          explanation: generateOverallExplanation(orchestratorResult.moduloDetails, pricingInputs),
-          guardrailsApplied: orchestratorResult.guardrailsApplied,
-          // Drift-protection guardrail: clamp relative to previously stored AI rate
-          driftGuardrail: storedAiRate ? {
-            referenceRate: storedAiRate,
-            maxIncreasePct: (guardrailsData?.maxRateIncrease ?? 0.15) * 100,
-            maxDecreasePct: (guardrailsData?.minRateDecrease ?? 0.05) * 100,
-            ceiling: Math.round(storedAiRate * (1 + (guardrailsData?.maxRateIncrease ?? 0.15))),
-            floor: Math.round(storedAiRate * (1 - (guardrailsData?.minRateDecrease ?? 0.05))),
-          } : null,
-          poweredByGPT5: true,
-          // Revenue Target Strategy - shows how targets influence pricing (original layer)
-          revenueTarget: {
-            targetGrowthPercent: revenueGapData.target,
-            actualYOYGrowth: revenueGapData.actualYOY,
-            gap: revenueGapData.gap,
-            adjustmentApplied: revenueGapData.adjustmentApplied,
-            status: revenueGapData.gap !== undefined 
-              ? (revenueGapData.gap >= 0 ? 'exceeding' : (revenueGapData.gap >= -2 ? 'on_target' : (revenueGapData.gap >= -5 ? 'slightly_behind' : 'significantly_behind')))
-              : 'no_target'
-          },
-          // Revenue Target Strategy Layer (new enhanced layer)
-          ...(strategyLayerOutput ? {
-            strategyLayer: {
-              // existingAiRate = previously stored AI rate, shown in dialog for reference only.
-              // Stage 2 no longer uses it as a calculation baseline — candidates are anchored
-              // to the street rate, and Stage 1 is the fallback when no improvement is found.
-              existingAiRate: storedAiRate ?? orchestratorResult.finalPrice,
-              moduloRateThisRun: orchestratorResult.finalPrice,
-              targetAwareAiRate: fromMonthlyRate(strategyLayerOutput.targetAwareRateMonthly, unit.serviceLine || ''),
-              finalGuardrailedAiRate: finalAiRate,
-              unitStrategySegment: strategyLayerOutput.segment,
-              segmentConfidence: strategyLayerOutput.segmentConfidence,
-              segmentReason: strategyLayerOutput.segmentReason,
-              urgencyScore: strategyLayerOutput.urgencyScore,
-              baseSaleWeeklyProb: strategyLayerOutput.baseSaleWeeklyProb,
-              expectedSaleProbExistingAi: strategyLayerOutput.expectedSaleProbExistingAi,
-              expectedSaleProbTargetAware: strategyLayerOutput.expectedSaleProbTargetAware,
-              expectedRevenueExistingAi: strategyLayerOutput.expectedRevenueExistingAi,
-              expectedRevenueTargetAware: strategyLayerOutput.expectedRevenueTargetAware,
-              incrementalExpectedRevenue: strategyLayerOutput.incrementalExpectedRevenue,
-              competitorAverageRate: strategyLayerOutput.competitorAverageRate,
-              competitorGapPct: strategyLayerOutput.competitorGapPct,
-              avgDaysVacantForUnitType: strategyLayerOutput.avgDaysVacantForUnitType,
-              guardrailApplied: strategyLayerOutput.guardrailApplied,
-              guardrailReason: strategyLayerOutput.guardrailReason,
-              reasonCodes: strategyLayerOutput.reasonCodes,
-              noImprovementFound: strategyLayerOutput.noImprovementFound,
-            }
-          } : {})
-        };
-        
-        return {
-          id: unit.id,
-          aiSuggestedRate: Math.round(finalAiRate),
-          aiCalculationDetails: JSON.stringify(aiCalculationDetails)
-        };
-      };
-      
-      // Process in parallel batches
-      const allUpdates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }> = [];
-      
-      for (let i = 0; i < units.length; i += BATCH_SIZE * MAX_CONCURRENT_BATCHES) {
-        const batchPromises = [];
-        
-        for (let j = 0; j < MAX_CONCURRENT_BATCHES && (i + j * BATCH_SIZE) < units.length; j++) {
-          const start = i + j * BATCH_SIZE;
-          const end = Math.min(start + BATCH_SIZE, units.length);
-          const batch = units.slice(start, end);
-          
-          if (batch.length > 0) {
-            const batchPromise = Promise.allSettled(batch.map(processUnit));
-            batchPromises.push(batchPromise);
-          }
-        }
-        
-        const batchResults = await Promise.all(batchPromises);
-        
-        for (const results of batchResults) {
-          for (const result of results) {
-            if (result.status === 'fulfilled') {
-              allUpdates.push(result.value);
-            }
-          }
-        }
-        
-        const progress = Math.min(i + BATCH_SIZE * MAX_CONCURRENT_BATCHES, units.length);
-        console.log(`[AI Pricing] Progress: ${progress}/${units.length} units (${Math.round((progress / units.length) * 100)}%)`);
-      }
-      
-      console.log(`[AI Pricing] Calculated ${allUpdates.length} AI suggestions, starting bulk update...`);
-      
-      // Perform bulk update
-      await storage.bulkUpdateAIRates(allUpdates);
-      
-      console.log(`[AI Pricing] Bulk update complete, regenerating rate card...`);
-      
-      // Regenerate rate card with AI suggestions
-      await storage.generateRateCard(targetMonth);
-      
-      const elapsed = Date.now() - startTime;
-      console.log(`[AI Pricing] Generation complete for ${allUpdates.length} units in ${elapsed}ms`);
-
-      // Build portfolio projection from strategy layer outputs
-      const portfolioProjection = calculatePortfolioProjection(unitProjections);
-      console.log(`[AI Pricing] Strategy Layer portfolio summary: ${portfolioProjection.summaryMessage}`);
-      
-      res.json({ 
-        success: true, 
-        unitsProcessed: allUpdates.length,
-        aiWeights: aiSuggestedWeights,
-        aiReasoning: aiReasoning,
-        processingTimeMs: elapsed,
-        strategyLayerProjection: portfolioProjection,
-      });
-    } catch (error) {
-      console.error('AI generation error:', error);
-      res.status(500).json({ error: 'Failed to generate AI suggestions' });
-    }
+  // DEPRECATED (rules-only pivot, Task #321): The separate Revenue Target AI rate
+  // has been retired. Pricing suggestions now come exclusively from adjustment
+  // rules (the "Rules Rate" / rule_adjusted_rate). This endpoint no longer computes
+  // or persists an AI suggested rate. Use POST /api/adjustment-rules/suggest to get
+  // AI-proposed rules, and POST /api/pricing/generate-modulo for Modulo math.
+  app.post("/api/pricing/generate-ai", async (_req: any, res) => {
+    res.status(410).json({
+      success: false,
+      deprecated: true,
+      error: "The Revenue Target AI rate has been retired. Pricing suggestions now come from adjustment rules (Rules Rate). Use /api/adjustment-rules/suggest for AI-proposed rules.",
+    });
   });
 
   // Helper function to analyze a single scope (location + service line) with GPT
@@ -11789,8 +11094,14 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         if (!unit) continue;
         if (unit.clientId && unit.clientId !== clientId) continue;
         
-        const newRate = suggestionType === 'modulo' ? 
-          unit.moduloSuggestedRate : unit.aiSuggestedRate;
+        // Rules-only pivot: accept the Rules Rate (ruleAdjustedRate) when requested.
+        // 'modulo' kept for backward compatibility; 'ai' is retired and resolves to
+        // the (now frozen) aiSuggestedRate only if a caller still passes it.
+        const newRate = suggestionType === 'modulo'
+          ? unit.moduloSuggestedRate
+          : suggestionType === 'rule'
+            ? unit.ruleAdjustedRate
+            : unit.aiSuggestedRate;
           
         if (newRate) {
           // Record the change for history
@@ -14306,6 +13617,14 @@ Respond in JSON format:
         }
       }
       
+      // Elasticity-based revenue impact + days-to-sell for this rule's action
+      // (price-elasticity model — complements the naive in-house-vs-proposed model).
+      const elasticityImpact = await computeRuleElasticityImpact(
+        clientId,
+        { locationId: locationId || null, serviceLine: serviceLine || null },
+        parsedRule.action,
+      );
+
       if (preview) {
         // Just return preview info without creating the rule
         return res.json({
@@ -14317,6 +13636,7 @@ Respond in JSON format:
           campusBreakdown,
           reasonabilityCheck,
           previewRule: parsedRule,
+          elasticity: elasticityImpact,
         });
       }
       
@@ -14342,6 +13662,7 @@ Respond in JSON format:
         monthlyImpact: Math.round(monthlyImpact),
         annualImpact: Math.round(annualImpact),
         volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
+        elasticity: elasticityImpact,
       });
     } catch (error) {
       console.error('Error creating adjustment rule:', error);
@@ -14422,6 +13743,389 @@ Respond in JSON format:
       return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0, affectedCampuses: 0 };
     }
   }
+
+  // ── Rules-only pivot helpers (Task #321) ────────────────────────────────────
+
+  // Trailing-3-month move-ins per `${campus}||${serviceLine}||${roomType}`,
+  // scoped to a client (optionally a campus + service line). Mirrors the move-in
+  // definition used by the reference-data endpoint (distinct move-in events,
+  // private-pay only for HC / HC/MC).
+  async function getT3MoveInsMap(
+    clientId: string,
+    scope: { locationId?: string | null; serviceLine?: string | null },
+  ): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    const monthsRes = await pool.query(
+      `SELECT DISTINCT upload_month FROM rent_roll_data
+       WHERE client_id = $1 AND upload_month IS NOT NULL
+       ORDER BY upload_month DESC LIMIT 3`,
+      [clientId],
+    );
+    const t3 = monthsRes.rows.map((r: any) => r.upload_month).filter(Boolean);
+    if (t3.length === 0) return map;
+
+    const where: string[] = ['rr.client_id = $1'];
+    const params: any[] = [clientId];
+    let idx = 2;
+    if (scope.locationId) { where.push(`rr.location_id = $${idx}`); params.push(scope.locationId); idx++; }
+    if (scope.serviceLine) { where.push(`rr.service_line = $${idx}`); params.push(scope.serviceLine); idx++; }
+    const monthsIdx = idx;
+    params.push(t3);
+
+    const res = await pool.query(`
+      WITH ev AS (
+        SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+          rr.location, rr.service_line, rr.room_type, rr.payor_type,
+          CASE
+            WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+            WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+            ELSE NULL END AS dt
+        FROM rent_roll_data rr
+        WHERE ${where.join(' AND ')} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+        ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+                 (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+      ),
+      valid AS (
+        SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+        FROM ev
+        WHERE dt IS NOT NULL
+          AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+      )
+      SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
+      FROM valid WHERE mm = ANY($${monthsIdx})
+      GROUP BY location, service_line, room_type
+    `, params);
+    for (const r of res.rows as any[]) {
+      map.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
+    }
+    return map;
+  }
+
+  // Units impacted + naive and elasticity-based revenue impact for applying a
+  // parsed adjustment action to a campus + service line. Reuses elasticityService.
+  type RuleElasticityImpact = {
+    unitsImpacted: number;
+    monthlyImpact: number | null;
+    annualImpact: number | null;
+    elasticity: number | null;
+    daysToSellAfter: number | null;
+    predictedDaysToSellChange: number | null;
+    elasticityMonthlyImpact: number | null;
+    elasticityAnnualImpact: number | null;
+  };
+  async function computeRuleElasticityImpact(
+    clientId: string,
+    scope: { locationId?: string | null; serviceLine?: string | null },
+    action: any,
+  ): Promise<RuleElasticityImpact> {
+    const empty: RuleElasticityImpact = {
+      unitsImpacted: 0, monthlyImpact: null, annualImpact: null,
+      elasticity: null, daysToSellAfter: null, predictedDaysToSellChange: null,
+      elasticityMonthlyImpact: null, elasticityAnnualImpact: null,
+    };
+    try {
+      const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
+        await import('./services/elasticityService');
+
+      const latestRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`, [clientId]);
+      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
+      if (!latestMonth) return empty;
+
+      const allUnits = await storage.getRentRollDataByMonth(latestMonth, clientId);
+      const filters = action?.filters || {};
+      const adjustmentType: string = action?.adjustmentType || 'percentage';
+      const adjustmentValue: number = Number(action?.adjustmentValue ?? 0);
+      const target = action?.target;
+      const rateOf = (u: any): number => (target === 'care_rate' ? (u.careRate || 0) : (u.streetRate || 0));
+
+      const affected = allUnits.filter((u: any) => {
+        if (scope.locationId && u.locationId !== scope.locationId) return false;
+        if (scope.serviceLine && u.serviceLine !== scope.serviceLine) return false;
+        if (filters.roomType?.length && !filters.roomType.includes(u.roomType)) return false;
+        if (filters.serviceLine?.length && !filters.serviceLine.includes(u.serviceLine)) return false;
+        if (filters.location?.length && !filters.location.includes(u.location)) return false;
+        if (filters.occupancyStatus === 'vacant' && u.occupiedYN) return false;
+        if (filters.occupancyStatus === 'occupied' && !u.occupiedYN) return false;
+        if (filters.vacancyDuration && u.daysVacant != null) {
+          const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
+          const ok = operator === '>' ? u.daysVacant > days : u.daysVacant >= days;
+          if (!ok) return false;
+        }
+        return true;
+      });
+
+      if (affected.length === 0) return empty;
+
+      const deltaOf = (base: number): number =>
+        adjustmentType === 'percentage' ? base * (adjustmentValue / 100) : adjustmentValue;
+
+      let naiveMonthly = 0;
+      const byRt = new Map<string, { count: number; sumBase: number; sumDelta: number; sl: string }>();
+      for (const u of affected) {
+        const base = rateOf(u);
+        const delta = deltaOf(base);
+        naiveMonthly += delta;
+        const key = `${u.location || ''}||${u.serviceLine || ''}||${u.roomType || ''}`;
+        const g = byRt.get(key) || { count: 0, sumBase: 0, sumDelta: 0, sl: u.serviceLine || '' };
+        g.count++; g.sumBase += base; g.sumDelta += delta;
+        byRt.set(key, g);
+      }
+
+      const elasticityMap = await getElasticityMap(clientId);
+      const moveMap = await getT3MoveInsMap(clientId, scope);
+
+      let elMonthly: number | null = null;
+      let elAnnual: number | null = null;
+      let wElasticity: number | null = null, wDaysAfter: number | null = null, wPredDays: number | null = null;
+      let elWeight = 0, daysWeight = 0, predWeight = 0;
+
+      for (const [key, g] of Array.from(byRt.entries())) {
+        const el = elasticityMap.get(key) ?? null;
+        const elasticity = el?.elasticity ?? null;
+        const daysAfter = el?.daysToSellAfter ?? null;
+        const avgBase = g.count ? g.sumBase / g.count : 0;
+        const avgDelta = g.count ? g.sumDelta / g.count : 0;
+        const predDays = predictDaysToSellChange(elasticity, daysAfter, avgBase, avgDelta);
+        const moveIns = moveMap.get(key) ?? null;
+        const dailyRate = avgBase > 0 ? toDailyRate(avgBase, g.sl) : null;
+        const impact = calculateElasticityRevenueImpact({
+          moveInsMonthly: moveIns, deltaRate: avgDelta, deltaDaysToSell: predDays, dailyRate,
+        });
+        if (impact.monthly !== null) elMonthly = (elMonthly ?? 0) + impact.monthly;
+        if (impact.annual !== null) elAnnual = (elAnnual ?? 0) + impact.annual;
+        if (elasticity !== null) { wElasticity = (wElasticity ?? 0) + elasticity * g.count; elWeight += g.count; }
+        if (daysAfter !== null) { wDaysAfter = (wDaysAfter ?? 0) + daysAfter * g.count; daysWeight += g.count; }
+        if (predDays !== null) { wPredDays = (wPredDays ?? 0) + predDays * g.count; predWeight += g.count; }
+      }
+
+      return {
+        unitsImpacted: affected.length,
+        monthlyImpact: Math.round(naiveMonthly),
+        annualImpact: Math.round(naiveMonthly * 12),
+        elasticity: elWeight > 0 && wElasticity !== null ? wElasticity / elWeight : null,
+        daysToSellAfter: daysWeight > 0 && wDaysAfter !== null ? wDaysAfter / daysWeight : null,
+        predictedDaysToSellChange: predWeight > 0 && wPredDays !== null ? wPredDays / predWeight : null,
+        elasticityMonthlyImpact: elMonthly !== null ? Math.round(elMonthly) : null,
+        elasticityAnnualImpact: elAnnual !== null ? Math.round(elAnnual) : null,
+      };
+    } catch (err) {
+      console.error('computeRuleElasticityImpact error:', err);
+      return empty;
+    }
+  }
+
+  // Human-readable one-line summary of a parsed rule's action + trigger.
+  function formatRuleDetail(rule: { trigger?: any; action?: any }): string {
+    const a = rule.action || {};
+    const dir = (a.adjustmentValue ?? 0) >= 0 ? 'Increase' : 'Decrease';
+    const mag = a.adjustmentType === 'percentage'
+      ? `${Math.abs(a.adjustmentValue ?? 0)}%`
+      : `$${Math.abs(a.adjustmentValue ?? 0)}`;
+    const targetLabel = a.target === 'care_rate' ? 'care rate'
+      : a.target === 'all_rates' ? 'all rates' : 'street rate';
+    const parts: string[] = [`${dir} ${targetLabel} by ${mag}`];
+    const f = a.filters || {};
+    if (f.occupancyStatus) parts.push(`for ${f.occupancyStatus} units`);
+    if (f.roomType?.length) parts.push(`(room types: ${f.roomType.join(', ')})`);
+    if (f.vacancyDuration) parts.push(`vacant ${f.vacancyDuration.operator} ${f.vacancyDuration.days} days`);
+    const t = rule.trigger || {};
+    if (t.type === 'time' && t.timeInterval) parts.push(`every ${t.timeInterval.value} ${t.timeInterval.unit}(s)`);
+    else if (t.type === 'event' && t.event) parts.push(`on ${t.event}`);
+    return parts.join(' ');
+  }
+
+  // ── AI rule suggestions (Task #321) ─────────────────────────────────────────
+  // Given a campus + service line + revenue growth target, ask the AI to propose
+  // adjustment rules. The AI returns plain-English rule sentences which we run
+  // through the existing natural-language parser (so suggestions reuse ParsedRule
+  // and are structurally identical to manually-authored rules). Each suggestion is
+  // annotated with its plain-English intent, rule detail, units impacted, and an
+  // elasticity-based revenue impact. Suggestions are NOT persisted here — the
+  // client accepts or denies them via the endpoints below.
+  app.post("/api/adjustment-rules/suggest", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLine, targetGrowthPercent } = req.body || {};
+      if (!serviceLine) return res.status(400).json({ error: "serviceLine is required" });
+
+      const latestRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`, [clientId]);
+      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
+      if (!latestMonth) return res.json({ suggestions: [], context: { reason: 'no rent roll data' } });
+
+      const allUnits = await storage.getRentRollDataByMonth(latestMonth, clientId);
+      const scoped = allUnits.filter((u: any) =>
+        (!locationId || u.locationId === locationId) && u.serviceLine === serviceLine);
+      if (scoped.length === 0) return res.json({ suggestions: [], context: { reason: 'no units in scope' } });
+
+      // Aggregate metrics for the AI prompt
+      const total = scoped.length;
+      const occupied = scoped.filter((u: any) => u.occupiedYN).length;
+      const vacant = total - occupied;
+      const occPct = total ? (occupied / total) * 100 : 0;
+      const streetRates = scoped.map((u: any) => u.streetRate).filter((r: number) => r > 0);
+      const avgStreet = streetRates.length ? streetRates.reduce((a: number, b: number) => a + b, 0) / streetRates.length : 0;
+      const compRates = scoped.map((u: any) => u.competitorFinalRate).filter((r: number) => r > 0);
+      const avgComp = compRates.length ? compRates.reduce((a: number, b: number) => a + b, 0) / compRates.length : null;
+      const dvArr = scoped.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant);
+      const avgDaysVacant = dvArr.length ? dvArr.reduce((a: number, b: number) => a + b, 0) / dvArr.length : 0;
+      const campusName = scoped[0]?.location || '';
+
+      const { getElasticityMap } = await import('./services/elasticityService');
+      const elasticityMap = await getElasticityMap(clientId);
+      const segElasticities = Array.from(elasticityMap.values())
+        .filter((e: any) => e.locationName === campusName && e.serviceLine === serviceLine && e.elasticity !== null)
+        .map((e: any) => e.elasticity as number);
+      const avgElasticity = segElasticities.length
+        ? segElasticities.reduce((a, b) => a + b, 0) / segElasticities.length : null;
+
+      const roomTypes = Array.from(new Set(scoped.map((u: any) => u.roomType).filter(Boolean)));
+
+      const metricsBlock =
+        `Campus: ${campusName || 'All campuses'}\n` +
+        `Service line: ${serviceLine}\n` +
+        `Revenue growth target: ${targetGrowthPercent != null ? targetGrowthPercent + '%' : 'not specified'}\n` +
+        `Total units: ${total}\n` +
+        `Occupied: ${occupied} (${occPct.toFixed(1)}% occupancy)\n` +
+        `Vacant: ${vacant}\n` +
+        `Average street rate: $${Math.round(avgStreet)}\n` +
+        `Average competitor rate: ${avgComp !== null ? '$' + Math.round(avgComp) : 'unknown'}\n` +
+        `Average days vacant: ${Math.round(avgDaysVacant)}\n` +
+        `Average price elasticity (Δdays-to-sell / Δrate): ${avgElasticity !== null ? avgElasticity.toFixed(3) : 'unknown'}\n` +
+        `Room types: ${roomTypes.join(', ') || 'unknown'}`;
+
+      const system =
+        'You are a senior living revenue-management expert. You design pricing adjustment ' +
+        'rules to hit revenue growth targets while protecting occupancy. You reason about ' +
+        'occupancy pressure, vacancy duration, competitor positioning, and price elasticity.';
+      const user =
+        `Analyze this campus + service line and propose 3 to 5 pricing adjustment rules to ` +
+        `reach the revenue growth target.\n\n${metricsBlock}\n\n` +
+        `Guidance:\n` +
+        `- If occupancy is high and elasticity is weak (small magnitude), favor rate increases.\n` +
+        `- If occupancy is low or units sit vacant a long time, favor targeted discounts to accelerate leasing.\n` +
+        `- Keep individual adjustments realistic (typically 1%–12%).\n` +
+        `For each rule give: a short name, a one-sentence plain-English business intent, and a ` +
+        `single plain-English rule sentence that states the action, the percentage or dollar ` +
+        `amount, and any condition (e.g. occupancy status, vacancy duration, room type).`;
+      const formatInstruction =
+        `Return ONLY a valid JSON object of the form: ` +
+        `{"rules":[{"name":string,"intent":string,"rule":string}]}. ` +
+        `The "rule" field MUST be a single imperative sentence such as ` +
+        `"Increase street rate by 5% for occupied units" or ` +
+        `"Decrease street rate by 8% for vacant units over 60 days". No other text.`;
+
+      const rawText = await callClaudeThenGPT(system, user, formatInstruction, {
+        label: `rule-suggest:${campusName || 'all'}:${serviceLine}`,
+        claudeMaxTokens: 700, gptMaxTokens: 900,
+      });
+
+      let parsedResponse: any;
+      try { parsedResponse = JSON.parse(rawText); }
+      catch { return res.status(502).json({ error: 'AI returned an unparseable response', raw: rawText }); }
+
+      const proposed: any[] = Array.isArray(parsedResponse?.rules) ? parsedResponse.rules : [];
+      const suggestions: any[] = [];
+
+      for (const p of proposed) {
+        const sentence: string = p?.rule || p?.description || '';
+        if (!sentence) continue;
+        const parsed = parseNaturalLanguageRule(sentence);
+        if (!parsed) continue;
+        const validation = validateParsedRule(parsed);
+        if (!validation.isValid) continue;
+
+        const impact = await computeRuleElasticityImpact(
+          clientId, { locationId: locationId || null, serviceLine }, parsed.action);
+
+        suggestions.push({
+          suggestionId: randomUUID(),
+          name: p?.name || parsed.name,
+          intent: p?.intent || parsed.description,
+          description: sentence,           // natural-language rule (persisted verbatim on accept)
+          ruleDetail: formatRuleDetail(parsed),
+          serviceLine,
+          locationId: locationId || null,
+          trigger: parsed.trigger,
+          action: parsed.action,
+          unitsImpacted: impact.unitsImpacted,
+          monthlyImpact: impact.monthlyImpact,
+          annualImpact: impact.annualImpact,
+          elasticity: impact.elasticity,
+          daysToSellAfter: impact.daysToSellAfter,
+          predictedDaysToSellChange: impact.predictedDaysToSellChange,
+          elasticityMonthlyImpact: impact.elasticityMonthlyImpact,
+          elasticityAnnualImpact: impact.elasticityAnnualImpact,
+        });
+      }
+
+      res.json({
+        suggestions,
+        context: {
+          campus: campusName, serviceLine, targetGrowthPercent: targetGrowthPercent ?? null,
+          occupancyPercent: Number(occPct.toFixed(1)),
+          avgStreetRate: Math.round(avgStreet),
+          avgCompetitorRate: avgComp !== null ? Math.round(avgComp) : null,
+          avgDaysVacant: Math.round(avgDaysVacant),
+          avgElasticity,
+        },
+      });
+    } catch (error) {
+      console.error('Error generating rule suggestions:', error);
+      res.status(500).json({ error: "Failed to generate rule suggestions" });
+    }
+  });
+
+  // Accept an AI-suggested rule. It is persisted via the same pipeline as a
+  // manually-authored rule (parsed from its natural-language description) so the
+  // resulting adjustment rule is indistinguishable from a manual one.
+  app.post("/api/adjustment-rules/suggestions/accept", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { name, description, locationId, serviceLine, priority } = req.body || {};
+      if (!description) return res.status(400).json({ error: "description is required" });
+
+      const parsed = parseNaturalLanguageRule(description);
+      if (!parsed) return res.status(400).json({ error: "Could not understand the rule. Please rephrase." });
+      const validation = validateParsedRule(parsed);
+      if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
+
+      const impact = await computeRuleElasticityImpact(
+        clientId, { locationId: locationId || null, serviceLine: serviceLine || null }, parsed.action);
+
+      const rule = await storage.createAdjustmentRule({
+        locationId: locationId || null,
+        serviceLine: serviceLine || null,
+        name: name || parsed.name,
+        description,
+        trigger: parsed.trigger,
+        action: parsed.action,
+        isActive: true,
+        createdBy: 'user',
+        monthlyImpact: impact.monthlyImpact ?? 0,
+        annualImpact: impact.annualImpact ?? 0,
+        volumeAdjustedAnnualImpact: impact.annualImpact != null ? Math.round(impact.annualImpact * 1.05) : 0,
+      });
+
+      res.json({ success: true, rule, elasticity: impact });
+    } catch (error) {
+      console.error('Error accepting rule suggestion:', error);
+      res.status(500).json({ error: "Failed to accept rule suggestion" });
+    }
+  });
+
+  // Deny an AI-suggested rule. Suggestions are stateless (never persisted), so
+  // denial is simply an acknowledgement — nothing to delete.
+  app.post("/api/adjustment-rules/suggestions/deny", async (req: any, res) => {
+    try {
+      const { suggestionId } = req.body || {};
+      res.json({ success: true, suggestionId: suggestionId ?? null });
+    } catch (error) {
+      console.error('Error denying rule suggestion:', error);
+      res.status(500).json({ error: "Failed to deny rule suggestion" });
+    }
+  });
 
   app.get("/api/adjustment-rules", async (req: any, res) => {
     try {
@@ -15521,8 +15225,9 @@ Respond in JSON format:
           AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
           AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
           AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
-          AVG(COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate))
-            FILTER (WHERE COALESCE(rr.rule_adjusted_rate, rr.modulo_suggested_rate) > 0) AS avg_proposed
+          -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
+          -- No Modulo fallback — when no rule applies the proposed rate is NULL.
+          AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
         WHERE ${where}
