@@ -205,11 +205,16 @@ export default function ModuloCalculationDialog({
   };
 
   // Derive a human-readable description from a rule's stored trigger JSONB.
-  // Handles the array-based multi-condition format written by the structured rule builder.
-  // Falls back gracefully when conditions are absent or in legacy format.
-  function describeTrigger(trigger: any): string {
-    if (!trigger) return '';
-    if (!Array.isArray(trigger.conditions) || trigger.conditions.length === 0) return '';
+  // Handles the array-based multi-condition format written by the structured rule builder,
+  // as well as the singular trigger.condition object written by the natural language parser.
+  function describeTrigger(triggerRaw: any): string {
+    if (!triggerRaw) return '';
+    const trigger = typeof triggerRaw === 'string' ? JSON.parse(triggerRaw) : triggerRaw;
+
+    // Immediate / unconditional rule
+    if (trigger.type === 'immediate' || trigger.immediate === true) {
+      return 'Applies unconditionally';
+    }
 
     const FIELD_LABELS: Record<string, string> = {
       occupancy: 'Campus Occupancy',
@@ -245,15 +250,26 @@ export default function ModuloCalculationDialog({
       '=': '=', '==': '=', '===': '=',
     };
 
-    const condParts = (trigger.conditions as Array<{ field: string; operator: string; value: number }>)
-      .map(c => {
-        const label = FIELD_LABELS[c.field] || c.field;
-        const op = OP_LABELS[c.operator] || c.operator;
-        return `${label} ${op} ${c.value}`;
-      });
+    const formatCond = (c: { field: string; operator: string; value: number }) => {
+      const label = FIELD_LABELS[c.field] || c.field;
+      const op = OP_LABELS[c.operator] || c.operator;
+      return `${label} ${op} ${c.value}`;
+    };
 
-    const condOperator = (trigger.conditionOperator || 'AND').toUpperCase();
-    return `If ${condParts.join(` ${condOperator} `)}`;
+    // Array-based multi-condition format (structured rule builder)
+    if (Array.isArray(trigger.conditions) && trigger.conditions.length > 0) {
+      const condOperator = (trigger.conditionOperator || 'AND').toUpperCase();
+      const condParts = (trigger.conditions as Array<{ field: string; operator: string; value: number }>)
+        .map(formatCond);
+      return `If ${condParts.join(` ${condOperator} `)}`;
+    }
+
+    // Singular condition object format (natural language parser)
+    if (trigger.condition && trigger.condition.field) {
+      return `If ${formatCond(trigger.condition as { field: string; operator: string; value: number })}`;
+    }
+
+    return '';
   }
 
   // Build a step-by-step breakdown of each rule applied to this unit.
@@ -279,6 +295,7 @@ export default function ModuloCalculationDialog({
     let current = streetRate;
     return matchedRules.map((rule: any, idx: number) => {
       const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : rule.action;
+      const trigger = typeof rule.trigger === 'string' ? JSON.parse(rule.trigger) : rule.trigger;
       const isAdditive = !!(action?.isAdditive);
       const adjType = action?.adjustmentType || 'percentage';
       const adjValue = action?.adjustmentValue ?? action?.percentage ?? 0;
@@ -296,7 +313,7 @@ export default function ModuloCalculationDialog({
         : `${adjValue >= 0 ? 'Increase' : 'Decrease'} by ${dollarStr}`;
       return {
         name: rule.name,
-        description: describeTrigger(rule.trigger) || rule.description || '',
+        description: describeTrigger(trigger),
         actionLabel,
         before,
         after: current,
