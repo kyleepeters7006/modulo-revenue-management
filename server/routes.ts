@@ -933,26 +933,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const OCCUPANCY_FIELDS = new Set(['occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy']);
       const allRules = await storage.getAdjustmentRules();
-      const fixed: string[] = [];
+      const fixedOccupancy: string[] = [];
+      const fixedServiceLine: string[] = [];
 
       for (const rule of allRules) {
         const trigger = rule.trigger as any;
         const action = rule.action as any;
-        if (!Array.isArray(trigger?.conditions)) continue;
-        if (!action?.filters?.occupancyStatus) continue;
-        const hasOccupancyCondition = trigger.conditions.some((c: any) => OCCUPANCY_FIELDS.has(c.field));
-        if (hasOccupancyCondition) continue;
 
-        const newFilters = { ...action.filters };
-        delete newFilters.occupancyStatus;
-        await storage.updateAdjustmentRule(rule.id, {
-          action: { ...action, filters: newFilters },
-        });
-        console.log(`[fix-stale-rule-filters] Cleared stale occupancyStatus from rule "${rule.name}" (id=${rule.id})`);
-        fixed.push(rule.name);
+        // Fix 1: stale occupancyStatus filter (existing logic)
+        if (Array.isArray(trigger?.conditions) && action?.filters?.occupancyStatus) {
+          const hasOccupancyCondition = trigger.conditions.some((c: any) => OCCUPANCY_FIELDS.has(c.field));
+          if (!hasOccupancyCondition) {
+            const newFilters = { ...action.filters };
+            delete newFilters.occupancyStatus;
+            await storage.updateAdjustmentRule(rule.id, {
+              action: { ...action, filters: newFilters },
+            });
+            console.log(`[fix-stale-rule-filters] Cleared stale occupancyStatus from rule "${rule.name}" (id=${rule.id})`);
+            fixedOccupancy.push(rule.name);
+          }
+        }
+
+        // Fix 2: stale action.filters.serviceLine that doesn't match rule.serviceLine
+        // Affects rules saved before task #336 where filters.serviceLine=['AL'] but
+        // rule.serviceLine='AL/MC'. Replace the filter array with [rule.serviceLine].
+        if (rule.serviceLine && Array.isArray(action?.filters?.serviceLine)) {
+          const filterSL: string[] = action.filters.serviceLine;
+          if (!filterSL.includes(rule.serviceLine)) {
+            const newFilters = { ...action.filters, serviceLine: [rule.serviceLine] };
+            await storage.updateAdjustmentRule(rule.id, {
+              action: { ...action, filters: newFilters },
+            });
+            console.log(`[fix-stale-rule-filters] Repaired serviceLine filter on rule "${rule.name}" (id=${rule.id}): ${JSON.stringify(filterSL)} → [${rule.serviceLine}]`);
+            fixedServiceLine.push(rule.name);
+          }
+        }
       }
 
-      res.json({ message: `Fixed ${fixed.length} rule(s)`, fixed });
+      const totalFixed = fixedOccupancy.length + fixedServiceLine.length;
+      res.json({
+        message: `Fixed ${totalFixed} rule(s)`,
+        fixedOccupancy,
+        fixedServiceLine,
+      });
     } catch (error) {
       console.error('Error fixing stale rule filters:', error);
       res.status(500).json({ error: 'Failed to fix stale rule filters' });
@@ -13777,9 +13800,14 @@ Respond in JSON format:
         whereParts.push(`room_type = ANY($${idx}::text[])`);
         params.push(filters.roomType); idx++;
       }
-      if (filters.serviceLine?.length) {
+      // rule.serviceLine is authoritative — override stale action.filters.serviceLine
+      // so pre-#336 rules (saved with ['AL'] instead of ['AL/MC']) count the right units.
+      const effectiveSlFilter: string[] | null = rule.serviceLine
+        ? [rule.serviceLine]
+        : (filters.serviceLine?.length ? filters.serviceLine : null);
+      if (effectiveSlFilter?.length) {
         whereParts.push(`service_line = ANY($${idx}::text[])`);
-        params.push(filters.serviceLine); idx++;
+        params.push(effectiveSlFilter); idx++;
       }
       if (filters.occupancyStatus === 'vacant') {
         whereParts.push(`(occupied_yn = false OR occupied_yn IS NULL)`);

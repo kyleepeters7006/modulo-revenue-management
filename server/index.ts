@@ -6,6 +6,7 @@ import { resumeInterruptedJobs } from "./services/competitorRateJobService";
 import { db } from "./db";
 import { rentRollData } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
+import { storage } from "./storage";
 
 // Prevent unhandled promise rejections / exceptions from crashing the process.
 // Neon serverless drops idle connections (code 57P01) which can surface as
@@ -163,6 +164,35 @@ app.use((req, res, next) => {
   }
 
   const server = await registerRoutes(app);
+
+  // One-time repair: fix stale action.filters.serviceLine on adjustment rules
+  // saved before task #336. These rules have rule.serviceLine='AL/MC' but
+  // action.filters.serviceLine=['AL'], causing them to silently skip all units.
+  setTimeout(async () => {
+    try {
+      const allRules = await storage.getAdjustmentRules();
+      let repaired = 0;
+      for (const rule of allRules) {
+        const action = rule.action as any;
+        if (rule.serviceLine && Array.isArray(action?.filters?.serviceLine)) {
+          const filterSL: string[] = action.filters.serviceLine;
+          if (!filterSL.includes(rule.serviceLine)) {
+            const newFilters = { ...action.filters, serviceLine: [rule.serviceLine] };
+            await storage.updateAdjustmentRule(rule.id, {
+              action: { ...action, filters: newFilters },
+            });
+            log(`[startup-migration] Repaired serviceLine filter on rule "${rule.name}": ${JSON.stringify(filterSL)} → [${rule.serviceLine}]`);
+            repaired++;
+          }
+        }
+      }
+      if (repaired > 0) {
+        log(`[startup-migration] Repaired ${repaired} adjustment rule(s) with stale serviceLine filters`);
+      }
+    } catch (err) {
+      log(`[startup-migration] Rule SL filter repair failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 3000);
 
   // Run room type normalization backfill asynchronously in background
   // This won't block server startup

@@ -412,9 +412,14 @@ export function applyAdjustmentRulesToUnit(
         );
         if (!matches) continue;
       }
-      if (filters.serviceLine && Array.isArray(filters.serviceLine)) {
-        if (!filters.serviceLine.includes(unit.serviceLine)) continue;
-      }
+      // When rule.serviceLine is set it is the authoritative scope gate (already
+      // verified above). Use it to override any stale action.filters.serviceLine
+      // value so pre-#336 rules (saved with ['AL'] instead of ['AL/MC']) still
+      // fire correctly for the scoped service line.
+      const slFilter = rule.serviceLine
+        ? [rule.serviceLine]
+        : (filters.serviceLine && Array.isArray(filters.serviceLine) ? filters.serviceLine : null);
+      if (slFilter && !slFilter.includes(unit.serviceLine)) continue;
       if (filters.occupancyStatus === "vacant" && unit.occupiedYN) continue;
       if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
     }
