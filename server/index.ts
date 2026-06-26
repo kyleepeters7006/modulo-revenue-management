@@ -180,6 +180,37 @@ app.use((req, res, next) => {
     }
   }, 5000); // Start backfill 5 seconds after server starts
 
+  // Elasticity backfill: compute elasticity for any client that has rent_roll_data
+  // but no entries in elasticity_metrics yet (e.g. Trilogy after initial data import).
+  // Runs once at startup in the background — safe to repeat (idempotent upsert).
+  setTimeout(async () => {
+    try {
+      const { pool } = await import('./db');
+      const clientsRes = await pool.query<{ client_id: string }>(
+        `SELECT DISTINCT rr.client_id
+         FROM rent_roll_data rr
+         LEFT JOIN elasticity_metrics em ON em.client_id = rr.client_id
+         WHERE em.client_id IS NULL`,
+      );
+      if (clientsRes.rows.length === 0) {
+        log('[elasticity-backfill] All clients already have elasticity data — skipping.');
+        return;
+      }
+      const { computeAndStoreElasticity } = await import('./services/elasticityService');
+      for (const { client_id } of clientsRes.rows) {
+        try {
+          log(`[elasticity-backfill] Computing elasticity for client=${client_id}…`);
+          const result = await computeAndStoreElasticity(client_id);
+          log(`[elasticity-backfill] Done for client=${client_id}: ${result.updated} segments updated.`);
+        } catch (err) {
+          log(`[elasticity-backfill] Failed for client=${client_id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    } catch (err) {
+      log(`[elasticity-backfill] Startup check failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 7000); // 7 s after startup — after room-type backfill begins
+
   // Log Alpha Vantage API key availability at startup
   const avKey = process.env.ALPHA_VANTAGE_API_KEY;
   if (avKey) {
