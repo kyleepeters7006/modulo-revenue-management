@@ -336,61 +336,6 @@ export default function RateCardTable({
     }
   });
 
-  // Helper function to generate Modulo calculation explanation
-  const getModuloTooltip = (unit: any) => {
-    if (!unit.moduloSuggestedRate || unit.moduloSuggestedRate === unit.streetRate) {
-      return "No Rules Rate suggestions available";
-    }
-
-    const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
-    const displayModulo = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
-    const displayCompetitor = convertToDisplayRate(unit.competitorFinalRate, unit.serviceLine) || 0;
-    const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
-    const rateSuffix = isDailyRate ? '/day' : '';
-    
-    const change = displayModulo - displayStreet;
-    const changePercent = Math.round((change / displayStreet) * 100);
-    
-    let factors = [];
-    
-    // Occupancy factor
-    if (unit.occupiedYN) {
-      factors.push("✓ Unit occupied: +2% market positioning");
-    } else {
-      factors.push("⚠ Unit vacant: -1.5% to attract residents");
-    }
-    
-    // Days vacant factor
-    if (unit.daysVacant > 30) {
-      const penalty = Math.min((unit.daysVacant / 60) * 5, 15);
-      factors.push(`⏰ ${unit.daysVacant} days vacant: -${Math.round(penalty)}% urgency discount`);
-    }
-    
-    // Attributes factor
-    let attributeBonus = 0;
-    if (unit.view) attributeBonus += 3;
-    if (unit.renovated) attributeBonus += 5;
-    if (attributeBonus > 0) {
-      factors.push(`⭐ Premium features: +${attributeBonus}% (${unit.view ? 'View' : ''}${unit.view && unit.renovated ? ', ' : ''}${unit.renovated ? 'Renovated' : ''})`);
-    }
-    
-    // Competitor factor - use proper display rates
-    if (displayCompetitor > 0 && Math.abs(displayCompetitor - displayStreet) > (isDailyRate ? 2 : 50)) {
-      const competitorDiff = displayCompetitor - displayStreet;
-      const adjustment = Math.round(competitorDiff / displayStreet * 50);
-      factors.push(`🏢 Competitor rate $${Math.round(displayCompetitor).toLocaleString()}${rateSuffix}: ${competitorDiff > 0 ? '+' : ''}${adjustment}% market adjustment`);
-    }
-
-    return `Rules Rate Calculation:
-    
-Base Rate: $${Math.round(displayStreet).toLocaleString()}${rateSuffix}
-${factors.join('\n')}
-
-Final Rate: $${Math.round(displayModulo).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
-
-The Rules Rate engine considers occupancy pressure, vacancy duration, unit attributes, and competitor positioning to optimize pricing.`;
-  };
-
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
 
@@ -465,12 +410,12 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
   }
   if (columnFilters.rulesRateMin !== '') {
     filteredUnits = filteredUnits.filter((u: any) =>
-      (u.ruleAdjustedRate || u.moduloSuggestedRate || 0) >= parseFloat(columnFilters.rulesRateMin)
+      (u.ruleAdjustedRate || 0) >= parseFloat(columnFilters.rulesRateMin)
     );
   }
   if (columnFilters.rulesRateMax !== '') {
     filteredUnits = filteredUnits.filter((u: any) =>
-      (u.ruleAdjustedRate || u.moduloSuggestedRate || 0) <= parseFloat(columnFilters.rulesRateMax)
+      (u.ruleAdjustedRate || 0) <= parseFloat(columnFilters.rulesRateMax)
     );
   }
   
@@ -544,8 +489,8 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
           bVal = b.streetRate || 0;
           break;
         case 'modulo':
-          aVal = a.moduloSuggestedRate || 0;
-          bVal = b.moduloSuggestedRate || 0;
+          aVal = a.ruleAdjustedRate || 0;
+          bVal = b.ruleAdjustedRate || 0;
           break;
         case 'competitor':
           aVal = a.competitorFinalRate || 0;
@@ -643,7 +588,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
               {filteredUnits.length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   {(() => {
-                    const moduloCount = filteredUnits.filter((u: any) => u.ruleAdjustedRate || u.moduloSuggestedRate).length;
+                    const moduloCount = filteredUnits.filter((u: any) => u.ruleAdjustedRate).length;
                     return (
                       <>
                         {moduloCount > 0 ? (
@@ -669,7 +614,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
                 <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
                 <Button
                   onClick={() => {
-                    const unitsWithModulo = filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate));
+                    const unitsWithModulo = filteredUnits.filter((u: any) => u.ruleAdjustedRate);
                     if (unitsWithModulo.length === 0) {
                       toast({ 
                         title: "No Rules Rate suggestions", 
@@ -689,7 +634,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
                   data-testid="button-accept-all-modulo"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Rules Rate ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate)).length})
+                  Accept All Rules Rate ({filteredUnits.filter((u: any) => u.ruleAdjustedRate).length})
                 </Button>
                 </div>
               </div>
@@ -1086,7 +1031,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
                         )}
                       </TableCell>
                       <TableCell>
-                        {(unit.ruleAdjustedRate || unit.moduloSuggestedRate) ? (
+                        {unit.ruleAdjustedRate ? (
                           <div className="flex items-center space-x-2">
                             <div className="flex flex-col">
                               <ModuloCalculationDialog
@@ -1115,7 +1060,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
                                   data-testid={`tooltip-modulo-${unit.roomNumber}`}
                                 >
                                   <span>
-                                    {formatRateByServiceLine(Math.round(unit.ruleAdjustedRate || unit.moduloSuggestedRate), unit.serviceLine)}
+                                    {formatRateByServiceLine(Math.round(unit.ruleAdjustedRate), unit.serviceLine)}
                                     {unit.ruleAdjustedRate && unit.streetRate && (
                                       <span className="text-xs text-gray-500 ml-1">
                                         (Street Rate: {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
@@ -1158,16 +1103,7 @@ The Rules Rate engine considers occupancy pressure, vacancy duration, unit attri
                                     </span>
                                   );
                                 }
-                                // No rule: show Modulo vs street rate
-                                const displayModulo = convertToDisplayRate(unit.moduloSuggestedRate, unit.serviceLine) || 0;
-                                const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
-                                const change = Math.round(displayModulo - displayStreet);
-                                const changePercent = Math.round((change / displayStreet) * 100);
-                                return (
-                                  <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {change > 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change > 0 ? '+' : ''}{changePercent}%)
-                                  </span>
-                                );
+                                return null;
                               })()}
                             </div>
                             <Button
