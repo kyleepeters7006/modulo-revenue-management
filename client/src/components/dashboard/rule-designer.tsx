@@ -249,14 +249,6 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
   useEffect(() => { fetchManualOverrides(); }, [fetchManualOverrides]);
 
-  const clearManualOverride = useCallback(async (locationName: string, sl: string, rt: string) => {
-    try {
-      await fetch(`/api/manual-rate-override/${encodeURIComponent(locationName)}/${encodeURIComponent(sl)}/${encodeURIComponent(rt)}`, { method: 'DELETE' });
-      fetchManualOverrides();
-      fetchRules(); // refresh rules list too so impacts update
-    } catch { /* silent */ }
-  }, [fetchManualOverrides, fetchRules]);
-
   const recognitionRef = useRef<any>(null);
 
   const isSpeechSupported = typeof window !== 'undefined' &&
@@ -274,6 +266,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   }, [locationId, serviceLine]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  const clearManualOverride = useCallback(async (locationName: string, sl: string, rt: string) => {
+    try {
+      await fetch(`/api/manual-rate-override/${encodeURIComponent(locationName)}/${encodeURIComponent(sl)}/${encodeURIComponent(rt)}`, { method: 'DELETE' });
+      fetchManualOverrides();
+      fetchRules(); // refresh rules list too so impacts update
+    } catch { /* silent */ }
+  }, [fetchManualOverrides, fetchRules]);
 
   // Fetch unique campus/unit counts whenever active rules change
   const fetchCombinedStats = useCallback(async () => {
