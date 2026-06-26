@@ -31,7 +31,10 @@ import {
   Info,
   ChevronRight,
   ChevronDown,
+  Pencil,
+  Trash2,
 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 // ── Column metadata ────────────────────────────────────────────────
 type ColType =
@@ -346,6 +349,37 @@ export default function ReferenceDataTable({
   const [calcJobId, setCalcJobId] = useState<string | null>(null);
   const [calcProgress, setCalcProgress] = useState<number>(0);
   const [calcDone, setCalcDone] = useState(false);
+
+  // ── Manual override popover state ────────────────────────────────
+  const [overridePop, setOverridePop] = useState<{
+    key: string; campus: string; serviceLine: string; roomType: string; locationId: string | null;
+  } | null>(null);
+  const [overrideInput, setOverrideInput] = useState('');
+
+  const overrideSaveMutation = useMutation({
+    mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number }) =>
+      apiRequest('/api/manual-rate-override', {
+        method: 'POST',
+        body: JSON.stringify({ locationName: payload.campus, serviceLine: payload.serviceLine, roomType: payload.roomType, locationId: payload.locationId, overrideRate: payload.overrideRate }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      setOverridePop(null);
+    },
+  });
+
+  const overrideClearMutation = useMutation({
+    mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string }) =>
+      apiRequest(`/api/manual-rate-override/${encodeURIComponent(payload.campus)}/${encodeURIComponent(payload.serviceLine)}/${encodeURIComponent(payload.roomType)}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      setOverridePop(null);
+    },
+  });
 
   const calcMutation = useMutation({
     mutationFn: async () => {
@@ -789,7 +823,83 @@ export default function ReferenceDataTable({
                     ...(isFrozen ? { left: FROZEN_LEFT[c.key] } : {}),
                   }}
                 >
-                  {c.key === "campus" || c.key === "division" ? (
+                  {c.key === "proposedRule" ? (() => {
+                    const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}`;
+                    const isOpen = overridePop?.key === popKey;
+                    return (
+                      <div className="flex items-center gap-0.5 justify-end group">
+                        {row.hasManualOverride && (
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 flex-none" title="Manual override active" />
+                        )}
+                        <span className={colorCls}>{display || "—"}</span>
+                        <Popover open={isOpen} onOpenChange={(open) => {
+                          if (open) {
+                            setOverridePop({ key: popKey, campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType, locationId: row.locationId ?? null });
+                            setOverrideInput(row.proposedRule ? String(Math.round(Number(row.proposedRule))) : '');
+                          } else {
+                            setOverridePop(null);
+                          }
+                        }}>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 hover:bg-muted text-muted-foreground hover:text-primary focus:outline-none focus:opacity-100"
+                              title="Set manual override rate"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-60 p-3" align="end">
+                            <p className="text-xs font-semibold mb-0.5">Manual Override Rate</p>
+                            <p className="text-[10px] text-muted-foreground mb-2 leading-tight">{row.campus} · {row.serviceLine} · {row.roomType}</p>
+                            <Input
+                              type="number"
+                              step="1"
+                              min="0"
+                              value={overrideInput}
+                              onChange={e => setOverrideInput(e.target.value)}
+                              placeholder="Enter rate…"
+                              className="h-8 text-xs mb-2"
+                              autoFocus
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  const rate = parseFloat(overrideInput);
+                                  if (!isNaN(rate) && rate > 0 && overridePop) {
+                                    overrideSaveMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType, locationId: overridePop.locationId, overrideRate: rate });
+                                  }
+                                }
+                              }}
+                            />
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                className="h-7 flex-1 text-xs"
+                                disabled={overrideSaveMutation.isPending || !overrideInput}
+                                onClick={() => {
+                                  const rate = parseFloat(overrideInput);
+                                  if (!isNaN(rate) && rate > 0 && overridePop) {
+                                    overrideSaveMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType, locationId: overridePop.locationId, overrideRate: rate });
+                                  }
+                                }}
+                              >Save</Button>
+                              {row.hasManualOverride && overridePop && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                  disabled={overrideClearMutation.isPending}
+                                  onClick={() => overrideClearMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType })}
+                                  title="Remove override"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    );
+                  })() : c.key === "campus" || c.key === "division" ? (
                     <span className="block truncate" title={display}>
                       {display}
                     </span>

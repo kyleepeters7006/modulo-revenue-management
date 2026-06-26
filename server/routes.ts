@@ -342,6 +342,25 @@ async function checkAndInitializeDatabase() {
       ON care_level_rates (client_id, location_id, service_line)
     `);
 
+    // Ensure manual_rate_overrides table exists for per-segment rate overrides
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS manual_rate_overrides (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL,
+        location_id varchar,
+        location_name text NOT NULL,
+        service_line text NOT NULL,
+        room_type text NOT NULL,
+        override_rate real NOT NULL,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS mro_client_loc_sl_rt_idx
+      ON manual_rate_overrides (client_id, location_name, service_line, room_type)
+    `);
+
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
@@ -9226,6 +9245,24 @@ ${campusOccLines.join('\n')}
         }
         return true; // Include all other units
       });
+
+      // Attach manual override rates so the rate card can display them
+      try {
+        const { rows: mroRows } = await pool.query(
+          `SELECT location_name, service_line, room_type, override_rate FROM manual_rate_overrides WHERE client_id = $1`,
+          [clientId]
+        );
+        const rcOverrideMap = new Map<string, number>();
+        for (const o of mroRows) {
+          rcOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+        }
+        if (rcOverrideMap.size > 0) {
+          unitLevelData = unitLevelData.map((unit: any) => ({
+            ...unit,
+            manualOverrideRate: rcOverrideMap.get(`${unit.location}||${unit.serviceLine}||${unit.roomType}`) ?? null,
+          }));
+        }
+      } catch (_e) { /* non-fatal — table may not exist on older environments */ }
       
       // NOTE: Competitor rates are already calculated and stored in rent_roll_data by the 
       // competitor rate matching service (processAllUnitsForCompetitorRates).
@@ -15217,6 +15254,73 @@ Respond in JSON format:
   });
 
   // ============================================
+  // ── Manual Rate Overrides ──────────────────────────────────────────────────
+  // GET  /api/manual-rate-overrides  — list all for current client
+  // POST /api/manual-rate-override   — upsert override for a (location, sl, rt) segment
+  // DELETE /api/manual-rate-override/:locationName/:serviceLine/:roomType — remove
+  // ──────────────────────────────────────────────────────────────────────────
+
+  app.get("/api/manual-rate-overrides", async (req: any, res) => {
+    try {
+      const clientId: string = req.session?.clientId || 'demo';
+      const { rows } = await pool.query(
+        `SELECT id, client_id, location_id, location_name, service_line, room_type, override_rate, created_at, updated_at
+         FROM manual_rate_overrides
+         WHERE client_id = $1
+         ORDER BY location_name, service_line, room_type`,
+        [clientId]
+      );
+      res.json(rows);
+    } catch (err) {
+      console.error('[manual-rate-overrides] GET error:', err);
+      res.status(500).json({ error: 'Failed to fetch manual rate overrides' });
+    }
+  });
+
+  app.post("/api/manual-rate-override", async (req: any, res) => {
+    try {
+      const clientId: string = req.session?.clientId || 'demo';
+      const { locationId, locationName, serviceLine, roomType, overrideRate } = req.body;
+      if (!locationName || !serviceLine || !roomType || overrideRate == null) {
+        return res.status(400).json({ error: 'locationName, serviceLine, roomType, overrideRate are required' });
+      }
+      const rate = Number(overrideRate);
+      if (isNaN(rate) || rate <= 0) {
+        return res.status(400).json({ error: 'overrideRate must be a positive number' });
+      }
+      const { rows } = await pool.query(
+        `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now())
+         ON CONFLICT (client_id, location_name, service_line, room_type)
+         DO UPDATE SET override_rate = EXCLUDED.override_rate,
+                       location_id   = EXCLUDED.location_id,
+                       updated_at    = now()
+         RETURNING *`,
+        [clientId, locationId || null, locationName, serviceLine, roomType, rate]
+      );
+      res.json(rows[0]);
+    } catch (err) {
+      console.error('[manual-rate-overrides] POST error:', err);
+      res.status(500).json({ error: 'Failed to save manual rate override' });
+    }
+  });
+
+  app.delete("/api/manual-rate-override/:locationName/:serviceLine/:roomType", async (req: any, res) => {
+    try {
+      const clientId: string = req.session?.clientId || 'demo';
+      const { locationName, serviceLine, roomType } = req.params;
+      await pool.query(
+        `DELETE FROM manual_rate_overrides
+         WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
+        [clientId, locationName, serviceLine, roomType]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[manual-rate-overrides] DELETE error:', err);
+      res.status(500).json({ error: 'Failed to delete manual rate override' });
+    }
+  });
+
   // REFERENCE DATA — wide Excel-like metric grid
   // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=
   // One row per (Division, Campus, Service Line, Room Type) with Spot/T3/T6/T12
@@ -15635,6 +15739,16 @@ Respond in JSON format:
         growthTargetMap.set(`${g.location_id}||${g.service_line}`, Number(g.target_growth_percent));
       }
 
+      // Load manual rate overrides for this client (keyed by campus||sl||rt)
+      const manualOverridesRes = await pool.query<{ location_name: string; service_line: string; room_type: string; override_rate: number }>(
+        `SELECT location_name, service_line, room_type, override_rate FROM manual_rate_overrides WHERE client_id = $1`,
+        [clientId]
+      );
+      const manualOverrideMap = new Map<string, number>();
+      for (const o of manualOverridesRes.rows) {
+        manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+      }
+
       const rows = Array.from(comboMap.values()).map(c => {
         const bm = c.byMonth;
         const spot = bm.get(spotMonth);
@@ -15657,13 +15771,16 @@ Respond in JSON format:
         const proposed = spot?.avgProposed ?? null;
         const totalUnits = spot?.total ?? rateWindow(bm, t3Months, 'total') ?? 0;
 
-        const monthlyImpact = (proposed !== null && ihSpot !== null) ? (proposed - ihSpot) * (totalUnits || 0) : null;
+        const manualRate = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
+        const effectiveProposed = manualRate ?? proposed;
+        const monthlyImpact = (effectiveProposed !== null && ihSpot !== null) ? (effectiveProposed - ihSpot) * (totalUnits || 0) : null;
 
         return {
           division: c.division,
           campus: c.campus,
           serviceLine: c.serviceLine,
           roomType: c.roomType,
+          locationId: c.locationId,
           totalUnits,
           // Vacant units
           vacantSpot: spot ? spot.total - spot.occupied : null,
@@ -15715,10 +15832,11 @@ Respond in JSON format:
           ihIncT3: incPct(ihSpot, rateWindow(bm, t3Months, 'avgIh')),
           ihIncT6: incPct(ihSpot, rateWindow(bm, t6Months, 'avgIh')),
           ihIncT12: incPct(ihSpot, rateWindow(bm, t12Months, 'avgIh')),
-          // Proposed rates
-          proposedRule: proposed,
-          proposedVarDollar: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
-          proposedVarPct: (proposed !== null && ihSpot !== null && ihSpot !== 0) ? (proposed - ihSpot) / ihSpot : null,
+          // Proposed rates — manual override takes precedence when present
+          proposedRule: effectiveProposed,
+          hasManualOverride: manualRate !== null,
+          proposedVarDollar: (effectiveProposed !== null && ihSpot !== null) ? effectiveProposed - ihSpot : null,
+          proposedVarPct: (effectiveProposed !== null && ihSpot !== null && ihSpot !== 0) ? (effectiveProposed - ihSpot) / ihSpot : null,
           // Revenue impact (existing in-house-vs-proposed × units model)
           revT3MoveIns: moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null,
           revMonthlyImpact: monthlyImpact,
@@ -15731,7 +15849,7 @@ Respond in JSON format:
             const daysToSellAfter = elas?.daysToSellAfter ?? null;
             const daysToSellChange = elas?.daysToSellChange ?? null;
             // Rate delta from applying rules to the street (asking) rate.
-            const deltaRate = (proposed !== null && streetSpot !== null) ? proposed - streetSpot : null;
+            const deltaRate = (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null;
             const predictedDaysToSellChange = predictDaysToSellChange(
               elasticity, daysToSellAfter, streetSpot, deltaRate
             );

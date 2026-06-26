@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -223,6 +223,39 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [conditions, setConditions] = useState<Condition[]>([defaultCondition()]);
   const [conditionOperator, setConditionOperator] = useState<'AND' | 'OR'>('AND');
   const [ruleAction, setRuleAction] = useState<RuleAction>(defaultAction());
+
+  // Manual rate overrides (shown in rule summary)
+  const [manualOverrides, setManualOverrides] = useState<{
+    id: string; location_name: string; service_line: string; room_type: string; override_rate: number;
+  }[]>([]);
+
+  const fetchManualOverrides = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (locationId) params.set('locationId', locationId);
+      if (serviceLine) params.set('serviceLine', serviceLine);
+      const res = await fetch('/api/manual-rate-overrides');
+      if (res.ok) {
+        const all = await res.json() as any[];
+        // Filter to matching scope if props provided
+        const filtered = all.filter((o: any) =>
+          (!locationId || o.location_id === locationId) &&
+          (!serviceLine || o.service_line === serviceLine)
+        );
+        setManualOverrides(filtered);
+      }
+    } catch { /* silent */ }
+  }, [locationId, serviceLine]);
+
+  useEffect(() => { fetchManualOverrides(); }, [fetchManualOverrides]);
+
+  const clearManualOverride = useCallback(async (locationName: string, sl: string, rt: string) => {
+    try {
+      await fetch(`/api/manual-rate-override/${encodeURIComponent(locationName)}/${encodeURIComponent(sl)}/${encodeURIComponent(rt)}`, { method: 'DELETE' });
+      fetchManualOverrides();
+      fetchRules(); // refresh rules list too so impacts update
+    } catch { /* silent */ }
+  }, [fetchManualOverrides, fetchRules]);
 
   const recognitionRef = useRef<any>(null);
 
@@ -1330,6 +1363,34 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               </tr>
                             );
                           })}
+                          {/* Manual override rows */}
+                          {manualOverrides.map((mo) => (
+                            <tr key={`override-${mo.id}`} className="border-b border-amber-100 bg-amber-50/40 hover:bg-amber-50/60 transition-colors">
+                              <td className="py-2 px-2">
+                                <span className="inline-block w-2 h-2 rounded-full bg-amber-400" title="Manual override" />
+                              </td>
+                              <td className="py-2 px-2" colSpan={3}>
+                                <div className="flex flex-col">
+                                  <span className="text-xs font-medium text-amber-800">Manual Override</span>
+                                  <span className="text-[10px] text-muted-foreground leading-tight">
+                                    {mo.location_name} · {mo.service_line} · {mo.room_type}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-2 text-right text-xs font-semibold text-amber-700 tabular-nums">—</td>
+                              <td className="py-2 px-2 text-right text-xs font-semibold text-amber-700 tabular-nums">
+                                ${mo.override_rate.toLocaleString()}/mo
+                              </td>
+                              <td className="py-2 px-2 text-right">
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-red-500 hover:text-red-700 underline"
+                                  onClick={() => clearManualOverride(mo.location_name, mo.service_line, mo.room_type)}
+                                  title="Remove this manual override"
+                                >Remove</button>
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                         {activeCount > 0 && (
                           <tfoot>

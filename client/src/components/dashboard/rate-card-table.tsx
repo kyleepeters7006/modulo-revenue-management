@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X } from "lucide-react";
+import { Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -169,6 +169,47 @@ export default function RateCardTable({
   const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // ── Manual override state ─────────────────────────────────────────
+  const [overrideRC, setOverrideRC] = useState<{
+    locationName: string; serviceLine: string; roomType: string; locationId: string | null;
+  } | null>(null);
+  const [overrideRCInput, setOverrideRCInput] = useState('');
+
+  const rcSaveOverride = useMutation({
+    mutationFn: async (p: { locationName: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number }) => {
+      const res = await fetch('/api/manual-rate-override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationName: p.locationName, serviceLine: p.serviceLine, roomType: p.roomType, locationId: p.locationId, overrideRate: p.overrideRate }),
+      });
+      if (!res.ok) throw new Error('Failed to save override');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      setOverrideRC(null);
+      toast({ title: 'Manual override saved', description: 'Rate override applied to all units in this segment.' });
+    },
+    onError: () => toast({ title: 'Failed to save override', variant: 'destructive' }),
+  });
+
+  const rcClearOverride = useMutation({
+    mutationFn: async (p: { locationName: string; serviceLine: string; roomType: string }) => {
+      const res = await fetch(`/api/manual-rate-override/${encodeURIComponent(p.locationName)}/${encodeURIComponent(p.serviceLine)}/${encodeURIComponent(p.roomType)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      toast({ title: 'Override removed' });
+    },
+    onError: () => toast({ title: 'Failed to remove override', variant: 'destructive' }),
+  });
   
   // Use prop service line if provided, otherwise use local state
   const selectedServiceLine = propServiceLine || localServiceLine;
@@ -1031,9 +1072,45 @@ export default function RateCardTable({
                         )}
                       </TableCell>
                       <TableCell>
-                        {unit.ruleAdjustedRate ? (
-                          <div className="flex items-center space-x-2">
+                        <div className="flex items-center gap-1 group">
+                        {(unit.ruleAdjustedRate || unit.manualOverrideRate) ? (
+                          <div className="flex items-center space-x-2 flex-1">
                             <div className="flex flex-col">
+                              {unit.manualOverrideRate ? (
+                                /* Manual override display */
+                                <>
+                                  <div className="flex items-center gap-1">
+                                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Manual override active" />
+                                    <span className="font-medium text-amber-700">
+                                      {formatRateByServiceLine(Math.round(unit.manualOverrideRate), unit.serviceLine)}
+                                    </span>
+                                    {unit.streetRate && (
+                                      <span className="text-xs text-gray-400 ml-0.5">
+                                        (Street: {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
+                                      </span>
+                                    )}
+                                  </div>
+                                  {unit.streetRate ? (() => {
+                                    const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
+                                    const displayFinal = convertToDisplayRate(unit.manualOverrideRate, unit.serviceLine) || 0;
+                                    const displayBase  = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
+                                    const change = Math.round(displayFinal - displayBase);
+                                    const changePercent = displayBase !== 0 ? Math.round((change / displayBase) * 100) : 0;
+                                    return (
+                                      <span className={`text-xs ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {change >= 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change >= 0 ? '+' : ''}{changePercent}%)
+                                      </span>
+                                    );
+                                  })() : null}
+                                  <button
+                                    type="button"
+                                    className="mt-1 text-[10px] text-red-500 hover:text-red-700 underline text-left"
+                                    onClick={() => rcClearOverride.mutate({ locationName: unit.location, serviceLine: unit.serviceLine, roomType: unit.roomType })}
+                                    disabled={rcClearOverride.isPending}
+                                  >Remove override</button>
+                                </>
+                              ) : (
+                              <>
                               <ModuloCalculationDialog
                                 roomType={unit.roomType}
                                 currentRate={unit.streetRate}
@@ -1105,6 +1182,8 @@ export default function RateCardTable({
                                 }
                                 return null;
                               })()}
+                              </>
+                              )}
                             </div>
                             <Button
                               size="sm"
@@ -1118,7 +1197,73 @@ export default function RateCardTable({
                               <CheckCircle className="h-3 w-3" />
                             </Button>
                           </div>
-                        ) : '-'}
+                        ) : (
+                          <span className="text-muted-foreground text-xs flex-1">—</span>
+                        )}
+                        {/* Manual override pencil */}
+                        <Popover
+                          open={!!(overrideRC?.locationName === unit.location && overrideRC?.serviceLine === unit.serviceLine && overrideRC?.roomType === unit.roomType)}
+                          onOpenChange={(open) => {
+                            if (open) {
+                              setOverrideRC({ locationName: unit.location, serviceLine: unit.serviceLine, roomType: unit.roomType, locationId: unit.locationId ?? null });
+                              setOverrideRCInput(unit.manualOverrideRate ? String(Math.round(unit.manualOverrideRate)) : unit.ruleAdjustedRate ? String(Math.round(unit.ruleAdjustedRate)) : '');
+                            } else { setOverrideRC(null); }
+                          }}
+                        >
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 hover:bg-muted text-muted-foreground hover:text-amber-600 focus:outline-none focus:opacity-100"
+                              title="Set manual override rate for all units in this segment"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-60 p-3" align="end">
+                            <p className="text-xs font-semibold mb-0.5">Manual Override Rate</p>
+                            <p className="text-[10px] text-muted-foreground mb-2 leading-tight">
+                              {unit.location} · {unit.serviceLine} · {unit.roomType}
+                            </p>
+                            <Input
+                              type="number"
+                              step="1"
+                              min="0"
+                              value={overrideRCInput}
+                              onChange={e => setOverrideRCInput(e.target.value)}
+                              placeholder="Enter rate…"
+                              className="h-8 text-xs mb-2"
+                              autoFocus
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  const rate = parseFloat(overrideRCInput);
+                                  if (!isNaN(rate) && rate > 0 && overrideRC) rcSaveOverride.mutate({ ...overrideRC, overrideRate: rate });
+                                }
+                              }}
+                            />
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                className="h-7 flex-1 text-xs"
+                                disabled={rcSaveOverride.isPending || !overrideRCInput}
+                                onClick={() => {
+                                  const rate = parseFloat(overrideRCInput);
+                                  if (!isNaN(rate) && rate > 0 && overrideRC) rcSaveOverride.mutate({ ...overrideRC, overrideRate: rate });
+                                }}
+                              >Save</Button>
+                              {unit.manualOverrideRate && overrideRC && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                  disabled={rcClearOverride.isPending}
+                                  onClick={() => rcClearOverride.mutate({ locationName: unit.location, serviceLine: unit.serviceLine, roomType: unit.roomType })}
+                                  title="Remove override"
+                                ><Trash2 className="h-3 w-3" /></Button>
+                              )}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                        </div>
                       </TableCell>
                       <TableCell>
                         {unit.competitorFinalRate ? (
