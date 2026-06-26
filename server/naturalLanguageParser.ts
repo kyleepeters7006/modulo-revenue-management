@@ -327,7 +327,8 @@ function parseTrigger(input: string): ParsedTrigger | null {
   // ── Generalized single-condition triggers (no "If" prefix required) ───
 
   // Service line occupancy (check before generic occupancy — more specific)
-  if (/service.?line\s+occupancy/i.test(lowerInput)) {
+  // "sl occupancy" is an alias for "service line occupancy" (not the SL service line)
+  if (/(?:service.?line|sl)\s+occupancy/i.test(lowerInput)) {
     const cmp = extractCmp(lowerInput);
     if (cmp) return { type: 'condition', condition: { field: 'service_line_occupancy', operator: cmp.op, value: cmp.value } };
   }
@@ -425,6 +426,11 @@ function parseAction(input: string): ParsedAction | null {
   // Service line filter — sort longest key first so "al/mc" matches before "al"
   for (const [pattern, serviceLine] of Object.entries(SERVICE_LINES).sort((a, b) => b[0].length - a[0].length)) {
     if (input.includes(pattern)) {
+      // Skip "sl" when it appears as part of "sl occupancy" — that phrase refers to the
+      // *service line occupancy* metric, not to the "SL" (Senior Living) service line filter.
+      if (pattern === 'sl' && /\bsl\s+occupancy\b/.test(input)) {
+        continue;
+      }
       filters.serviceLine = [serviceLine];
       break;
     }

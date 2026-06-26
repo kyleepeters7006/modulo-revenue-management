@@ -13709,6 +13709,34 @@ Respond in JSON format:
         });
       }
       
+      // When a serviceLine scope was explicitly provided, make the parsed rule
+      // consistent with it: override any parser-extracted serviceLine filter and
+      // rebuild the rule name so it reflects the correct service line label.
+      if (serviceLine) {
+        // Capture oldSL BEFORE overwriting filters
+        const oldSL = parsedRule.action.filters?.serviceLine?.[0];
+        const mismatch = !oldSL || oldSL !== serviceLine;
+        if (mismatch) {
+          parsedRule.action = {
+            ...parsedRule.action,
+            filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [serviceLine] },
+          };
+          // Normalise the service-line segment in the rule name.
+          // Replace an existing " - <SL>" segment (any known SL token) or insert one
+          // after the opening action phrase, but never duplicate it.
+          const slSegmentRe = /\s+-\s+(?:AL\/MC|HC\/MC|AL|MC|HC|IL|SL|VIL)\b/i;
+          if (slSegmentRe.test(parsedRule.name)) {
+            parsedRule.name = parsedRule.name.replace(slSegmentRe, ` - ${serviceLine}`);
+          } else {
+            // Insert after the first action phrase (e.g. "Decrease 5%")
+            parsedRule.name = parsedRule.name.replace(
+              /^((?:Increase|Decrease|Set|Apply)\s+[\d.]+%?)/i,
+              `$1 - ${serviceLine}`
+            );
+          }
+        }
+      }
+
       // Create the rule in database
       const rule = await storage.createAdjustmentRule({
         locationId: locationId || null,
@@ -14545,13 +14573,41 @@ Respond in JSON format:
         }
       }
 
+      // When a serviceLine scope was explicitly provided, make the parsed rule
+      // consistent with it: override any parser-extracted serviceLine filter and
+      // update the rule name so it reflects the correct service line label.
+      const effectiveServiceLine = serviceLine !== undefined ? serviceLine : (existing.serviceLine ?? null);
+      if (effectiveServiceLine) {
+        // Capture oldSL BEFORE overwriting filters
+        const oldSL = parsedRule.action.filters?.serviceLine?.[0];
+        const mismatch = !oldSL || oldSL !== effectiveServiceLine;
+        if (mismatch) {
+          parsedRule.action = {
+            ...parsedRule.action,
+            filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [effectiveServiceLine] },
+          };
+          // Normalise the service-line segment in the rule name.
+          // Replace an existing " - <SL>" segment (any known SL token) or insert one
+          // after the opening action phrase, but never duplicate it.
+          const slSegmentRe = /\s+-\s+(?:AL\/MC|HC\/MC|AL|MC|HC|IL|SL|VIL)\b/i;
+          if (slSegmentRe.test(parsedRule.name)) {
+            parsedRule.name = parsedRule.name.replace(slSegmentRe, ` - ${effectiveServiceLine}`);
+          } else {
+            parsedRule.name = parsedRule.name.replace(
+              /^((?:Increase|Decrease|Set|Apply)\s+[\d.]+%?)/i,
+              `$1 - ${effectiveServiceLine}`
+            );
+          }
+        }
+      }
+
       const updated = await storage.updateAdjustmentRule(id, {
         name: parsedRule.name,
         description,
         trigger: parsedRule.trigger,
         action: parsedRule.action,
         locationId: locationId !== undefined ? locationId : (existing.locationId ?? null),
-        serviceLine: serviceLine !== undefined ? serviceLine : (existing.serviceLine ?? null),
+        serviceLine: effectiveServiceLine,
       });
 
       const impact = await computeRuleImpact(updated, clientId);

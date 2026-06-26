@@ -1210,7 +1210,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
                               : null;
                             const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
-                            const slDisplay = ruleSLs.length ? ruleSLs.join(', ') : (rule.serviceLine || 'All');
+                            const slDisplay = rule.serviceLine || (ruleSLs.length ? ruleSLs.join(', ') : 'All');
 
                             return (
                               <tr
