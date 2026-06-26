@@ -422,8 +422,8 @@ function parseAction(input: string): ParsedAction | null {
     }
   }
   
-  // Service line filter
-  for (const [pattern, serviceLine] of Object.entries(SERVICE_LINES)) {
+  // Service line filter — sort longest key first so "al/mc" matches before "al"
+  for (const [pattern, serviceLine] of Object.entries(SERVICE_LINES).sort((a, b) => b[0].length - a[0].length)) {
     if (input.includes(pattern)) {
       filters.serviceLine = [serviceLine];
       break;

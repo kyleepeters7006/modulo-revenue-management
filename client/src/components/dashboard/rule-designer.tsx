@@ -1210,7 +1210,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
                               : null;
                             const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
-                            const slDisplay = ruleSLs.length ? ruleSLs.join(', ') : (serviceLine || 'All');
+                            const slDisplay = ruleSLs.length ? ruleSLs.join(', ') : (rule.serviceLine || 'All');
 
                             return (
                               <tr
@@ -1715,8 +1715,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       {/* T3 Move-In Baseline */}
                       {t3MoveIns && (() => {
                         const ruleSLs: string[] = (infoRule.action as any)?.filters?.serviceLine || [];
-                        const rows = ruleSLs.length > 0
-                          ? ruleSLs.map(sl => ({ sl, avg: t3MoveIns.byServiceLine[sl] ?? 0 }))
+                        const effectiveSLs = ruleSLs.length > 0 ? ruleSLs : (infoRule.serviceLine ? [infoRule.serviceLine] : []);
+                        const rows = effectiveSLs.length > 0
+                          ? effectiveSLs.map(sl => ({ sl, avg: t3MoveIns.byServiceLine[sl] ?? 0 }))
                           : Object.entries(t3MoveIns.byServiceLine).sort(([a],[b])=>a.localeCompare(b)).map(([sl, avg]) => ({ sl, avg }));
                         const total = rows.reduce((s, r) => s + r.avg, 0);
                         return (
