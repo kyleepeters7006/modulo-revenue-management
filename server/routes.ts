@@ -908,6 +908,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // One-time cleanup: strip stale occupancyStatus from rules whose trigger uses
+  // array-based metric conditions (visual rule builder format) with no occupancy fields.
+  app.post('/api/admin/fix-stale-rule-filters', async (req: any, res) => {
+    try {
+      const OCCUPANCY_FIELDS = new Set(['occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy']);
+      const allRules = await storage.getAdjustmentRules();
+      const fixed: string[] = [];
+
+      for (const rule of allRules) {
+        const trigger = rule.trigger as any;
+        const action = rule.action as any;
+        if (!Array.isArray(trigger?.conditions)) continue;
+        if (!action?.filters?.occupancyStatus) continue;
+        const hasOccupancyCondition = trigger.conditions.some((c: any) => OCCUPANCY_FIELDS.has(c.field));
+        if (hasOccupancyCondition) continue;
+
+        const newFilters = { ...action.filters };
+        delete newFilters.occupancyStatus;
+        await storage.updateAdjustmentRule(rule.id, {
+          action: { ...action, filters: newFilters },
+        });
+        console.log(`[fix-stale-rule-filters] Cleared stale occupancyStatus from rule "${rule.name}" (id=${rule.id})`);
+        fixed.push(rule.name);
+      }
+
+      res.json({ message: `Fixed ${fixed.length} rule(s)`, fixed });
+    } catch (error) {
+      console.error('Error fixing stale rule filters:', error);
+      res.status(500).json({ error: 'Failed to fix stale rule filters' });
+    }
+  });
+
   // Endpoint to recalculate competitor rates with fixed daily-to-monthly conversion
   app.post('/api/admin/recalculate-competitor-rates', async (req: any, res) => {
     try {
@@ -14460,6 +14492,21 @@ Respond in JSON format:
 
       const validation = validateParsedRule(parsedRule);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
+
+      // Guard: clear stale occupancyStatus filter when the incoming trigger uses
+      // array-based metric conditions and none of those conditions reference occupancy.
+      // This prevents a prior NLP parse (e.g. "vacant unit") from silently restricting
+      // a rule that was later updated to complex metric conditions via the visual builder.
+      const OCCUPANCY_FIELDS = new Set(['occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy']);
+      const incomingTrigger = req.body.trigger ?? parsedRule.trigger;
+      if (
+        Array.isArray((incomingTrigger as any)?.conditions) &&
+        !(incomingTrigger as any).conditions.some((c: any) => OCCUPANCY_FIELDS.has(c.field))
+      ) {
+        if (parsedRule.action?.filters) {
+          delete (parsedRule.action.filters as any).occupancyStatus;
+        }
+      }
 
       const updated = await storage.updateAdjustmentRule(id, {
         name: parsedRule.name,

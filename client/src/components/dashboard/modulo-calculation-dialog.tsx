@@ -204,6 +204,58 @@ export default function ModuloCalculationDialog({
     return details.finalRate || currentRate;
   };
 
+  // Derive a human-readable description from a rule's stored trigger JSONB.
+  // Handles the array-based multi-condition format written by the structured rule builder.
+  // Falls back gracefully when conditions are absent or in legacy format.
+  function describeTrigger(trigger: any): string {
+    if (!trigger) return '';
+    if (!Array.isArray(trigger.conditions) || trigger.conditions.length === 0) return '';
+
+    const FIELD_LABELS: Record<string, string> = {
+      occupancy: 'Campus Occupancy',
+      campus_occupancy: 'Campus Occupancy',
+      service_line_occupancy: 'SL Occupancy',
+      room_type_occupancy: 'RT Occupancy',
+      vacant_units: 'Vacant Units',
+      vacant_beds: 'Vacant Beds',
+      competitor_rate: 'Competitor Rate',
+      competitor_variance: 'Competitor Rate Var %',
+      street_to_comp_var: 'Street Rate to Top Comp Var %',
+      quality_mix: 'Quality Mix',
+      private_pay: 'Private Pay %',
+      inquiry_volume: 'Inquiry Volume',
+      inquiry_tour_volume: 'Inquiry & Tour Volume',
+      inquiry_count: 'Inquiry Count',
+      tour_count: 'Tour Count',
+      tour_volume: 'Tour Volume',
+      avg_days_vacant: 'Avg Days Vacant',
+      days_vacant_campus: 'Days Vacant',
+      ih_street_variance: 'IH-to-Street Rate Var %',
+      revenue_growth_target: 'Revenue Growth Target',
+      growth_target: 'Revenue Growth Target',
+      price_elasticity: 'Price Elasticity',
+      elasticity: 'Price Elasticity',
+      days_to_sell_before: 'Days To Sell Before',
+      days_to_sell_after: 'Days To Sell After',
+      days_to_sell_change: 'Days To Sell Change',
+    };
+
+    const OP_LABELS: Record<string, string> = {
+      '<': '<', '<=': '≤', '>': '>', '>=': '≥',
+      '=': '=', '==': '=', '===': '=',
+    };
+
+    const condParts = (trigger.conditions as Array<{ field: string; operator: string; value: number }>)
+      .map(c => {
+        const label = FIELD_LABELS[c.field] || c.field;
+        const op = OP_LABELS[c.operator] || c.operator;
+        return `${label} ${op} ${c.value}`;
+      });
+
+    const condOperator = (trigger.conditionOperator || 'AND').toUpperCase();
+    return `If ${condParts.join(` ${condOperator} `)}`;
+  }
+
   // Build a step-by-step breakdown of each rule applied to this unit.
   // Replays the same stacking logic used by adjustmentRulesService.ts.
   const ruleChainSteps: Array<{
@@ -244,7 +296,7 @@ export default function ModuloCalculationDialog({
         : `${adjValue >= 0 ? 'Increase' : 'Decrease'} by ${dollarStr}`;
       return {
         name: rule.name,
-        description: rule.description || '',
+        description: describeTrigger(rule.trigger) || rule.description || '',
         actionLabel,
         before,
         after: current,
