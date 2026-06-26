@@ -95,7 +95,7 @@ import { dirname } from 'path';
 import * as fs from 'fs';
 import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
-import { parseNaturalLanguageRule, validateParsedRule } from "./naturalLanguageParser";
+import { parseNaturalLanguageRule, validateParsedRule, generateRuleName } from "./naturalLanguageParser";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13527,7 +13527,17 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           details: validation.errors 
         });
       }
-      
+
+      // Inject the explicit serviceLine scope into filters BEFORE any name or
+      // impact logic runs, so generateRuleName produces the correct label.
+      if (serviceLine) {
+        parsedRule.action = {
+          ...parsedRule.action,
+          filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [serviceLine] },
+        };
+        parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+      }
+
       // Calculate estimated impact — use latest month only to avoid double-counting historical snapshots
       const latestMonthRow = await pool.query(
         `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
@@ -13709,34 +13719,6 @@ Respond in JSON format:
         });
       }
       
-      // When a serviceLine scope was explicitly provided, make the parsed rule
-      // consistent with it: override any parser-extracted serviceLine filter and
-      // rebuild the rule name so it reflects the correct service line label.
-      if (serviceLine) {
-        // Capture oldSL BEFORE overwriting filters
-        const oldSL = parsedRule.action.filters?.serviceLine?.[0];
-        const mismatch = !oldSL || oldSL !== serviceLine;
-        if (mismatch) {
-          parsedRule.action = {
-            ...parsedRule.action,
-            filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [serviceLine] },
-          };
-          // Normalise the service-line segment in the rule name.
-          // Replace an existing " - <SL>" segment (any known SL token) or insert one
-          // after the opening action phrase, but never duplicate it.
-          const slSegmentRe = /\s+-\s+(?:AL\/MC|HC\/MC|AL|MC|HC|IL|SL|VIL)\b/i;
-          if (slSegmentRe.test(parsedRule.name)) {
-            parsedRule.name = parsedRule.name.replace(slSegmentRe, ` - ${serviceLine}`);
-          } else {
-            // Insert after the first action phrase (e.g. "Decrease 5%")
-            parsedRule.name = parsedRule.name.replace(
-              /^((?:Increase|Decrease|Set|Apply)\s+[\d.]+%?)/i,
-              `$1 - ${serviceLine}`
-            );
-          }
-        }
-      }
-
       // Create the rule in database
       const rule = await storage.createAdjustmentRule({
         locationId: locationId || null,
@@ -14558,6 +14540,20 @@ Respond in JSON format:
       const validation = validateParsedRule(parsedRule);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
 
+      // Determine the effective service line scope (explicit request value wins,
+      // otherwise fall back to the existing rule's stored serviceLine).
+      const effectiveServiceLine = serviceLine !== undefined ? serviceLine : (existing.serviceLine ?? null);
+
+      // Inject the effective serviceLine into filters BEFORE any name or impact
+      // logic, so generateRuleName produces the correct label from the start.
+      if (effectiveServiceLine) {
+        parsedRule.action = {
+          ...parsedRule.action,
+          filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [effectiveServiceLine] },
+        };
+        parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+      }
+
       // Guard: clear stale occupancyStatus filter when the incoming trigger uses
       // array-based metric conditions and none of those conditions reference occupancy.
       // This prevents a prior NLP parse (e.g. "vacant unit") from silently restricting
@@ -14570,34 +14566,6 @@ Respond in JSON format:
       ) {
         if (parsedRule.action?.filters) {
           delete (parsedRule.action.filters as any).occupancyStatus;
-        }
-      }
-
-      // When a serviceLine scope was explicitly provided, make the parsed rule
-      // consistent with it: override any parser-extracted serviceLine filter and
-      // update the rule name so it reflects the correct service line label.
-      const effectiveServiceLine = serviceLine !== undefined ? serviceLine : (existing.serviceLine ?? null);
-      if (effectiveServiceLine) {
-        // Capture oldSL BEFORE overwriting filters
-        const oldSL = parsedRule.action.filters?.serviceLine?.[0];
-        const mismatch = !oldSL || oldSL !== effectiveServiceLine;
-        if (mismatch) {
-          parsedRule.action = {
-            ...parsedRule.action,
-            filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [effectiveServiceLine] },
-          };
-          // Normalise the service-line segment in the rule name.
-          // Replace an existing " - <SL>" segment (any known SL token) or insert one
-          // after the opening action phrase, but never duplicate it.
-          const slSegmentRe = /\s+-\s+(?:AL\/MC|HC\/MC|AL|MC|HC|IL|SL|VIL)\b/i;
-          if (slSegmentRe.test(parsedRule.name)) {
-            parsedRule.name = parsedRule.name.replace(slSegmentRe, ` - ${effectiveServiceLine}`);
-          } else {
-            parsedRule.name = parsedRule.name.replace(
-              /^((?:Increase|Decrease|Set|Apply)\s+[\d.]+%?)/i,
-              `$1 - ${effectiveServiceLine}`
-            );
-          }
         }
       }
 

@@ -467,7 +467,7 @@ function parseAction(input: string): ParsedAction | null {
   };
 }
 
-function generateRuleName(trigger: ParsedTrigger, action: ParsedAction): string {
+export function generateRuleName(trigger: ParsedTrigger, action: ParsedAction): string {
   let name = '';
   
   // Add adjustment description

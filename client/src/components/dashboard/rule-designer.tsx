@@ -1211,6 +1211,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               : null;
                             const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
                             const slDisplay = rule.serviceLine || (ruleSLs.length ? ruleSLs.join(', ') : 'All');
+                            // Normalise the stored name against the authoritative serviceLine field
+                            // to fix any rules saved with the wrong SL token (longest alternatives first).
+                            const slTokenRe = /(\s+-\s+)(AL\/MC|HC\/MC|AL|MC|HC|IL|SL|VIL)\b/i;
+                            const displayName = rule.serviceLine
+                              ? rule.name.replace(slTokenRe, (_, sep, token) =>
+                                  token.toUpperCase() !== rule.serviceLine!.toUpperCase()
+                                    ? `${sep}${rule.serviceLine}`
+                                    : `${sep}${token}`
+                                )
+                              : rule.name;
 
                             return (
                               <tr
@@ -1238,7 +1248,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 {/* Rule Summary / Intent */}
                                 <td className="py-2.5 px-2 align-top max-w-[220px]">
                                   <div className="flex flex-col gap-1">
-                                    <span className="text-sm font-semibold text-gray-900 leading-snug">{rule.name}</span>
+                                    <span className="text-sm font-semibold text-gray-900 leading-snug">{displayName}</span>
                                     {rule.isActive && (
                                       <span className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${
                                         isAdditive
