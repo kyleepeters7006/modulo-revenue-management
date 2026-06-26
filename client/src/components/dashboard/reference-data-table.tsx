@@ -204,7 +204,7 @@ const GROUPS: GroupDef[] = [
     id: "proposed",
     label: "Proposed Rates",
     cols: [
-      { key: "proposedRule", label: "Rule", type: "money", w: 85, tip: "Proposed rate from the rules engine (falls back to Modulo suggested rate)." },
+      { key: "proposedRule", label: "Rule", type: "money", w: 85, tip: "Proposed rate from the rules engine. Blank when no adjustment rule applies to this combo." },
       { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 80, tip: "Proposed rate minus current in-house rate (dollars)." },
       { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 75, tip: "Proposed rate vs current in-house rate as a percentage." },
     ],
@@ -216,6 +216,31 @@ const GROUPS: GroupDef[] = [
       { key: "revT3MoveIns", label: "T3 Move Ins", type: "num1", w: 90, tip: "Average monthly private-pay move-ins for this combo over the trailing 3 months." },
       { key: "revMonthlyImpact", label: "Monthly Impact", type: "moneysigned", w: 100, tip: "(Proposed rate − in-house rate) × total units — estimated monthly revenue change." },
       { key: "revAnnualImpact", label: "Annual Impact", type: "moneysigned", w: 100, tip: "Monthly impact × 12 — estimated annual revenue change." },
+    ],
+  },
+  {
+    id: "growthTarget",
+    label: "Revenue Growth Target",
+    cols: [
+      { key: "revenueGrowthTarget", label: "Target", type: "pct", w: 80, tip: "Target annual revenue growth % set for this campus / service line on the Pricing Controls page." },
+    ],
+  },
+  {
+    id: "elasticity",
+    label: "Elasticity & Days To Sell",
+    cols: [
+      { key: "elasticity", label: "Elasticity", type: "num1", w: 80, tip: "Estimated price elasticity for this combo — how sensitive demand (days to sell) is to a rate change." },
+      { key: "daysToSellBefore", label: "DTS Before", type: "num1", w: 85, tip: "Estimated days to sell at the current in-house rate." },
+      { key: "daysToSellAfter", label: "DTS After", type: "num1", w: 85, tip: "Estimated days to sell at the proposed rule rate." },
+      { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 75, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },
+    ],
+  },
+  {
+    id: "elasticityImpact",
+    label: "Elasticity Revenue Impact",
+    cols: [
+      { key: "elasticityMonthlyImpact", label: "Monthly", type: "moneysigned", w: 100, tip: "Elasticity-adjusted estimated monthly revenue change, accounting for the demand response to the proposed rate." },
+      { key: "elasticityAnnualImpact", label: "Annual", type: "moneysigned", w: 100, tip: "Elasticity-adjusted estimated annual revenue change (monthly × 12)." },
     ],
   },
 ];

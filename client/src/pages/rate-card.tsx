@@ -275,7 +275,7 @@ export default function RateCard() {
                 Rate Card & Pricing
               </h1>
               <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
-                Review current rates, Rules Rate suggestions, and Revenue Target AI recommendations
+                Review current rates and Rules Rate suggestions
               </p>
             </div>
             <div className="flex flex-col gap-2">

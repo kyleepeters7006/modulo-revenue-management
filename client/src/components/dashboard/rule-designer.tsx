@@ -35,6 +35,8 @@ const METRICS = [
   'Quality Mix',
   'In House to Street Rate var % - Single Occupant',
   'Street Rate to Top Comp Var %',
+  'Revenue Growth Target', 'Price Elasticity',
+  'Days To Sell Before', 'Days To Sell After', 'Days To Sell Change',
 ];
 
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
@@ -1125,136 +1127,146 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       </div>
                     )}
 
-                    {/* ── Rule list ── */}
-                    <div className="space-y-2">
-                      {sortedRules.map((rule) => {
-                        const annual        = rule.annualImpact  ?? 0;
-                        const monthly       = rule.monthlyImpact ?? 0;
-                        const isPos         = annual >= 0;
-                        const isAdditive    = !!(rule.action as any)?.isAdditive;
-                        const exclusivePriority = rule.isActive && !isAdditive
-                          ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
-                          : null;
+                    {/* ── Rule list (table) ── */}
+                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                      <table className="w-full text-sm border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="py-2 px-2 w-9" />
+                            <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Rule Summary</th>
+                            <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Rule Detail</th>
+                            <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Service Line</th>
+                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Units Impacted</th>
+                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Monthly Revenue Impact</th>
+                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedRules.map((rule) => {
+                            const annual        = rule.annualImpact  ?? 0;
+                            const monthly       = rule.monthlyImpact ?? 0;
+                            const isPos         = monthly >= 0;
+                            const isAdditive    = !!(rule.action as any)?.isAdditive;
+                            const exclusivePriority = rule.isActive && !isAdditive
+                              ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
+                              : null;
+                            const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
+                            const slDisplay = ruleSLs.length ? ruleSLs.join(', ') : (serviceLine || 'All');
 
-                        const accentClass = !rule.isActive
-                          ? 'bg-gray-300'
-                          : isAdditive ? 'bg-teal-500' : 'bg-amber-500';
-
-                        return (
-                          <div
-                            key={rule.id}
-                            className={`rounded-lg border overflow-hidden transition-all ${
-                              rule.isActive
-                                ? 'bg-white border-gray-200 shadow-sm'
-                                : 'bg-gray-50 border-gray-200 opacity-60'
-                            }`}
-                            data-testid={`rule-${rule.id}`}
-                          >
-                            <div className="flex min-h-0">
-                              {/* ── Left accent strip ── */}
-                              <div className={`w-1 shrink-0 ${accentClass}`} />
-
-                              <div className="flex-1 px-3 py-2.5 space-y-1.5 min-w-0">
-
-                                {/* Row 1: priority indicator + name + mode badge + active switch */}
-                                <div className="flex items-center gap-2">
+                            return (
+                              <tr
+                                key={rule.id}
+                                className={`border-b border-gray-100 last:border-0 transition-colors ${
+                                  rule.isActive ? 'bg-white hover:bg-gray-50' : 'bg-gray-50/60 opacity-60'
+                                }`}
+                                data-testid={`rule-${rule.id}`}
+                              >
+                                {/* Priority / mode indicator */}
+                                <td className="py-2.5 px-2 align-top">
                                   {exclusivePriority !== null ? (
-                                    <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center border border-amber-200">
+                                    <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center border border-amber-200" title={`Exclusive priority #${exclusivePriority}`}>
                                       {exclusivePriority}
                                     </span>
                                   ) : isAdditive && rule.isActive ? (
-                                    <div className="shrink-0 w-5 h-5 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center">
+                                    <div className="shrink-0 w-5 h-5 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center" title="Stacks with other rules">
                                       <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
                                     </div>
                                   ) : (
-                                    <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 ${rule.isActive ? 'bg-teal-400' : 'bg-gray-300'}`} />
+                                    <div className={`shrink-0 w-2 h-2 rounded-full ml-1.5 mt-1.5 ${rule.isActive ? 'bg-teal-400' : 'bg-gray-300'}`} />
                                   )}
+                                </td>
 
-                                  <p className="text-sm font-semibold text-gray-900 leading-snug flex-1 min-w-0 truncate">
-                                    {rule.name}
-                                  </p>
+                                {/* Rule Summary / Intent */}
+                                <td className="py-2.5 px-2 align-top max-w-[220px]">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-sm font-semibold text-gray-900 leading-snug">{rule.name}</span>
+                                    {rule.isActive && (
+                                      <span className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${
+                                        isAdditive
+                                          ? 'bg-teal-50 text-teal-700 border-teal-200'
+                                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                                      }`}>
+                                        {isAdditive ? '+ stacks' : '⊙ exclusive'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
 
-                                  {rule.isActive && (
-                                    <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide
-                                      ${isAdditive
-                                        ? 'bg-teal-50 text-teal-700 border-teal-200'
-                                        : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                      {isAdditive ? '+ stacks' : '⊙ exclusive'}
+                                {/* Rule Detail */}
+                                <td className="py-2.5 px-2 align-top max-w-[280px]">
+                                  <span className="text-xs text-gray-500 leading-relaxed line-clamp-3">
+                                    {rule.description || '—'}
+                                  </span>
+                                </td>
+
+                                {/* Service Line */}
+                                <td className="py-2.5 px-2 align-top">
+                                  <span className="text-xs font-medium text-gray-700 whitespace-nowrap">{slDisplay}</span>
+                                </td>
+
+                                {/* Units Impacted */}
+                                <td className="py-2.5 px-2 align-top text-right">
+                                  <span className="text-sm font-medium text-gray-900 tabular-nums">
+                                    {(rule.affectedUnits ?? 0).toLocaleString()}
+                                  </span>
+                                  {(rule.affectedCampuses ?? 0) > 0 && (
+                                    <span className="block text-[10px] text-gray-400">
+                                      {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
                                     </span>
                                   )}
+                                  {/* T3 move-in baseline chip */}
+                                  {(() => {
+                                    if (!t3MoveIns) return null;
+                                    let moveInAvg: number | null = null;
+                                    if (ruleSLs.length === 1 && t3MoveIns.byServiceLine[ruleSLs[0]] != null) {
+                                      moveInAvg = t3MoveIns.byServiceLine[ruleSLs[0]];
+                                    } else if (ruleSLs.length > 1) {
+                                      const sum = ruleSLs.reduce((s, sl) => s + (t3MoveIns.byServiceLine[sl] ?? 0), 0);
+                                      if (sum > 0) moveInAvg = sum;
+                                    } else {
+                                      moveInAvg = t3MoveIns.campus;
+                                    }
+                                    if (moveInAvg == null || moveInAvg <= 0) return null;
+                                    return (
+                                      <button
+                                        onClick={() => setShowMoveInMethodology(true)}
+                                        className="mt-1 text-[10px] font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5 hover:bg-blue-100 transition-colors cursor-pointer inline-flex items-center gap-1"
+                                        title="Click to see how this is calculated"
+                                      >
+                                        ~{moveInAvg.toFixed(1)}/mo
+                                        <Info className="h-2.5 w-2.5 opacity-60" />
+                                      </button>
+                                    );
+                                  })()}
+                                </td>
 
-                                  <Switch
-                                    checked={rule.isActive}
-                                    onCheckedChange={() => toggleRule(rule.id)}
-                                    aria-label={`Toggle ${rule.name}`}
-                                    data-testid={`switch-rule-${rule.id}`}
-                                    className="shrink-0"
-                                  />
-                                </div>
+                                {/* Monthly Revenue Impact */}
+                                <td className="py-2.5 px-2 align-top text-right">
+                                  {monthly !== 0 ? (
+                                    <span className={`inline-flex items-center gap-1 text-sm font-semibold tabular-nums ${
+                                      isPos ? 'text-green-700' : 'text-red-700'
+                                    }`}>
+                                      {isPos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                      {fmt(monthly)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">—</span>
+                                  )}
+                                  {annual !== 0 && (
+                                    <span className="block text-[10px] text-gray-400">{fmt(annual)}/yr</span>
+                                  )}
+                                </td>
 
-                                {/* Row 2: description */}
-                                {rule.description && (
-                                  <p className="text-xs text-gray-500 leading-relaxed line-clamp-2 ml-[26px]">
-                                    {rule.description}
-                                  </p>
-                                )}
-
-                                {/* Row 3: impact chips + action buttons */}
-                                <div className="flex items-center justify-between gap-2 ml-[26px]">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    {(rule.affectedCampuses ?? 0) > 0 && (
-                                      <span className="text-[11px] font-medium text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">
-                                        {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
-                                      </span>
-                                    )}
-                                    {(rule.affectedUnits ?? 0) > 0 && (
-                                      <span className="text-[11px] font-medium text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">
-                                        {(rule.affectedUnits ?? 0).toLocaleString()} units
-                                      </span>
-                                    )}
-                                    {monthly !== 0 && (
-                                      <span className={`text-[11px] font-semibold rounded px-1.5 py-0.5 ${
-                                        isPos ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
-                                      }`}>
-                                        {fmt(monthly)}/mo
-                                      </span>
-                                    )}
-                                    {annual !== 0 && (
-                                      <span className={`text-[11px] font-semibold rounded px-1.5 py-0.5 inline-flex items-center gap-1 ${
-                                        isPos ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
-                                      }`}>
-                                        {isPos ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-                                        {fmt(annual)}/yr
-                                      </span>
-                                    )}
-                                    {/* T3 move-in baseline chip */}
-                                    {(() => {
-                                      if (!t3MoveIns) return null;
-                                      const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
-                                      let moveInAvg: number | null = null;
-                                      if (ruleSLs.length === 1 && t3MoveIns.byServiceLine[ruleSLs[0]] != null) {
-                                        moveInAvg = t3MoveIns.byServiceLine[ruleSLs[0]];
-                                      } else if (ruleSLs.length > 1) {
-                                        const sum = ruleSLs.reduce((s, sl) => s + (t3MoveIns.byServiceLine[sl] ?? 0), 0);
-                                        if (sum > 0) moveInAvg = sum;
-                                      } else {
-                                        moveInAvg = t3MoveIns.campus;
-                                      }
-                                      if (moveInAvg == null || moveInAvg <= 0) return null;
-                                      return (
-                                        <button
-                                          onClick={() => setShowMoveInMethodology(true)}
-                                          className="text-[11px] font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5 hover:bg-blue-100 transition-colors cursor-pointer inline-flex items-center gap-1"
-                                          title="Click to see how this is calculated"
-                                        >
-                                          ~{moveInAvg.toFixed(1)} move-ins/mo
-                                          <Info className="h-2.5 w-2.5 opacity-60" />
-                                        </button>
-                                      );
-                                    })()}
-                                  </div>
-
-                                  <div className="flex items-center gap-0.5 shrink-0">
+                                {/* Actions */}
+                                <td className="py-2.5 px-2 align-top">
+                                  <div className="flex items-center justify-end gap-0.5">
+                                    <Switch
+                                      checked={rule.isActive}
+                                      onCheckedChange={() => toggleRule(rule.id)}
+                                      aria-label={`Toggle ${rule.name}`}
+                                      data-testid={`switch-rule-${rule.id}`}
+                                      className="shrink-0 mr-1"
+                                    />
                                     <Button variant="ghost" size="icon"
                                       className="h-7 w-7 text-gray-400 hover:text-teal-600 hover:bg-teal-50"
                                       onClick={() => setInfoRule(rule)} title="Rule details">
@@ -1273,32 +1285,47 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
-                                </div>
-
-                                {/* Row 4: additive toggle using Switch (replaces HTML checkbox) */}
-                                <div className="flex items-center gap-2 ml-[26px] pt-1.5 border-t border-gray-100">
-                                  <Switch
-                                    id={`additive-${rule.id}`}
-                                    checked={isAdditive}
-                                    onCheckedChange={() => toggleAdditive(rule.id)}
-                                    className="h-[18px] w-8 data-[state=checked]:bg-teal-500 shrink-0"
-                                  />
-                                  <label
-                                    htmlFor={`additive-${rule.id}`}
-                                    className="text-[11px] text-gray-500 hover:text-gray-700 cursor-pointer select-none leading-snug"
-                                  >
-                                    Apply in addition to other rules
-                                    {!isAdditive && exclusivePriority !== null && exclusivePriority > 1 && (
-                                      <span className="ml-1 text-amber-600">(priority #{exclusivePriority} — units claimed by rule #1 first)</span>
-                                    )}
-                                  </label>
-                                </div>
-
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                                  <div className="flex items-center justify-end gap-1.5 mt-1.5">
+                                    <Switch
+                                      id={`additive-${rule.id}`}
+                                      checked={isAdditive}
+                                      onCheckedChange={() => toggleAdditive(rule.id)}
+                                      className="h-[18px] w-8 data-[state=checked]:bg-teal-500 shrink-0"
+                                    />
+                                    <label
+                                      htmlFor={`additive-${rule.id}`}
+                                      className="text-[10px] text-gray-500 hover:text-gray-700 cursor-pointer select-none whitespace-nowrap"
+                                      title="Apply in addition to other rules"
+                                    >
+                                      stacks
+                                    </label>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        {activeCount > 0 && (
+                          <tfoot>
+                            <tr className="border-t-2 border-gray-200 bg-gray-50">
+                              <td className="py-2.5 px-2" />
+                              <td className="py-2.5 px-2 text-xs font-semibold text-gray-700" colSpan={3}>
+                                Totals — {activeCount} active rule{activeCount > 1 ? 's' : ''}
+                                {hasOverlap && <span className="font-normal text-gray-400 ml-1">(exclusive overlap removed)</span>}
+                              </td>
+                              <td className="py-2.5 px-2 text-right text-sm font-semibold text-gray-900 tabular-nums">
+                                {(combinedStats?.uniqueUnits ?? combinedUnits).toLocaleString()}
+                              </td>
+                              <td className={`py-2.5 px-2 text-right text-sm font-semibold tabular-nums ${
+                                (combinedStats?.combinedMonthly ?? combinedMonthly) >= 0 ? 'text-green-700' : 'text-red-700'
+                              }`}>
+                                {fmt(combinedStats?.combinedMonthly ?? combinedMonthly)}
+                              </td>
+                              <td className="py-2.5 px-2" />
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
                     </div>
 
                     {/* Exclusivity legend */}

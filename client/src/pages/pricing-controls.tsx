@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, Info, HeartPulse } from "lucide-react";
+import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, HeartPulse, TrendingUp, TrendingDown } from "lucide-react";
 import Navigation from "@/components/navigation";
-import PricingWeights from "@/components/dashboard/pricing-weights";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import ReferenceDataTable from "@/components/dashboard/reference-data-table";
-import AdjustmentRanges from "@/components/dashboard/adjustment-ranges";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,9 +11,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -46,101 +41,22 @@ interface TargetGrowth {
   VIL: string;
 }
 
-interface WeightExplanation {
-  value: number;
-  reason: string;
-  metric?: string;
-}
-
-interface SettingsMetrics {
-  occupancyRate: number;
-  avgDaysVacant: number;
-  competitorRate: number;
-  avgPortfolioRate: number;
-  salesVelocity: number;
-  netChange: number;
-  totalUnits: number;
-  vacantUnits: number;
-  unitsOver30DaysVacant: number;
-  unitsOver60DaysVacant: number;
-}
-
-interface IndividualResult {
-  locationId: string;
-  locationName: string;
+interface RuleSuggestion {
+  suggestionId: string;
+  name: string;
+  intent: string;
+  description: string;
+  ruleDetail: string;
   serviceLine: string;
-  weights: {
-    occupancyPressure: number;
-    daysVacantDecay: number;
-    competitorRates: number;
-    seasonality: number;
-    stockMarket: number;
-    inquiryTourVolume: number;
-  };
-  guardrails: {
-    maxIncreasePercent: number;
-    maxDecreasePercent: number;
-    minStreetRate: number;
-    maxStreetRate: number;
-  };
-  adjustmentRanges?: {
-    occupancyMin: number;
-    occupancyMax: number;
-    vacancyMin: number;
-    vacancyMax: number;
-    attributesMin: number;
-    attributesMax: number;
-    seasonalityMin: number;
-    seasonalityMax: number;
-    competitorMin: number;
-    competitorMax: number;
-  };
-  attributeAdjustments: Record<string, number>;
-  reasoning: string;
-  metrics: SettingsMetrics;
-}
-
-interface GeneratedSettings {
-  mode: 'portfolio' | 'individual';
-  weights: {
-    occupancyPressure: number;
-    daysVacantDecay: number;
-    competitorRates: number;
-    seasonality: number;
-    stockMarket: number;
-    inquiryTourVolume: number;
-  };
-  weightExplanations?: {
-    occupancyPressure?: WeightExplanation;
-    daysVacantDecay?: WeightExplanation;
-    competitorRates?: WeightExplanation;
-    seasonality?: WeightExplanation;
-    stockMarket?: WeightExplanation;
-    inquiryTourVolume?: WeightExplanation;
-  };
-  guardrails: {
-    maxIncreasePercent: number;
-    maxDecreasePercent: number;
-    minStreetRate: number;
-    maxStreetRate: number;
-  };
-  adjustmentRanges?: {
-    occupancyMin: number;
-    occupancyMax: number;
-    vacancyMin: number;
-    vacancyMax: number;
-    attributesMin: number;
-    attributesMax: number;
-    seasonalityMin: number;
-    seasonalityMax: number;
-    competitorMin: number;
-    competitorMax: number;
-  };
-  attributeAdjustments: Record<string, number>;
-  reasoning: string;
-  metrics?: SettingsMetrics;
-  individuals?: IndividualResult[];
-  scopeCount?: number;
+  locationId: string | null;
+  unitsImpacted: number | null;
+  monthlyImpact: number | null;
+  annualImpact: number | null;
+  elasticity: number | null;
+  daysToSellAfter: number | null;
+  predictedDaysToSellChange: number | null;
+  elasticityMonthlyImpact: number | null;
+  elasticityAnnualImpact: number | null;
 }
 
 export default function PricingControls() {
@@ -167,64 +83,9 @@ export default function PricingControls() {
     SL: "4",
     VIL: "4"
   });
-  const [generatedSettings, setGeneratedSettings] = useState<GeneratedSettings | null>(null);
-  
-  // Analyze individually toggle
-  const [analyzeIndividually, setAnalyzeIndividually] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('analyzeIndividually') === 'true';
-    } catch {
-      return false;
-    }
-  });
-  
-  // Category toggles for applying recommendations
-  const [enabledCategories, setEnabledCategories] = useState({
-    weights: true,
-    guardrails: true,
-    adjustmentRanges: true
-  });
-
-  // Save analyzeIndividually to localStorage when changed
-  const handleAnalyzeIndividuallyChange = (checked: boolean) => {
-    setAnalyzeIndividually(checked);
-    try {
-      localStorage.setItem('analyzeIndividually', checked ? 'true' : 'false');
-    } catch {}
-  };
-
-  const generateSettingsMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("/api/pricing/targets/generate", "POST", {
-        targets: targetGrowth,
-        analyzeIndividually,
-        filters: {
-          serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
-          regions: selectedRegions.length > 0 ? selectedRegions : null,
-          divisions: selectedDivisions.length > 0 ? selectedDivisions : null,
-          locations: selectedLocations.length > 0 ? selectedLocations : null
-        }
-      });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      setGeneratedSettings(data);
-      queryClient.invalidateQueries({ queryKey: ["/api/pricing/weights"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
-      toast({
-        title: "Settings Generated",
-        description: "AI has analyzed your portfolio and generated optimized settings.",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Generation Failed",
-        description: error.message || "Failed to generate AI settings. Please try again.",
-        variant: "destructive"
-      });
-    }
-  });
+  // AI rule suggestions generated from revenue growth targets
+  const [suggestions, setSuggestions] = useState<RuleSuggestion[]>([]);
+  const [hasGenerated, setHasGenerated] = useState(false);
 
   const saveTargetsMutation = useMutation({
     mutationFn: async () => {
@@ -254,84 +115,82 @@ export default function PricingControls() {
     }
   });
 
-  const applyRecommendationsMutation = useMutation({
+  // Generate AI rule suggestions to hit the revenue growth targets.
+  // The backend works per (locationId, serviceLine, targetGrowthPercent); when
+  // "All" service lines are selected we request suggestions for each line.
+  const suggestRulesMutation = useMutation({
     mutationFn: async () => {
-      if (!generatedSettings) throw new Error("No recommendations to apply");
-      
-      // Build filtered recommendations based on enabled categories
-      const filteredRecommendations: Partial<GeneratedSettings> = {
-        reasoning: generatedSettings.reasoning,
-        mode: generatedSettings.mode
-      };
-      if (enabledCategories.weights) {
-        filteredRecommendations.weights = generatedSettings.weights;
-      }
-      if (enabledCategories.guardrails) {
-        filteredRecommendations.guardrails = generatedSettings.guardrails;
-      }
-      if (enabledCategories.adjustmentRanges && generatedSettings.adjustmentRanges) {
-        filteredRecommendations.adjustmentRanges = generatedSettings.adjustmentRanges;
-      }
-      
-      // Include individual results for individual mode (only if at least one category is enabled)
-      if (generatedSettings.mode === 'individual' && generatedSettings.individuals) {
-        const hasEnabledCategory = enabledCategories.weights || enabledCategories.guardrails || enabledCategories.adjustmentRanges;
-        if (hasEnabledCategory) {
-          filteredRecommendations.individuals = generatedSettings.individuals.map(ind => {
-            const filtered: Partial<IndividualResult> = {
-              locationId: ind.locationId,
-              locationName: ind.locationName,
-              serviceLine: ind.serviceLine
-            };
-            if (enabledCategories.weights && ind.weights) filtered.weights = ind.weights;
-            if (enabledCategories.guardrails && ind.guardrails) filtered.guardrails = ind.guardrails;
-            if (enabledCategories.adjustmentRanges && ind.adjustmentRanges) filtered.adjustmentRanges = ind.adjustmentRanges;
-            return filtered as IndividualResult;
-          });
-        }
-      }
-      
-      const response = await apiRequest("/api/pricing/targets/apply", "POST", {
-        recommendations: filteredRecommendations,
-        enabledCategories,
-        filters: {
-          serviceLine: selectedServiceLine === "All" ? null : selectedServiceLine,
-          regions: selectedRegions.length > 0 ? selectedRegions : null,
-          divisions: selectedDivisions.length > 0 ? selectedDivisions : null,
-          locations: selectedLocations.length > 0 ? selectedLocations : null
-        }
-      });
-      return response.json();
+      const targetSLs = (selectedServiceLine === "All"
+        ? (["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const)
+        : [selectedServiceLine]) as Array<keyof TargetGrowth>;
+
+      const batches = await Promise.all(targetSLs.map(async (sl) => {
+        const response = await apiRequest("/api/adjustment-rules/suggest", "POST", {
+          locationId: selectedLocationId ?? null,
+          serviceLine: sl,
+          targetGrowthPercent: targetGrowth[sl] ? Number(targetGrowth[sl]) : undefined,
+        });
+        const data = await response.json();
+        return (data.suggestions || []) as RuleSuggestion[];
+      }));
+      return batches.flat();
     },
     onSuccess: (data) => {
-      // Invalidate all related queries to refresh UI
-      queryClient.invalidateQueries({ queryKey: ["/api/pricing/weights"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/guardrails"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-ranges"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attribute-ratings"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/weights"], exact: false });
-      
-      const appliedItems: string[] = [];
-      if (data.weightsUpdated > 0) appliedItems.push(`${data.weightsUpdated} weights`);
-      if (data.guardrailsUpdated > 0) appliedItems.push(`${data.guardrailsUpdated} guardrails`);
-      if (data.adjustmentRangesUpdated > 0) appliedItems.push(`${data.adjustmentRangesUpdated} adjustment ranges`);
-      
-      const modeLabel = data.mode === 'individual' ? ' (individual settings)' : '';
+      setSuggestions(data);
+      setHasGenerated(true);
       toast({
-        title: "Recommendations Applied",
-        description: appliedItems.length > 0 
-          ? `Applied to ${data.locationsAffected} location(s)${modeLabel}: ${appliedItems.join(', ')} updated.`
-          : "No changes were applied.",
+        title: data.length ? "Suggestions ready" : "No suggestions",
+        description: data.length
+          ? `AI proposed ${data.length} pricing rule${data.length > 1 ? 's' : ''}. Review and accept the ones you want.`
+          : "AI did not return any rule suggestions for this scope. Try a different location or service line.",
       });
-      setGeneratedSettings(null);
     },
     onError: (error: any) => {
       toast({
-        title: "Apply Failed",
-        description: error.message || "Failed to apply recommendations. Please try again.",
+        title: "Suggestion Failed",
+        description: error.message || "Failed to generate rule suggestions. Please try again.",
         variant: "destructive"
       });
     }
+  });
+
+  const acceptSuggestionMutation = useMutation({
+    mutationFn: async (s: RuleSuggestion) => {
+      const response = await apiRequest("/api/adjustment-rules/suggestions/accept", "POST", {
+        name: s.name,
+        description: s.description,
+        locationId: s.locationId ?? selectedLocationId ?? null,
+        serviceLine: s.serviceLine,
+      });
+      return response.json();
+    },
+    onSuccess: (_data, s) => {
+      setSuggestions(prev => prev.filter(x => x.suggestionId !== s.suggestionId));
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
+      toast({
+        title: "Rule created",
+        description: `"${s.name}" was added to your rules.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Accept Failed",
+        description: error.message || "Failed to create the rule. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const denySuggestionMutation = useMutation({
+    mutationFn: async (s: RuleSuggestion) => {
+      const response = await apiRequest("/api/adjustment-rules/suggestions/deny", "POST", {
+        suggestionId: s.suggestionId,
+      });
+      return response.json();
+    },
+    onSuccess: (_data, s) => {
+      setSuggestions(prev => prev.filter(x => x.suggestionId !== s.suggestionId));
+    },
   });
 
   const handleTargetChange = (serviceLine: keyof TargetGrowth, value: string) => {
@@ -449,7 +308,7 @@ export default function PricingControls() {
             Dynamic Pricing Controls
           </h1>
           <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
-            Configure pricing weights and guardrails for the Rules Rate engine
+            Configure pricing rules and guardrails for the Rules Rate engine
           </p>
         </div>
 
@@ -692,7 +551,7 @@ export default function PricingControls() {
                 <CardTitle className="text-lg">Target Annual Revenue Growth</CardTitle>
               </div>
               <CardDescription>
-                Set your target annual revenue growth percentage for each service line. AI will optimize weights, attributes, and guardrails to help achieve these targets.
+                Set your target annual revenue growth percentage for each service line. AI will suggest pricing rules to help achieve these targets.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -742,237 +601,134 @@ export default function PricingControls() {
                         )}
                       </Button>
                       <Button
-                        onClick={() => generateSettingsMutation.mutate()}
-                        disabled={generateSettingsMutation.isPending}
-                        data-testid="button-generate-settings"
+                        onClick={() => suggestRulesMutation.mutate()}
+                        disabled={suggestRulesMutation.isPending}
+                        data-testid="button-suggest-rules"
                       >
-                        {generateSettingsMutation.isPending ? (
+                        {suggestRulesMutation.isPending ? (
                           <>
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            {analyzeIndividually ? 'Analyzing Each Scope...' : 'Analyzing Portfolio...'}
+                            Generating Suggestions...
                           </>
                         ) : (
                           <>
                             <Sparkles className="h-4 w-4 mr-2" />
-                            Generate Weights, Attribute Values &amp; Guardrails
+                            Suggest Rules with AI
                           </>
                         )}
                       </Button>
                     </div>
                     <p className="text-xs text-gray-500">
-                      Save targets to apply to selected locations, or Generate to let AI optimize settings
+                      Save targets to persist them, or let AI propose pricing rules to reach your growth targets. Accepted suggestions become adjustment rules.
                     </p>
-                  </div>
-
-                  {/* Analyze Individually Checkbox */}
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <Checkbox
-                      id="analyze-individually"
-                      checked={analyzeIndividually}
-                      onCheckedChange={(checked) => handleAnalyzeIndividuallyChange(checked === true)}
-                      data-testid="checkbox-analyze-individually"
-                    />
-                    <div>
-                      <Label htmlFor="analyze-individually" className="text-sm font-medium cursor-pointer">
-                        Analyze Locations/Service Lines Individually
-                      </Label>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        When enabled, AI will generate specific recommendations for each location and service line combination. Displayed values show averages; individual settings are applied when saved.
-                      </p>
-                    </div>
                   </div>
                 </div>
 
-                {/* Generated Settings Display */}
-                {generatedSettings && (
-                  <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100" data-testid="card-generated-results">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-blue-600" />
-                        <h4 className="font-semibold text-gray-900">AI-Generated Recommendations</h4>
-                        {generatedSettings.mode === 'individual' && generatedSettings.scopeCount && (
-                          <Badge variant="secondary" className="text-xs">
-                            {generatedSettings.scopeCount} scopes analyzed • Showing averages
-                          </Badge>
-                        )}
-                      </div>
-                      <Button
-                        onClick={() => applyRecommendationsMutation.mutate()}
-                        disabled={applyRecommendationsMutation.isPending}
-                        className="bg-green-600 hover:bg-green-700"
-                        data-testid="button-apply-recommendations"
-                      >
-                        {applyRecommendationsMutation.isPending ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Applying...
-                          </>
-                        ) : (
-                          <>
-                            <Check className="h-4 w-4 mr-2" />
-                            Apply Recommendations
-                          </>
-                        )}
-                      </Button>
+                {/* AI Rule Suggestions */}
+                {suggestRulesMutation.isPending && (
+                  <div className="mt-6 p-6 bg-blue-50 rounded-lg border border-blue-100 flex items-center justify-center gap-3 text-sm text-blue-700">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Analyzing your portfolio and drafting rule suggestions...
+                  </div>
+                )}
+
+                {!suggestRulesMutation.isPending && hasGenerated && suggestions.length === 0 && (
+                  <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-500" data-testid="text-no-suggestions">
+                    No rule suggestions were returned for this scope. Try a different location or service line, then click Suggest Rules again.
+                  </div>
+                )}
+
+                {suggestions.length > 0 && (
+                  <div className="mt-6" data-testid="card-suggestions">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-4 w-4 text-blue-600" />
+                      <h4 className="font-semibold text-gray-900">AI-Suggested Rules</h4>
+                      <Badge variant="secondary" className="text-xs">{suggestions.length} pending</Badge>
                     </div>
-
-                    {generatedSettings.mode === 'individual' && (
-                      <p className="text-xs text-blue-700 bg-blue-100 p-2 rounded mb-3">
-                        Individual settings will be saved for each location/service line combination when applied.
-                      </p>
-                    )}
-
-                    <p className="text-xs text-gray-600 mb-3">Toggle categories on/off to control which settings will be applied:</p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                      {/* Pricing Weights */}
-                      <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.weights ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-xs font-medium text-gray-500 uppercase">Pricing Weights</h5>
-                          <Switch
-                            checked={enabledCategories.weights}
-                            onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, weights: checked }))}
-                            data-testid="toggle-weights"
-                          />
-                        </div>
-                        <TooltipProvider>
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between items-center">
-                              <span className="flex items-center gap-1">
-                                Occupancy Pressure:
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-xs p-2">
-                                    <p className="text-xs font-medium mb-1">Occupancy: {generatedSettings.metrics?.occupancyRate ?? '—'}%</p>
-                                    <p className="text-xs text-gray-600">Higher weight when occupancy is low to push for competitive pricing. Current: {generatedSettings.metrics?.totalUnits ?? '—'} units, {generatedSettings.metrics?.vacantUnits ?? '—'} vacant.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </span>
-                              <span className="font-medium">{generatedSettings.weights.occupancyPressure}%</span>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Each suggestion becomes an adjustment rule when accepted. Estimated impact is based on price elasticity.
+                    </p>
+                    <div className="space-y-3">
+                      {suggestions.map((s) => {
+                        const monthly = s.monthlyImpact ?? 0;
+                        const annual = s.annualImpact ?? 0;
+                        const isPos = monthly >= 0;
+                        const isAccepting = acceptSuggestionMutation.isPending && acceptSuggestionMutation.variables?.suggestionId === s.suggestionId;
+                        const isDenying = denySuggestionMutation.isPending && denySuggestionMutation.variables?.suggestionId === s.suggestionId;
+                        const busy = isAccepting || isDenying;
+                        return (
+                          <div
+                            key={s.suggestionId}
+                            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+                            data-testid={`suggestion-${s.suggestionId}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-semibold text-gray-900">{s.name}</span>
+                                  <Badge variant="outline" className="text-[10px] font-medium">{s.serviceLine}</Badge>
+                                </div>
+                                {s.intent && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{s.intent}</p>}
+                                <p className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded px-2 py-1.5 mt-2">{s.ruleDetail}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <Button
+                                  size="sm"
+                                  className="h-8 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                                  onClick={() => acceptSuggestionMutation.mutate(s)}
+                                  disabled={busy}
+                                  data-testid={`button-accept-${s.suggestionId}`}
+                                >
+                                  {isAccepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                  Accept
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 gap-1.5 text-gray-600"
+                                  onClick={() => denySuggestionMutation.mutate(s)}
+                                  disabled={busy}
+                                  data-testid={`button-deny-${s.suggestionId}`}
+                                >
+                                  {isDenying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                                  Deny
+                                </Button>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center">
-                              <span className="flex items-center gap-1">
-                                Days Vacant Decay:
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-xs p-2">
-                                    <p className="text-xs font-medium mb-1">Avg Days Vacant: {generatedSettings.metrics?.avgDaysVacant ?? '—'}</p>
-                                    <p className="text-xs text-gray-600">Higher weight when units stay vacant longer. Units 30+ days: {generatedSettings.metrics?.unitsOver30DaysVacant ?? '—'}, 60+ days: {generatedSettings.metrics?.unitsOver60DaysVacant ?? '—'}.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </span>
-                              <span className="font-medium">{generatedSettings.weights.daysVacantDecay}%</span>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                              <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
+                                <p className="text-sm font-semibold text-gray-900">{(s.unitsImpacted ?? 0).toLocaleString()}</p>
+                                <p className="text-[10px] uppercase tracking-wide text-gray-400">Units</p>
+                              </div>
+                              <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
+                                <p className={`text-sm font-semibold inline-flex items-center justify-center gap-1 ${isPos ? 'text-green-700' : 'text-red-700'}`}>
+                                  {isPos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                  {isPos ? '+' : '-'}${Math.abs(Math.round(monthly)).toLocaleString()}
+                                </p>
+                                <p className="text-[10px] uppercase tracking-wide text-gray-400">Monthly</p>
+                              </div>
+                              <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
+                                <p className={`text-sm font-semibold ${annual >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                  {annual >= 0 ? '+' : '-'}${Math.abs(Math.round(annual)).toLocaleString()}
+                                </p>
+                                <p className="text-[10px] uppercase tracking-wide text-gray-400">Annual</p>
+                              </div>
+                              <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
+                                <p className="text-sm font-semibold text-gray-900">{s.elasticity != null ? s.elasticity.toFixed(1) : '—'}</p>
+                                <p className="text-[10px] uppercase tracking-wide text-gray-400">Elasticity</p>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center">
-                              <span className="flex items-center gap-1">
-                                Competitor Rates:
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-xs p-2">
-                                    <p className="text-xs font-medium mb-1">Avg Competitor Rate: ${generatedSettings.metrics?.competitorRate ?? '—'}</p>
-                                    <p className="text-xs text-gray-600">Weight based on available competitor data. Lower weight when data is sparse or when current rates are already well-positioned.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </span>
-                              <span className="font-medium">{generatedSettings.weights.competitorRates}%</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="flex items-center gap-1">
-                                Seasonality:
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-xs p-2">
-                                    <p className="text-xs font-medium mb-1">Seasonal Factor</p>
-                                    <p className="text-xs text-gray-600">Adjusts for seasonal demand patterns. Spring/fall typically higher demand in senior living.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </span>
-                              <span className="font-medium">{generatedSettings.weights.seasonality}%</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="flex items-center gap-1">
-                                Stock Market:
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-xs p-2">
-                                    <p className="text-xs font-medium mb-1">Market Conditions</p>
-                                    <p className="text-xs text-gray-600">Economic indicator weight. Lower weight as this is a secondary factor in senior living pricing.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </span>
-                              <span className="font-medium">{generatedSettings.weights.stockMarket}%</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="flex items-center gap-1">
-                                Inquiry Volume:
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-400 cursor-help hover:text-blue-500" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-xs p-2">
-                                    <p className="text-xs font-medium mb-1">Sales Velocity: {generatedSettings.metrics?.salesVelocity ?? '—'} move-ins (30 days)</p>
-                                    <p className="text-xs text-gray-600">Net change: {(generatedSettings.metrics?.netChange ?? 0) > 0 ? '+' : ''}{generatedSettings.metrics?.netChange ?? '—'}. Higher velocity allows more aggressive pricing.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </span>
-                              <span className="font-medium">{generatedSettings.weights.inquiryTourVolume}%</span>
-                            </div>
+                            {(s.daysToSellAfter != null || s.predictedDaysToSellChange != null) && (
+                              <p className="text-[11px] text-gray-500 mt-2">
+                                {s.daysToSellAfter != null && <>Projected days-to-sell: <span className="font-medium text-gray-700">{Math.round(s.daysToSellAfter)}</span> </>}
+                                {s.predictedDaysToSellChange != null && (
+                                  <>({s.predictedDaysToSellChange >= 0 ? '+' : ''}{Math.round(s.predictedDaysToSellChange)} days vs. today)</>
+                                )}
+                              </p>
+                            )}
                           </div>
-                        </TooltipProvider>
-                      </div>
-
-                      {/* Guardrails */}
-                      <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.guardrails ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-xs font-medium text-gray-500 uppercase">Guardrails</h5>
-                          <Switch
-                            checked={enabledCategories.guardrails}
-                            onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, guardrails: checked }))}
-                            data-testid="toggle-guardrails"
-                          />
-                        </div>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between"><span>Max Increase:</span><span className="font-medium">{generatedSettings.guardrails.maxIncreasePercent}%</span></div>
-                          <div className="flex justify-between"><span>Max Decrease:</span><span className="font-medium">{generatedSettings.guardrails.maxDecreasePercent}%</span></div>
-                          <div className="flex justify-between"><span>Min Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.minStreetRate}</span></div>
-                          <div className="flex justify-between"><span>Max Street Rate:</span><span className="font-medium">${generatedSettings.guardrails.maxStreetRate}</span></div>
-                        </div>
-                      </div>
-
-                      {/* Adjustment Ranges */}
-                      {generatedSettings.adjustmentRanges && (
-                        <div className={`rounded-md p-3 border-2 transition-all ${enabledCategories.adjustmentRanges ? 'bg-white/80 border-blue-200' : 'bg-gray-100/50 border-gray-200 opacity-60'}`}>
-                          <div className="flex items-center justify-between mb-2">
-                            <h5 className="text-xs font-medium text-gray-500 uppercase">Adjustment Ranges</h5>
-                            <Switch
-                              checked={enabledCategories.adjustmentRanges}
-                              onCheckedChange={(checked) => setEnabledCategories(prev => ({ ...prev, adjustmentRanges: checked }))}
-                              data-testid="toggle-adjustment-ranges"
-                            />
-                          </div>
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between"><span>Occupancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.occupancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.occupancyMax * 100).toFixed(0)}%</span></div>
-                            <div className="flex justify-between"><span>Vacancy:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.vacancyMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.vacancyMax * 100).toFixed(0)}%</span></div>
-                            <div className="flex justify-between"><span>Seasonality:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.seasonalityMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.seasonalityMax * 100).toFixed(0)}%</span></div>
-                            <div className="flex justify-between"><span>Competitor:</span><span className="font-medium">{(generatedSettings.adjustmentRanges.competitorMin * 100).toFixed(0)}% to {(generatedSettings.adjustmentRanges.competitorMax * 100).toFixed(0)}%</span></div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="bg-white/80 rounded-md p-3">
-                      <h5 className="text-xs font-medium text-gray-500 uppercase mb-2">AI Reasoning</h5>
-                      <p className="text-sm text-gray-700">{generatedSettings.reasoning}</p>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -980,14 +736,6 @@ export default function PricingControls() {
             </CardContent>
           </Card>
 
-          <PricingWeights 
-            locationId={selectedLocationId} 
-            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
-          />
-          <AdjustmentRanges 
-            locationId={selectedLocationId}
-            serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
-          />
           <GuardrailsEditor 
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}

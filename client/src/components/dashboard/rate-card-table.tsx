@@ -34,11 +34,10 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Brain, Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X } from "lucide-react";
+import { Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
-import AICalculationDialog from "./ai-calculation-dialog";
 import { formatNumber, formatCurrency, formatPercentage, formatRateByServiceLine, convertToDisplayRate, isDailyRateServiceLine } from "@/lib/formatters";
 
 interface RateCardTableProps {
@@ -60,7 +59,6 @@ export default function RateCardTable({
   const [openTooltip, setOpenTooltip] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const [localServiceLine, setLocalServiceLine] = useState<string>("All");
-  const [aiDialogUnit, setAIDialogUnit] = useState<{ unitId: string; roomType: string; streetRate: number; aiSuggestedRate: number } | null>(null);
   const [sortColumn, setSortColumn] = useState<string | null>('status');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -321,30 +319,6 @@ export default function RateCardTable({
     }
   });
 
-  const generateAIMutation = useMutation({
-    mutationFn: () => apiRequest('/api/pricing/generate-ai', 'POST', { 
-      month: selectedMonth,
-      serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
-      regions: selectedRegions,
-      divisions: selectedDivisions,
-      locations: selectedLocations
-    }),
-    onSuccess: () => {
-      toast({
-        title: "Revenue Target AI Rate suggestions generated",
-        description: "AI-powered pricing recommendations are ready"
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to generate Revenue Target AI Rate suggestions", 
-        description: error.message,
-        variant: "destructive"
-      });
-    }
-  });
-
   const acceptSuggestionsMutation = useMutation({
     mutationFn: ({ unitIds, type }: { unitIds: string[], type: string }) => 
       apiRequest('/api/pricing/accept-suggestions', 'POST', { 
@@ -415,35 +389,6 @@ ${factors.join('\n')}
 Final Rate: $${Math.round(displayModulo).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
 
 The Rules Rate engine considers occupancy pressure, vacancy duration, unit attributes, and competitor positioning to optimize pricing.`;
-  };
-
-  // Helper function to generate AI calculation explanation  
-  const getAITooltip = (unit: any) => {
-    if (!unit.aiSuggestedRate) {
-      return "No Revenue Target AI Rate suggestions available";
-    }
-
-    const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
-    const displayAI = convertToDisplayRate(unit.aiSuggestedRate, unit.serviceLine) || 0;
-    const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
-    const rateSuffix = isDailyRate ? '/day' : '';
-
-    const change = displayAI - displayStreet;
-    const changePercent = Math.round((change / displayStreet) * 100);
-    
-    return `Revenue Target AI Pricing Analysis:
-
-Base Rate: $${Math.round(displayStreet).toLocaleString()}${rateSuffix}
-Rev Target AI Suggested: $${Math.round(displayAI).toLocaleString()}${rateSuffix} (${change > 0 ? '+' : ''}${changePercent}%)
-
-Analysis Factors:
-🧠 Market intelligence and patterns
-🏘️ Comparable unit analysis
-📊 Historical occupancy trends  
-🎯 Competitive positioning
-🔮 Predictive modeling
-
-The Revenue Target AI considers complex market dynamics, seasonal patterns, and competitive intelligence to generate data-driven pricing recommendations.`;
   };
 
   const units = rateCardData?.units || [];
@@ -602,10 +547,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
           aVal = a.moduloSuggestedRate || 0;
           bVal = b.moduloSuggestedRate || 0;
           break;
-        case 'ai':
-          aVal = a.aiSuggestedRate || 0;
-          bVal = b.aiSuggestedRate || 0;
-          break;
         case 'competitor':
           aVal = a.competitorFinalRate || 0;
           bVal = b.competitorFinalRate || 0;
@@ -695,22 +636,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                     ? "Calculating..."
                     : "Run Rules Rate"}
                 </Button>
-                
-                <Button
-                  onClick={() => generateAIMutation.mutate()}
-                  disabled={generateAIMutation.isPending || filteredUnits.length === 0}
-                  variant="outline"
-                  data-testid="button-generate-ai"
-                >
-                  {generateAIMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Brain className="h-4 w-4 mr-2" />
-                  )}
-                  {generateAIMutation.isPending
-                    ? "Generating..."
-                    : "Run Revenue Target AI Rate"}
-                </Button>
                 </div>
               </div>
 
@@ -719,25 +644,17 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   {(() => {
                     const moduloCount = filteredUnits.filter((u: any) => u.ruleAdjustedRate || u.moduloSuggestedRate).length;
-                    const aiCount = filteredUnits.filter((u: any) => u.aiSuggestedRate).length;
                     return (
                       <>
-                        {moduloCount > 0 && (
+                        {moduloCount > 0 ? (
                           <span className="flex items-center gap-1">
                             <CheckCircle className="h-3 w-3 text-green-500" />
                             {moduloCount} unit{moduloCount !== 1 ? 's' : ''} have saved Rules Rates
                           </span>
-                        )}
-                        {aiCount > 0 && (
-                          <span className="flex items-center gap-1">
-                            <CheckCircle className="h-3 w-3 text-blue-500" />
-                            {aiCount} unit{aiCount !== 1 ? 's' : ''} have saved Revenue Target AI Rates
-                          </span>
-                        )}
-                        {moduloCount === 0 && aiCount === 0 && (
+                        ) : (
                           <span className="flex items-center gap-1">
                             <Info className="h-3 w-3" />
-                            No rates calculated yet — click Generate to create recommendations
+                            No rates calculated yet — click Run Rules Rate to create recommendations
                           </span>
                         )}
                       </>
@@ -774,31 +691,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Accept All Rules Rate ({filteredUnits.filter((u: any) => (u.ruleAdjustedRate || u.moduloSuggestedRate)).length})
                 </Button>
-                
-                <Button
-                  onClick={() => {
-                    const unitsWithAI = filteredUnits.filter((u: any) => u.aiSuggestedRate);
-                    if (unitsWithAI.length === 0) {
-                      toast({ 
-                        title: "No Revenue Target AI Rate suggestions", 
-                        description: "Generate Revenue Target AI Rate suggestions first",
-                        variant: "destructive"
-                      });
-                      return;
-                    }
-                    acceptSuggestionsMutation.mutate({
-                      unitIds: unitsWithAI.map((u: any) => u.id),
-                      type: 'ai'
-                    });
-                  }}
-                  disabled={acceptSuggestionsMutation.isPending}
-                  variant="secondary"
-                  size="sm"
-                  data-testid="button-accept-all-ai"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Revenue Target AI ({filteredUnits.filter((u: any) => u.aiSuggestedRate).length})
-                </Button>
                 </div>
               </div>
             </div>
@@ -817,16 +709,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                     )}
                   </div>
                   <Progress value={generateModuloMutation.isPending ? 5 : moduloJobProgress} className="h-2" />
-                </div>
-              )}
-              
-              {generateAIMutation.isPending && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Brain className="h-4 w-4 text-primary animate-pulse" />
-                    <div className="text-sm text-muted-foreground">AI analyzing market conditions...</div>
-                  </div>
-                  <Progress value={33} className="h-2" />
                 </div>
               )}
             </div>
@@ -848,7 +730,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                   <TableHead>Occupancy</TableHead>
                   <TableHead>Avg Street Rate</TableHead>
                   <TableHead>Avg Rules Rate</TableHead>
-                  <TableHead>Avg Rev Target AI</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -865,9 +746,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                     <TableCell>{formatRateByServiceLine(Math.round(row.averageStreetRate || 0), row.serviceLine)}</TableCell>
                     <TableCell>
                       {row.averageModuloRate ? formatRateByServiceLine(Math.round(row.averageModuloRate), row.serviceLine) : '-'}
-                    </TableCell>
-                    <TableCell>
-                      {row.averageAiRate ? formatRateByServiceLine(Math.round(row.averageAiRate), row.serviceLine) : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1130,16 +1008,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
 
                     <TableHead
                       className="cursor-pointer hover:bg-slate-50 select-none"
-                      onClick={() => handleSort('ai')}
-                      data-testid="sort-ai"
-                    >
-                      <div className="flex items-center gap-0.5">
-                        Rev Target AI
-                        <SortIcon column="ai" />
-                      </div>
-                    </TableHead>
-                    <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none"
                       onClick={() => handleSort('competitor')}
                       data-testid="sort-competitor"
                     >
@@ -1317,54 +1185,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
                         ) : '-'}
                       </TableCell>
                       <TableCell>
-                        {unit.aiSuggestedRate ? (
-                          <div className="flex items-center space-x-2">
-                            <div className="flex flex-col">
-                              <button 
-                                className="cursor-help flex items-center space-x-1 text-blue-600 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded px-1"
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setAIDialogUnit({
-                                    unitId: unit.id,
-                                    roomType: unit.roomType,
-                                    streetRate: unit.streetRate || 0,
-                                    aiSuggestedRate: unit.aiSuggestedRate || 0
-                                  });
-                                }}
-                                data-testid={`tooltip-ai-${unit.roomNumber}`}
-                              >
-                                <span>{formatRateByServiceLine(Math.round(unit.aiSuggestedRate), unit.serviceLine)}</span>
-                                <Info className="h-3 w-3" />
-                              </button>
-                              {(() => {
-                                const displayAI = convertToDisplayRate(unit.aiSuggestedRate, unit.serviceLine) || 0;
-                                const displayStreet = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
-                                const change = Math.round(displayAI - displayStreet);
-                                const changePercent = Math.round((change / displayStreet) * 100);
-                                const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
-                                return (
-                                  <span className={`text-xs ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {change > 0 ? '+' : ''}{formatCurrency(change)}{isDailyRate ? '/day' : ''} ({change > 0 ? '+' : ''}{changePercent}%)
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => acceptSuggestionsMutation.mutate({
-                                unitIds: [unit.id],
-                                type: 'ai'
-                              })}
-                              data-testid={`button-accept-ai-${unit.roomNumber}`}
-                            >
-                              <CheckCircle className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : '-'}
-                      </TableCell>
-                      <TableCell>
                         {unit.competitorFinalRate ? (
                           <CompetitorAdjustmentDialog
                             competitorName={unit.competitorName}
@@ -1458,18 +1278,6 @@ The Revenue Target AI considers complex market dynamics, seasonal patterns, and 
         </CardContent>
       </Card>
       </div>{/* /fullscreen wrapper */}
-
-      {/* AI Calculation Dialog */}
-      {aiDialogUnit && (
-        <AICalculationDialog
-          open={!!aiDialogUnit}
-          onOpenChange={(open) => !open && setAIDialogUnit(null)}
-          unitId={aiDialogUnit.unitId}
-          roomType={aiDialogUnit.roomType}
-          streetRate={aiDialogUnit.streetRate}
-          aiSuggestedRate={aiDialogUnit.aiSuggestedRate}
-        />
-      )}
     </div>
     </TooltipProvider>
   );
