@@ -635,7 +635,12 @@ class PricingJobManager {
         // 3. Train and update weights if we have enough samples
         const trainingResult = await trainAndUpdateWeights('scheduled');
         console.log(`[PricingJob ${jobId}] ML: ${trainingResult.message}`);
-        
+
+        // 4. Refine price elasticity (online learning blend with prior estimate)
+        const { computeAndStoreElasticity } = await import('./services/elasticityService');
+        const elasticityResult = await computeAndStoreElasticity(jobClientId_);
+        console.log(`[PricingJob ${jobId}] ML: Refined elasticity for ${elasticityResult.updated} segments`);
+
       } catch (mlError) {
         // ML training errors should not fail the pricing job
         console.error(`[PricingJob ${jobId}] ML training error (non-fatal):`, mlError);

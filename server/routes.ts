@@ -15864,6 +15864,25 @@ Respond in JSON format:
       const incPct = (spot: number | null, trailing: number | null): number | null =>
         (spot !== null && trailing !== null && trailing !== 0) ? (spot - trailing) / trailing : null;
 
+      // Elasticity metrics (learned per campus||sl||rt) + per-segment revenue growth targets.
+      const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
+        await import('./services/elasticityService');
+      const elasticityMap = await getElasticityMap(clientId);
+      // Strictly tenant-scoped: only targets belonging to THIS client's locations.
+      // (revenue_growth_targets is keyed by location_id, which is client-owned;
+      // there is no client-global target concept elsewhere in the app.)
+      const growthTargetsRes = await pool.query<{ location_id: string; service_line: string; target_growth_percent: number }>(
+        `SELECT rgt.location_id, rgt.service_line, rgt.target_growth_percent
+         FROM revenue_growth_targets rgt
+         INNER JOIN locations loc ON loc.id = rgt.location_id
+         WHERE loc.client_id = $1`,
+        [clientId]
+      );
+      const growthTargetMap = new Map<string, number>(); // `${locationId}||${sl}` -> pct
+      for (const g of growthTargetsRes.rows) {
+        growthTargetMap.set(`${g.location_id}||${g.service_line}`, Number(g.target_growth_percent));
+      }
+
       const rows = Array.from(comboMap.values()).map(c => {
         const bm = c.byMonth;
         const spot = bm.get(spotMonth);
@@ -15948,10 +15967,45 @@ Respond in JSON format:
           proposedRule: proposed,
           proposedVarDollar: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
           proposedVarPct: (proposed !== null && ihSpot !== null && ihSpot !== 0) ? (proposed - ihSpot) / ihSpot : null,
-          // Revenue impact
+          // Revenue impact (existing in-house-vs-proposed × units model)
           revT3MoveIns: moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null,
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
+          // ── Price elasticity + days-to-sell metrics + elasticity-based impact ──
+          ...(() => {
+            const elas = elasticityMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
+            const elasticity = elas?.elasticity ?? null;
+            const daysToSellBefore = elas?.daysToSellBefore ?? null;
+            const daysToSellAfter = elas?.daysToSellAfter ?? null;
+            const daysToSellChange = elas?.daysToSellChange ?? null;
+            // Rate delta from applying rules to the street (asking) rate.
+            const deltaRate = (proposed !== null && streetSpot !== null) ? proposed - streetSpot : null;
+            const predictedDaysToSellChange = predictDaysToSellChange(
+              elasticity, daysToSellAfter, streetSpot, deltaRate
+            );
+            const moveInsMonthly = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
+            const dailyRate = streetSpot !== null ? toDailyRate(streetSpot, c.serviceLine) : null;
+            const elasticImpact = calculateElasticityRevenueImpact({
+              moveInsMonthly,
+              deltaRate,
+              deltaDaysToSell: predictedDaysToSellChange,
+              dailyRate,
+            });
+            return {
+              elasticity,
+              elasticityConfidence: elas?.confidence ?? null,
+              daysToSellBefore,
+              daysToSellAfter,
+              daysToSellChange,
+              predictedDaysToSellChange,
+              elasticityMonthlyImpact: elasticImpact.monthly,
+              elasticityAnnualImpact: elasticImpact.annual,
+            };
+          })(),
+          // Revenue growth target (% annual) for this campus's location + service line
+          revenueGrowthTarget:
+            (c.locationId ? growthTargetMap.get(`${c.locationId}||${c.serviceLine}`) : undefined)
+            ?? null,
           // Monthly history for expandable column drill-down (up to 24 months)
           campusOccHistory: Object.fromEntries(
             months.map(mm => [mm, rtoOccWindow(rtoCampusMap.get(c.campus), [mm])])
@@ -17463,6 +17517,32 @@ Respond in JSON format:
     }
   });
   
+  // Get stored price elasticity metrics for the current client (keyed by segment)
+  app.get("/api/elasticity", async (req: any, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const { getElasticityMap } = await import('./services/elasticityService');
+      const map = await getElasticityMap(clientId);
+      res.json({ success: true, records: Array.from(map.values()) });
+    } catch (error) {
+      console.error('Error fetching elasticity metrics:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch elasticity metrics' });
+    }
+  });
+
+  // Recompute + refine price elasticity for the current client (online-learning blend)
+  app.post("/api/elasticity/recalculate", async (req: any, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const { computeAndStoreElasticity } = await import('./services/elasticityService');
+      const result = await computeAndStoreElasticity(clientId);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('Error recalculating elasticity:', error);
+      res.status(500).json({ success: false, error: 'Failed to recalculate elasticity' });
+    }
+  });
+
   // Get learned weights for a specific service line
   app.get("/api/ml/weights/:serviceLine", async (req, res) => {
     try {

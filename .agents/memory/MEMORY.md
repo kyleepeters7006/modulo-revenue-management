@@ -2,3 +2,4 @@
 - [Inquiry location normalization](inquiry-location-normalization.md) — inquiry_metrics.location uses 2 client-specific formats (demo 'Name - NNN', trilogy 'Name SL'); join normalization must handle both
 - [Competitor rate data locations](competitor-rate-data.md) — competitors table is empty; real source is competitive_survey_data + care_level_rates + rent_roll_data snapshots; analytics caches in-memory (restart to see DB changes).
 - [ResizeObserver overlay crash](resizeobserver-overlay-crash.md) — tall Radix dropdowns trigger Replit "(unknown runtime error)" overlay; fix = rAF-wrap global ResizeObserver in main.tsx (window error suppression can't win listener order).
+- [revenue_growth_targets tenancy](revenue-growth-targets-tenancy.md) — table has NO client_id; scope via INNER JOIN locations on client_id, never fall back to location_id IS NULL (cross-tenant leak + nondeterministic).

@@ -986,6 +986,37 @@ export const insertRevenueGrowthTargetsSchema = createInsertSchema(revenueGrowth
   updatedAt: true,
 });
 
+// Price Elasticity Metrics — learned per (client, campus, service line, room type).
+// Elasticity = (% change in days-to-sell) / (% change in street rate), measured
+// across the rent-roll history. The stored value is refined over time via an
+// exponential moving average (online learning) so it improves as more months of
+// data accumulate. Days-to-sell is proxied by average days_vacant for vacant units.
+export const elasticityMetrics = pgTable("elasticity_metrics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  locationId: varchar("location_id").references(() => locations.id), // nullable — keyed primarily by campus name
+  locationName: text("location_name").notNull(), // campus name (matches rent_roll_data.location / reference-data campus)
+  serviceLine: text("service_line").notNull(),
+  roomType: text("room_type").notNull(),
+  elasticity: real("elasticity"), // learned (EMA-blended) elasticity; null when insufficient data
+  rawElasticity: real("raw_elasticity"), // most recent raw period-over-period computation
+  daysToSellBefore: real("days_to_sell_before"), // avg days-to-sell in the "before" window
+  daysToSellAfter: real("days_to_sell_after"), // avg days-to-sell in the "after" window
+  daysToSellChange: real("days_to_sell_change"), // after - before
+  rateBefore: real("rate_before"), // avg street rate in the "before" window
+  rateAfter: real("rate_after"), // avg street rate in the "after" window
+  sampleSize: integer("sample_size").default(0), // number of refinement observations accumulated
+  confidence: real("confidence").default(0), // 0-1, grows with sampleSize
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  segmentIdx: uniqueIndex("elasticity_metrics_segment_idx").on(table.clientId, table.locationName, table.serviceLine, table.roomType),
+}));
+
+export const insertElasticityMetricsSchema = createInsertSchema(elasticityMetrics).omit({
+  id: true,
+  updatedAt: true,
+});
+
 // ML Training History - Track training runs
 export const mlTrainingHistory = pgTable("ml_training_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1111,6 +1142,8 @@ export type MlTrainingHistory = typeof mlTrainingHistory.$inferSelect;
 export type InsertMlTrainingHistory = z.infer<typeof insertMlTrainingHistorySchema>;
 export type RevenueGrowthTarget = typeof revenueGrowthTargets.$inferSelect;
 export type InsertRevenueGrowthTarget = z.infer<typeof insertRevenueGrowthTargetsSchema>;
+export type ElasticityMetric = typeof elasticityMetrics.$inferSelect;
+export type InsertElasticityMetric = z.infer<typeof insertElasticityMetricsSchema>;
 
 // Care Level 2 Rates — posted L2 care rate per location + service line.
 // Used only by the competitor adjustment formula so the pricing breakdown shows
