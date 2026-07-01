@@ -14579,13 +14579,18 @@ Respond in JSON format:
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
 
       // Resolve effective service line scope from request.
-      // Priority: serviceLines[] body param > serviceLine body param > existing stored values.
+      // If `serviceLines` is explicitly provided (even empty [] = "all service lines"), use it.
+      // Only fall back to stored scope when `serviceLines` is absent (undefined) from the request body.
       const effectiveSLs: string[] =
-        Array.isArray(serviceLines) && serviceLines.length > 0 ? serviceLines
-        : serviceLine ? [serviceLine]
-        : (existing as any).serviceLines?.length ? (existing as any).serviceLines
-        : existing.serviceLine ? [existing.serviceLine]
-        : [];
+        serviceLines !== undefined
+          ? (Array.isArray(serviceLines) ? serviceLines : [])
+          : serviceLine !== undefined
+            ? (serviceLine ? [serviceLine] : [])
+            : (existing as any).serviceLines?.length
+              ? (existing as any).serviceLines
+              : existing.serviceLine
+                ? [existing.serviceLine]
+                : [];
 
       // Inject all effective SLs into action.filters so generateRuleName labels them.
       if (effectiveSLs.length > 0) {

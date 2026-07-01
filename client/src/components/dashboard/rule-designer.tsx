@@ -405,7 +405,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : (newRuleSLs.length > 0 ? newRuleSLs : serviceLine ? [serviceLine] : []) }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -775,7 +775,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                           onClick={() => setNewSlPickerOpen(p => !p)}
                           className="h-7 text-xs px-2.5 inline-flex items-center gap-1.5 border border-border rounded-md bg-muted/40 hover:bg-muted/80 hover:border-[var(--trilogy-teal)] transition-colors"
                         >
-                          <span>{newRuleSLs.length === 0 ? (serviceLine || 'All service lines') : newRuleSLs.join(', ')}</span>
+                          <span>{newRuleSLs.length === 0 ? 'All service lines' : newRuleSLs.join(', ')}</span>
                           <ChevronDown className="h-3 w-3 shrink-0" />
                         </button>
                         {newSlPickerOpen && (
