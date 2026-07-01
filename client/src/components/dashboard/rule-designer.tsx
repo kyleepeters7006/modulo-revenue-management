@@ -52,6 +52,7 @@ const NEW_METRIC_FIELDS: Record<string, string> = {
 };
 
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
+const ALL_SERVICE_LINES = ['AL', 'AL/MC', 'IL', 'SL', 'HC', 'HC/MC', 'VIL'] as const;
 
 const OPERATORS = [
   'is greater than', 'is greater than or equal to',
@@ -202,8 +203,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [isLoadingImpact, setIsLoadingImpact] = useState(false);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleName, setEditingRuleName] = useState<string>('');
-  const [editingRuleSL, setEditingRuleSL] = useState<string>('');
-  const [editingRuleSLDraft, setEditingRuleSLDraft] = useState<string>('');
+  const [editingRuleSLs, setEditingRuleSLs] = useState<string[]>([]);
+  const [newRuleSLs, setNewRuleSLs] = useState<string[]>([]);
+  const [slPickerOpen, setSlPickerOpen] = useState(false);
+  const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
+  const slPickerRef = useRef<HTMLDivElement>(null);
+  const newSlPickerRef = useRef<HTMLDivElement>(null);
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
@@ -328,6 +333,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     return () => recognitionRef.current?.stop();
   }, [isSpeechSupported, toast]);
 
+  // Close SL picker dropdowns when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (slPickerRef.current && !slPickerRef.current.contains(e.target as Node)) setSlPickerOpen(false);
+      if (newSlPickerRef.current && !newSlPickerRef.current.contains(e.target as Node)) setNewSlPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const toggleRecording = () => {
     if (!isSpeechSupported) {
       toast({ title: 'Voice not supported', description: 'Use a browser with microphone support', variant: 'destructive' });
@@ -390,7 +405,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLine: (isEditing ? (editingRuleSLDraft === '__all__' ? null : editingRuleSLDraft) : serviceLine) || null }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : (newRuleSLs.length > 0 ? newRuleSLs : serviceLine ? [serviceLine] : []) }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -401,8 +416,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       setImpactData(null);
       setEditingRuleId(null);
       setEditingRuleName('');
-      setEditingRuleSL('');
-      setEditingRuleSLDraft('');
+      setEditingRuleSLs([]);
+      setNewRuleSLs([]);
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
@@ -421,19 +436,28 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setImpactData(null);
     setEditingRuleId(null);
     setEditingRuleName('');
-    setEditingRuleSL('');
-    setEditingRuleSLDraft('');
+    setEditingRuleSLs([]);
+    setNewRuleSLs([]);
+    setSlPickerOpen(false);
+    setNewSlPickerOpen(false);
   };
 
   const startEdit = (rule: AdjustmentRule) => {
     setEditingRuleId(rule.id);
     setEditingRuleName(rule.name);
     const action0 = rule.action as any;
-    const resolvedSL = (rule as any).serviceLine
-      || (Array.isArray(action0?.filters?.serviceLine) ? action0.filters.serviceLine[0] : action0?.filters?.serviceLine)
-      || '';
-    setEditingRuleSL(resolvedSL);
-    setEditingRuleSLDraft(resolvedSL || '__all__');
+    const resolvedSLs: string[] =
+      Array.isArray((rule as any).serviceLines) && (rule as any).serviceLines.length
+        ? (rule as any).serviceLines
+        : (rule as any).serviceLine
+          ? [(rule as any).serviceLine]
+          : Array.isArray(action0?.filters?.serviceLine) && action0.filters.serviceLine.length
+            ? action0.filters.serviceLine
+            : action0?.filters?.serviceLine
+              ? [action0.filters.serviceLine]
+              : [];
+    setEditingRuleSLs(resolvedSLs);
+    setSlPickerOpen(false);
     setImpactData(null);
 
     // ── Hydrate ruleAction from stored action ──────────────────────────────
@@ -637,22 +661,37 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               <div className="flex flex-col min-w-0 gap-1">
                 <span className="text-xs font-medium truncate">Editing: "{editingRuleName}"</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">Service line:</span>
-                  <Select value={editingRuleSLDraft || '__all__'} onValueChange={setEditingRuleSLDraft}>
-                    <SelectTrigger className="h-5 text-[10px] px-1.5 py-0 border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:border-amber-600 dark:text-amber-200 w-auto min-w-[90px] max-w-[130px]">
-                      <SelectValue placeholder="All service lines" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All service lines</SelectItem>
-                      <SelectItem value="AL">AL</SelectItem>
-                      <SelectItem value="AL/MC">AL/MC</SelectItem>
-                      <SelectItem value="IL">IL</SelectItem>
-                      <SelectItem value="SL">SL</SelectItem>
-                      <SelectItem value="HC">HC</SelectItem>
-                      <SelectItem value="HC/MC">HC/MC</SelectItem>
-                      <SelectItem value="VIL">VIL</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">Service lines:</span>
+                  <div className="relative" ref={slPickerRef}>
+                    <button
+                      type="button"
+                      onClick={() => setSlPickerOpen(p => !p)}
+                      className="h-5 text-[10px] px-2 inline-flex items-center gap-1 border border-amber-300 bg-amber-50 rounded text-amber-800 hover:bg-amber-100 dark:bg-amber-950/50 dark:border-amber-600 dark:text-amber-200 dark:hover:bg-amber-900/60 max-w-[160px]"
+                    >
+                      <span className="truncate">{editingRuleSLs.length === 0 ? 'All service lines' : editingRuleSLs.join(', ')}</span>
+                      <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+                    </button>
+                    {slPickerOpen && (
+                      <div className="absolute top-full left-0 z-50 mt-1 bg-white dark:bg-gray-900 border border-border rounded-lg shadow-lg p-2 min-w-[140px]">
+                        {ALL_SERVICE_LINES.map(sl => (
+                          <label key={sl} className="flex items-center gap-2 text-xs py-1 cursor-pointer text-foreground hover:text-[var(--trilogy-teal)]">
+                            <input
+                              type="checkbox"
+                              checked={editingRuleSLs.includes(sl)}
+                              onChange={e => setEditingRuleSLs(prev => e.target.checked ? [...prev, sl] : prev.filter(s => s !== sl))}
+                              className="h-3 w-3"
+                            />
+                            {sl}
+                          </label>
+                        ))}
+                        {editingRuleSLs.length > 0 && (
+                          <button type="button" onClick={() => setEditingRuleSLs([])} className="text-[10px] text-muted-foreground hover:underline mt-1 w-full text-left">
+                            Clear (all service lines)
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <Button variant="ghost" size="sm" className="ml-auto h-5 px-2 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100 shrink-0" onClick={handleClear}>
@@ -725,6 +764,43 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
                 {/* ── STRUCTURED BUILDER TAB ── */}
                 <TabsContent value="structured" className="mt-4 space-y-5">
+
+                  {/* Service line scope picker — only shown for new rules (edit uses the banner) */}
+                  {!editingRuleId && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">Scope:</span>
+                      <div className="relative" ref={newSlPickerRef}>
+                        <button
+                          type="button"
+                          onClick={() => setNewSlPickerOpen(p => !p)}
+                          className="h-7 text-xs px-2.5 inline-flex items-center gap-1.5 border border-border rounded-md bg-muted/40 hover:bg-muted/80 hover:border-[var(--trilogy-teal)] transition-colors"
+                        >
+                          <span>{newRuleSLs.length === 0 ? (serviceLine || 'All service lines') : newRuleSLs.join(', ')}</span>
+                          <ChevronDown className="h-3 w-3 shrink-0" />
+                        </button>
+                        {newSlPickerOpen && (
+                          <div className="absolute top-full left-0 z-50 mt-1 bg-white dark:bg-gray-900 border border-border rounded-lg shadow-lg p-2 min-w-[140px]">
+                            {ALL_SERVICE_LINES.map(sl => (
+                              <label key={sl} className="flex items-center gap-2 text-xs py-1 cursor-pointer text-foreground hover:text-[var(--trilogy-teal)]">
+                                <input
+                                  type="checkbox"
+                                  checked={newRuleSLs.includes(sl)}
+                                  onChange={e => setNewRuleSLs(prev => e.target.checked ? [...prev, sl] : prev.filter(s => s !== sl))}
+                                  className="h-3 w-3"
+                                />
+                                {sl}
+                              </label>
+                            ))}
+                            {newRuleSLs.length > 0 && (
+                              <button type="button" onClick={() => setNewRuleSLs([])} className="text-[10px] text-muted-foreground hover:underline mt-1 w-full text-left">
+                                Clear (all service lines)
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* IF block */}
                   <div className="space-y-3">
@@ -1237,12 +1313,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             const exclusivePriority = rule.isActive && !isAdditive
                               ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
                               : null;
-                            const ruleSLs: string[] = (rule.action as any)?.filters?.serviceLine || [];
-                            const slDisplay = rule.serviceLine || (ruleSLs.length ? ruleSLs.join(', ') : 'All');
+                            const ruleSLs: string[] = (rule as any).serviceLines?.length ? (rule as any).serviceLines : ((rule.action as any)?.filters?.serviceLine || []);
+                            const slDisplay = ruleSLs.length ? ruleSLs.join(', ') : (rule.serviceLine || 'All');
                             // Normalise the stored name against the authoritative serviceLine field
                             // to fix any rules saved with the wrong SL token (longest alternatives first).
+                            // For multi-SL rules the name is used as-is.
                             const slTokenRe = /(\s+-\s+)(AL\/MC|HC\/MC|AL|MC|HC|IL|SL|VIL)\b/i;
-                            const displayName = rule.serviceLine
+                            const displayName = (!(rule as any).serviceLines?.length && rule.serviceLine)
                               ? rule.name.replace(slTokenRe, (_, sep, token) =>
                                   token.toUpperCase() !== rule.serviceLine!.toUpperCase()
                                     ? `${sep}${rule.serviceLine}`

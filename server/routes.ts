@@ -13531,7 +13531,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines } = req.body;
       
       // Parse the natural language rule
       const parsedRule = parseNaturalLanguageRule(description);
@@ -13551,15 +13551,24 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         });
       }
 
-      // Inject the explicit serviceLine scope into filters BEFORE any name or
-      // impact logic runs, so generateRuleName produces the correct label.
-      if (serviceLine) {
+      // Resolve effective SLs: serviceLines[] body param > serviceLine string > none
+      const effectiveSLs: string[] =
+        Array.isArray(serviceLines) && serviceLines.length > 0 ? serviceLines
+        : serviceLine ? [serviceLine]
+        : [];
+
+      // Inject all effective SLs into action.filters so generateRuleName labels them.
+      if (effectiveSLs.length > 0) {
         parsedRule.action = {
           ...parsedRule.action,
-          filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [serviceLine] },
+          filters: { ...(parsedRule.action.filters ?? {}), serviceLine: effectiveSLs },
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
       }
+
+      // Storage columns: single SL → service_line; multi → service_lines; none → both null.
+      const storeServiceLine = effectiveSLs.length === 1 ? effectiveSLs[0] : null;
+      const storeServiceLines = effectiveSLs.length > 1 ? effectiveSLs : null;
 
       // Calculate estimated impact — use latest month only to avoid double-counting historical snapshots
       const latestMonthRow = await pool.query(
@@ -13745,7 +13754,8 @@ Respond in JSON format:
       // Create the rule in database
       const rule = await storage.createAdjustmentRule({
         locationId: locationId || null,
-        serviceLine: serviceLine || null,
+        serviceLine: storeServiceLine,
+        serviceLines: storeServiceLines,
         name: parsedRule.name,
         description: parsedRule.description,
         trigger: parsedRule.trigger,
@@ -13755,7 +13765,7 @@ Respond in JSON format:
         monthlyImpact: Math.round(monthlyImpact),
         annualImpact: Math.round(annualImpact),
         volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
-      });
+      } as any);
       
       res.json({
         rule,
@@ -14555,7 +14565,7 @@ Respond in JSON format:
     try {
       const { id } = req.params;
       const clientId = (req as any).clientId || 'demo';
-      const { description, locationId, serviceLine } = req.body;
+      const { description, locationId, serviceLine, serviceLines } = req.body;
 
       const existing = (await storage.getAdjustmentRules()).find(r => r.id === id);
       if (!existing) return res.status(404).json({ error: "Rule not found" });
@@ -14568,19 +14578,27 @@ Respond in JSON format:
       const validation = validateParsedRule(parsedRule);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
 
-      // Determine the effective service line scope (explicit request value wins,
-      // otherwise fall back to the existing rule's stored serviceLine).
-      const effectiveServiceLine = serviceLine !== undefined ? serviceLine : (existing.serviceLine ?? null);
+      // Resolve effective service line scope from request.
+      // Priority: serviceLines[] body param > serviceLine body param > existing stored values.
+      const effectiveSLs: string[] =
+        Array.isArray(serviceLines) && serviceLines.length > 0 ? serviceLines
+        : serviceLine ? [serviceLine]
+        : (existing as any).serviceLines?.length ? (existing as any).serviceLines
+        : existing.serviceLine ? [existing.serviceLine]
+        : [];
 
-      // Inject the effective serviceLine into filters BEFORE any name or impact
-      // logic, so generateRuleName produces the correct label from the start.
-      if (effectiveServiceLine) {
+      // Inject all effective SLs into action.filters so generateRuleName labels them.
+      if (effectiveSLs.length > 0) {
         parsedRule.action = {
           ...parsedRule.action,
-          filters: { ...(parsedRule.action.filters ?? {}), serviceLine: [effectiveServiceLine] },
+          filters: { ...(parsedRule.action.filters ?? {}), serviceLine: effectiveSLs },
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
       }
+
+      // Storage columns: single SL → service_line; multi SL → service_lines; none → both null.
+      const storeServiceLine = effectiveSLs.length === 1 ? effectiveSLs[0] : null;
+      const storeServiceLines = effectiveSLs.length > 1 ? effectiveSLs : null;
 
       // Guard: clear stale occupancyStatus filter when the incoming trigger uses
       // array-based metric conditions and none of those conditions reference occupancy.
@@ -14603,8 +14621,9 @@ Respond in JSON format:
         trigger: parsedRule.trigger,
         action: parsedRule.action,
         locationId: locationId !== undefined ? locationId : (existing.locationId ?? null),
-        serviceLine: effectiveServiceLine,
-      });
+        serviceLine: storeServiceLine,
+        serviceLines: storeServiceLines,
+      } as any);
 
       const impact = await computeRuleImpact(updated, clientId);
       await storage.updateAdjustmentRule(id, {

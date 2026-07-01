@@ -446,7 +446,8 @@ export const insertTargetsAndTrendsSchema = createInsertSchema(targetsAndTrends)
 export const adjustmentRules = pgTable("adjustment_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   locationId: varchar("location_id").references(() => locations.id), // NULL = applies to all locations
-  serviceLine: text("service_line"), // NULL = applies to all service lines
+  serviceLine: text("service_line"), // NULL = applies to all service lines (legacy single)
+  serviceLines: text("service_lines").array(), // Multi-SL scope (takes precedence when non-null/non-empty)
   name: text("name").notNull(),
   description: text("description").notNull(), // Natural language rule description
   trigger: jsonb("trigger").notNull(), // Parsed trigger conditions

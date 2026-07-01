@@ -395,14 +395,20 @@ export function applyAdjustmentRulesToUnit(
   for (const rule of sortedRules) {
     // Check scope — skip if rule is scoped to a different location or service line
     if (rule.locationId && rule.locationId !== unit.locationId) continue;
-    if (rule.serviceLine && rule.serviceLine !== unit.serviceLine) continue;
+
+    // Service line scope gate — prefer serviceLines array, fall back to single serviceLine column
+    const slScope: string[] | null =
+      (rule as any).serviceLines?.length ? (rule as any).serviceLines
+      : rule.serviceLine ? [rule.serviceLine]
+      : null;
+    if (slScope && !slScope.includes(unit.serviceLine!)) continue;
 
     if (!evaluateTrigger(rule, unit)) continue;
 
     const action = rule.action as any;
     if (action.type !== "adjust_rate") continue;
 
-    // Check action-level filters (room type, service line, occupancy)
+    // Check action-level filters (room type, occupancy)
     if (action.filters) {
       const filters = action.filters;
       if (filters.roomType && Array.isArray(filters.roomType)) {
@@ -412,14 +418,6 @@ export function applyAdjustmentRulesToUnit(
         );
         if (!matches) continue;
       }
-      // When rule.serviceLine is set it is the authoritative scope gate (already
-      // verified above). Use it to override any stale action.filters.serviceLine
-      // value so pre-#336 rules (saved with ['AL'] instead of ['AL/MC']) still
-      // fire correctly for the scoped service line.
-      const slFilter = rule.serviceLine
-        ? [rule.serviceLine]
-        : (filters.serviceLine && Array.isArray(filters.serviceLine) ? filters.serviceLine : null);
-      if (slFilter && !slFilter.includes(unit.serviceLine)) continue;
       if (filters.occupancyStatus === "vacant" && unit.occupiedYN) continue;
       if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
     }
