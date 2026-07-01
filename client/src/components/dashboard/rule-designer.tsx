@@ -202,6 +202,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [isLoadingImpact, setIsLoadingImpact] = useState(false);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleName, setEditingRuleName] = useState<string>('');
+  const [editingRuleSL, setEditingRuleSL] = useState<string>('');
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
@@ -417,11 +418,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setImpactData(null);
     setEditingRuleId(null);
     setEditingRuleName('');
+    setEditingRuleSL('');
   };
 
   const startEdit = (rule: AdjustmentRule) => {
     setEditingRuleId(rule.id);
     setEditingRuleName(rule.name);
+    setEditingRuleSL((rule as any).serviceLine || '');
     setImpactData(null);
 
     // ── Hydrate ruleAction from stored action ──────────────────────────────
@@ -446,79 +449,75 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     const trigger = rule.trigger as any;
     const rebuilt: Condition[] = [];
 
+    const opMap: Record<string, string> = {
+      '<': 'is less than', '>': 'is greater than',
+      '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
+      '=': 'equals', '!=': 'does not equal',
+    };
+
+    // Helper: convert a single NLP-array condition element to a Condition row
+    const hydrateArrayCondition = (c: any): Condition | null => {
+      const toPercent = (v: number) => String(Math.round(typeof v === 'number' && v < 1 ? v * 100 : v));
+      switch (c.field) {
+        case 'service_line_occupancy':
+          return { id: newConditionId(), metric: 'Service Line Occupancy', timePeriod: 'Current Month', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'room_type_occupancy':
+          return { id: newConditionId(), metric: 'Room Type Occupancy', timePeriod: c.timePeriod === 'trailing3' ? 'Trailing 3' : 'Current Month', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'room_type_occupancy_trailing3':
+          return { id: newConditionId(), metric: 'Room Type Occupancy', timePeriod: 'Trailing 3', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'occupancy':
+          return { id: newConditionId(), metric: 'Campus Occupancy', timePeriod: 'Current Month', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'days_vacant':
+          return { id: newConditionId(), metric: 'Days Vacant', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'street_to_comp_var':
+          return { id: newConditionId(), metric: 'Street Rate to Top Comp Var %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        default:
+          if (NEW_METRIC_FIELDS[c.field]) {
+            return { id: newConditionId(), metric: NEW_METRIC_FIELDS[c.field], timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+          }
+          return null;
+      }
+    };
+
     if (trigger?.type === 'condition') {
-      // New parser format: trigger.condition (singular)
-      if (trigger.condition?.field === 'occupancy') {
-        const opMap: Record<string, string> = {
-          '<': 'is less than', '>': 'is greater than',
-          '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
-          '=': 'equals', '!=': 'does not equal',
-        };
-        rebuilt.push({
-          id: newConditionId(),
-          metric: 'Campus Occupancy',
-          timePeriod: 'Current Month',
-          operator: opMap[trigger.condition.operator] ?? 'is less than',
-          // Parser stores as decimal (e.g. 0.85); convert back to readable percent
-          value: String(Math.round((trigger.condition.value as number) * 100)),
-        });
-      } else if (trigger.condition?.field === 'days_vacant') {
-        rebuilt.push({
-          id: newConditionId(),
-          metric: 'Days Vacant',
-          timePeriod: 'Current Spot',
-          operator: trigger.condition.operator === '>=' ? 'is greater than or equal to' : 'is greater than',
-          value: String(trigger.condition.value),
-        });
-      } else if (trigger.condition?.field === 'street_to_comp_var') {
-        const opMap: Record<string, string> = {
-          '<': 'is less than', '>': 'is greater than',
-          '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
-          '=': 'equals', '!=': 'does not equal',
-        };
-        rebuilt.push({
-          id: newConditionId(),
-          metric: 'Street Rate to Top Comp Var %',
-          timePeriod: 'Current Spot',
-          operator: opMap[trigger.condition.operator] ?? 'is greater than',
-          // stored as raw % (e.g. 10 for 10%)
-          value: String(trigger.condition.value),
-        });
-      } else if (trigger.condition?.field && NEW_METRIC_FIELDS[trigger.condition.field]) {
-        // Revenue growth target, price elasticity, and days-to-sell metrics
-        const opMap: Record<string, string> = {
-          '<': 'is less than', '>': 'is greater than',
-          '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
-          '=': 'equals', '!=': 'does not equal',
-        };
-        rebuilt.push({
-          id: newConditionId(),
-          metric: NEW_METRIC_FIELDS[trigger.condition.field],
-          timePeriod: 'Current Spot',
-          operator: opMap[trigger.condition.operator] ?? 'is greater than',
-          value: String(trigger.condition.value),
-        });
+      // ── NLP array format: trigger.conditions is an array ──────────────────
+      if (Array.isArray(trigger.conditions) && trigger.conditions.length > 0) {
+        for (const c of trigger.conditions) {
+          const cond = hydrateArrayCondition(c);
+          if (cond) rebuilt.push(cond);
+        }
+        // Restore AND/OR operator if stored
+        if (trigger.conditionOperator === 'OR') setConditionOperator('OR');
+        else setConditionOperator('AND');
       }
 
-      // Legacy format: trigger.conditions (plural) used by evaluateTrigger
-      const tc = trigger.conditions ?? {};
-      if (!trigger.condition && tc.occupancyStatus) {
-        rebuilt.push({
-          id: newConditionId(),
-          metric: 'Campus Occupancy',
-          timePeriod: 'Current Month',
-          operator: tc.occupancyStatus === 'vacant' ? 'is less than' : 'is greater than or equal to',
-          value: '85',
-        });
+      // ── Singular condition format (single-condition NLP rules) ────────────
+      if (rebuilt.length === 0 && trigger.condition?.field) {
+        const cond = hydrateArrayCondition(trigger.condition);
+        if (cond) rebuilt.push(cond);
       }
-      if (tc.vacancyDuration) {
-        rebuilt.push({
-          id: newConditionId(),
-          metric: 'Days Vacant',
-          timePeriod: 'Current Spot',
-          operator: tc.vacancyDuration.operator === '>=' ? 'is greater than or equal to' : 'is greater than',
-          value: String(tc.vacancyDuration.days),
-        });
+
+      // ── Legacy object format: trigger.conditions is a plain object ────────
+      if (rebuilt.length === 0) {
+        const tc = typeof trigger.conditions === 'object' && !Array.isArray(trigger.conditions) ? trigger.conditions ?? {} : {};
+        if (tc.occupancyStatus) {
+          rebuilt.push({
+            id: newConditionId(),
+            metric: 'Campus Occupancy',
+            timePeriod: 'Current Month',
+            operator: tc.occupancyStatus === 'vacant' ? 'is less than' : 'is greater than or equal to',
+            value: '85',
+          });
+        }
+        if (tc.vacancyDuration) {
+          rebuilt.push({
+            id: newConditionId(),
+            metric: 'Days Vacant',
+            timePeriod: 'Current Spot',
+            operator: tc.vacancyDuration.operator === '>=' ? 'is greater than or equal to' : 'is greater than',
+            value: String(tc.vacancyDuration.days),
+          });
+        }
       }
     }
 
@@ -626,8 +625,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           {editingRuleId && (
             <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-300">
               <Pencil className="h-3.5 w-3.5 shrink-0" />
-              <span className="text-xs font-medium">Editing: "{editingRuleName}"</span>
-              <Button variant="ghost" size="sm" className="ml-auto h-5 px-2 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100" onClick={handleClear}>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-medium truncate">Editing: "{editingRuleName}"</span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                  Service line: <span className="font-semibold">{editingRuleSL || 'All service lines'}</span>
+                </span>
+              </div>
+              <Button variant="ghost" size="sm" className="ml-auto h-5 px-2 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100 shrink-0" onClick={handleClear}>
                 Cancel
               </Button>
             </div>
