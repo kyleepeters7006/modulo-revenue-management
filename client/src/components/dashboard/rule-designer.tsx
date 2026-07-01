@@ -203,6 +203,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingRuleName, setEditingRuleName] = useState<string>('');
   const [editingRuleSL, setEditingRuleSL] = useState<string>('');
+  const [editingRuleSLDraft, setEditingRuleSLDraft] = useState<string>('');
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
@@ -389,7 +390,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLine: serviceLine || null }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLine: (isEditing ? (editingRuleSLDraft === '__all__' ? null : editingRuleSLDraft) : serviceLine) || null }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -400,6 +401,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       setImpactData(null);
       setEditingRuleId(null);
       setEditingRuleName('');
+      setEditingRuleSL('');
+      setEditingRuleSLDraft('');
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
@@ -419,12 +422,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setEditingRuleId(null);
     setEditingRuleName('');
     setEditingRuleSL('');
+    setEditingRuleSLDraft('');
   };
 
   const startEdit = (rule: AdjustmentRule) => {
     setEditingRuleId(rule.id);
     setEditingRuleName(rule.name);
-    setEditingRuleSL((rule as any).serviceLine || '');
+    const action0 = rule.action as any;
+    const resolvedSL = (rule as any).serviceLine
+      || (Array.isArray(action0?.filters?.serviceLine) ? action0.filters.serviceLine[0] : action0?.filters?.serviceLine)
+      || '';
+    setEditingRuleSL(resolvedSL);
+    setEditingRuleSLDraft(resolvedSL || '__all__');
     setImpactData(null);
 
     // ── Hydrate ruleAction from stored action ──────────────────────────────
@@ -625,11 +634,26 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           {editingRuleId && (
             <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-300">
               <Pencil className="h-3.5 w-3.5 shrink-0" />
-              <div className="flex flex-col min-w-0">
+              <div className="flex flex-col min-w-0 gap-1">
                 <span className="text-xs font-medium truncate">Editing: "{editingRuleName}"</span>
-                <span className="text-[10px] text-amber-600 dark:text-amber-400">
-                  Service line: <span className="font-semibold">{editingRuleSL || 'All service lines'}</span>
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">Service line:</span>
+                  <Select value={editingRuleSLDraft || '__all__'} onValueChange={setEditingRuleSLDraft}>
+                    <SelectTrigger className="h-5 text-[10px] px-1.5 py-0 border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:border-amber-600 dark:text-amber-200 w-auto min-w-[90px] max-w-[130px]">
+                      <SelectValue placeholder="All service lines" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All service lines</SelectItem>
+                      <SelectItem value="AL">AL</SelectItem>
+                      <SelectItem value="AL/MC">AL/MC</SelectItem>
+                      <SelectItem value="IL">IL</SelectItem>
+                      <SelectItem value="SL">SL</SelectItem>
+                      <SelectItem value="HC">HC</SelectItem>
+                      <SelectItem value="HC/MC">HC/MC</SelectItem>
+                      <SelectItem value="VIL">VIL</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <Button variant="ghost" size="sm" className="ml-auto h-5 px-2 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100 shrink-0" onClick={handleClear}>
                 Cancel
