@@ -2,7 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.0"
+      version = "~> 4.78"
     }
     random = {
       source  = "hashicorp/random"
@@ -75,9 +75,9 @@ locals {
   )
 
   redis_connection_string = format(
-    "rediss://:%s@%s:6380",
-    urlencode(azurerm_redis_cache.this.primary_access_key),
-    azurerm_redis_cache.this.hostname,
+    "rediss://:%s@%s:10000",
+    urlencode(data.azurerm_managed_redis.this.default_database[0].primary_access_key),
+    data.azurerm_managed_redis.this.hostname,
   )
 }
 
@@ -234,32 +234,31 @@ resource "azurerm_postgresql_flexible_server_database" "this" {
 }
 
 # -----------------------------------------------------------------------------
-# Redis (Basic/Standard use the public TLS endpoint; Premium can use a PE) - probably unnecessary
+# Redis (Azure Managed Redis)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_redis_cache" "this" {
-  name                 = "${local.base_name}-redis-${local.suffix}"
-  location             = azurerm_resource_group.this.location
-  resource_group_name  = azurerm_resource_group.this.name
-  sku_name             = var.redis_sku
-  family               = var.redis_family
-  capacity             = var.redis_capacity
-  minimum_tls_version  = "1.2"
-  non_ssl_port_enabled = false
+resource "azurerm_managed_redis" "this" {
+  name                = "${local.base_name}-redis-${local.suffix}"
+  location            = azurerm_resource_group.this.location
+  resource_group_name = azurerm_resource_group.this.name
 
-  # Only Premium supports private endpoints + VNet injection. For Basic/Standard
-  # we connect via the public TLS endpoint; traffic stays on the Azure backbone.
-  public_network_access_enabled = var.redis_sku != "Premium"
+  sku_name = var.redis_managed_sku_name
 
-  redis_configuration {
-    # Default Redis settings are appropriate for an Express session store.
+  default_database {
   }
 
   tags = local.tags
 }
 
+data "azurerm_managed_redis" "this" {
+  name                = azurerm_managed_redis.this.name
+  resource_group_name = azurerm_resource_group.this.name
+
+  depends_on = [azurerm_managed_redis.this]
+}
+
 # -----------------------------------------------------------------------------
-# Key Vault - 
+# Key Vault
 # -----------------------------------------------------------------------------
 
 # I would like to have dedicated key vault for third party secrets (KG)
@@ -270,7 +269,7 @@ resource "azurerm_key_vault" "this" {
   tenant_id           = data.azurerm_client_config.current.tenant_id
 
   sku_name                      = "standard"
-  enable_rbac_authorization     = true
+  rbac_authorization_enabled     = true
   purge_protection_enabled      = true
   soft_delete_retention_days    = 30
   public_network_access_enabled = true
@@ -455,20 +454,20 @@ resource "azurerm_linux_web_app" "this" {
     WEBSITE_HTTPLOGGING_RETENTION_DAYS = "7"
 
     # Wire telemetry. The Node SDK auto-instruments when these are set.
-    APPLICATIONINSIGHTS_CONNECTION_STRING       = azurerm_application_insights.this.connection_string
-    APPINSIGHTS_INSTRUMENTATIONKEY              = azurerm_application_insights.this.instrumentation_key
-    ApplicationInsightsAgent_EXTENSION_VERSION  = "~3"
-    XDT_MicrosoftApplicationInsights_NodeJS     = "1"
+    APPLICATIONINSIGHTS_CONNECTION_STRING      = azurerm_application_insights.this.connection_string
+    APPINSIGHTS_INSTRUMENTATIONKEY             = azurerm_application_insights.this.instrumentation_key
+    ApplicationInsightsAgent_EXTENSION_VERSION = "~3"
+    XDT_MicrosoftApplicationInsights_NodeJS    = "1"
 
     # Secrets via Key Vault references. The Web App's MSI needs the
     # 'Key Vault Secrets User' role on the vault (granted above).
-    DATABASE_URL                     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.database_url.versionless_id})"
-    REDIS_URL                        = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_url.versionless_id})"
-    SESSION_SECRET                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.session_secret.versionless_id})"
-    ANTHROPIC_API_KEY                = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.anthropic_api_key.versionless_id})"
-    AI_INTEGRATIONS_OPENAI_API_KEY   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_api_key.versionless_id})"
-    AI_INTEGRATIONS_OPENAI_BASE_URL  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_base_url.versionless_id})"
-    ALPHA_VANTAGE_API_KEY            = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.alpha_vantage_api_key.versionless_id})"
+    DATABASE_URL                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.database_url.versionless_id})"
+    REDIS_URL                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_url.versionless_id})"
+    SESSION_SECRET                  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.session_secret.versionless_id})"
+    ANTHROPIC_API_KEY               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.anthropic_api_key.versionless_id})"
+    AI_INTEGRATIONS_OPENAI_API_KEY  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_api_key.versionless_id})"
+    AI_INTEGRATIONS_OPENAI_BASE_URL = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_base_url.versionless_id})"
+    ALPHA_VANTAGE_API_KEY           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.alpha_vantage_api_key.versionless_id})"
   }
 
   logs {
@@ -506,7 +505,7 @@ resource "azurerm_monitor_diagnostic_setting" "app" {
     category_group = "allLogs"
   }
 
-  metric {
+  enabled_metric {
     category = "AllMetrics"
   }
 }
@@ -520,7 +519,7 @@ resource "azurerm_monitor_diagnostic_setting" "postgres" {
     category = "PostgreSQLLogs"
   }
 
-  metric {
+  enabled_metric {
     category = "AllMetrics"
   }
 }
