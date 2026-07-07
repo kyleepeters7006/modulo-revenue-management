@@ -754,6 +754,43 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                   </div>
 
+                  {/* Service line scope picker — mirrors the Structured tab picker; hidden when editing (banner handles it) */}
+                  {!editingRuleId && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">Scope:</span>
+                      <div className="relative" ref={newSlPickerRef}>
+                        <button
+                          type="button"
+                          onClick={() => setNewSlPickerOpen(p => !p)}
+                          className="h-7 text-xs px-2.5 inline-flex items-center gap-1.5 border border-border rounded-md bg-muted/40 hover:bg-muted/80 hover:border-[var(--trilogy-teal)] transition-colors"
+                        >
+                          <span>{newRuleSLs.length === 0 ? 'All service lines' : newRuleSLs.join(', ')}</span>
+                          <ChevronDown className="h-3 w-3 shrink-0" />
+                        </button>
+                        {newSlPickerOpen && (
+                          <div className="absolute top-full left-0 z-50 mt-1 bg-white dark:bg-gray-900 border border-border rounded-lg shadow-lg p-2 min-w-[140px]">
+                            {ALL_SERVICE_LINES.map(sl => (
+                              <label key={sl} className="flex items-center gap-2 text-xs py-1 cursor-pointer text-foreground hover:text-[var(--trilogy-teal)]">
+                                <input
+                                  type="checkbox"
+                                  checked={newRuleSLs.includes(sl)}
+                                  onChange={e => setNewRuleSLs(prev => e.target.checked ? [...prev, sl] : prev.filter(s => s !== sl))}
+                                  className="h-3 w-3"
+                                />
+                                {sl}
+                              </label>
+                            ))}
+                            {newRuleSLs.length > 0 && (
+                              <button type="button" onClick={() => setNewRuleSLs([])} className="text-[10px] text-muted-foreground hover:underline mt-1 w-full text-left">
+                                Clear (all service lines)
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 border border-gray-200">
                     <Sparkles className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
                     <p className="text-xs text-gray-600 leading-relaxed">
