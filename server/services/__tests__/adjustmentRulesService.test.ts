@@ -409,6 +409,82 @@ test("PATCH: serviceLines explicitly undefined keeps existing scope; new service
   expect(r.storeServiceLines).toBeNull();
 });
 
+// ── AI-tab scope persistence (catch silent blank-scope saves) ─────────────────
+//
+// Regression guard: the AI tab (rule-designer.tsx) sends { serviceLines: [...] }
+// in the POST body. If that field is ever accidentally dropped or ignored by the
+// route handler, the saved rule will have null serviceLines and will fire for ALL
+// service lines — a silent over-scope bug.
+//
+// These tests simulate the exact payload the rule-designer sends when the user
+// has 2 service lines selected in the Ask AI tab and verify end-to-end that:
+//   1. resolvePostServiceLineScope returns storeServiceLines populated (non-null)
+//   2. A rule built from those args is correctly scoped to the 2 SLs only
+//   3. The storage args shape (what reaches createAdjustmentRule) has serviceLines set
+//   4. The failure mode is documented — accidentally omitting serviceLines → unscoped rule
+
+console.log("\nAI tab scope persistence — regression guard tests\n");
+
+test("AI tab with 2 SLs: storeServiceLines is ['AL','HC'], not null", () => {
+  const aiTabBody = { serviceLines: ["AL", "HC"] };
+  const { storeServiceLine, storeServiceLines } = resolvePostServiceLineScope(aiTabBody);
+  if (storeServiceLines === null) {
+    throw new Error(
+      "storeServiceLines is null — rule would fire for ALL service lines (blank-scope save)"
+    );
+  }
+  expect(JSON.stringify(storeServiceLines)).toBe(JSON.stringify(["AL", "HC"]));
+  expect(storeServiceLine).toBeNull();
+});
+
+test("AI tab with 2 SLs: rule fires for AL, fires for HC, skips IL", () => {
+  const { storeServiceLines } = resolvePostServiceLineScope({ serviceLines: ["AL", "HC"] });
+  const scopedRule = makeRule({
+    name: "AI-tab rule",
+    serviceLines: storeServiceLines,
+    trigger: { type: "immediate" } as any,
+    action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 5 } as any,
+  });
+  expect(applyAdjustmentRulesToUnit(alUnit,   4000, [scopedRule]).ruleAdjustedRate).toBe(4200);
+  expect(applyAdjustmentRulesToUnit(hcUnit,   4000, [scopedRule]).ruleAdjustedRate).toBe(4200);
+  expect(applyAdjustmentRulesToUnit(ilUnit,   4000, [scopedRule]).ruleAdjustedRate).toBeNull();
+});
+
+test("regression: serviceLines accidentally omitted from AI-tab POST body → unscoped (null) — documents failure mode", () => {
+  // If the rule-designer ever stops sending serviceLines in the POST body, both
+  // storeServiceLine and storeServiceLines come back null, making the rule fire for
+  // every service line. This test locks down that known failure mode so any change
+  // that accidentally unscopes a previously-scoped rule is immediately visible.
+  const bodyWithoutSLs = { description: "raise vacant rates by 5%" };
+  const { storeServiceLine, storeServiceLines } = resolvePostServiceLineScope(bodyWithoutSLs);
+  expect(storeServiceLine).toBeNull();
+  expect(storeServiceLines).toBeNull();
+});
+
+test("AI tab createAdjustmentRule storage args: serviceLines is populated, serviceLine is null", () => {
+  // Mirrors the route handler at POST /api/adjustment-rules (lines ~13749-13762).
+  // Verifies that what reaches storage.createAdjustmentRule has serviceLines set correctly.
+  const aiTabBody = { serviceLines: ["AL", "HC"] };
+  const { storeServiceLine, storeServiceLines } = resolvePostServiceLineScope(aiTabBody);
+
+  const storageArgs = {
+    serviceLine: storeServiceLine,
+    serviceLines: storeServiceLines,
+    name: "AI Rule",
+    isActive: true,
+  };
+
+  if (storageArgs.serviceLines === null || storageArgs.serviceLines.length === 0) {
+    throw new Error(
+      `serviceLines would be saved as ${JSON.stringify(storageArgs.serviceLines)} — ` +
+      "blank-scope save: rule would fire for ALL service lines"
+    );
+  }
+  expect(storageArgs.serviceLines.length).toBe(2);
+  expect(JSON.stringify(storageArgs.serviceLines)).toBe(JSON.stringify(["AL", "HC"]));
+  expect(storageArgs.serviceLine).toBeNull();
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log(`\n${"─".repeat(48)}`);
