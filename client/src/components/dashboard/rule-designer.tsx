@@ -209,6 +209,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
   const slPickerRef = useRef<HTMLDivElement>(null);
   const newSlPickerRef = useRef<HTMLDivElement>(null);
+  const newSlPickerAiRef = useRef<HTMLDivElement>(null);
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
@@ -337,7 +338,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (slPickerRef.current && !slPickerRef.current.contains(e.target as Node)) setSlPickerOpen(false);
-      if (newSlPickerRef.current && !newSlPickerRef.current.contains(e.target as Node)) setNewSlPickerOpen(false);
+      const inStructuredPicker = newSlPickerRef.current && newSlPickerRef.current.contains(e.target as Node);
+      const inAiPicker = newSlPickerAiRef.current && newSlPickerAiRef.current.contains(e.target as Node);
+      if (!inStructuredPicker && !inAiPicker) setNewSlPickerOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -706,7 +709,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
             {/* ── LEFT: Builder ── */}
             <div className="space-y-4">
-              <Tabs value={activeTab} onValueChange={v => { setActiveTab(v as any); setImpactData(null); }}>
+              <Tabs value={activeTab} onValueChange={v => { setActiveTab(v as any); setImpactData(null); setNewSlPickerOpen(false); }}>
                 <TabsList className="w-full">
                   <TabsTrigger value="ask-ai" className="flex-1 gap-1.5">
                     <Sparkles className="h-3.5 w-3.5" /> Ask AI
@@ -758,13 +761,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                   {!editingRuleId && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">Scope:</span>
-                      <div className="relative" ref={newSlPickerRef}>
+                      <div className="relative" ref={newSlPickerAiRef}>
                         <button
                           type="button"
+                          data-testid="scope-picker-ask-ai"
                           onClick={() => setNewSlPickerOpen(p => !p)}
                           className="h-7 text-xs px-2.5 inline-flex items-center gap-1.5 border border-border rounded-md bg-muted/40 hover:bg-muted/80 hover:border-[var(--trilogy-teal)] transition-colors"
                         >
-                          <span>{newRuleSLs.length === 0 ? 'All service lines' : newRuleSLs.join(', ')}</span>
+                          <span data-testid="scope-label-ask-ai">{newRuleSLs.length === 0 ? 'All service lines' : newRuleSLs.join(', ')}</span>
                           <ChevronDown className="h-3 w-3 shrink-0" />
                         </button>
                         {newSlPickerOpen && (
@@ -773,6 +777,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               <label key={sl} className="flex items-center gap-2 text-xs py-1 cursor-pointer text-foreground hover:text-[var(--trilogy-teal)]">
                                 <input
                                   type="checkbox"
+                                  data-testid={`scope-checkbox-ask-ai-${sl}`}
                                   checked={newRuleSLs.includes(sl)}
                                   onChange={e => setNewRuleSLs(prev => e.target.checked ? [...prev, sl] : prev.filter(s => s !== sl))}
                                   className="h-3 w-3"
@@ -809,10 +814,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       <div className="relative" ref={newSlPickerRef}>
                         <button
                           type="button"
+                          data-testid="scope-picker-structured"
                           onClick={() => setNewSlPickerOpen(p => !p)}
                           className="h-7 text-xs px-2.5 inline-flex items-center gap-1.5 border border-border rounded-md bg-muted/40 hover:bg-muted/80 hover:border-[var(--trilogy-teal)] transition-colors"
                         >
-                          <span>{newRuleSLs.length === 0 ? 'All service lines' : newRuleSLs.join(', ')}</span>
+                          <span data-testid="scope-label-structured">{newRuleSLs.length === 0 ? 'All service lines' : newRuleSLs.join(', ')}</span>
                           <ChevronDown className="h-3 w-3 shrink-0" />
                         </button>
                         {newSlPickerOpen && (
@@ -821,6 +827,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                               <label key={sl} className="flex items-center gap-2 text-xs py-1 cursor-pointer text-foreground hover:text-[var(--trilogy-teal)]">
                                 <input
                                   type="checkbox"
+                                  data-testid={`scope-checkbox-structured-${sl}`}
                                   checked={newRuleSLs.includes(sl)}
                                   onChange={e => setNewRuleSLs(prev => e.target.checked ? [...prev, sl] : prev.filter(s => s !== sl))}
                                   className="h-3 w-3"
