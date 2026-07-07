@@ -373,6 +373,60 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Service-line scope resolution helpers
+// Used by the POST and PATCH /api/adjustment-rules route handlers so the
+// "what gets stored" logic lives in one tested place.
+// ---------------------------------------------------------------------------
+
+/**
+ * POST handler — resolve effective SL scope from the request body.
+ * Priority: serviceLines[] (non-empty) > serviceLine string > none.
+ * Returns the two storage columns that should be persisted.
+ */
+export function resolvePostServiceLineScope(body: {
+  serviceLine?: string | null;
+  serviceLines?: string[] | null;
+}): { storeServiceLine: string | null; storeServiceLines: string[] | null } {
+  const { serviceLine, serviceLines } = body;
+  const effectiveSLs: string[] =
+    Array.isArray(serviceLines) && serviceLines.length > 0 ? serviceLines
+    : serviceLine ? [serviceLine]
+    : [];
+  return {
+    storeServiceLine: effectiveSLs.length === 1 ? effectiveSLs[0] : null,
+    storeServiceLines: effectiveSLs.length > 1 ? effectiveSLs : null,
+  };
+}
+
+/**
+ * PATCH handler — resolve effective SL scope from the request body, falling
+ * back to the existing persisted values when neither body param is present.
+ * - serviceLines !== undefined wins (even if empty — that clears the scope)
+ * - else serviceLine !== undefined wins
+ * - else keep existing scope (serviceLines → serviceLine → none)
+ */
+export function resolvePatchServiceLineScope(
+  body: { serviceLine?: string | null; serviceLines?: string[] | null },
+  existing: { serviceLine?: string | null; serviceLines?: string[] | null }
+): { storeServiceLine: string | null; storeServiceLines: string[] | null } {
+  const { serviceLine, serviceLines } = body;
+  const effectiveSLs: string[] =
+    serviceLines !== undefined
+      ? (Array.isArray(serviceLines) ? serviceLines : [])
+      : serviceLine !== undefined
+        ? (serviceLine ? [serviceLine] : [])
+        : (existing.serviceLines?.length
+            ? existing.serviceLines
+            : existing.serviceLine
+              ? [existing.serviceLine]
+              : []);
+  return {
+    storeServiceLine: effectiveSLs.length === 1 ? effectiveSLs[0] : null,
+    storeServiceLines: effectiveSLs.length > 1 ? effectiveSLs : null,
+  };
+}
+
 /**
  * Apply all matching adjustment rules to a unit's rate, in priority order.
  * Each rule receives the rate produced by the previous rule (stacking).

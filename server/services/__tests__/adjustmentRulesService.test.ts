@@ -2,18 +2,24 @@
  * Self-contained test suite for adjustmentRulesService stacking behaviour.
  * Run with:  npx tsx server/services/__tests__/adjustmentRulesService.test.ts
  */
-import { applyAdjustmentRulesToUnit, applyAdjustmentRulesToBatch } from "../adjustmentRulesService";
+import {
+  applyAdjustmentRulesToUnit,
+  applyAdjustmentRulesToBatch,
+  resolvePostServiceLineScope,
+  resolvePatchServiceLineScope,
+} from "../adjustmentRulesService";
 import type { AdjustmentRules } from "@shared/schema";
 
 // ── Minimal helpers ───────────────────────────────────────────────────────────
 
-function makeRule(overrides: Partial<AdjustmentRules>): AdjustmentRules {
+function makeRule(overrides: Partial<AdjustmentRules> & { serviceLines?: string[] | null }): AdjustmentRules {
   return {
     id: "test-id",
     name: "Test Rule",
     description: "test",
     locationId: null,
     serviceLine: null,
+    serviceLines: null,
     trigger: { type: "immediate" } as any,
     action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 0 } as any,
     isActive: true,
@@ -232,6 +238,175 @@ test("mixed: one rule matches, one doesn't — only matching rule applied", () =
   const r = applyAdjustmentRulesToUnit(vacantALUnit, 4000, rules);
   expect(r.ruleAdjustedRate).toBe(4200);
   expect(r.appliedRuleName).toBe("Vacant rule");
+});
+
+// ── Multi-service-line scope tests ────────────────────────────────────────────
+
+console.log("\nadjustmentRulesService — multi-service-line scope tests\n");
+
+const alUnit   = { locationId: "loc-1", serviceLine: "AL",    occupiedYN: false, daysVacant: 5 };
+const alMcUnit = { locationId: "loc-1", serviceLine: "AL/MC", occupiedYN: false, daysVacant: 5 };
+const hcUnit   = { locationId: "loc-1", serviceLine: "HC",    occupiedYN: false, daysVacant: 5 };
+const ilUnit   = { locationId: "loc-1", serviceLine: "IL",    occupiedYN: false, daysVacant: 5 };
+
+const multiSlRule = makeRule({
+  name: "AL+AL/MC rule",
+  serviceLines: ["AL", "AL/MC"],
+  trigger: { type: "immediate" } as any,
+  action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 10 } as any,
+});
+
+test("multi-SL rule fires for the first listed SL (AL)", () => {
+  const r = applyAdjustmentRulesToUnit(alUnit, 4000, [multiSlRule]);
+  expect(r.ruleAdjustedRate).toBe(4400);
+  expect(r.appliedRuleName).toBe("AL+AL/MC rule");
+});
+
+test("multi-SL rule fires for the second listed SL (AL/MC)", () => {
+  const r = applyAdjustmentRulesToUnit(alMcUnit, 4000, [multiSlRule]);
+  expect(r.ruleAdjustedRate).toBe(4400);
+  expect(r.appliedRuleName).toBe("AL+AL/MC rule");
+});
+
+test("multi-SL rule skips an unlisted SL (HC)", () => {
+  const r = applyAdjustmentRulesToUnit(hcUnit, 4000, [multiSlRule]);
+  expect(r.ruleAdjustedRate).toBeNull();
+});
+
+test("multi-SL rule skips another unlisted SL (IL)", () => {
+  const r = applyAdjustmentRulesToUnit(ilUnit, 4000, [multiSlRule]);
+  expect(r.ruleAdjustedRate).toBeNull();
+});
+
+test("serviceLines takes precedence over serviceLine when both are set", () => {
+  const conflictRule = makeRule({
+    name: "Conflict rule",
+    serviceLine: "HC",
+    serviceLines: ["AL", "AL/MC"],
+    trigger: { type: "immediate" } as any,
+    action: { type: "adjust_rate", adjustmentType: "fixed", adjustmentValue: 200 } as any,
+  });
+  const rAL = applyAdjustmentRulesToUnit(alUnit, 4000, [conflictRule]);
+  expect(rAL.ruleAdjustedRate).toBe(4200);
+  const rHC = applyAdjustmentRulesToUnit(hcUnit, 4000, [conflictRule]);
+  expect(rHC.ruleAdjustedRate).toBeNull();
+});
+
+test("unscoped rule (no SL, no serviceLines) fires for every service line", () => {
+  const unscopedRule = makeRule({
+    name: "Unscoped +5%",
+    serviceLine: null,
+    serviceLines: null,
+    trigger: { type: "immediate" } as any,
+    action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 5 } as any,
+  });
+  const rAL   = applyAdjustmentRulesToUnit(alUnit,   4000, [unscopedRule]);
+  const rALMC = applyAdjustmentRulesToUnit(alMcUnit, 4000, [unscopedRule]);
+  const rHC   = applyAdjustmentRulesToUnit(hcUnit,   4000, [unscopedRule]);
+  const rIL   = applyAdjustmentRulesToUnit(ilUnit,   4000, [unscopedRule]);
+  expect(rAL.ruleAdjustedRate).toBe(4200);
+  expect(rALMC.ruleAdjustedRate).toBe(4200);
+  expect(rHC.ruleAdjustedRate).toBe(4200);
+  expect(rIL.ruleAdjustedRate).toBe(4200);
+});
+
+test("single legacy serviceLine column still scopes correctly", () => {
+  const legacyRule = makeRule({
+    name: "Legacy HC only",
+    serviceLine: "HC",
+    serviceLines: null,
+    trigger: { type: "immediate" } as any,
+    action: { type: "adjust_rate", adjustmentType: "fixed", adjustmentValue: 100 } as any,
+  });
+  expect(applyAdjustmentRulesToUnit(hcUnit,   4000, [legacyRule]).ruleAdjustedRate).toBe(4100);
+  expect(applyAdjustmentRulesToUnit(alUnit,   4000, [legacyRule]).ruleAdjustedRate).toBeNull();
+  expect(applyAdjustmentRulesToUnit(ilUnit,   4000, [legacyRule]).ruleAdjustedRate).toBeNull();
+});
+
+test("empty serviceLines array is treated as unscoped (fires for all)", () => {
+  const emptyArrayRule = makeRule({
+    name: "Empty array rule",
+    serviceLine: null,
+    serviceLines: [],
+    trigger: { type: "immediate" } as any,
+    action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 3 } as any,
+  });
+  expect(applyAdjustmentRulesToUnit(alUnit, 4000, [emptyArrayRule]).ruleAdjustedRate).toBe(4120);
+  expect(applyAdjustmentRulesToUnit(hcUnit, 4000, [emptyArrayRule]).ruleAdjustedRate).toBe(4120);
+});
+
+// ── POST/PATCH handler SL-storage resolution logic ────────────────────────────
+//
+// Tests call the REAL exported functions used by the route handlers.
+// POST: serviceLines[] takes priority; single serviceLine string next; else none.
+// PATCH: serviceLines !== undefined wins; else serviceLine !== undefined; else keep existing.
+//
+console.log("\nPOST/PATCH handler — service-line storage resolution tests (real exports)\n");
+
+test("POST: single serviceLine → storeServiceLine set, storeServiceLines null", () => {
+  const r = resolvePostServiceLineScope({ serviceLine: "AL" });
+  expect(r.storeServiceLine).toBe("AL");
+  expect(r.storeServiceLines).toBeNull();
+});
+
+test("POST: multi serviceLines → storeServiceLine null, storeServiceLines set", () => {
+  const r = resolvePostServiceLineScope({ serviceLines: ["AL", "AL/MC"] });
+  expect(r.storeServiceLine).toBeNull();
+  expect(JSON.stringify(r.storeServiceLines)).toBe(JSON.stringify(["AL", "AL/MC"]));
+});
+
+test("POST: serviceLines takes precedence over serviceLine", () => {
+  const r = resolvePostServiceLineScope({ serviceLine: "HC", serviceLines: ["AL", "AL/MC"] });
+  expect(r.storeServiceLine).toBeNull();
+  expect(JSON.stringify(r.storeServiceLines)).toBe(JSON.stringify(["AL", "AL/MC"]));
+});
+
+test("POST: no SL params → both null (unscoped rule)", () => {
+  const r = resolvePostServiceLineScope({});
+  expect(r.storeServiceLine).toBeNull();
+  expect(r.storeServiceLines).toBeNull();
+});
+
+test("POST: empty serviceLines array falls through to serviceLine", () => {
+  const r = resolvePostServiceLineScope({ serviceLine: "HC", serviceLines: [] });
+  expect(r.storeServiceLine).toBe("HC");
+  expect(r.storeServiceLines).toBeNull();
+});
+
+test("PATCH: single serviceLine → storeServiceLine set, storeServiceLines null", () => {
+  const r = resolvePatchServiceLineScope({ serviceLine: "AL" }, {});
+  expect(r.storeServiceLine).toBe("AL");
+  expect(r.storeServiceLines).toBeNull();
+});
+
+test("PATCH: multi serviceLines → storeServiceLine null, storeServiceLines set", () => {
+  const r = resolvePatchServiceLineScope({ serviceLines: ["AL", "AL/MC"] }, {});
+  expect(r.storeServiceLine).toBeNull();
+  expect(JSON.stringify(r.storeServiceLines)).toBe(JSON.stringify(["AL", "AL/MC"]));
+});
+
+test("PATCH: serviceLines=[] clears scope (both null) — unscopes the rule", () => {
+  const r = resolvePatchServiceLineScope({ serviceLines: [] }, { serviceLine: "HC", serviceLines: null });
+  expect(r.storeServiceLine).toBeNull();
+  expect(r.storeServiceLines).toBeNull();
+});
+
+test("PATCH: serviceLines omitted — falls back to existing serviceLines", () => {
+  const r = resolvePatchServiceLineScope({}, { serviceLines: ["AL", "HC"] });
+  expect(r.storeServiceLine).toBeNull();
+  expect(JSON.stringify(r.storeServiceLines)).toBe(JSON.stringify(["AL", "HC"]));
+});
+
+test("PATCH: serviceLines omitted, no existing serviceLines — falls back to existing serviceLine", () => {
+  const r = resolvePatchServiceLineScope({}, { serviceLine: "IL", serviceLines: null });
+  expect(r.storeServiceLine).toBe("IL");
+  expect(r.storeServiceLines).toBeNull();
+});
+
+test("PATCH: serviceLines explicitly undefined keeps existing scope; new serviceLine overrides", () => {
+  const r = resolvePatchServiceLineScope({ serviceLine: "HC" }, { serviceLine: "AL", serviceLines: null });
+  expect(r.storeServiceLine).toBe("HC");
+  expect(r.storeServiceLines).toBeNull();
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────

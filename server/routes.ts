@@ -133,7 +133,7 @@ import { getGitHubUser, listRepositories, createRepository, getRepository } from
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
-import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
+import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope } from "./services/adjustmentRulesService";
 import { 
   getRevenuePerformanceForScope, 
   calculateGapAnalysis, 
@@ -13551,11 +13551,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         });
       }
 
-      // Resolve effective SLs: serviceLines[] body param > serviceLine string > none
-      const effectiveSLs: string[] =
-        Array.isArray(serviceLines) && serviceLines.length > 0 ? serviceLines
-        : serviceLine ? [serviceLine]
-        : [];
+      // Resolve effective SL scope using shared utility (also tested in unit tests).
+      const { storeServiceLine, storeServiceLines } = resolvePostServiceLineScope({ serviceLine, serviceLines });
+      const effectiveSLs = storeServiceLines ?? (storeServiceLine ? [storeServiceLine] : []);
 
       // Inject all effective SLs into action.filters so generateRuleName labels them.
       if (effectiveSLs.length > 0) {
@@ -13565,10 +13563,6 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
       }
-
-      // Storage columns: single SL → service_line; multi → service_lines; none → both null.
-      const storeServiceLine = effectiveSLs.length === 1 ? effectiveSLs[0] : null;
-      const storeServiceLines = effectiveSLs.length > 1 ? effectiveSLs : null;
 
       // Calculate estimated impact — use latest month only to avoid double-counting historical snapshots
       const latestMonthRow = await pool.query(
@@ -14578,19 +14572,12 @@ Respond in JSON format:
       const validation = validateParsedRule(parsedRule);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
 
-      // Resolve effective service line scope from request.
-      // If `serviceLines` is explicitly provided (even empty [] = "all service lines"), use it.
-      // Only fall back to stored scope when `serviceLines` is absent (undefined) from the request body.
-      const effectiveSLs: string[] =
-        serviceLines !== undefined
-          ? (Array.isArray(serviceLines) ? serviceLines : [])
-          : serviceLine !== undefined
-            ? (serviceLine ? [serviceLine] : [])
-            : (existing as any).serviceLines?.length
-              ? (existing as any).serviceLines
-              : existing.serviceLine
-                ? [existing.serviceLine]
-                : [];
+      // Resolve effective SL scope using shared utility (also tested in unit tests).
+      const { storeServiceLine, storeServiceLines } = resolvePatchServiceLineScope(
+        { serviceLine, serviceLines },
+        { serviceLine: existing.serviceLine, serviceLines: (existing as any).serviceLines }
+      );
+      const effectiveSLs = storeServiceLines ?? (storeServiceLine ? [storeServiceLine] : []);
 
       // Inject all effective SLs into action.filters so generateRuleName labels them.
       if (effectiveSLs.length > 0) {
@@ -14600,10 +14587,6 @@ Respond in JSON format:
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
       }
-
-      // Storage columns: single SL → service_line; multi SL → service_lines; none → both null.
-      const storeServiceLine = effectiveSLs.length === 1 ? effectiveSLs[0] : null;
-      const storeServiceLines = effectiveSLs.length > 1 ? effectiveSLs : null;
 
       // Guard: clear stale occupancyStatus filter when the incoming trigger uses
       // array-based metric conditions and none of those conditions reference occupancy.
