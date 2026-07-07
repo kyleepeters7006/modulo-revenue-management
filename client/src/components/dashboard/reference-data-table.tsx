@@ -926,21 +926,26 @@ export default function ReferenceDataTable({
 
   const inner = (
     <>
-      {/* Top mirror scrollbar */}
+      {/* Top mirror scrollbar — hidden on mobile (touch scroll covers it) */}
       <div
         ref={topScrollRef}
         onScroll={handleTopScroll}
-        className="scroll-mirror-top overflow-x-auto overflow-y-hidden"
+        className="scroll-mirror-top overflow-x-auto overflow-y-hidden hidden sm:block"
         style={{ height: 12 }}
       >
         <div style={{ width: tableScrollWidth, height: 1 }} />
       </div>
-      {/* Main scroll container (handles both axes) */}
+      {/* Main scroll container (handles both axes). touch-action enables horizontal
+          swipe on iOS/Android without the browser intercepting the gesture. */}
       <div
         ref={bottomScrollRef}
         onScroll={handleBottomScroll}
         className="scroll-track-bottom overflow-auto rounded-md border border-border"
-        style={{ maxHeight: tableMaxHeight }}
+        style={{
+          maxHeight: tableMaxHeight,
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-x pan-y',
+        }}
       >
         <table ref={tableRef} className="border-collapse" style={{ borderSpacing: 0 }}>
           {renderHeaders()}
@@ -991,14 +996,14 @@ export default function ReferenceDataTable({
             className="h-8"
             onClick={() => calcMutation.mutate()}
             disabled={calcMutation.isPending}
-            title="Run the Modulo pricing engine for your portfolio to populate Proposed Rates"
+            title="Manually run the pricing engine now. Rates also recalculate automatically every day at 6 AM EST."
           >
             {calcMutation.isPending ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
               <Play className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Calculate Rates
+            Recalculate Rates
           </Button>
         )}
         <Button
