@@ -28,11 +28,6 @@ output "postgres_database_name" {
   value       = azurerm_postgresql_flexible_server_database.this.name
 }
 
-output "redis_hostname" {
-  description = "Redis cache hostname (TLS port 6380)."
-  value       = azurerm_redis_cache.this.hostname
-}
-
 output "key_vault_name" {
   description = "Key Vault name. Use for `az keyvault secret set` to rotate secrets."
   value       = azurerm_key_vault.this.name

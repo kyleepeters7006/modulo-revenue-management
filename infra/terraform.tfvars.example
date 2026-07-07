@@ -40,3 +40,9 @@ openai_api_key        = ""
 openai_base_url       = ""
 alpha_vantage_api_key = ""
 session_secret        = ""  # blank → terraform generates a 64-char random secret
+
+# Admin / seeding secrets (used only by /api/admin/seed-* endpoints).
+seed_secret      = ""  # blank → creates a REPLACE_ME placeholder to rotate later
+trilogy_password = ""
+glm_password     = ""
+ssmg_password    = ""

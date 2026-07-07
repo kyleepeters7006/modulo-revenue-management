@@ -211,6 +211,34 @@ variable "session_secret" {
   sensitive   = true
 }
 
+variable "seed_secret" {
+  description = "Shared secret for the x-seed-secret header on /api/admin/seed-* endpoints (SEED_SECRET)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "trilogy_password" {
+  description = "Initial password for the trilogy_admin account, consumed once by the seed-clients endpoint (TRILOGY_PASSWORD)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "glm_password" {
+  description = "Initial password for the glm_admin account, consumed once by the seed-clients endpoint (GLM_PASSWORD)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "ssmg_password" {
+  description = "Initial password for the ssmg_admin account, consumed once by the seed-clients endpoint (SSMG_PASSWORD)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 # -----------------------------------------------------------------------------
 # Access control
 # -----------------------------------------------------------------------------

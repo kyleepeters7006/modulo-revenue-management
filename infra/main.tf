@@ -73,12 +73,6 @@ locals {
     azurerm_postgresql_flexible_server.this.fqdn,
     azurerm_postgresql_flexible_server_database.this.name,
   )
-
-  redis_connection_string = format(
-    "rediss://:%s@%s:10000",
-    urlencode(data.azurerm_managed_redis.this.default_database[0].primary_access_key),
-    data.azurerm_managed_redis.this.hostname,
-  )
 }
 
 # -----------------------------------------------------------------------------
@@ -142,7 +136,7 @@ resource "azurerm_subnet" "app" {
     }
   }
 
-  # App Service VNet integration needs outbound to Postgres / Redis / etc.
+  # App Service VNet integration needs outbound to Postgres / etc.
   service_endpoints = ["Microsoft.KeyVault"]
 }
 
@@ -234,30 +228,6 @@ resource "azurerm_postgresql_flexible_server_database" "this" {
 }
 
 # -----------------------------------------------------------------------------
-# Redis (Azure Managed Redis)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_managed_redis" "this" {
-  name                = "${local.base_name}-redis-${local.suffix}"
-  location            = azurerm_resource_group.this.location
-  resource_group_name = azurerm_resource_group.this.name
-
-  sku_name = var.redis_managed_sku_name
-
-  default_database {
-  }
-
-  tags = local.tags
-}
-
-data "azurerm_managed_redis" "this" {
-  name                = azurerm_managed_redis.this.name
-  resource_group_name = azurerm_resource_group.this.name
-
-  depends_on = [azurerm_managed_redis.this]
-}
-
-# -----------------------------------------------------------------------------
 # Key Vault
 # -----------------------------------------------------------------------------
 
@@ -326,14 +296,6 @@ resource "azurerm_key_vault_secret" "postgres_password" {
   depends_on = [azurerm_role_assignment.kv_admin_deployer]
 }
 
-resource "azurerm_key_vault_secret" "redis_url" {
-  name         = "redis-url"
-  value        = local.redis_connection_string
-  key_vault_id = azurerm_key_vault.this.id
-
-  depends_on = [azurerm_role_assignment.kv_admin_deployer]
-}
-
 resource "azurerm_key_vault_secret" "session_secret" {
   name         = "session-secret"
   value        = local.session_secret_effective
@@ -386,6 +348,54 @@ resource "azurerm_key_vault_secret" "openai_base_url" {
 resource "azurerm_key_vault_secret" "alpha_vantage_api_key" {
   name         = "alpha-vantage-api-key"
   value        = var.alpha_vantage_api_key != "" ? var.alpha_vantage_api_key : "REPLACE_ME"
+  key_vault_id = azurerm_key_vault.this.id
+
+  depends_on = [azurerm_role_assignment.kv_admin_deployer]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "seed_secret" {
+  name         = "seed-secret"
+  value        = var.seed_secret != "" ? var.seed_secret : "REPLACE_ME"
+  key_vault_id = azurerm_key_vault.this.id
+
+  depends_on = [azurerm_role_assignment.kv_admin_deployer]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "trilogy_password" {
+  name         = "trilogy-password"
+  value        = var.trilogy_password != "" ? var.trilogy_password : "REPLACE_ME"
+  key_vault_id = azurerm_key_vault.this.id
+
+  depends_on = [azurerm_role_assignment.kv_admin_deployer]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "glm_password" {
+  name         = "glm-password"
+  value        = var.glm_password != "" ? var.glm_password : "REPLACE_ME"
+  key_vault_id = azurerm_key_vault.this.id
+
+  depends_on = [azurerm_role_assignment.kv_admin_deployer]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "ssmg_password" {
+  name         = "ssmg-password"
+  value        = var.ssmg_password != "" ? var.ssmg_password : "REPLACE_ME"
   key_vault_id = azurerm_key_vault.this.id
 
   depends_on = [azurerm_role_assignment.kv_admin_deployer]
@@ -462,12 +472,15 @@ resource "azurerm_linux_web_app" "this" {
     # Secrets via Key Vault references. The Web App's MSI needs the
     # 'Key Vault Secrets User' role on the vault (granted above).
     DATABASE_URL                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.database_url.versionless_id})"
-    REDIS_URL                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.redis_url.versionless_id})"
     SESSION_SECRET                  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.session_secret.versionless_id})"
     ANTHROPIC_API_KEY               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.anthropic_api_key.versionless_id})"
     AI_INTEGRATIONS_OPENAI_API_KEY  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_api_key.versionless_id})"
     AI_INTEGRATIONS_OPENAI_BASE_URL = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_base_url.versionless_id})"
     ALPHA_VANTAGE_API_KEY           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.alpha_vantage_api_key.versionless_id})"
+    SEED_SECRET                     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.seed_secret.versionless_id})"
+    TRILOGY_PASSWORD                = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.trilogy_password.versionless_id})"
+    GLM_PASSWORD                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.glm_password.versionless_id})"
+    SSMG_PASSWORD                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.ssmg_password.versionless_id})"
   }
 
   logs {
