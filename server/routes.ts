@@ -15399,6 +15399,23 @@ Respond in JSON format:
         return res.status(400).json({ error: 'Invalid start or end date' });
       }
 
+      // Page-level filters (mirrors /api/reference-data): service line, regions,
+      // divisions, locations.
+      const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
+      const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
+      const regions     = csv(q.regions);
+      const divisions   = csv(q.divisions);
+      const locations   = csv(q.locations);
+
+      const params: any[] = [clientId, startDate, endDate];
+      let where = `rr.client_id = $1
+          AND rr.applied_rule_name IS NOT NULL AND rr.rule_adjusted_rate > 0
+          AND COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) BETWEEN $2 AND $3`;
+      if (serviceLine)      { params.push(serviceLine); where += ` AND rr.service_line = $${params.length}`; }
+      if (locations.length) { params.push(locations);   where += ` AND rr.location = ANY($${params.length})`; }
+      if (regions.length)   { params.push(regions);     where += ` AND loc.region = ANY($${params.length})`; }
+      if (divisions.length) { params.push(divisions);   where += ` AND loc.division = ANY($${params.length})`; }
+
       // Units that had a rule applied at any point in the selected window, across ALL
       // upload months (not just the latest snapshot). The application date is
       // rule_rate_calculated_at when present; older imports lack that timestamp, so we
@@ -15413,19 +15430,25 @@ Respond in JSON format:
                rr.applied_rule_name, rr.move_in_date, rr.days_vacant, rr.upload_month,
                COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) AS applied_at
         FROM rent_roll_data rr
-        WHERE rr.client_id = $1
-          AND rr.applied_rule_name IS NOT NULL AND rr.rule_adjusted_rate > 0
-          AND COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) BETWEEN $2 AND $3
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+        WHERE ${where}
         ORDER BY rr.location, rr.room_number, rr.applied_rule_name, rr.upload_month DESC
-      `, [clientId, startDate, endDate]);
+      `, params);
 
       // Expected days-to-sell baseline: avg historical days_vacant per (service_line, room_type)
+      const baseParams: any[] = [clientId];
+      let baseWhere = `rr.client_id = $1 AND rr.days_vacant > 0 AND rr.days_vacant < 730`;
+      if (serviceLine)      { baseParams.push(serviceLine); baseWhere += ` AND rr.service_line = $${baseParams.length}`; }
+      if (locations.length) { baseParams.push(locations);   baseWhere += ` AND rr.location = ANY($${baseParams.length})`; }
+      if (regions.length)   { baseParams.push(regions);     baseWhere += ` AND loc.region = ANY($${baseParams.length})`; }
+      if (divisions.length) { baseParams.push(divisions);   baseWhere += ` AND loc.division = ANY($${baseParams.length})`; }
       const baseRes = await pool.query<{ service_line: string; room_type: string; avg_dv: number }>(`
-        SELECT service_line, room_type, AVG(days_vacant) AS avg_dv
-        FROM rent_roll_data
-        WHERE client_id = $1 AND days_vacant > 0 AND days_vacant < 730
-        GROUP BY service_line, room_type
-      `, [clientId]);
+        SELECT rr.service_line, rr.room_type, AVG(rr.days_vacant) AS avg_dv
+        FROM rent_roll_data rr
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+        WHERE ${baseWhere}
+        GROUP BY rr.service_line, rr.room_type
+      `, baseParams);
       const baseline = new Map<string, number>();
       for (const b of baseRes.rows) baseline.set(`${b.service_line}|${b.room_type}`, Number(b.avg_dv));
       const slBaseline = new Map<string, { sum: number; n: number }>();

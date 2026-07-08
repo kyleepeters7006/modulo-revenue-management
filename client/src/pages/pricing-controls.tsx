@@ -544,7 +544,12 @@ export default function PricingControls() {
             locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
           />
 
-          <RulePerformanceTable />
+          <RulePerformanceTable
+            selectedServiceLine={selectedServiceLine}
+            selectedRegions={selectedRegions}
+            selectedDivisions={selectedDivisions}
+            selectedLocations={selectedLocations}
+          />
 
           {/* Target Annual Revenue Growth Section */}
           <Card data-testid="card-target-growth">

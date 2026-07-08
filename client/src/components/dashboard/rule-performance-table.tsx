@@ -64,16 +64,32 @@ const isoDaysAgo = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-export function RulePerformanceTable() {
+interface RulePerformanceTableProps {
+  selectedServiceLine?: string;
+  selectedRegions?: string[];
+  selectedDivisions?: string[];
+  selectedLocations?: string[];
+}
+
+export function RulePerformanceTable({
+  selectedServiceLine,
+  selectedRegions,
+  selectedDivisions,
+  selectedLocations,
+}: RulePerformanceTableProps = {}) {
   const [start, setStart] = useState(() => isoDaysAgo(90));
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detailMode, setDetailMode] = useState(false);
 
   const { data, isLoading, isFetching } = useQuery<PerfResponse>({
-    queryKey: ["/api/rule-performance", start, end],
+    queryKey: ["/api/rule-performance", start, end, selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations],
     queryFn: async () => {
       const params = new URLSearchParams({ start, end });
+      if (selectedServiceLine && selectedServiceLine !== "All") params.append("serviceLine", selectedServiceLine);
+      if (selectedRegions?.length) params.append("regions", selectedRegions.join(","));
+      if (selectedDivisions?.length) params.append("divisions", selectedDivisions.join(","));
+      if (selectedLocations?.length) params.append("locations", selectedLocations.join(","));
       const res = await fetch(`/api/rule-performance?${params.toString()}`, { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
