@@ -6,6 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ChevronRight,
   ChevronDown,
   Download,
@@ -13,7 +20,16 @@ import {
   Loader2,
   ListTree,
   List,
+  Info,
 } from "lucide-react";
+
+interface CalcBreakdown {
+  t3Before: number;
+  t3After: number;
+  monthsBefore: number;
+  monthsAfter: number;
+  extrapolated: boolean;
+}
 
 interface PerfMetrics {
   unitsImpacted: number;
@@ -21,10 +37,10 @@ interface PerfMetrics {
   avgDaysToSell: number | null;
   expectedDaysToSell: number | null;
   daysFasterThanExpected: number | null;
-  monthlyRevenueImpact: number;
-  annualRevenueImpact: number;
-  realizedMonthlyImpact: number;
+  monthlyRevenueImpact: number | null;
+  annualRevenueImpact: number | null;
   dateApplied: string | null;
+  calc: CalcBreakdown | null;
 }
 
 interface DetailRow extends PerfMetrics {
@@ -81,6 +97,7 @@ export function RulePerformanceTable({
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detailMode, setDetailMode] = useState(false);
+  const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
 
   const { data, isLoading, isFetching } = useQuery<PerfResponse>({
     queryKey: ["/api/rule-performance", start, end, selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations],
@@ -123,8 +140,8 @@ export function RulePerformanceTable({
     for (const r of rows) {
       t.unitsImpacted += r.unitsImpacted;
       t.unitsSold += r.unitsSold;
-      t.monthly += r.monthlyRevenueImpact;
-      t.annual += r.annualRevenueImpact;
+      t.monthly += r.monthlyRevenueImpact ?? 0;
+      t.annual += r.annualRevenueImpact ?? 0;
     }
     return t;
   }, [rows]);
@@ -282,6 +299,7 @@ export function RulePerformanceTable({
                         open={open}
                         onToggle={() => toggleRow(r.ruleName)}
                         tdCls={tdCls}
+                        onCalcClick={(title, metrics) => setCalcOpen({ title, metrics })}
                       />
                     );
                   })}
@@ -291,12 +309,78 @@ export function RulePerformanceTable({
             <p className="mt-2 text-[11px] text-muted-foreground">
               Speed vs. Expected compares the average days-to-sell of units sold after the rule was applied
               against the historical average days vacant for the same service line and room type. Revenue
-              impact is the change from street rate to the rule-adjusted rate (shared proportionally when
-              multiple rules stack on a unit), stated monthly and annualized.
+              impact compares trailing 3-month average realized revenue before the rule against the 3 months
+              after (capturing both rate and occupancy changes). Click any impact value to see the calculation.
             </p>
           </>
         )}
       </CardContent>
+
+      <Dialog open={!!calcOpen} onOpenChange={(o) => !o && setCalcOpen(null)}>
+        <DialogContent className="max-w-md" data-testid="dialog-perf-calc">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-emerald-600" />
+              How this impact is calculated
+            </DialogTitle>
+            <DialogDescription className="whitespace-normal break-words">{calcOpen?.title}</DialogDescription>
+          </DialogHeader>
+          {calcOpen?.metrics.calc ? (
+            <div className="space-y-3 text-sm">
+              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Avg monthly revenue before rule (T{calcOpen.metrics.calc.monthsBefore})
+                  </span>
+                  <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3Before)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Avg monthly revenue after rule ({calcOpen.metrics.calc.monthsAfter} mo{calcOpen.metrics.calc.extrapolated ? ", extrapolated" : ""})
+                  </span>
+                  <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3After)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-border pt-2">
+                  <span className="font-medium">Monthly impact (after − before)</span>
+                  <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Annual impact (monthly × 12)</span>
+                  <span className={`font-semibold tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {fmtMoney(calcOpen.metrics.annualRevenueImpact)}
+                  </span>
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1.5">
+                <p>
+                  Revenue impact compares the trailing 3-month (T3) average realized revenue for each unit
+                  type before the rule was applied against the average for the 3 months after. Realized
+                  revenue is the sum of in-house rates for occupied units, so this captures both rate changes
+                  and occupancy changes.
+                </p>
+                {calcOpen.metrics.calc.extrapolated && (
+                  <p>
+                    Fewer than 3 months have elapsed since this rule was applied, so the average of the{" "}
+                    {calcOpen.metrics.calc.monthsAfter} elapsed month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} is
+                    extrapolated to a 3-month run-rate.
+                  </p>
+                )}
+                <p>
+                  When multiple rules stack on a unit, the impact is split proportionally — each rule is
+                  credited with its share of the unit-type's revenue change, so nothing is double-counted.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Not enough revenue history to compute a before/after comparison for this rule (needs at least
+              one month of data before and after the rule was applied).
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -306,11 +390,13 @@ function RowGroup({
   open,
   onToggle,
   tdCls,
+  onCalcClick,
 }: {
   row: SummaryRow;
   open: boolean;
   onToggle: () => void;
   tdCls: string;
+  onCalcClick: (title: string, metrics: PerfMetrics) => void;
 }) {
   const speedBadge = (n: number | null) => {
     if (n == null) return <span className="text-muted-foreground">–</span>;
@@ -338,10 +424,18 @@ function RowGroup({
         <td className={`${tdCls} text-right tabular-nums`}>{row.unitsImpacted.toLocaleString()}</td>
         <td className={`${tdCls} text-right tabular-nums`}>{row.unitsSold.toLocaleString()}</td>
         <td className={tdCls}>{speedBadge(row.daysFasterThanExpected)}</td>
-        <td className={`${tdCls} text-right tabular-nums ${row.monthlyRevenueImpact >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+        <td
+          className={`${tdCls} text-right tabular-nums cursor-pointer underline decoration-dotted underline-offset-2 ${(row.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
+          onClick={(e) => { e.stopPropagation(); onCalcClick(row.ruleName, row); }}
+          data-testid={`cell-perf-monthly-${row.ruleName}`}
+        >
           {fmtMoney(row.monthlyRevenueImpact)}
         </td>
-        <td className={`${tdCls} text-right tabular-nums font-medium ${row.annualRevenueImpact >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+        <td
+          className={`${tdCls} text-right tabular-nums font-medium cursor-pointer underline decoration-dotted underline-offset-2 ${(row.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
+          onClick={(e) => { e.stopPropagation(); onCalcClick(row.ruleName, row); }}
+          data-testid={`cell-perf-annual-${row.ruleName}`}
+        >
           {fmtMoney(row.annualRevenueImpact)}
         </td>
       </tr>
@@ -355,8 +449,18 @@ function RowGroup({
             <td className={`${tdCls} text-right tabular-nums`}>{d.unitsImpacted.toLocaleString()}</td>
             <td className={`${tdCls} text-right tabular-nums`}>{d.unitsSold.toLocaleString()}</td>
             <td className={`${tdCls} text-xs`}>{fmtDaysFaster(d.daysFasterThanExpected)}</td>
-            <td className={`${tdCls} text-right tabular-nums text-xs`}>{fmtMoney(d.monthlyRevenueImpact)}</td>
-            <td className={`${tdCls} text-right tabular-nums text-xs`}>{fmtMoney(d.annualRevenueImpact)}</td>
+            <td
+              className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
+              onClick={() => onCalcClick(`${row.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
+            >
+              {fmtMoney(d.monthlyRevenueImpact)}
+            </td>
+            <td
+              className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
+              onClick={() => onCalcClick(`${row.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
+            >
+              {fmtMoney(d.annualRevenueImpact)}
+            </td>
           </tr>
         ))}
     </>

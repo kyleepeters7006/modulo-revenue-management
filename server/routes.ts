@@ -15472,30 +15472,78 @@ Respond in JSON format:
         if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
         return null;
       };
-      const DAILY_SLS = new Set(['HC', 'HC/MC']);
-      const toMonthly = (rate: number, sl: string) => DAILY_SLS.has(sl) ? rate * 30.4 : rate;
+      // ---- T3 realized-revenue series ---------------------------------------
+      // Monthly realized revenue per (location, service_line, room_type) group:
+      // sum of in-house rates for OCCUPIED units in each upload_month snapshot
+      // (HC / HC/MC daily rates converted to monthly). This captures both rate
+      // AND occupancy changes, which the old street-rate-delta method did not.
+      const revParams: any[] = [clientId];
+      let revWhere = `rr.client_id = $1`;
+      if (serviceLine)      { revParams.push(serviceLine); revWhere += ` AND rr.service_line = $${revParams.length}`; }
+      if (locations.length) { revParams.push(locations);   revWhere += ` AND rr.location = ANY($${revParams.length})`; }
+      if (regions.length)   { revParams.push(regions);     revWhere += ` AND loc.region = ANY($${revParams.length})`; }
+      if (divisions.length) { revParams.push(divisions);   revWhere += ` AND loc.division = ANY($${revParams.length})`; }
+      const revRes = await pool.query<{ upload_month: string; location: string; service_line: string; room_type: string; revenue: number }>(`
+        SELECT rr.upload_month, rr.location, rr.service_line, rr.room_type,
+               SUM(CASE WHEN rr.occupied_yn
+                        THEN CASE WHEN rr.service_line IN ('HC','HC/MC') THEN rr.in_house_rate * 30.4 ELSE rr.in_house_rate END
+                        ELSE 0 END) AS revenue
+        FROM rent_roll_data rr
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+        WHERE ${revWhere}
+        GROUP BY rr.upload_month, rr.location, rr.service_line, rr.room_type
+        ORDER BY rr.upload_month
+      `, revParams);
+      // groupKey -> sorted [{month, revenue}]
+      const revSeries = new Map<string, { month: string; revenue: number }[]>();
+      for (const r of revRes.rows) {
+        const k = `${r.location}|${r.service_line}|${r.room_type}`;
+        if (!revSeries.has(k)) revSeries.set(k, []);
+        revSeries.get(k)!.push({ month: r.upload_month, revenue: Number(r.revenue) });
+      }
+
+      const monthOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      type T3 = { before: number; after: number; monthsBefore: number; monthsAfter: number; delta: number; extrapolated: boolean };
+      // T3 delta for a group: avg monthly revenue over the last 3 snapshot months
+      // strictly BEFORE the applied month vs. avg over the (up to) first 3 snapshot
+      // months FROM the applied month onward. If fewer than 3 post-change months
+      // exist yet, the average of the elapsed months stands in for the 3-month
+      // average (i.e. extrapolated to a monthly run-rate).
+      const t3For = (groupKey: string, appliedMonth: string): T3 | null => {
+        const series = revSeries.get(groupKey);
+        if (!series || series.length === 0) return null;
+        const before = series.filter(p => p.month < appliedMonth).slice(-3);
+        const after = series.filter(p => p.month >= appliedMonth).slice(0, 3);
+        if (before.length === 0 || after.length === 0) return null;
+        const avg = (a: { revenue: number }[]) => a.reduce((s, p) => s + p.revenue, 0) / a.length;
+        const b = avg(before), aft = avg(after);
+        return { before: b, after: aft, monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
+      };
 
       type Agg = {
         unitsImpacted: number; unitsSold: number;
-        monthlyImpact: number; soldMonthlyImpact: number;
         dtsSum: number; dtsN: number;          // actual days-to-sell (sold units)
         expSum: number; expN: number;          // expected baseline for sold units
         earliestApplied: Date | null;
       };
-      const newAgg = (): Agg => ({ unitsImpacted: 0, unitsSold: 0, monthlyImpact: 0, soldMonthlyImpact: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0, earliestApplied: null });
+      const newAgg = (): Agg => ({ unitsImpacted: 0, unitsSold: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0, earliestApplied: null });
       // ruleName -> summary agg; ruleName -> detailKey -> agg
       const summary = new Map<string, Agg>();
       const details = new Map<string, Map<string, Agg & { location: string; serviceLine: string; roomType: string }>>();
+      // Stacking weights: when rules stack on a unit ("A + B"), each rule gets a
+      // 1/n proportional share of that unit. Group T3 impact is then distributed
+      // across the rules that touched the group by their share of impacted units.
+      // ruleName|groupKey -> { weight, earliestApplied }
+      const ruleGroupWeight = new Map<string, { weight: number; earliestApplied: Date }>();
+      const groupTotalWeight = new Map<string, number>();
 
       for (const u of unitRes.rows) {
         const ruleNames: string[] = String(u.applied_rule_name).split(' + ').map((s: string) => s.trim()).filter(Boolean);
         if (ruleNames.length === 0) continue;
         const appliedAt = new Date(u.applied_at);
+        const dKey = `${u.location}|${u.service_line}|${u.room_type}`;
+        const share = 1 / ruleNames.length; // proportional split when rules stack
         for (const rn of ruleNames) {
-
-          const share = 1 / ruleNames.length; // proportional share when rules stack
-          const delta = toMonthly((Number(u.rule_adjusted_rate) - Number(u.street_rate)) * share, u.service_line);
-
           const moveIn = parseMoveIn(u.move_in_date);
           const soldAfterRule = !!(u.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
           const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
@@ -15503,11 +15551,9 @@ Respond in JSON format:
 
           const bump = (a: Agg) => {
             a.unitsImpacted += 1;
-            a.monthlyImpact += delta;
             if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
             if (soldAfterRule) {
               a.unitsSold += 1;
-              a.soldMonthlyImpact += delta;
               if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
               if (expected != null) { a.expSum += expected; a.expN += 1; }
             }
@@ -15517,34 +15563,77 @@ Respond in JSON format:
           bump(summary.get(rn)!);
 
           if (!details.has(rn)) details.set(rn, new Map());
-          const dKey = `${u.location}|${u.service_line}|${u.room_type}`;
           const dMap = details.get(rn)!;
           if (!dMap.has(dKey)) dMap.set(dKey, { ...newAgg(), location: u.location, serviceLine: u.service_line, roomType: u.room_type });
           bump(dMap.get(dKey)!);
+
+          const rgKey = `${rn}|${dKey}`;
+          const rg = ruleGroupWeight.get(rgKey);
+          if (!rg) ruleGroupWeight.set(rgKey, { weight: share, earliestApplied: appliedAt });
+          else { rg.weight += share; if (appliedAt < rg.earliestApplied) rg.earliestApplied = appliedAt; }
+          groupTotalWeight.set(dKey, (groupTotalWeight.get(dKey) || 0) + share);
         }
       }
 
-      const finish = (a: Agg) => {
+      // T3 revenue impact per (rule, group): group's T3 delta × the rule's
+      // proportional share of the group's impacted units.
+      type Calc = { monthly: number; t3Before: number; t3After: number; monthsBefore: number; monthsAfter: number; extrapolated: boolean; hasData: boolean };
+      const newCalc = (): Calc => ({ monthly: 0, t3Before: 0, t3After: 0, monthsBefore: 3, monthsAfter: 3, extrapolated: false, hasData: false });
+      const summaryCalc = new Map<string, Calc>();
+      const detailCalc = new Map<string, Calc>(); // ruleName|groupKey
+      for (const [rgKey, rg] of Array.from(ruleGroupWeight.entries())) {
+        const sep = rgKey.indexOf('|');
+        const rn = rgKey.slice(0, sep);
+        const gKey = rgKey.slice(sep + 1);
+        const t3 = t3For(gKey, monthOf(rg.earliestApplied));
+        if (!t3) { if (!detailCalc.has(rgKey)) detailCalc.set(rgKey, newCalc()); continue; }
+        const total = groupTotalWeight.get(gKey) || 1;
+        const frac = rg.weight / total;
+        const impact = t3.delta * frac;
+        const dc = detailCalc.get(rgKey) || newCalc();
+        dc.monthly += impact; dc.t3Before += t3.before * frac; dc.t3After += t3.after * frac;
+        dc.monthsBefore = t3.monthsBefore; dc.monthsAfter = t3.monthsAfter;
+        dc.extrapolated = dc.extrapolated || t3.extrapolated; dc.hasData = true;
+        detailCalc.set(rgKey, dc);
+        const sc = summaryCalc.get(rn) || newCalc();
+        sc.monthly += impact; sc.t3Before += t3.before * frac; sc.t3After += t3.after * frac;
+        sc.monthsBefore = Math.min(sc.hasData ? sc.monthsBefore : 3, t3.monthsBefore);
+        sc.monthsAfter = Math.min(sc.hasData ? sc.monthsAfter : 3, t3.monthsAfter);
+        sc.extrapolated = sc.extrapolated || t3.extrapolated; sc.hasData = true;
+        summaryCalc.set(rn, sc);
+      }
+
+      const finish = (a: Agg, c: Calc | undefined) => {
         const avgDts = a.dtsN > 0 ? a.dtsSum / a.dtsN : null;
         const avgExp = a.expN > 0 ? a.expSum / a.expN : null;
+        const has = !!(c && c.hasData);
         return {
           unitsImpacted: a.unitsImpacted,
           unitsSold: a.unitsSold,
           avgDaysToSell: avgDts != null ? Math.round(avgDts) : null,
           expectedDaysToSell: avgExp != null ? Math.round(avgExp) : null,
           daysFasterThanExpected: avgDts != null && avgExp != null ? Math.round(avgExp - avgDts) : null,
-          monthlyRevenueImpact: Math.round(a.monthlyImpact),
-          annualRevenueImpact: Math.round(a.monthlyImpact * 12),
-          realizedMonthlyImpact: Math.round(a.soldMonthlyImpact),
+          monthlyRevenueImpact: has ? Math.round(c!.monthly) : null,
+          annualRevenueImpact: has ? Math.round(c!.monthly * 12) : null,
           dateApplied: a.earliestApplied,
+          calc: has ? {
+            t3Before: Math.round(c!.t3Before),
+            t3After: Math.round(c!.t3After),
+            monthsBefore: c!.monthsBefore,
+            monthsAfter: c!.monthsAfter,
+            extrapolated: c!.extrapolated,
+          } : null,
         };
       };
 
       const rows = Array.from(summary.entries()).map(([ruleName, agg]) => ({
         ruleName,
-        ...finish(agg),
-        detail: Array.from(details.get(ruleName)?.values() || [])
-          .map(d => ({ location: d.location, serviceLine: d.serviceLine, roomType: d.roomType, ...finish(d) }))
+        ...finish(agg, summaryCalc.get(ruleName)),
+        detail: Array.from(details.get(ruleName)?.entries() || [])
+          .map(([gKey, d]) => ({
+            location: d.location, serviceLine: d.serviceLine, roomType: d.roomType,
+            ...finish(d, detailCalc.get(`${ruleName}|${gKey}`)),
+          }))
           .sort((x, y) => x.location.localeCompare(y.location) || x.serviceLine.localeCompare(y.serviceLine) || x.roomType.localeCompare(y.roomType)),
       })).sort((x, y) => (y.annualRevenueImpact || 0) - (x.annualRevenueImpact || 0));
 
