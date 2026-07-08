@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { pool } from "../db";
 import type { AdjustmentRules } from "@shared/schema";
+import { isRuleExclusive } from "@shared/ruleStacking";
 
 // ---------------------------------------------------------------------------
 // In-memory cache for IH-to-Street variance metric
@@ -479,7 +480,7 @@ export function applyAdjustmentRulesToUnit(
     // Enforce exclusive/additive gating.
     // Rules stack by default; only rules explicitly marked as exclusive
     // (isAdditive === false) claim the exclusive slot.
-    const isExclusive = action.isAdditive === false;
+    const isExclusive = isRuleExclusive(action);
     if (isExclusive) {
       if (exclusiveApplied) continue;
       exclusiveApplied = true;

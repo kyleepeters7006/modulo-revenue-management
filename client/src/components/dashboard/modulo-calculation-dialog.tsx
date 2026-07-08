@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { isRuleAdditive } from "@shared/ruleStacking";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -297,7 +298,7 @@ export default function ModuloCalculationDialog({
     return matchedRules.map((rule: any, idx: number) => {
       const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : rule.action;
       const trigger = typeof rule.trigger === 'string' ? JSON.parse(rule.trigger) : rule.trigger;
-      const isAdditive = action?.isAdditive !== false;
+      const isAdditive = isRuleAdditive(action);
       if (!isAdditive) exclusiveCount++;
       const adjType = action?.adjustmentType || 'percentage';
       const adjValue = action?.adjustmentValue ?? action?.percentage ?? 0;
