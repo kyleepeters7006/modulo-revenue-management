@@ -13531,7 +13531,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine, serviceLines, effectiveDate } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines, effectiveDate, isAdditive } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -13565,6 +13565,11 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           filters: { ...(parsedRule.action.filters ?? {}), serviceLine: effectiveSLs },
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+      }
+
+      // Stacking mode: isAdditive=false makes the rule exclusive; default is stacking.
+      if (isAdditive !== undefined) {
+        parsedRule.action = { ...parsedRule.action, isAdditive: !!isAdditive };
       }
 
       // Calculate estimated impact — use latest month only to avoid double-counting historical snapshots
@@ -14563,7 +14568,7 @@ Respond in JSON format:
     try {
       const { id } = req.params;
       const clientId = (req as any).clientId || 'demo';
-      const { description, locationId, serviceLine, serviceLines, effectiveDate } = req.body;
+      const { description, locationId, serviceLine, serviceLines, effectiveDate, isAdditive } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -14593,6 +14598,14 @@ Respond in JSON format:
           filters: { ...(parsedRule.action.filters ?? {}), serviceLine: effectiveSLs },
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+      }
+
+      // Stacking mode: use the incoming flag when provided, otherwise preserve
+      // the existing stored value (re-parsing must not silently reset it).
+      const existingIsAdditive = (existing.action as any)?.isAdditive;
+      const resolvedIsAdditive = isAdditive !== undefined ? !!isAdditive : existingIsAdditive;
+      if (resolvedIsAdditive !== undefined) {
+        parsedRule.action = { ...parsedRule.action, isAdditive: resolvedIsAdditive };
       }
 
       // Guard: clear stale occupancyStatus filter when the incoming trigger uses

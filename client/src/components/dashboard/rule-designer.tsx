@@ -193,7 +193,8 @@ interface RuleDesignerProps {
 export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesignerProps) {
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured'>('ask-ai');
+  const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured'>('structured');
+  const [designerOpen, setDesignerOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -207,6 +208,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [editingRuleSLs, setEditingRuleSLs] = useState<string[]>([]);
   const [newRuleSLs, setNewRuleSLs] = useState<string[]>([]);
   const [effectiveDate, setEffectiveDate] = useState<string>(''); // '' = effective immediately (YYYY-MM-DD)
+  const [stackRule, setStackRule] = useState(true); // true = stacks with other rules; false = exclusive
   const [slPickerOpen, setSlPickerOpen] = useState(false);
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
   const slPickerRef = useRef<HTMLDivElement>(null);
@@ -410,7 +412,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, effectiveDate: effectiveDate || null }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, effectiveDate: effectiveDate || null, isAdditive: stackRule }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -424,6 +426,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       setEditingRuleSLs([]);
       setNewRuleSLs([]);
       setEffectiveDate('');
+      setStackRule(true);
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
@@ -445,6 +448,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setEditingRuleSLs([]);
     setNewRuleSLs([]);
     setEffectiveDate('');
+    setStackRule(true);
     setSlPickerOpen(false);
     setNewSlPickerOpen(false);
   };
@@ -465,6 +469,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               : [];
     setEditingRuleSLs(resolvedSLs);
     setEffectiveDate((rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : '');
+    setStackRule(isRuleAdditive(rule.action as any));
+    setDesignerOpen(true);
     setSlPickerOpen(false);
     setImpactData(null);
 
@@ -635,11 +641,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     <div className="space-y-6">
       {/* ── Rule Designer Card ── */}
       <Card className="w-full shadow-sm">
-        <CardHeader className="pb-4">
+        <CardHeader
+          className={`cursor-pointer select-none hover:bg-gray-50/60 rounded-t-lg transition-colors ${designerOpen ? 'pb-4' : 'pb-6'}`}
+          onClick={() => setDesignerOpen(o => !o)}
+          data-testid="rule-designer-header"
+        >
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Wand2 className="h-5 w-5 text-[var(--trilogy-teal)]" />
               Rule Designer
+              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${designerOpen ? 'rotate-180' : ''}`} />
             </CardTitle>
             {(locationName || serviceLine) && (
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -664,7 +675,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               : 'Build pricing rules using natural language or structured IF / THEN logic.'}
           </CardDescription>
           {editingRuleId && (
-            <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-300">
+            <div onClick={e => e.stopPropagation()} className="flex items-center gap-2 mt-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-300">
               <Pencil className="h-3.5 w-3.5 shrink-0" />
               <div className="flex flex-col min-w-0 gap-1">
                 <span className="text-xs font-medium truncate">Editing: "{editingRuleName}"</span>
@@ -709,6 +720,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
           )}
         </CardHeader>
 
+        {designerOpen && (
         <CardContent>
           <div className="grid gap-6 lg:grid-cols-2">
 
@@ -820,6 +832,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     )}
                   </div>
 
+                  {/* Stack rule — stacks with other rules vs exclusive */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Stack rule:</span>
+                    <Switch
+                      checked={stackRule}
+                      onCheckedChange={setStackRule}
+                      data-testid="stack-rule-ask-ai"
+                      aria-label="Stack rule"
+                    />
+                    <span className="text-[10px] text-muted-foreground">
+                      {stackRule ? 'Stacks with other matching rules' : 'Exclusive — only the highest-priority exclusive rule applies'}
+                    </span>
+                  </div>
+
                   <div className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 border border-gray-200">
                     <Sparkles className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
                     <p className="text-xs text-gray-600 leading-relaxed">
@@ -887,6 +913,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     ) : (
                       <span className="text-[10px] text-muted-foreground">Blank = effective immediately</span>
                     )}
+                  </div>
+
+                  {/* Stack rule — stacks with other rules vs exclusive */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Stack rule:</span>
+                    <Switch
+                      checked={stackRule}
+                      onCheckedChange={setStackRule}
+                      data-testid="stack-rule-structured"
+                      aria-label="Stack rule"
+                    />
+                    <span className="text-[10px] text-muted-foreground">
+                      {stackRule ? 'Stacks with other matching rules' : 'Exclusive — only the highest-priority exclusive rule applies'}
+                    </span>
                   </div>
 
                   {/* IF block */}
@@ -1196,6 +1236,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             </div>
           </div>
         </CardContent>
+        )}
       </Card>
 
 
