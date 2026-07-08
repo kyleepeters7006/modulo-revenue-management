@@ -582,7 +582,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       setRules(prev => prev.map(r => {
         if (r.id !== ruleId) return r;
         const act = (r.action as any) || {};
-        return { ...r, action: { ...act, isAdditive: !act.isAdditive } };
+        return { ...r, action: { ...act, isAdditive: act.isAdditive === false } };
       }));
     } catch {
       toast({ title: 'Failed to update rule', variant: 'destructive' });
@@ -1183,7 +1183,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
         const sortedDisabled = [...disabledRules].reverse();
         const sortedRules    = [...sortedActive, ...sortedDisabled];
 
-        const exclusiveActive = sortedActive.filter(r => !(r.action as any)?.isAdditive);
+        const exclusiveActive = sortedActive.filter(r => (r.action as any)?.isAdditive === false);
         const hasOverlap      = exclusiveActive.length > 1;
 
         // Combined impact: additive rules always count; exclusive: sum all (may overlap — noted in UI)
@@ -1353,9 +1353,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                             const annual        = rule.annualImpact  ?? 0;
                             const monthly       = rule.monthlyImpact ?? 0;
                             const isPos         = monthly >= 0;
-                            const isAdditive    = !!(rule.action as any)?.isAdditive;
+                            const isAdditive    = (rule.action as any)?.isAdditive !== false;
                             const exclusivePriority = rule.isActive && !isAdditive
-                              ? sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1
+                              ? sortedActive.filter(r => (r.action as any)?.isAdditive === false).indexOf(rule) + 1
                               : null;
                             const ruleSLs: string[] = (rule as any).serviceLines?.length ? (rule as any).serviceLines : ((rule.action as any)?.filters?.serviceLine || []);
                             const slDisplay = ruleSLs.length ? ruleSLs.join(', ') : (rule.serviceLine || 'All');
@@ -1677,7 +1677,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       const units      = rule.affectedUnits ?? 0;
                       const radius     = Math.max(44, Math.min(110, Math.sqrt(units) * 2.8));
                       const size       = Math.round(radius) * 2 + 8;
-                      const isAdditive = !!(rule.action as any)?.isAdditive;
+                      const isAdditive = (rule.action as any)?.isAdditive !== false;
                       const color      = PALETTE[ri % PALETTE.length];
                       const dots       = genDots(units, radius);
                       const monthly    = rule.monthlyImpact ?? 0;
@@ -1733,7 +1733,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 fill={color}
                                 opacity={0.8}
                               >
-                                #{sortedActive.filter(r => !(r.action as any)?.isAdditive).indexOf(rule) + 1}
+                                #{sortedActive.filter(r => (r.action as any)?.isAdditive === false).indexOf(rule) + 1}
                               </text>
                             )}
                           </svg>

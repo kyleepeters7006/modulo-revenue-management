@@ -293,10 +293,12 @@ export default function ModuloCalculationDialog({
     if (!matchedRules.length) return [];
     const streetRate = calcDetails.baseRate || currentRate; // rules start from Street Rate
     let current = streetRate;
+    let exclusiveCount = 0;
     return matchedRules.map((rule: any, idx: number) => {
       const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : rule.action;
       const trigger = typeof rule.trigger === 'string' ? JSON.parse(rule.trigger) : rule.trigger;
-      const isAdditive = !!(action?.isAdditive);
+      const isAdditive = action?.isAdditive !== false;
+      if (!isAdditive) exclusiveCount++;
       const adjType = action?.adjustmentType || 'percentage';
       const adjValue = action?.adjustmentValue ?? action?.percentage ?? 0;
       const before = current;
@@ -319,7 +321,7 @@ export default function ModuloCalculationDialog({
         after: current,
         delta,
         isAdditive,
-        priorityNum: idx + 1,
+        priorityNum: isAdditive ? idx + 1 : exclusiveCount,
       };
     });
   })();

@@ -14656,7 +14656,7 @@ Respond in JSON format:
       if (!rule) return res.status(404).json({ error: "Rule not found" });
       const action = (rule.action as any) || {};
       const updated = await storage.updateAdjustmentRule(id, {
-        action: { ...action, isAdditive: !action.isAdditive },
+        action: { ...action, isAdditive: action.isAdditive === false },
       });
       res.json(updated);
     } catch (error) {
