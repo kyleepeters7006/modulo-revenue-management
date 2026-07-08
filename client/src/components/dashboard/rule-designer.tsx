@@ -206,6 +206,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
   const [editingRuleName, setEditingRuleName] = useState<string>('');
   const [editingRuleSLs, setEditingRuleSLs] = useState<string[]>([]);
   const [newRuleSLs, setNewRuleSLs] = useState<string[]>([]);
+  const [effectiveDate, setEffectiveDate] = useState<string>(''); // '' = effective immediately (YYYY-MM-DD)
   const [slPickerOpen, setSlPickerOpen] = useState(false);
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
   const slPickerRef = useRef<HTMLDivElement>(null);
@@ -409,7 +410,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, effectiveDate: effectiveDate || null }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -422,6 +423,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
       setEditingRuleName('');
       setEditingRuleSLs([]);
       setNewRuleSLs([]);
+      setEffectiveDate('');
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
@@ -442,6 +444,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
     setEditingRuleName('');
     setEditingRuleSLs([]);
     setNewRuleSLs([]);
+    setEffectiveDate('');
     setSlPickerOpen(false);
     setNewSlPickerOpen(false);
   };
@@ -461,6 +464,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               ? [action0.filters.serviceLine]
               : [];
     setEditingRuleSLs(resolvedSLs);
+    setEffectiveDate((rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : '');
     setSlPickerOpen(false);
     setImpactData(null);
 
@@ -797,6 +801,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                     </div>
                   )}
 
+                  {/* Effective date — rule starts applying on this date (blank = immediately) */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Effective date:</span>
+                    <input
+                      type="date"
+                      data-testid="effective-date-ask-ai"
+                      value={effectiveDate}
+                      onChange={e => setEffectiveDate(e.target.value)}
+                      className="h-7 text-xs px-2 border border-border rounded-md bg-muted/40 hover:border-[var(--trilogy-teal)] transition-colors text-foreground"
+                    />
+                    {effectiveDate ? (
+                      <button type="button" onClick={() => setEffectiveDate('')} className="text-[10px] text-muted-foreground hover:underline">
+                        Clear (immediate)
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">Blank = effective immediately</span>
+                    )}
+                  </div>
+
                   <div className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 border border-gray-200">
                     <Sparkles className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
                     <p className="text-xs text-gray-600 leading-relaxed">
@@ -846,6 +869,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                       </div>
                     </div>
                   )}
+
+                  {/* Effective date — rule starts applying on this date (blank = immediately) */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Effective date:</span>
+                    <input
+                      type="date"
+                      data-testid="effective-date-structured"
+                      value={effectiveDate}
+                      onChange={e => setEffectiveDate(e.target.value)}
+                      className="h-7 text-xs px-2 border border-border rounded-md bg-muted/40 hover:border-[var(--trilogy-teal)] transition-colors text-foreground"
+                    />
+                    {effectiveDate ? (
+                      <button type="button" onClick={() => setEffectiveDate('')} className="text-[10px] text-muted-foreground hover:underline">
+                        Clear (immediate)
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">Blank = effective immediately</span>
+                    )}
+                  </div>
 
                   {/* IF block */}
                   <div className="space-y-3">
@@ -1397,6 +1439,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                                 <td className="py-2.5 px-2 align-top max-w-[220px]">
                                   <div className="flex flex-col gap-1">
                                     <span className="text-sm font-semibold text-gray-900 leading-snug">{displayName}</span>
+                                    {(() => {
+                                      const eff = (rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : null;
+                                      if (!eff || eff <= new Date().toISOString().slice(0, 10)) return null;
+                                      return (
+                                        <span className="self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide bg-blue-50 text-blue-700 border-blue-200" title="This rule will start applying on its effective date">
+                                          Starts {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        </span>
+                                      );
+                                    })()}
                                     {rule.isActive && (
                                       <span className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${
                                         isAdditive
@@ -1840,6 +1891,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
               }
               if (locationId)   scopeLines.push(`Filtered to: ${locationName || locationId}`);
               if (serviceLine)  scopeLines.push(`Service line filter: ${serviceLine}`);
+              const infoEffDate = (infoRule as any).effectiveDate ? String((infoRule as any).effectiveDate).slice(0, 10) : null;
+              if (infoEffDate) {
+                const d = new Date(`${infoEffDate}T00:00:00`);
+                const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const isFuture = infoEffDate > new Date().toISOString().slice(0, 10);
+                scopeLines.push(isFuture ? `Effective date: ${dateLabel} (scheduled — not applying yet)` : `Effective date: ${dateLabel}`);
+              } else {
+                scopeLines.push('Effective immediately');
+              }
 
               const direction = adjValue >= 0 ? 'increases' : 'decreases';
               const amount    = adjType === 'percentage' ? `${Math.abs(adjValue)}%` : `$${Math.abs(adjValue)}`;

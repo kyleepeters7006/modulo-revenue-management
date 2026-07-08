@@ -13531,7 +13531,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine, serviceLines } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines, effectiveDate } = req.body;
+      if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
+        return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
+      }
       
       // Parse the natural language rule
       const parsedRule = parseNaturalLanguageRule(description);
@@ -13755,6 +13758,7 @@ Respond in JSON format:
         trigger: parsedRule.trigger,
         action: parsedRule.action,
         isActive: true,
+        effectiveDate: effectiveDate || null,
         createdBy: 'user',
         monthlyImpact: Math.round(monthlyImpact),
         annualImpact: Math.round(annualImpact),
@@ -14559,7 +14563,10 @@ Respond in JSON format:
     try {
       const { id } = req.params;
       const clientId = (req as any).clientId || 'demo';
-      const { description, locationId, serviceLine, serviceLines } = req.body;
+      const { description, locationId, serviceLine, serviceLines, effectiveDate } = req.body;
+      if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
+        return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
+      }
 
       const existing = (await storage.getAdjustmentRules()).find(r => r.id === id);
       if (!existing) return res.status(404).json({ error: "Rule not found" });
@@ -14611,6 +14618,7 @@ Respond in JSON format:
         locationId: locationId !== undefined ? locationId : (existing.locationId ?? null),
         serviceLine: storeServiceLine,
         serviceLines: storeServiceLines,
+        effectiveDate: effectiveDate !== undefined ? (effectiveDate || null) : ((existing as any).effectiveDate ?? null),
       } as any);
 
       const impact = await computeRuleImpact(updated, clientId);

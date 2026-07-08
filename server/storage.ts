@@ -2269,7 +2269,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveAdjustmentRules(): Promise<AdjustmentRules[]> {
-    return await db.select().from(adjustmentRules).where(eq(adjustmentRules.isActive, true));
+    // Active = toggled on AND already past its effective date (NULL = effective immediately)
+    return await db.select().from(adjustmentRules).where(
+      and(
+        eq(adjustmentRules.isActive, true),
+        sql`(${adjustmentRules.effectiveDate} IS NULL OR ${adjustmentRules.effectiveDate} <= CURRENT_DATE)`
+      )
+    );
   }
 
   async createAdjustmentRule(rule: InsertAdjustmentRules): Promise<AdjustmentRules> {
