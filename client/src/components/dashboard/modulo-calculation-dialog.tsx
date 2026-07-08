@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calculator, TrendingUp, TrendingDown, Shield, AlertCircle, Info, Settings, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { isRuleAdditive } from "@shared/ruleStacking";
+import { isRuleAdditive, applyRuleAdjustmentStep, getRuleAdjustment } from "@shared/ruleStacking";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -300,14 +300,9 @@ export default function ModuloCalculationDialog({
       const trigger = typeof rule.trigger === 'string' ? JSON.parse(rule.trigger) : rule.trigger;
       const isAdditive = isRuleAdditive(action);
       if (!isAdditive) exclusiveCount++;
-      const adjType = action?.adjustmentType || 'percentage';
-      const adjValue = action?.adjustmentValue ?? action?.percentage ?? 0;
+      const { adjustmentType: adjType, adjustmentValue: adjValue } = getRuleAdjustment(action);
       const before = current;
-      if (adjType === 'percentage') {
-        current = Math.round(current * (1 + adjValue / 100));
-      } else {
-        current = Math.round(current + adjValue);
-      }
+      current = applyRuleAdjustmentStep(current, action);
       const delta = current - before;
       const pctStr = `${adjValue > 0 ? '+' : ''}${adjValue}%`;
       const dollarStr = `${adjValue >= 0 ? '+' : ''}$${Math.abs(adjValue)}`;

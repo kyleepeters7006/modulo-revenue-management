@@ -10,7 +10,14 @@
  *
  * Run with: npx tsx tests/ruleStacking.test.ts
  */
-import { isRuleAdditive, isRuleExclusive, exclusivePriority } from '../shared/ruleStacking';
+import {
+  isRuleAdditive,
+  isRuleExclusive,
+  exclusivePriority,
+  applyRuleAdjustmentStep,
+  getRuleAdjustment,
+  replayRuleChain,
+} from '../shared/ruleStacking';
 
 const PASS = '\x1b[32m✓\x1b[0m';
 const FAIL = '\x1b[31m✗\x1b[0m';
@@ -64,6 +71,39 @@ assert(
   ordered.filter(r => isRuleExclusive(r.action)).length,
   2,
 );
+
+// --- Shared adjustment math: dialog replay must equal engine output ---
+console.log('\n-- Shared adjustment math (applyRuleAdjustmentStep) --');
+assert('Percentage +10% of 3000 rounds to 3300', applyRuleAdjustmentStep(3000, { adjustmentType: 'percentage', adjustmentValue: 10 }), 3300);
+assert('Percentage -5% of 3333 rounds like engine', applyRuleAdjustmentStep(3333, { adjustmentType: 'percentage', adjustmentValue: -5 }), Math.round(3333 * 0.95));
+assert('Fixed +150 adds and rounds', applyRuleAdjustmentStep(2999.4, { adjustmentType: 'fixed', adjustmentValue: 150 }), Math.round(2999.4 + 150));
+assert('Default type is percentage', applyRuleAdjustmentStep(1000, { adjustmentValue: 10 }), 1100);
+assert('Legacy percentage field is honored', applyRuleAdjustmentStep(1000, { percentage: 10 }), 1100);
+assert('Unknown adjustment type leaves rate unchanged (engine semantics)', applyRuleAdjustmentStep(1000, { adjustmentType: 'bogus', adjustmentValue: 50 }), 1000);
+assert('Missing action leaves rate at +0%', applyRuleAdjustmentStep(1000, undefined), 1000);
+assert('getRuleAdjustment default', JSON.stringify(getRuleAdjustment({})), JSON.stringify({ adjustmentType: 'percentage', adjustmentValue: 0 }));
+
+// Simulate the engine's stacking loop with the shared step function and
+// verify the dialog's replayRuleChain produces the identical final rate.
+console.log('\n-- Dialog replay matches engine chain (replayRuleChain) --');
+const chainActions = [
+  { adjustmentType: 'percentage', adjustmentValue: 7.5 },
+  { adjustmentType: 'fixed', adjustmentValue: -125 },
+  { adjustmentType: 'percentage', adjustmentValue: -3 },
+  { percentage: 4 }, // legacy shape
+];
+const streetRate = 4187;
+// Engine-style loop (same as applyAdjustmentRulesToUnit)
+let engineRate = streetRate;
+for (const action of chainActions) engineRate = applyRuleAdjustmentStep(engineRate, action);
+// Dialog-style replay
+const steps = replayRuleChain(streetRate, chainActions);
+assert('Replay produces one step per rule', steps.length, chainActions.length);
+assert('Replay final rate equals engine final rate', steps[steps.length - 1].after, engineRate);
+assert('Steps chain contiguously (step1.after === step2.before)', steps[1].before, steps[0].after);
+assert('Steps chain contiguously (step3.after === step4.before)', steps[3].before, steps[2].after);
+assert('Deltas sum to net change', steps.reduce((s, x) => s + x.delta, 0), engineRate - streetRate);
+assert('First step starts at street rate', steps[0].before, streetRate);
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

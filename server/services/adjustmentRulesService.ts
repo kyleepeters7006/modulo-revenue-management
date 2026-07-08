@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { pool } from "../db";
 import type { AdjustmentRules } from "@shared/schema";
-import { isRuleExclusive } from "@shared/ruleStacking";
+import { isRuleExclusive, applyRuleAdjustmentStep } from "@shared/ruleStacking";
 import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
 
 // ---------------------------------------------------------------------------
@@ -487,14 +487,7 @@ export function applyAdjustmentRulesToUnit(
       exclusiveApplied = true;
     }
 
-    const adjustmentType = action.adjustmentType || "percentage";
-    const adjustmentValue = action.adjustmentValue ?? action.percentage ?? 0;
-
-    if (adjustmentType === "percentage") {
-      currentRate = Math.round(currentRate * (1 + adjustmentValue / 100));
-    } else if (adjustmentType === "fixed") {
-      currentRate = Math.round(currentRate + adjustmentValue);
-    }
+    currentRate = applyRuleAdjustmentStep(currentRate, action);
 
     appliedRuleNames.push(rule.name);
   }
