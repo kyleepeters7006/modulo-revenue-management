@@ -82,6 +82,8 @@ import { db, pool } from "./db";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
+import { clampRateWithGuardrails } from "./guardrailsUtil";
+import { z } from "zod";
 import multer from "multer";
 import Papa from "papaparse";
 import * as xlsx from "xlsx";
@@ -4210,9 +4212,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const guardrailsBodySchema = z.object({
+    locationId: z.string().nullable().optional(),
+    serviceLine: z.string().nullable().optional(),
+    minPriceChangePct: z.number().min(-100).max(0),
+    maxPriceChangePct: z.number().min(0).max(500),
+    minAbsolutePrice: z.number().positive().nullable().optional(),
+    maxAbsolutePrice: z.number().positive().nullable().optional(),
+  }).refine(d => d.minPriceChangePct <= d.maxPriceChangePct, {
+    message: "minPriceChangePct cannot exceed maxPriceChangePct"
+  }).refine(d => d.minAbsolutePrice == null || d.maxAbsolutePrice == null || d.minAbsolutePrice <= d.maxAbsolutePrice, {
+    message: "minAbsolutePrice cannot exceed maxAbsolutePrice"
+  });
+
   app.post("/api/guardrails", async (req, res) => {
     try {
-      const { locationId, serviceLine, id, createdAt, ...guardrailData } = req.body;
+      const parsed = guardrailsBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid guardrails data" });
+      }
+      const { locationId, serviceLine, ...guardrailData } = parsed.data;
       
       // Delete existing entry for this scope
       if (locationId && serviceLine) {
@@ -10933,8 +10952,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           if (individual.guardrails) {
             const g = individual.guardrails;
             await storage.createOrUpdateGuardrailsByFilter({
-              maxRateIncrease: g.maxIncreasePercent / 100,
-              minRateDecrease: g.maxDecreasePercent / 100
+              maxPriceChangePct: g.maxIncreasePercent,
+              minPriceChangePct: -Math.abs(g.maxDecreasePercent)
             }, location.id, serviceLine);
             guardrailsUpdated++;
           }
@@ -11002,8 +11021,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           for (const location of targetLocations) {
             for (const serviceLine of serviceLinesToApply) {
               await storage.createOrUpdateGuardrailsByFilter({
-                maxRateIncrease: g.maxIncreasePercent / 100,
-                minRateDecrease: g.maxDecreasePercent / 100
+                maxPriceChangePct: g.maxIncreasePercent,
+                minPriceChangePct: -Math.abs(g.maxDecreasePercent)
               }, location.id, serviceLine);
               guardrailsUpdated++;
             }
@@ -13089,17 +13108,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       let guardrailMaxAllowed = Infinity;
       let guardrailLimitPct: number | null = null;
       if (guardrailsData) {
-        const minDec = (guardrailsData.minRateDecrease ?? 5) / 100;
-        const maxInc = (guardrailsData.maxRateIncrease ?? 15) / 100;
-        guardrailMinAllowed = streetRate * (1 - minDec);
-        guardrailMaxAllowed = streetRate * (1 + maxInc);
-        const bounded = Math.max(guardrailMinAllowed, Math.min(guardrailMaxAllowed, preGuardrailRate));
-        if (Math.abs(bounded - preGuardrailRate) > 0.5) {
-          clampedRate = bounded;
+        const clamp = clampRateWithGuardrails(preGuardrailRate, streetRate, guardrailsData);
+        guardrailMinAllowed = clamp.minAllowed;
+        guardrailMaxAllowed = clamp.maxAllowed;
+        if (clamp.wasAdjusted && Math.abs(clamp.finalRate - preGuardrailRate) > 0.5) {
+          clampedRate = clamp.finalRate;
           freshGuardrailWasApplied = true;
           guardrailLimitPct = preGuardrailRate > guardrailMaxAllowed
-            ? (guardrailsData.maxRateIncrease ?? 15)
-            : (guardrailsData.minRateDecrease ?? 5);
+            ? (guardrailsData.maxPriceChangePct ?? 15)
+            : Math.abs(guardrailsData.minPriceChangePct ?? -5);
         }
       }
 

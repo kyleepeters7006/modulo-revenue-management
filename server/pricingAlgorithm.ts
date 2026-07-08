@@ -209,41 +209,34 @@ export class PricingAlgorithm {
   ): { rate: number; appliedRules: string[] } {
     let finalRate = recommendedRate;
     const appliedRules: string[] = [];
-    
-    // Min/Max rate change limits
-    if (guardrails.minRateDecrease) {
-      const minRate = currentRate * (1 - guardrails.minRateDecrease);
+
+    // Min/Max % change limits (relative to current rate)
+    const minPct = guardrails.minPriceChangePct ?? -5;
+    const maxPct = guardrails.maxPriceChangePct ?? 15;
+
+    if (currentRate > 0) {
+      const minRate = currentRate * (1 + minPct / 100);
       if (finalRate < minRate) {
         finalRate = minRate;
-        appliedRules.push(`Minimum rate decrease limit applied (${(guardrails.minRateDecrease * 100).toFixed(1)}%)`);
+        appliedRules.push(`Minimum price change limit applied (${minPct.toFixed(1)}%)`);
       }
-    }
-    
-    if (guardrails.maxRateIncrease) {
-      const maxRate = currentRate * (1 + guardrails.maxRateIncrease);
+      const maxRate = currentRate * (1 + maxPct / 100);
       if (finalRate > maxRate) {
         finalRate = maxRate;
-        appliedRules.push(`Maximum rate increase limit applied (${(guardrails.maxRateIncrease * 100).toFixed(1)}%)`);
+        appliedRules.push(`Maximum price change limit applied (+${maxPct.toFixed(1)}%)`);
       }
     }
-    
-    // Competitor variance limits
-    if (guardrails.competitorVarianceLimit && competitorRate) {
-      const maxVariance = competitorRate * guardrails.competitorVarianceLimit;
-      const minCompetitorRate = competitorRate - maxVariance;
-      const maxCompetitorRate = competitorRate + maxVariance;
-      
-      if (finalRate < minCompetitorRate) {
-        finalRate = minCompetitorRate;
-        appliedRules.push(`Competitor variance floor applied (${(guardrails.competitorVarianceLimit * 100).toFixed(1)}%)`);
-      }
-      
-      if (finalRate > maxCompetitorRate) {
-        finalRate = maxCompetitorRate;
-        appliedRules.push(`Competitor variance ceiling applied (${(guardrails.competitorVarianceLimit * 100).toFixed(1)}%)`);
-      }
+
+    // Absolute price limits override percentage limits
+    if (guardrails.minAbsolutePrice != null && guardrails.minAbsolutePrice > 0 && finalRate < guardrails.minAbsolutePrice) {
+      finalRate = guardrails.minAbsolutePrice;
+      appliedRules.push(`Minimum absolute price applied ($${guardrails.minAbsolutePrice})`);
     }
-    
+    if (guardrails.maxAbsolutePrice != null && guardrails.maxAbsolutePrice > 0 && finalRate > guardrails.maxAbsolutePrice) {
+      finalRate = guardrails.maxAbsolutePrice;
+      appliedRules.push(`Maximum absolute price applied ($${guardrails.maxAbsolutePrice})`);
+    }
+
     return { rate: finalRate, appliedRules };
   }
 }

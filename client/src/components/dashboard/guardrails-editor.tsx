@@ -7,38 +7,39 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
-const defaultGuardrails = {
-  min_price_change_pct: -15,
-  max_price_change_pct: 25,
-  min_absolute_price: 2500,
-  max_absolute_price: 15000,
-  competitor_variance_limit: 0.1,
-  occupancy_threshold: 0.95,
-  vacancy_days_threshold: 30,
-  seasonal_adjustments: {
-    summer: 1.05,
-    winter: 0.98
-  }
-};
-
-function formatCurrency(value: number): string {
-  return Math.round(value).toLocaleString('en-US');
+interface GuardrailsForm {
+  minPriceChangePct: number;
+  maxPriceChangePct: number;
+  minAbsolutePrice: number | null;
+  maxAbsolutePrice: number | null;
 }
 
-function parseCurrency(raw: string): number {
-  const stripped = raw.replace(/[^0-9\-]/g, '');
-  return stripped === '' || stripped === '-' ? 0 : parseInt(stripped, 10);
+const defaultGuardrails: GuardrailsForm = {
+  minPriceChangePct: -5,
+  maxPriceChangePct: 15,
+  minAbsolutePrice: null,
+  maxAbsolutePrice: null,
+};
+
+function formatCurrency(value: number | null): string {
+  return value == null ? '' : Math.round(value).toLocaleString('en-US');
+}
+
+function parseCurrency(raw: string): number | null {
+  const stripped = raw.replace(/[^0-9]/g, '');
+  return stripped === '' ? null : parseInt(stripped, 10);
 }
 
 interface CurrencyInputProps {
   id: string;
-  value: number;
-  onChange: (value: number) => void;
+  value: number | null;
+  onChange: (value: number | null) => void;
+  placeholder?: string;
   className?: string;
   'data-testid'?: string;
 }
 
-function CurrencyInput({ id, value, onChange, className, 'data-testid': testId }: CurrencyInputProps) {
+function CurrencyInput({ id, value, onChange, placeholder, className, 'data-testid': testId }: CurrencyInputProps) {
   const [displayValue, setDisplayValue] = useState(formatCurrency(value));
   const [focused, setFocused] = useState(false);
 
@@ -56,7 +57,7 @@ function CurrencyInput({ id, value, onChange, className, 'data-testid': testId }
 
   const handleFocus = () => {
     setFocused(true);
-    setDisplayValue(Math.round(value).toString());
+    setDisplayValue(value == null ? '' : Math.round(value).toString());
   };
 
   const handleBlur = () => {
@@ -73,6 +74,7 @@ function CurrencyInput({ id, value, onChange, className, 'data-testid': testId }
       onChange={handleChange}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      placeholder={placeholder}
       className={className}
       data-testid={testId}
     />
@@ -85,7 +87,7 @@ interface GuardrailsEditorProps {
 }
 
 export default function GuardrailsEditor({ locationId, serviceLine }: GuardrailsEditorProps) {
-  const [formData, setFormData] = useState(defaultGuardrails);
+  const [formData, setFormData] = useState<GuardrailsForm>(defaultGuardrails);
   const [saveStatus, setSaveStatus] = useState("Configuration ready to save...");
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -106,18 +108,23 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
 
   useEffect(() => {
     if (guardrails && Object.keys(guardrails).length > 0) {
-      setFormData({ ...defaultGuardrails, ...guardrails });
+      setFormData({
+        minPriceChangePct: guardrails.minPriceChangePct ?? defaultGuardrails.minPriceChangePct,
+        maxPriceChangePct: guardrails.maxPriceChangePct ?? defaultGuardrails.maxPriceChangePct,
+        minAbsolutePrice: guardrails.minAbsolutePrice ?? null,
+        maxAbsolutePrice: guardrails.maxAbsolutePrice ?? null,
+      });
     } else {
       setFormData(defaultGuardrails);
     }
   }, [guardrails]);
 
   const saveGuardrailsMutation = useMutation({
-    mutationFn: async (config: any) => {
-      return apiRequest('/api/guardrails', 'POST', { 
-        ...config, 
-        locationId: locationId || null, 
-        serviceLine: serviceLine || null 
+    mutationFn: async (config: GuardrailsForm) => {
+      return apiRequest('/api/guardrails', 'POST', {
+        ...config,
+        locationId: locationId || null,
+        serviceLine: serviceLine || null
       });
     },
     onSuccess: () => {
@@ -138,30 +145,40 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
     },
   });
 
-  const handleInputChange = (field: string, value: string) => {
-    const numValue = value === '' ? 0 : parseFloat(value);
+  const handlePctChange = (field: 'minPriceChangePct' | 'maxPriceChangePct', value: string) => {
+    const numValue = value === '' || value === '-' ? 0 : parseFloat(value);
     setFormData(prev => ({ ...prev, [field]: numValue }));
     setSaveStatus("Configuration ready to save...");
   };
 
-  const handleCurrencyChange = (field: string, value: number) => {
+  const handleCurrencyChange = (field: 'minAbsolutePrice' | 'maxAbsolutePrice', value: number | null) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setSaveStatus("Configuration ready to save...");
   };
 
-  const handleSeasonalChange = (season: string, value: string) => {
-    const numValue = value === '' ? 0 : parseFloat(value);
-    setFormData(prev => ({
-      ...prev,
-      seasonal_adjustments: {
-        ...prev.seasonal_adjustments,
-        [season]: numValue
-      }
-    }));
-    setSaveStatus("Configuration ready to save...");
-  };
-
   const handleSave = () => {
+    if (formData.minPriceChangePct > formData.maxPriceChangePct) {
+      setSaveStatus("Minimum price change % cannot exceed maximum price change %");
+      toast({
+        title: "Invalid Guardrails",
+        description: "Minimum price change % cannot exceed maximum price change %.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (
+      formData.minAbsolutePrice != null &&
+      formData.maxAbsolutePrice != null &&
+      formData.minAbsolutePrice > formData.maxAbsolutePrice
+    ) {
+      setSaveStatus("Minimum absolute price cannot exceed maximum absolute price");
+      toast({
+        title: "Invalid Guardrails",
+        description: "Minimum absolute price cannot exceed maximum absolute price.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaveStatus("Saving...");
     saveGuardrailsMutation.mutate(formData);
   };
@@ -182,141 +199,78 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
             Pricing Guardrails
           </h3>
           <p className="text-sm text-[var(--dashboard-muted)]">
-            Define constraints and limits for automated pricing
+            Hard limits on proposed rates — guardrails always override pricing rules
           </p>
         </div>
       </div>
-      
+
       <div className="space-y-6">
         {/* Price Change Limits */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="min_price_change">Minimum Price Change (%)</Label>
+            <p className="text-xs text-[var(--dashboard-muted)]">
+              Largest allowed decrease vs. street rate (e.g., -5 = down to 5% below)
+            </p>
             <Input
               id="min_price_change"
               type="number"
-              value={formData.min_price_change_pct}
-              onChange={(e) => handleInputChange('min_price_change_pct', e.target.value)}
+              step="0.5"
+              value={formData.minPriceChangePct}
+              onChange={(e) => handlePctChange('minPriceChangePct', e.target.value)}
               className="dashboard-input"
               data-testid="input-min-price-change"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="max_price_change">Maximum Price Change (%)</Label>
+            <p className="text-xs text-[var(--dashboard-muted)]">
+              Largest allowed increase vs. street rate (e.g., 15 = up to 15% above)
+            </p>
             <Input
               id="max_price_change"
               type="number"
-              value={formData.max_price_change_pct}
-              onChange={(e) => handleInputChange('max_price_change_pct', e.target.value)}
+              step="0.5"
+              value={formData.maxPriceChangePct}
+              onChange={(e) => handlePctChange('maxPriceChangePct', e.target.value)}
               className="dashboard-input"
               data-testid="input-max-price-change"
             />
           </div>
         </div>
 
-        {/* Absolute Price Limits — displayed as currency with comma separators */}
+        {/* Absolute Price Limits */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="min_absolute_price">Minimum Absolute Price ($)</Label>
+            <p className="text-xs text-[var(--dashboard-muted)]">
+              Hard floor — leave blank for no floor
+            </p>
             <CurrencyInput
               id="min_absolute_price"
-              value={formData.min_absolute_price}
-              onChange={(v) => handleCurrencyChange('min_absolute_price', v)}
+              value={formData.minAbsolutePrice}
+              onChange={(v) => handleCurrencyChange('minAbsolutePrice', v)}
+              placeholder="No floor"
               className="dashboard-input"
               data-testid="input-min-absolute-price"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="max_absolute_price">Maximum Absolute Price ($)</Label>
+            <p className="text-xs text-[var(--dashboard-muted)]">
+              Hard ceiling — leave blank for no ceiling
+            </p>
             <CurrencyInput
               id="max_absolute_price"
-              value={formData.max_absolute_price}
-              onChange={(v) => handleCurrencyChange('max_absolute_price', v)}
+              value={formData.maxAbsolutePrice}
+              onChange={(v) => handleCurrencyChange('maxAbsolutePrice', v)}
+              placeholder="No ceiling"
               className="dashboard-input"
               data-testid="input-max-absolute-price"
             />
           </div>
         </div>
 
-        {/* Competitor Variance Limit */}
-        <div className="space-y-2">
-          <Label htmlFor="competitor_variance_limit">Competitor Variance Limit (0-1)</Label>
-          <p className="text-xs text-[var(--dashboard-muted)] mb-2">
-            Maximum allowed deviation from competitor rates (e.g., 0.1 = ±10%)
-          </p>
-          <Input
-            id="competitor_variance_limit"
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            value={formData.competitor_variance_limit}
-            onChange={(e) => handleInputChange('competitor_variance_limit', e.target.value)}
-            className="dashboard-input"
-            data-testid="input-competitor-variance-limit"
-          />
-        </div>
-
-        {/* Operational Thresholds */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="occupancy_threshold">Occupancy Threshold (0-1)</Label>
-            <Input
-              id="occupancy_threshold"
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={formData.occupancy_threshold}
-              onChange={(e) => handleInputChange('occupancy_threshold', e.target.value)}
-              className="dashboard-input"
-              data-testid="input-occupancy-threshold"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="vacancy_days_threshold">Vacancy Days Threshold</Label>
-            <Input
-              id="vacancy_days_threshold"
-              type="number"
-              value={formData.vacancy_days_threshold}
-              onChange={(e) => handleInputChange('vacancy_days_threshold', e.target.value)}
-              className="dashboard-input"
-              data-testid="input-vacancy-days-threshold"
-            />
-          </div>
-        </div>
-
-        {/* Seasonal Adjustments */}
-        <div>
-          <Label className="text-base font-medium mb-3 block">Seasonal Adjustments</Label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="summer_adjustment">Summer Multiplier</Label>
-              <Input
-                id="summer_adjustment"
-                type="number"
-                step="0.01"
-                value={formData.seasonal_adjustments.summer}
-                onChange={(e) => handleSeasonalChange('summer', e.target.value)}
-                className="dashboard-input"
-                data-testid="input-summer-adjustment"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="winter_adjustment">Winter Multiplier</Label>
-              <Input
-                id="winter_adjustment"
-                type="number"
-                step="0.01"
-                value={formData.seasonal_adjustments.winter}
-                onChange={(e) => handleSeasonalChange('winter', e.target.value)}
-                className="dashboard-input"
-                data-testid="input-winter-adjustment"
-              />
-            </div>
-          </div>
-        </div>
-        
         {/* Action Buttons */}
         <div className="flex justify-between items-center pt-4 border-t border-[var(--dashboard-border)]">
           <Button
@@ -336,9 +290,9 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
             {saveGuardrailsMutation.isPending ? "Saving..." : "Save Guardrails"}
           </Button>
         </div>
-        
+
         {/* Status Message */}
-        <div 
+        <div
           className="text-sm text-[var(--dashboard-muted)] text-center"
           data-testid="text-guardrails-status"
         >

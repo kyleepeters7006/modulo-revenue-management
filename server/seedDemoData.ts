@@ -769,9 +769,8 @@ export async function generateDemoData(): Promise<{
     await db.insert(guardrails).values({
       locationId: albanyLoc.id,
       serviceLine: 'AL/MC',
-      maxRateIncrease: 0.04,   // 4% cap — clips the 8% demand signal to 4%
-      minRateDecrease: 0.05,   // standard 5% floor
-      competitorVarianceLimit: 0.10,
+      maxPriceChangePct: 4,    // +4% cap — clips the 8% demand signal to 4%
+      minPriceChangePct: -5,   // standard 5% floor
     });
     console.log(`[demo]   ✓ Albany AL/MC guardrail: max +4% increase`);
   }

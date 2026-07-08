@@ -280,11 +280,10 @@ export const guardrails = pgTable("guardrails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   locationId: varchar("location_id").references(() => locations.id), // NULL = global default
   serviceLine: text("service_line"), // NULL = applies to all service lines at this location
-  minRateDecrease: real("min_rate_decrease").default(0.05), // 5% minimum
-  maxRateIncrease: real("max_rate_increase").default(0.15), // 15% maximum
-  occupancyThresholds: jsonb("occupancy_thresholds"), // Different rates for different occupancy levels
-  seasonalAdjustments: jsonb("seasonal_adjustments"),
-  competitorVarianceLimit: real("competitor_variance_limit").default(0.10), // 10% variance from competitor rates
+  minPriceChangePct: real("min_price_change_pct").default(-5), // most negative allowed % change vs street rate (e.g. -5 = max 5% decrease)
+  maxPriceChangePct: real("max_price_change_pct").default(15), // max allowed % increase vs street rate
+  minAbsolutePrice: real("min_absolute_price"), // hard floor in $; NULL = no floor
+  maxAbsolutePrice: real("max_absolute_price"), // hard ceiling in $; NULL = no ceiling
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   uniqueScope: uniqueIndex("guardrails_unique_scope").on(table.locationId, table.serviceLine)

@@ -1,6 +1,7 @@
 import { attributePricingService } from "./attributePricingService";
 import { calculateModuloPrice, type PricingInputs, type PricingWeights as ModuloPricingWeights } from "./moduloPricingAlgorithm";
 import type { RentRollData, Guardrails, PricingWeights } from "@shared/schema";
+import { clampRateWithGuardrails } from "./guardrailsUtil";
 
 interface CalculationDetails {
   finalPrice: number;
@@ -79,25 +80,12 @@ export async function calculateAttributedPrice(
   let maxAllowed = Infinity;
 
   if (guardrails) {
-    const minRateDecrease = guardrails.minRateDecrease || 0.05;
-    const maxRateIncrease = guardrails.maxRateIncrease || 0.15;
-
     // Guardrails applied relative to the street rate
-    minAllowed = baseRate * (1 - minRateDecrease);
-    maxAllowed = baseRate * (1 + maxRateIncrease);
-
-    if (finalPrice < minAllowed) {
-      finalPrice = minAllowed;
-      wasAdjusted = true;
-    } else if (finalPrice > maxAllowed) {
-      finalPrice = maxAllowed;
-      wasAdjusted = true;
-    }
-
-    if (finalPrice < 0) {
-      finalPrice = minAllowed;
-      wasAdjusted = true;
-    }
+    const clamp = clampRateWithGuardrails(finalPrice, baseRate, guardrails);
+    finalPrice = clamp.finalRate;
+    minAllowed = clamp.minAllowed;
+    maxAllowed = clamp.maxAllowed;
+    wasAdjusted = clamp.wasAdjusted;
   }
 
   return {

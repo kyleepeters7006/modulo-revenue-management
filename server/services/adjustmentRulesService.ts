@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { pool } from "../db";
 import type { AdjustmentRules } from "@shared/schema";
 import { isRuleExclusive } from "@shared/ruleStacking";
+import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
 
 // ---------------------------------------------------------------------------
 // In-memory cache for IH-to-Street variance metric
@@ -569,7 +570,27 @@ export async function fetchAndApplyAdjustmentRules(
     }
 
     console.log(`Found ${activeRules.length} active adjustment rules`);
-    return applyAdjustmentRulesToBatch(units, activeRules);
+    const results = applyAdjustmentRulesToBatch(units, activeRules);
+
+    // Guardrails override rules: clamp every rule-adjusted rate against the
+    // unit's street rate using the 3-tier guardrail fallback
+    // (location+serviceLine → location → global).
+    const resolveGuardrails = await buildGuardrailResolver();
+    let guardrailClampedCount = 0;
+    const clamped = results.map((result, index) => {
+      if (result.ruleAdjustedRate === null) return result;
+      const unit = units[index]?.unit;
+      const baseRate: number = unit?.streetRate ?? unit?.street_rate ?? 0;
+      const g = resolveGuardrails(unit?.locationId, unit?.serviceLine);
+      if (!g || baseRate <= 0) return result;
+      const clampResult = clampRateWithGuardrails(result.ruleAdjustedRate, baseRate, g);
+      if (clampResult.wasAdjusted) guardrailClampedCount++;
+      return { ...result, ruleAdjustedRate: Math.round(clampResult.finalRate) };
+    });
+    if (guardrailClampedCount > 0) {
+      console.log(`Guardrails clamped ${guardrailClampedCount} rule-adjusted rates`);
+    }
+    return clamped;
   } catch (error) {
     console.error("Error fetching or applying adjustment rules:", error);
     return units.map(({ id }) => ({

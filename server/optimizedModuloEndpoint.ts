@@ -7,6 +7,7 @@ import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrche
 import { getSentenceExplanation, generateOverallExplanation } from "./sentenceExplanations";
 import type { PricingInputs, CompetitorInfo } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules } from "./services/adjustmentRulesService";
+import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { matchAndAdjustCompetitor } from "./services/competitorLookup";
 import { db } from './db';
 import { roomTypeOccupancyHistory } from '@shared/schema';
@@ -265,23 +266,11 @@ function applyGuardrails(
   let maxAllowed = Infinity;
 
   if (guardrailsData) {
-    const minRateDecrease = guardrailsData.minRateDecrease || 0.05;
-    const maxRateIncrease = guardrailsData.maxRateIncrease || 0.15;
-    minAllowed = baseRate * (1 - minRateDecrease);
-    maxAllowed = baseRate * (1 + maxRateIncrease);
-
-    if (finalRate < minAllowed) {
-      finalRate = minAllowed;
-      wasAdjusted = true;
-    } else if (finalRate > maxAllowed) {
-      finalRate = maxAllowed;
-      wasAdjusted = true;
-    }
-
-    if (finalRate < 0) {
-      finalRate = minAllowed;
-      wasAdjusted = true;
-    }
+    const result = clampRateWithGuardrails(rate, baseRate, guardrailsData);
+    finalRate = result.finalRate;
+    minAllowed = result.minAllowed;
+    maxAllowed = result.maxAllowed;
+    wasAdjusted = result.wasAdjusted;
   }
 
   return { finalRate, minAllowed, maxAllowed, wasAdjusted };
