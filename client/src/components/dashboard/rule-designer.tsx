@@ -188,12 +188,13 @@ interface RuleDesignerProps {
   locationId?: string;
   serviceLine?: string;
   locationName?: string;
+  aiGenerator?: React.ReactNode;
 }
 
-export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesignerProps) {
+export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerator }: RuleDesignerProps) {
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured'>('structured');
+  const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured' | 'ai-generator'>('structured');
   const [designerOpen, setDesignerOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -722,19 +723,31 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
 
         {designerOpen && (
         <CardContent>
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className={`grid gap-6 ${activeTab === 'ai-generator' ? '' : 'lg:grid-cols-2'}`}>
 
             {/* ── LEFT: Builder ── */}
             <div className="space-y-4">
               <Tabs value={activeTab} onValueChange={v => { setActiveTab(v as any); setImpactData(null); setNewSlPickerOpen(false); }}>
                 <TabsList className="w-full">
-                  <TabsTrigger value="ask-ai" className="flex-1 gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" /> Ask AI
+                  <TabsTrigger value="structured" className="flex-1 gap-1.5" data-testid="tab-structured">
+                    <SlidersHorizontal className="h-3.5 w-3.5" /> Structured Rule Builder
                   </TabsTrigger>
-                  <TabsTrigger value="structured" className="flex-1 gap-1.5">
-                    <SlidersHorizontal className="h-3.5 w-3.5" /> Structured
+                  <TabsTrigger value="ask-ai" className="flex-1 gap-1.5" data-testid="tab-ask-ai">
+                    <Wand2 className="h-3.5 w-3.5" /> Natural Language Rules
                   </TabsTrigger>
+                  {aiGenerator && (
+                    <TabsTrigger value="ai-generator" className="flex-1 gap-1.5" data-testid="tab-ai-generator">
+                      <Sparkles className="h-3.5 w-3.5" /> AI Rule Generator
+                    </TabsTrigger>
+                  )}
                 </TabsList>
+
+                {/* ── AI RULE GENERATOR TAB ── */}
+                {aiGenerator && (
+                  <TabsContent value="ai-generator" className="mt-4">
+                    {aiGenerator}
+                  </TabsContent>
+                )}
 
                 {/* ── ASK AI TAB ── */}
                 <TabsContent value="ask-ai" className="mt-4 space-y-4">
@@ -1065,6 +1078,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
             </div>
 
             {/* ── RIGHT: Preview Panel ── */}
+            {activeTab !== 'ai-generator' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-border bg-slate-50/50 p-4 space-y-4 h-full">
 
@@ -1234,6 +1248,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName }: RuleDesi
                 </div>
               </div>
             </div>
+            )}
           </div>
         </CardContent>
         )}
