@@ -591,11 +591,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
     try {
       const res = await fetch(`/api/adjustment-rules/${ruleId}/additive`, { method: 'PATCH' });
       if (!res.ok) throw new Error();
-      setRules(prev => prev.map(r => {
-        if (r.id !== ruleId) return r;
-        const act = (r.action as any) || {};
-        return { ...r, action: { ...act, isAdditive: act.isAdditive === false } };
-      }));
+      // Use the server response as the source of truth so the badge/switch
+      // can never drift from the persisted stacking state.
+      const updated = await res.json();
+      const updatedAction = typeof updated.action === 'string'
+        ? JSON.parse(updated.action)
+        : (updated.action ?? {});
+      setRules(prev => prev.map(r => (r.id === ruleId ? { ...r, action: updatedAction } : r)));
     } catch {
       toast({ title: 'Failed to update rule', variant: 'destructive' });
     }
@@ -1479,11 +1481,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                 {/* Priority / mode indicator */}
                                 <td className="py-2.5 px-2 align-top">
                                   {rulePriority !== null ? (
-                                    <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center border border-amber-200" title={`Exclusive priority #${rulePriority}`}>
+                                    <span data-testid={`priority-indicator-${rule.id}`} className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center border border-amber-200" title={`Exclusive priority #${rulePriority}`}>
                                       {rulePriority}
                                     </span>
                                   ) : isAdditive && rule.isActive ? (
-                                    <div className="shrink-0 w-5 h-5 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center" title="Stacks with other rules">
+                                    <div data-testid={`stacks-indicator-${rule.id}`} className="shrink-0 w-5 h-5 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center" title="Stacks with other rules">
                                       <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
                                     </div>
                                   ) : (
@@ -1505,7 +1507,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                       );
                                     })()}
                                     {rule.isActive && (
-                                      <span className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${
+                                      <span data-testid={`badge-stacking-${rule.id}`} className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${
                                         isAdditive
                                           ? 'bg-teal-50 text-teal-700 border-teal-200'
                                           : 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1614,6 +1616,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                       id={`additive-${rule.id}`}
                                       checked={isAdditive}
                                       onCheckedChange={() => toggleAdditive(rule.id)}
+                                      data-testid={`switch-additive-${rule.id}`}
                                       className="h-[18px] w-8 data-[state=checked]:bg-teal-500 shrink-0"
                                     />
                                     <label
