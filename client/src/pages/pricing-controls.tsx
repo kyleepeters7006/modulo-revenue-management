@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { ChevronDown, X, Sparkles, Target, Loader2, Save, Check, HeartPulse, TrendingUp, TrendingDown } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
+import { RulePerformanceTable } from "@/components/dashboard/rule-performance-table";
 import ReferenceDataTable from "@/components/dashboard/reference-data-table";
 import GuardrailsEditor from "@/components/dashboard/guardrails-editor";
 import { Button } from "@/components/ui/button";
@@ -542,6 +543,8 @@ export default function PricingControls() {
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
             locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
           />
+
+          <RulePerformanceTable />
 
           {/* Target Annual Revenue Growth Section */}
           <Card data-testid="card-target-growth">

@@ -15380,6 +15380,158 @@ Respond in JSON format:
     }
   });
 
+  // RULE PERFORMANCE OVER TIME
+  // GET /api/rule-performance?start=YYYY-MM-DD&end=YYYY-MM-DD
+  // One summary row per adjustment rule applied in the timeframe, with drill-down
+  // detail rows at the (location, service line, room type) level.
+  app.get("/api/rule-performance", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const q = req.query as Record<string, string | undefined>;
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      if ((q.start && !dateRe.test(q.start)) || (q.end && !dateRe.test(q.end))) {
+        return res.status(400).json({ error: 'start and end must be YYYY-MM-DD dates' });
+      }
+      const now = new Date();
+      const endDate = q.end ? new Date(q.end + 'T23:59:59') : now;
+      const startDate = q.start ? new Date(q.start + 'T00:00:00') : new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid start or end date' });
+      }
+
+      // Units that had a rule applied at any point in the selected window, across ALL
+      // upload months (not just the latest snapshot). The application date is
+      // rule_rate_calculated_at when present; older imports lack that timestamp, so we
+      // fall back to the row's own upload_month (first of month) — deterministic and
+      // tenant-safe (no reliance on the global adjustment_rules table for dates).
+      // Dedupe: one row per (location, room_number, applied_rule_name), keeping the
+      // most recent upload_month so occupancy/move-in status is as current as possible.
+      const unitRes = await pool.query(`
+        SELECT DISTINCT ON (rr.location, rr.room_number, rr.applied_rule_name)
+               rr.location, rr.service_line, rr.room_type, rr.room_number,
+               rr.occupied_yn, rr.street_rate, rr.rule_adjusted_rate,
+               rr.applied_rule_name, rr.move_in_date, rr.days_vacant, rr.upload_month,
+               COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) AS applied_at
+        FROM rent_roll_data rr
+        WHERE rr.client_id = $1
+          AND rr.applied_rule_name IS NOT NULL AND rr.rule_adjusted_rate > 0
+          AND COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) BETWEEN $2 AND $3
+        ORDER BY rr.location, rr.room_number, rr.applied_rule_name, rr.upload_month DESC
+      `, [clientId, startDate, endDate]);
+
+      // Expected days-to-sell baseline: avg historical days_vacant per (service_line, room_type)
+      const baseRes = await pool.query<{ service_line: string; room_type: string; avg_dv: number }>(`
+        SELECT service_line, room_type, AVG(days_vacant) AS avg_dv
+        FROM rent_roll_data
+        WHERE client_id = $1 AND days_vacant > 0 AND days_vacant < 730
+        GROUP BY service_line, room_type
+      `, [clientId]);
+      const baseline = new Map<string, number>();
+      for (const b of baseRes.rows) baseline.set(`${b.service_line}|${b.room_type}`, Number(b.avg_dv));
+      const slBaseline = new Map<string, { sum: number; n: number }>();
+      for (const b of baseRes.rows) {
+        const cur = slBaseline.get(b.service_line) || { sum: 0, n: 0 };
+        cur.sum += Number(b.avg_dv); cur.n += 1;
+        slBaseline.set(b.service_line, cur);
+      }
+      const expectedFor = (sl: string, rt: string): number | null => {
+        const exact = baseline.get(`${sl}|${rt}`);
+        if (exact != null) return exact;
+        const s = slBaseline.get(sl);
+        return s && s.n > 0 ? s.sum / s.n : null;
+      };
+
+      const parseMoveIn = (s: string | null): Date | null => {
+        if (!s) return null;
+        let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+        m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (m) return new Date(+m[3], +m[1] - 1, +m[2]);
+        return null;
+      };
+      const DAILY_SLS = new Set(['HC', 'HC/MC']);
+      const toMonthly = (rate: number, sl: string) => DAILY_SLS.has(sl) ? rate * 30.4 : rate;
+
+      type Agg = {
+        unitsImpacted: number; unitsSold: number;
+        monthlyImpact: number; soldMonthlyImpact: number;
+        dtsSum: number; dtsN: number;          // actual days-to-sell (sold units)
+        expSum: number; expN: number;          // expected baseline for sold units
+        earliestApplied: Date | null;
+      };
+      const newAgg = (): Agg => ({ unitsImpacted: 0, unitsSold: 0, monthlyImpact: 0, soldMonthlyImpact: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0, earliestApplied: null });
+      // ruleName -> summary agg; ruleName -> detailKey -> agg
+      const summary = new Map<string, Agg>();
+      const details = new Map<string, Map<string, Agg & { location: string; serviceLine: string; roomType: string }>>();
+
+      for (const u of unitRes.rows) {
+        const ruleNames: string[] = String(u.applied_rule_name).split(' + ').map((s: string) => s.trim()).filter(Boolean);
+        if (ruleNames.length === 0) continue;
+        const appliedAt = new Date(u.applied_at);
+        for (const rn of ruleNames) {
+
+          const share = 1 / ruleNames.length; // proportional share when rules stack
+          const delta = toMonthly((Number(u.rule_adjusted_rate) - Number(u.street_rate)) * share, u.service_line);
+
+          const moveIn = parseMoveIn(u.move_in_date);
+          const soldAfterRule = !!(u.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
+          const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
+          const expected = expectedFor(u.service_line, u.room_type);
+
+          const bump = (a: Agg) => {
+            a.unitsImpacted += 1;
+            a.monthlyImpact += delta;
+            if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
+            if (soldAfterRule) {
+              a.unitsSold += 1;
+              a.soldMonthlyImpact += delta;
+              if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
+              if (expected != null) { a.expSum += expected; a.expN += 1; }
+            }
+          };
+
+          if (!summary.has(rn)) summary.set(rn, newAgg());
+          bump(summary.get(rn)!);
+
+          if (!details.has(rn)) details.set(rn, new Map());
+          const dKey = `${u.location}|${u.service_line}|${u.room_type}`;
+          const dMap = details.get(rn)!;
+          if (!dMap.has(dKey)) dMap.set(dKey, { ...newAgg(), location: u.location, serviceLine: u.service_line, roomType: u.room_type });
+          bump(dMap.get(dKey)!);
+        }
+      }
+
+      const finish = (a: Agg) => {
+        const avgDts = a.dtsN > 0 ? a.dtsSum / a.dtsN : null;
+        const avgExp = a.expN > 0 ? a.expSum / a.expN : null;
+        return {
+          unitsImpacted: a.unitsImpacted,
+          unitsSold: a.unitsSold,
+          avgDaysToSell: avgDts != null ? Math.round(avgDts) : null,
+          expectedDaysToSell: avgExp != null ? Math.round(avgExp) : null,
+          daysFasterThanExpected: avgDts != null && avgExp != null ? Math.round(avgExp - avgDts) : null,
+          monthlyRevenueImpact: Math.round(a.monthlyImpact),
+          annualRevenueImpact: Math.round(a.monthlyImpact * 12),
+          realizedMonthlyImpact: Math.round(a.soldMonthlyImpact),
+          dateApplied: a.earliestApplied,
+        };
+      };
+
+      const rows = Array.from(summary.entries()).map(([ruleName, agg]) => ({
+        ruleName,
+        ...finish(agg),
+        detail: Array.from(details.get(ruleName)?.values() || [])
+          .map(d => ({ location: d.location, serviceLine: d.serviceLine, roomType: d.roomType, ...finish(d) }))
+          .sort((x, y) => x.location.localeCompare(y.location) || x.serviceLine.localeCompare(y.serviceLine) || x.roomType.localeCompare(y.roomType)),
+      })).sort((x, y) => (y.annualRevenueImpact || 0) - (x.annualRevenueImpact || 0));
+
+      res.json({ rows, start: startDate, end: endDate });
+    } catch (err) {
+      console.error('[rule-performance] error:', err);
+      res.status(500).json({ error: 'Failed to compute rule performance' });
+    }
+  });
+
   // REFERENCE DATA — wide Excel-like metric grid
   // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=
   // One row per (Division, Campus, Service Line, Room Type) with Spot/T3/T6/T12
