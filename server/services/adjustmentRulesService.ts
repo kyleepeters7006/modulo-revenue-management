@@ -476,9 +476,11 @@ export function applyAdjustmentRulesToUnit(
       if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
     }
 
-    // Enforce exclusive/additive gating
-    const isAdditive = action.isAdditive === true;
-    if (!isAdditive) {
+    // Enforce exclusive/additive gating.
+    // Rules stack by default; only rules explicitly marked as exclusive
+    // (isAdditive === false) claim the exclusive slot.
+    const isExclusive = action.isAdditive === false;
+    if (isExclusive) {
       if (exclusiveApplied) continue;
       exclusiveApplied = true;
     }
@@ -512,8 +514,10 @@ export function applyAdjustmentRulesToBatch(
   units: Array<{ id: string; unit: any; [key: string]: any }>,
   activeRules: AdjustmentRules[]
 ): Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }> {
-  return units.map(({ id, unit }) => {
-    const baseRate: number = unit?.streetRate ?? unit?.street_rate ?? 0;
+  return units.map((entry) => {
+    const { id, unit } = entry;
+    const baseRate: number =
+      entry.moduloSuggestedRate ?? unit?.streetRate ?? unit?.street_rate ?? 0;
     const adjustment = applyAdjustmentRulesToUnit(unit, baseRate, activeRules);
     return {
       id,
