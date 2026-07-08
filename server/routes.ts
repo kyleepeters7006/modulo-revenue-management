@@ -16008,8 +16008,12 @@ Respond in JSON format:
         campus.replace(/\s*-\s*\d+.*$/, '').trim().toLowerCase();
 
       // inquiry/tour map: `${normInqLoc}||${sl}` -> month -> {inq, tour}
+      // Skip blank-location rows (failed imports can write rows with empty
+      // location and zero counts — they'd pollute the map without adding data).
       const inqMap = new Map<string, Map<string, { inq: number; tour: number }>>();
+      const inqMonthSet = new Set<string>();
       for (const r of inqRes.rows as any[]) {
+        if (!r.location || !String(r.location).trim()) continue;
         const key = `${normInqLoc(r.location)}||${r.service_line || 'Other'}`;
         if (!inqMap.has(key)) inqMap.set(key, new Map());
         const existing = inqMap.get(key)!.get(r.month) || { inq: 0, tour: 0 };
@@ -16017,7 +16021,16 @@ Respond in JSON format:
           inq: existing.inq + (Number(r.inq) || 0),
           tour: existing.tour + (Number(r.tour) || 0),
         });
+        inqMonthSet.add(r.month);
       }
+      // Inquiry uploads can lag the rent-roll (or a bad import can leave the
+      // rent-roll spot month with no usable inquiry rows). Anchor inquiry/tour
+      // windows to the latest month that actually HAS inquiry data, capped at
+      // the rent-roll spot month.
+      const inqMonths = Array.from(inqMonthSet).filter(m => m <= spotMonth).sort().reverse();
+      const inqSpotMonth = inqMonths[0] ?? spotMonth;
+      const inqT3Months  = inqMonths.slice(0, 3);
+      const inqT12Months = inqMonths.slice(0, 12);
       // move-ins map: `${location}||${sl}||${rt}` -> t3
       const moveMap = new Map<string, number>();
       for (const r of moveRes.rows as any[]) moveMap.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
@@ -16079,13 +16092,13 @@ Respond in JSON format:
         const sOcc = slOcc.get(`${c.campusKey}||${c.serviceLine}`);
         const inq  = inqMap.get(`${normCampus(c.campus)}||${c.serviceLine}`);
 
-        // inquiries/tours
-        const inqPrev = inq?.get(spotMonth)?.inq ?? null;
-        const tourPrev = inq?.get(spotMonth)?.tour ?? null;
-        const inqT3Avg = inq ? avg(t3Months.map(m => inq.get(m)?.inq).filter(v => v != null) as number[]) : null;
-        const inqT12Avg = inq ? avg(t12Months.map(m => inq.get(m)?.inq).filter(v => v != null) as number[]) : null;
-        const tourT3Avg = inq ? avg(t3Months.map(m => inq.get(m)?.tour).filter(v => v != null) as number[]) : null;
-        const tourT12Avg = inq ? avg(t12Months.map(m => inq.get(m)?.tour).filter(v => v != null) as number[]) : null;
+        // inquiries/tours — anchored to the latest month with actual inquiry data
+        const inqPrev = inq?.get(inqSpotMonth)?.inq ?? null;
+        const tourPrev = inq?.get(inqSpotMonth)?.tour ?? null;
+        const inqT3Avg = inq ? avg(inqT3Months.map(m => inq.get(m)?.inq).filter(v => v != null) as number[]) : null;
+        const inqT12Avg = inq ? avg(inqT12Months.map(m => inq.get(m)?.inq).filter(v => v != null) as number[]) : null;
+        const tourT3Avg = inq ? avg(inqT3Months.map(m => inq.get(m)?.tour).filter(v => v != null) as number[]) : null;
+        const tourT12Avg = inq ? avg(inqT12Months.map(m => inq.get(m)?.tour).filter(v => v != null) as number[]) : null;
 
         const streetSpot = spot?.avgStreet ?? null;
         const ihSpot = spot?.avgIh ?? null;
