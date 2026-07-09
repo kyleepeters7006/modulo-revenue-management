@@ -345,6 +345,16 @@ export default function ReferenceDataTable({
       return next;
     });
 
+  // On small screens, frozen-column pinning covers the whole viewport —
+  // disable it so users can scroll the table horizontally.
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
   // ── Calculate Rates job state ───────────────────────────────────
   const [calcJobId, setCalcJobId] = useState<string | null>(null);
   const [calcProgress, setCalcProgress] = useState<number>(0);
@@ -632,9 +642,9 @@ export default function ReferenceDataTable({
               key={g.id}
               colSpan={g.cols.length}
               className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-white ${
-                gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
+                gi === 0 && !isMobile ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
               }`}
-              style={gi === 0 ? { left: 0 } : undefined}
+              style={gi === 0 && !isMobile ? { left: 0 } : undefined}
             >
               {g.ruleInfo ? (
                 <Popover>
@@ -706,7 +716,7 @@ export default function ReferenceDataTable({
       {/* Sub-column header row */}
       <tr>
         {dynAllCols.map((c) => {
-          const isFrozen = !!c.frozen;
+          const isFrozen = !!c.frozen && !isMobile;
           const sorted = sortKey === c.key;
           const hasFilter = (filters[c.key] ?? "").trim() !== "";
           return (
@@ -804,7 +814,7 @@ export default function ReferenceDataTable({
         <tr key={ri} className="hover:bg-muted/30" data-testid={`refdata-row-${ri}`}>
           {dynGroups.map((g, gi) =>
             g.cols.map((c) => {
-              const isFrozen = !!c.frozen;
+              const isFrozen = !!c.frozen && !isMobile;
               const display = fmt(row[c.key], c.type);
               const colorCls = signClass(row[c.key], c.type);
               return (
