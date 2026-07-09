@@ -51,12 +51,28 @@ export function decryptSecret(payload: string): string {
 // ── Post-import cache invalidation & recalculation ───────────────────
 
 /**
+ * Dependency injection bag used by tests to override service calls without
+ * touching Node's ESM module cache.  Production code always passes `undefined`
+ * so the real implementations are used.
+ */
+export interface PostImportDeps {
+  /** Injected in tests to avoid real competitor-rate DB work. */
+  startCompetitorRateJob?: (targetMonth: string, clientId: string) => Promise<{ jobId: string; status: string }>;
+  /** Injected in tests to avoid real pricing-job DB work. */
+  startPricingJob?: (targetMonth: string, clientId: string) => Promise<string>;
+}
+
+/**
  * Called after one or more files are successfully imported via SFTP.
  * - Always invalidates the reference-data cache so dashboards show fresh numbers.
  * - For rent_roll imports, queues a portfolio-wide pricing recalculation for the
  *   affected client so Modulo rates are updated without waiting for the nightly cron.
+ * - For competitive_survey imports, re-runs competitor rate matching immediately.
+ *
+ * The optional `_deps` parameter is for unit-testing only — pass mock callbacks
+ * to avoid real DB/network calls.  Production code always omits it.
  */
-async function triggerPostImportActions(clientId: string, datasetType: string, targetMonth: string): Promise<void> {
+export async function triggerPostImportActions(clientId: string, datasetType: string, targetMonth: string, _deps?: PostImportDeps): Promise<void> {
   // 1. Invalidate the in-memory reference-data cache for all clients so
   //    Overview / Analytics pick up the new data on their next request.
   invalidateRefDataCache();
@@ -65,27 +81,34 @@ async function triggerPostImportActions(clientId: string, datasetType: string, t
   // 2. For rent-roll data, queue a pricing recalculation job.
   if (datasetType === "rent_roll") {
     try {
-      const { pricingJobManager } = await import("../pricingJobManager");
-      const historyEntry = await storage.createCalculationHistory({
-        calculationType: "scheduled",
-        status: "started",
-        startedAt: new Date(),
-        completedAt: null,
-        locationId: null,
-        uploadMonth: targetMonth,
-        totalUnits: null,
-        unitsCalculated: null,
-        averageModuloRate: null,
-        averageAIRate: null,
-        errorMessage: null,
-        metadata: {
-          triggeredBy: "sftp_import",
-          triggeredAt: new Date().toISOString(),
-          clientId,
-        },
-      });
-      const jobId = pricingJobManager.createJob({ month: targetMonth, clientId, calculationHistoryId: historyEntry.id });
-      console.log(`[ScheduledImport] Pricing recalculation job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
+      if (_deps?.startPricingJob) {
+        // Test path — use injected stub.
+        const jobId = await _deps.startPricingJob(targetMonth, clientId);
+        console.log(`[ScheduledImport] Pricing recalculation job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
+      } else {
+        // Production path — use real pricingJobManager + storage.
+        const { pricingJobManager } = await import("../pricingJobManager");
+        const historyEntry = await storage.createCalculationHistory({
+          calculationType: "scheduled",
+          status: "started",
+          startedAt: new Date(),
+          completedAt: null,
+          locationId: null,
+          uploadMonth: targetMonth,
+          totalUnits: null,
+          unitsCalculated: null,
+          averageModuloRate: null,
+          averageAIRate: null,
+          errorMessage: null,
+          metadata: {
+            triggeredBy: "sftp_import",
+            triggeredAt: new Date().toISOString(),
+            clientId,
+          },
+        });
+        const jobId = pricingJobManager.createJob({ month: targetMonth, clientId, calculationHistoryId: historyEntry.id });
+        console.log(`[ScheduledImport] Pricing recalculation job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
+      }
     } catch (err) {
       // Non-fatal: log and continue — rates will be refreshed by the nightly cron at worst.
       console.error(`[ScheduledImport] Failed to queue pricing job after rent_roll import for client ${clientId}:`, err);
@@ -96,8 +119,10 @@ async function triggerPostImportActions(clientId: string, datasetType: string, t
   //    benchmarks are refreshed immediately rather than waiting for the nightly cron.
   if (datasetType === "competitive_survey") {
     try {
-      const { startCompetitorRateJob } = await import("./competitorRateJobService");
-      const { jobId } = await startCompetitorRateJob(targetMonth, clientId);
+      // Allow tests to inject a mock; production code uses the real service.
+      const starter = _deps?.startCompetitorRateJob
+        ?? (await import("./competitorRateJobService")).startCompetitorRateJob;
+      const { jobId } = await starter(targetMonth, clientId);
       console.log(`[ScheduledImport] Competitor rate job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
     } catch (err) {
       // Non-fatal: log and continue — competitor rates will be refreshed by the nightly cron at worst.
