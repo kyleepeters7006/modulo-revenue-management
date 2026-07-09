@@ -94,7 +94,7 @@ export default function Dashboard() {
           {/* Page Header */}
           <div className="mb-12 lg:mb-16 text-center lg:text-left">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4 lg:mb-6" data-testid="text-page-title">
-              Revenue Management Dashboard
+              Pricing Analytics Dashboard
             </h1>
             <p className="text-base sm:text-lg lg:text-xl font-light text-[var(--trilogy-grey)] leading-relaxed" data-testid="text-page-subtitle">
               Real-time pricing optimization with automated execution and intelligent, AI-driven algorithmic governance.
