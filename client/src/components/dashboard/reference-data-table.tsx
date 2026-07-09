@@ -149,6 +149,13 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    id: "hcCensus",
+    label: "HC Private Pay",
+    cols: [
+      { key: "hcPrivatePaySpot", label: "Pvt Pay", type: "int", w: 70, tip: "Count of occupied HC / HC/MC beds with a private-pay payor type in the latest month. Blank for non-HC service lines." },
+    ],
+  },
+  {
     id: "inquiries",
     label: "Inquiries",
     cols: [

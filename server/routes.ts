@@ -15938,7 +15938,9 @@ Respond in JSON format:
           AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
           -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
           -- No Modulo fallback — when no rule applies the proposed rate is NULL.
-          AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed
+          AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
+          -- HC private-pay census: occupied units with a private/PVT payor type
+          COUNT(*) FILTER (WHERE rr.occupied_yn AND (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS hc_private_pay
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
         WHERE ${where}
@@ -16181,7 +16183,7 @@ Respond in JSON format:
       const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
       const num = (v: any): number | null => (v === null || v === undefined ? null : Number(v));
 
-      type Agg = { month: string; total: number; occupied: number; avgDaysVacant: number|null; avgStreet: number|null; avgIh: number|null; avgCompBase: number|null; avgCompAdj: number|null; avgProposed: number|null };
+      type Agg = { month: string; total: number; occupied: number; avgDaysVacant: number|null; avgStreet: number|null; avgIh: number|null; avgCompBase: number|null; avgCompAdj: number|null; avgProposed: number|null; hcPrivatePay: number|null };
       // combo key
       const comboMap = new Map<string, { division: string; campus: string; serviceLine: string; roomType: string; locationId: string|null; campusKey: string; byMonth: Map<string, Agg> }>();
       // campus & service-line monthly occupancy: key -> month -> {total, occupied}
@@ -16207,6 +16209,7 @@ Respond in JSON format:
           avgCompBase: num(r.avg_comp_base),
           avgCompAdj: num(r.avg_comp_adj),
           avgProposed: num(r.avg_proposed),
+          hcPrivatePay: r.hc_private_pay !== null && r.hc_private_pay !== undefined ? Number(r.hc_private_pay) : null,
         });
         // campus rollup
         const cKey = campusKey;
@@ -16380,6 +16383,8 @@ Respond in JSON format:
           daysVacantT3: rateWindow(bm, t3Months, 'avgDaysVacant'),
           daysVacantT6: rateWindow(bm, t6Months, 'avgDaysVacant'),
           daysVacantT12: rateWindow(bm, t12Months, 'avgDaysVacant'),
+          // HC private-pay census (spot month only; only meaningful for HC / HC/MC rows)
+          hcPrivatePaySpot: ['HC', 'HC/MC'].includes(c.serviceLine) ? (spot?.hcPrivatePay ?? null) : null,
           // Inquiries
           inqPrevMonth: inqPrev,
           inqVsT3: (inqPrev !== null && inqT3Avg !== null) ? inqPrev - inqT3Avg : null,
