@@ -180,6 +180,7 @@ app.use((req, res, next) => {
         file_pattern text NOT NULL DEFAULT '*.csv',
         schedule_time text NOT NULL DEFAULT '06:00',
         frequency text NOT NULL DEFAULT 'daily',
+        run_date text,
         day_of_week integer,
         day_of_month integer,
         delete_after_import boolean NOT NULL DEFAULT false,

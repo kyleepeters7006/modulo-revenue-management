@@ -90,6 +90,14 @@ export async function deleteSchedule(clientId: string, id: string): Promise<void
 function isDue(schedule: ScheduledImport, now: Date): boolean {
   const [hh, mm] = (schedule.scheduleTime || "06:00").split(":").map(Number);
   if (now.getHours() !== hh || now.getMinutes() !== mm) return false;
+  if (schedule.frequency === "one_time") {
+    if (schedule.lastRunAt) return false; // already ran
+    if (schedule.runDate) {
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      return schedule.runDate === today;
+    }
+    return true; // no date set: run at the next matching time
+  }
   if (schedule.frequency === "weekly") {
     return now.getDay() === (schedule.dayOfWeek ?? 1);
   }
@@ -183,7 +191,7 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
           period = detectPeriodFromFilename(dataset, file.name);
           periodSource = period ? "filename" : null;
         }
-        if (!period) {
+        if (!period && dataset.periodField) {
           anyFailed = true;
           results.push(`${file.name}: could not determine period`);
           await recordSkippedRun({ clientId, datasetId: schedule.datasetType, fileName: file.name, fileHash, source: "sftp", scheduledImportId: schedule.id, status: "failed", errorMessage: "Could not determine reporting period from file contents or filename" });
@@ -197,13 +205,16 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
           source: "sftp",
           scheduledImportId: schedule.id,
           period,
-          periodSource: periodSource || "filename",
+          periodSource: period ? (periodSource || "filename") : null,
           mode: dataset.replacesPeriod ? "replace_period" : "append",
           validation,
         });
         if (run.status === "imported" || run.status === "partial") {
           anyImported = true;
-          results.push(`${file.name}: ${run.insertedRows} rows imported (${run.status})`);
+          const periodNote = period
+            ? ((run.deletedRows ?? 0) > 0 ? `period ${period} replaced` : `period ${period} added`)
+            : "records upserted";
+          results.push(`${file.name}: ${run.insertedRows} rows imported, ${periodNote} (${run.status})`);
           if (schedule.deleteAfterImport) {
             try { await sftp.delete(remoteFile); } catch { /* non-fatal */ }
           }
@@ -231,6 +242,8 @@ async function finishRun(schedule: ScheduledImport, status: string, message: str
     lastRunAt: new Date(),
     lastRunStatus: status,
     lastRunMessage: message.substring(0, 2000),
+    // One-time schedules retire after their run completes
+    ...(schedule.frequency === "one_time" ? { enabled: false } : {}),
     updatedAt: new Date(),
   }).where(eq(scheduledImports.id, schedule.id));
   console.log(`[ScheduledImport] ${schedule.name} (${schedule.id}): ${status} — ${message}`);

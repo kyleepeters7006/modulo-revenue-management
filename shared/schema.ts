@@ -1309,7 +1309,8 @@ export const scheduledImports = pgTable("scheduled_imports", {
   remotePath: text("remote_path").notNull(), // directory on the SFTP server
   filePattern: text("file_pattern").notNull().default('*.csv'), // wildcard, e.g. rentroll_*.csv
   scheduleTime: text("schedule_time").notNull().default('06:00'), // HH:MM 24h, server time
-  frequency: text("frequency").notNull().default('daily'), // daily | weekly | monthly
+  frequency: text("frequency").notNull().default('daily'), // one_time | daily | weekly | monthly
+  runDate: text("run_date"), // YYYY-MM-DD for one_time schedules
   dayOfWeek: integer("day_of_week"), // 0-6 for weekly
   dayOfMonth: integer("day_of_month"), // 1-28 for monthly
   deleteAfterImport: boolean("delete_after_import").notNull().default(false),

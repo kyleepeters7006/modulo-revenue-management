@@ -135,6 +135,7 @@ const emptySchedule = {
   filePattern: "*.csv",
   scheduleTime: "06:00",
   frequency: "daily",
+  runDate: "",
   dayOfWeek: 1,
   dayOfMonth: 1,
   deleteAfterImport: false,
@@ -328,19 +329,21 @@ function ImportTab({ registry }: { registry: DatasetDefinition[] }) {
               </div>
             )}
             <div className="flex items-end gap-4 flex-wrap">
-              <div>
-                <Label>Reporting period (YYYY-MM)</Label>
-                <Input
-                  type="month"
-                  value={periodOverride}
-                  onChange={(e) => setPeriodOverride(e.target.value)}
-                  className="w-44"
-                  data-testid="input-period"
-                />
-              </div>
+              {dataset?.periodField && (
+                <div>
+                  <Label>Reporting period (YYYY-MM)</Label>
+                  <Input
+                    type="month"
+                    value={periodOverride}
+                    onChange={(e) => setPeriodOverride(e.target.value)}
+                    className="w-44"
+                    data-testid="input-period"
+                  />
+                </div>
+              )}
               <Button
                 onClick={() => importMutation.mutate()}
-                disabled={!validation.canImport || !periodOverride || importMutation.isPending}
+                disabled={!validation.canImport || (!!dataset?.periodField && !periodOverride) || importMutation.isPending}
                 data-testid="button-import"
               >
                 {importMutation.isPending ? "Importing..." : `Import ${validation.validRows} rows`}
@@ -360,9 +363,61 @@ function ImportTab({ registry }: { registry: DatasetDefinition[] }) {
 
 // ── Templates & registry tab ────────────────────────────────────────
 
+interface ConsolidatedField {
+  key: string;
+  labels: string[];
+  sources: string[];
+  types: string[];
+  hasConflict: boolean;
+  conflictReason?: string;
+}
+
 function TemplatesTab({ registry }: { registry: DatasetDefinition[] }) {
+  const { data: consolidated } = useQuery<{ fields: ConsolidatedField[]; labelConflicts: string[] }>({
+    queryKey: ["/api/data-imports/registry/consolidated"],
+  });
+  const sharedFields = consolidated?.fields.filter((f) => f.sources.length > 1) || [];
+  const conflicts = consolidated?.fields.filter((f) => f.hasConflict) || [];
+
   return (
     <div className="space-y-4 mt-4">
+      {consolidated && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Consolidated field registry</CardTitle>
+            <CardDescription>
+              {consolidated.fields.length} unique fields across {registry.length} dataset types — {sharedFields.length} shared (duplicates merged)
+              {conflicts.length + (consolidated.labelConflicts?.length || 0) > 0
+                ? `, ${conflicts.length + (consolidated.labelConflicts?.length || 0)} naming conflict(s) flagged`
+                : ", no naming conflicts"}
+            </CardDescription>
+          </CardHeader>
+          {(conflicts.length > 0 || (consolidated.labelConflicts?.length || 0) > 0 || sharedFields.length > 0) && (
+            <CardContent className="space-y-3">
+              {conflicts.map((f) => (
+                <div key={f.key} className="text-sm border border-amber-500/40 bg-amber-500/10 rounded-md p-2" data-testid={`conflict-${f.key}`}>
+                  <Badge variant="destructive" className="mr-2">conflict</Badge>
+                  <span className="font-medium">{f.key}</span>: {f.conflictReason} (used in {f.sources.join(", ")})
+                </div>
+              ))}
+              {consolidated.labelConflicts?.map((msg, i) => (
+                <div key={i} className="text-sm border border-amber-500/40 bg-amber-500/10 rounded-md p-2" data-testid={`label-conflict-${i}`}>
+                  <Badge variant="destructive" className="mr-2">conflict</Badge>{msg}
+                </div>
+              ))}
+              {sharedFields.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {sharedFields.map((f) => (
+                    <Badge key={f.key} variant="secondary" title={`Used in: ${f.sources.join(", ")}`}>
+                      {f.labels[0]} × {f.sources.length}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
       {registry.map((d) => (
         <Card key={d.id}>
           <CardHeader>
@@ -430,6 +485,7 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
     mutationFn: async () => {
       const payload = { ...form, port: Number(form.port) || 22 };
       if (!payload.password) delete payload.password;
+      if (!payload.runDate) payload.runDate = null;
       if (editing) {
         return apiRequest("PATCH", `/api/data-imports/schedules/${editing.id}`, payload);
       }
@@ -479,7 +535,7 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
     setForm({
       name: s.name, datasetType: s.datasetType, host: s.host, port: s.port, username: s.username,
       password: "", remotePath: s.remotePath, filePattern: s.filePattern, scheduleTime: s.scheduleTime,
-      frequency: s.frequency, dayOfWeek: s.dayOfWeek ?? 1, dayOfMonth: s.dayOfMonth ?? 1,
+      frequency: s.frequency, runDate: (s as any).runDate ?? "", dayOfWeek: s.dayOfWeek ?? 1, dayOfMonth: s.dayOfMonth ?? 1,
       deleteAfterImport: s.deleteAfterImport, enabled: s.enabled,
     });
     setDialogOpen(true);
@@ -587,6 +643,7 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
                 <Select value={form.frequency} onValueChange={(v) => setForm({ ...form, frequency: v })}>
                   <SelectTrigger data-testid="select-schedule-frequency"><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="one_time">One-time</SelectItem>
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly">Weekly</SelectItem>
                     <SelectItem value="monthly">Monthly</SelectItem>
@@ -597,6 +654,12 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
                 <Label>Time (24h)</Label>
                 <Input type="time" value={form.scheduleTime} onChange={(e) => setForm({ ...form, scheduleTime: e.target.value })} data-testid="input-schedule-time" />
               </div>
+              {form.frequency === "one_time" && (
+                <div>
+                  <Label>Run date</Label>
+                  <Input type="date" value={form.runDate} onChange={(e) => setForm({ ...form, runDate: e.target.value })} data-testid="input-run-date" />
+                </div>
+              )}
               {form.frequency === "weekly" && (
                 <div>
                   <Label>Day of week</Label>

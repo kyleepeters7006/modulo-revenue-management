@@ -164,7 +164,97 @@ export const IMPORT_DATASETS: DatasetDefinition[] = [
       { key: "occPercent", label: "Occupancy %", type: "percent", required: false, description: "Occupancy percentage (0-100); computed if omitted", sample: "90.6" },
     ],
   },
+  {
+    id: "campus_location",
+    name: "Campus / Location Attributes",
+    description: "Campus master data: names, addresses, region/division, codes and unit counts. Rows are matched by Location Name — existing campuses are updated, new names are added (no period replacement).",
+    targetTable: "locations",
+    periodField: null,
+    filenamePeriodPattern: "(20\\d{2})[-_]?(0[1-9]|1[0-2])",
+    replacesPeriod: false,
+    fields: [
+      { key: "name", label: "Location Name", type: "string", required: true, description: "Campus / community display name (unique; used to match existing records)", sample: "Maple Grove Senior Living", aliases: ["Location", "Campus", "Facility", "Community", "Property"] },
+      { key: "locationCode", label: "Location Code", type: "string", required: false, description: "4-digit internal location code", sample: "2419", aliases: ["Code", "Facility Code"] },
+      { key: "region", label: "Region", type: "string", required: false, description: "Region name", sample: "Midwest" },
+      { key: "division", label: "Division", type: "string", required: false, description: "Division name", sample: "North" },
+      { key: "locationClass", label: "Location Class", type: "string", required: false, description: "Campus classification (e.g., Same Store, New Acquisition)", sample: "Same Store", aliases: ["Class", "Classification"] },
+      { key: "address", label: "Address", type: "string", required: false, description: "Street address", sample: "500 Grove Ave", aliases: ["Street", "Street Address"] },
+      { key: "city", label: "City", type: "string", required: false, description: "City", sample: "Maple Grove" },
+      { key: "state", label: "State", type: "string", required: false, description: "Two-letter state code", sample: "MN" },
+      { key: "zipCode", label: "Zip Code", type: "string", required: false, description: "Postal code", sample: "55369", aliases: ["Zip", "Postal Code"] },
+      { key: "totalUnits", label: "Total Units", type: "integer", required: false, description: "Total unit count at the campus", sample: "120", aliases: ["Units", "Unit Count", "Capacity"] },
+      { key: "sameStore", label: "Same Store", type: "boolean", required: false, description: "Include in same-store comparisons (Y/N)", sample: "Y" },
+      { key: "matrixCareNameHC", label: "MatrixCare Name HC", type: "string", required: false, description: "MatrixCare facility name for Health Care", sample: "" },
+      { key: "matrixCareNameAL", label: "MatrixCare Name AL", type: "string", required: false, description: "MatrixCare facility name for Assisted Living", sample: "" },
+      { key: "matrixCareNameIL", label: "MatrixCare Name IL", type: "string", required: false, description: "MatrixCare facility name for Independent Living", sample: "" },
+      { key: "customerFacilityIdHC", label: "Customer Facility ID HC", type: "string", required: false, description: "Customer facility ID for Health Care", sample: "" },
+      { key: "customerFacilityIdAL", label: "Customer Facility ID AL", type: "string", required: false, description: "Customer facility ID for Assisted Living", sample: "" },
+      { key: "customerFacilityIdIL", label: "Customer Facility ID IL", type: "string", required: false, description: "Customer facility ID for Independent Living", sample: "" },
+    ],
+  },
 ];
+
+// ── Consolidated cross-dataset view (duplicates merged, conflicts flagged) ──
+
+export interface ConsolidatedField {
+  key: string;
+  /** All labels used across datasets for this key */
+  labels: string[];
+  /** Dataset ids ("source modules") that include this field */
+  sources: string[];
+  /** All distinct types seen for this key across datasets */
+  types: string[];
+  /** True when the same key is defined with different types or different labels across datasets */
+  hasConflict: boolean;
+  conflictReason?: string;
+}
+
+/**
+ * Merge duplicate field definitions across datasets and flag naming/type conflicts.
+ * A conflict is the same field key defined with different types or labels in
+ * different datasets, or the same label mapped to different keys.
+ */
+export function getConsolidatedRegistry(): { fields: ConsolidatedField[]; labelConflicts: string[] } {
+  const byKey = new Map<string, ConsolidatedField>();
+  const labelToKeys = new Map<string, Set<string>>();
+
+  for (const ds of IMPORT_DATASETS) {
+    for (const f of ds.fields) {
+      let entry = byKey.get(f.key);
+      if (!entry) {
+        entry = { key: f.key, labels: [], sources: [], types: [], hasConflict: false };
+        byKey.set(f.key, entry);
+      }
+      if (!entry.labels.includes(f.label)) entry.labels.push(f.label);
+      if (!entry.sources.includes(ds.id)) entry.sources.push(ds.id);
+      if (!entry.types.includes(f.type)) entry.types.push(f.type);
+
+      const norm = f.label.toLowerCase();
+      if (!labelToKeys.has(norm)) labelToKeys.set(norm, new Set());
+      labelToKeys.get(norm)!.add(f.key);
+    }
+  }
+
+  for (const entry of Array.from(byKey.values())) {
+    const reasons: string[] = [];
+    if (entry.types.length > 1) reasons.push(`same field key used with different types (${entry.types.join(" vs ")})`);
+    if (entry.labels.length > 1) reasons.push(`same field key labeled differently (${entry.labels.join(" vs ")})`);
+    if (reasons.length > 0) {
+      entry.hasConflict = true;
+      entry.conflictReason = reasons.join("; ");
+    }
+  }
+
+  const labelConflicts: string[] = [];
+  for (const [label, keys] of Array.from(labelToKeys.entries())) {
+    if (keys.size > 1) {
+      labelConflicts.push(`Column header "${label}" maps to different fields depending on dataset: ${Array.from(keys).join(", ")}`);
+    }
+  }
+
+  const fields = Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
+  return { fields, labelConflicts };
+}
 
 export function getDataset(id: string): DatasetDefinition | undefined {
   return IMPORT_DATASETS.find((d) => d.id === id);

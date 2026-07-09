@@ -327,8 +327,8 @@ export interface ImportParams {
   fileHash: string | null;
   source: "manual" | "sftp";
   scheduledImportId?: string | null;
-  period: string; // YYYY-MM (final, possibly user-picked)
-  periodSource: "column" | "filename" | "user";
+  period: string | null; // YYYY-MM (final, possibly user-picked); null for non-periodic datasets
+  periodSource: "column" | "filename" | "user" | null;
   mode: "replace_period" | "append";
   validation: ValidationResult;
 }
@@ -508,6 +508,29 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
           await tx.insert(inquiryMetrics).values(recs.slice(i, i + 500));
         }
         inserted = recs.length;
+      } else if (datasetId === "campus_location") {
+        // Upsert by unique location name (no period concept)
+        const existing = await tx.select({ id: locations.id, name: locations.name }).from(locations).where(eq(locations.clientId, clientId));
+        const byName = new Map(existing.map((l) => [l.name.trim().toLowerCase(), l.id]));
+        const updatable = ["locationCode", "region", "division", "locationClass", "address", "city", "state", "zipCode", "totalUnits", "sameStore", "matrixCareNameHC", "matrixCareNameAL", "matrixCareNameIL", "customerFacilityIdHC", "customerFacilityIdAL", "customerFacilityIdIL"] as const;
+        for (const r of validation.records) {
+          const nameKey = (r.name || "").trim().toLowerCase();
+          if (!nameKey) continue;
+          const set: Record<string, any> = {};
+          for (const k of updatable) {
+            if (r[k] !== null && r[k] !== undefined && r[k] !== "") set[k] = r[k];
+          }
+          const existingId = byName.get(nameKey);
+          if (existingId) {
+            if (Object.keys(set).length > 0) {
+              await tx.update(locations).set({ ...set, updatedAt: new Date() }).where(eq(locations.id, existingId));
+            }
+            deleted += 1; // counted as "replaced/updated" in audit
+          } else {
+            await tx.insert(locations).values({ name: r.name.trim(), ...set, clientId });
+          }
+          inserted += 1;
+        }
       } else if (datasetId === "room_type_occupancy") {
         const recs = validation.records.map((r) => {
           const [yearStr, monthStr] = String(r.month || period).split("-");
@@ -566,7 +589,7 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
     await createImportNotification(clientId, run.id,
       validation.errorRows > 0 ? "warning" : "info",
       `${dataset.name} import ${validation.errorRows > 0 ? "partially " : ""}completed`,
-      `${params.fileName}: ${inserted} rows imported for ${period}${deleted > 0 ? ` (replaced ${deleted} existing rows)` : ""}${validation.errorRows > 0 ? `; ${validation.errorRows} rows had errors and were skipped` : ""}.`,
+      `${params.fileName}: ${inserted} rows imported${period ? ` — period ${period} ${deleted > 0 ? `replaced (${deleted} prior rows removed)` : "added"}` : deleted > 0 ? ` (${deleted} existing records updated)` : ""}${validation.errorRows > 0 ? `; ${validation.errorRows} rows had errors and were skipped` : ""}.`,
     );
 
     return updated;

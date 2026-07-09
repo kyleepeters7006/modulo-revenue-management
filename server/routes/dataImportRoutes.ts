@@ -5,7 +5,7 @@
 import type { Express } from "express";
 import multer from "multer";
 import { z } from "zod";
-import { IMPORT_DATASETS, getDataset, DATASET_IDS } from "@shared/importRegistry";
+import { IMPORT_DATASETS, getDataset, DATASET_IDS, getConsolidatedRegistry } from "@shared/importRegistry";
 import {
   parseImportFile,
   validateData,
@@ -59,7 +59,8 @@ const scheduleSchema = z.object({
   remotePath: z.string().min(1),
   filePattern: z.string().min(1).default("*.csv"),
   scheduleTime: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/).default("06:00"),
-  frequency: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+  frequency: z.enum(["one_time", "daily", "weekly", "monthly"]).default("daily"),
+  runDate: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).nullable().optional(),
   dayOfWeek: z.coerce.number().int().min(0).max(6).nullable().optional(),
   dayOfMonth: z.coerce.number().int().min(1).max(28).nullable().optional(),
   deleteAfterImport: z.boolean().optional(),
@@ -69,6 +70,11 @@ export function registerDataImportRoutes(app: Express): void {
   // ── Field registry ──────────────────────────────────────────────
   app.get("/api/data-imports/registry", (_req, res) => {
     res.json(IMPORT_DATASETS);
+  });
+
+  // Consolidated cross-dataset view: duplicates merged, naming conflicts flagged
+  app.get("/api/data-imports/registry/consolidated", (_req, res) => {
+    res.json(getConsolidatedRegistry());
   });
 
   // ── Template export ─────────────────────────────────────────────
@@ -122,14 +128,14 @@ export function registerDataImportRoutes(app: Express): void {
       const validation = validateData(datasetId, headers, rows, req.file.originalname);
 
       let period: string | null = null;
-      let periodSource: "column" | "filename" | "user";
+      let periodSource: "column" | "filename" | "user" | null = null;
       if (req.body.period && /^20\d{2}-(0[1-9]|1[0-2])$/.test(req.body.period)) {
         period = req.body.period;
         periodSource = "user";
       } else if (validation.detectedPeriod) {
         period = validation.detectedPeriod;
         periodSource = validation.periodSource || "column";
-      } else {
+      } else if (dataset.periodField) {
         return res.status(400).json({ error: "Could not determine the reporting period. Provide a 'period' (YYYY-MM) in the request." });
       }
 
@@ -140,7 +146,7 @@ export function registerDataImportRoutes(app: Express): void {
         fileName: req.file.originalname,
         fileHash,
         source: "manual",
-        period: period!,
+        period,
         periodSource,
         mode,
         validation,
