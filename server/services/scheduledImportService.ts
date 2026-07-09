@@ -91,6 +91,19 @@ async function triggerPostImportActions(clientId: string, datasetType: string, t
       console.error(`[ScheduledImport] Failed to queue pricing job after rent_roll import for client ${clientId}:`, err);
     }
   }
+
+  // 3. For competitive-survey data, re-run competitor rate matching so pricing
+  //    benchmarks are refreshed immediately rather than waiting for the nightly cron.
+  if (datasetType === "competitive_survey") {
+    try {
+      const { startCompetitorRateJob } = await import("./competitorRateJobService");
+      const { jobId } = await startCompetitorRateJob(targetMonth, clientId);
+      console.log(`[ScheduledImport] Competitor rate job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
+    } catch (err) {
+      // Non-fatal: log and continue — competitor rates will be refreshed by the nightly cron at worst.
+      console.error(`[ScheduledImport] Failed to queue competitor rate job after competitive_survey import for client ${clientId}:`, err);
+    }
+  }
 }
 
 // ── Wildcard matching ────────────────────────────────────────────────
