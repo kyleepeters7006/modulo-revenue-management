@@ -1,0 +1,35 @@
+Objective: Build a data import subsystem in Modulo that (1) consolidates all platform data fields into a single master schema, (2) exports a formatting template for the IT team, (3) supports manual file import, and (4) supports scheduled, automated file pickup from a network drive.
+
+1. Consolidated Field Registry (Master Schema)
+Scan and aggregate every data field currently used across the platform from all source systems/modules (pricing, occupancy, payer mix, campus attributes, etc.) into a single consolidated data dictionary.
+For each field, capture: field name, source system/module, data type, format/units, required vs. optional, and a plain‑language description.
+De‑duplicate fields that appear in multiple sources and flag any naming conflicts for review.
+Store this as the single source of truth that both the export template and import validation reference.
+2. Manual Template Export
+Add an "Export Template" button that generates a downloadable file (Excel .xlsx and .csv options).
+Row 1 = field names (column headers) pulled directly from the consolidated registry.
+Row 2 = one row of representative sample data for each field, showing the exact expected format (e.g., date format, decimal precision, allowed codes).
+Include a hidden or secondary tab/legend describing each field's data type and format so the IT team has a clear build spec.
+3. Manual Import Process
+Add an "Import File" function where a user uploads a completed file.
+On upload, validate against the consolidated schema: check column names, data types, required fields, and format rules.
+Show a pre‑import preview and a validation report listing any errors/warnings by row and column; block or flag records that fail.
+On confirmation, import valid records and log the result.
+Duplicate handling (period‑based upsert): each dataset carries a reporting period (e.g., month/year) and dataset type (e.g., Rent Roll, Inquiry). On import, the system checks whether data already exists for that same dataset type and period:
+If the period already exists, replace/overwrite the existing records for that period only.
+If the period is new, append it to the existing history, leaving all prior‑month data untouched.
+Example: uploading June Rent Roll when June already exists replaces only June; May, April, and earlier history remain intact.
+4. Scheduled Import (Network Drive Pickup)
+Add a "Schedule Import" configuration screen where the user enters:
+Network drive location (folder path)
+File name (support exact name and wildcard/pattern matching, e.g., PricingFile_*.xlsx)
+Login credentials — username and password fields the user completes so the system can connect to the drive using either their own credentials or a service account. Store credentials securely (encrypted, not in plain text) and use them to authenticate at each scheduled run.
+Start time (time of day)
+Frequency (one‑time, daily, weekly, monthly — with day‑of‑week / day‑of‑month options)
+At each scheduled run, the system authenticates with the stored credentials, automatically picks up the file from the specified location, runs the same validation as the manual import, and applies the period‑based upsert rule (replace matching period, append new periods).
+Handle common cases: file not found, file locked/in use, authentication/credential failure, duplicate file already processed, and partial/failed imports.
+Cross‑Cutting Requirements
+Period detection: the system must reliably identify each file's dataset type and reporting period — either from a designated field/column in the data, the file name, or a value the user selects at import. Flag any file where the period cannot be determined.
+Logging & audit trail: record every import (manual and scheduled) with timestamp, source, credential/account used, dataset type, reporting period, records replaced vs. appended, and pass/fail status.
+Notifications: send a success/failure summary (email or in‑app) after each scheduled run, including error details, authentication failures, and which periods were replaced vs. added.
+Reusability: template export, manual import, and scheduled import must all reference the same consolidated schema so any field change propagates everywhere.
