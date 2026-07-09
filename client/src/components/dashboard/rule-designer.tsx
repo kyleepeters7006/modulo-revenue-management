@@ -1904,6 +1904,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                   <p className="text-xs text-gray-500 mt-1">
                     Each circle represents one rule. Circle size is proportional to units affected.
                     Dots inside show unit density (up to 64 sampled). Hover for details.
+                    {(locationId || serviceLine) && (
+                      <span className="ml-1 text-teal-600 font-medium">
+                        Filtered to {locationName || 'selected location'}{serviceLine ? ` · ${serviceLine}` : ''}.
+                      </span>
+                    )}
                   </p>
                 </DialogHeader>
 
@@ -1912,14 +1917,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                 ) : (
                   <div className="flex flex-wrap gap-6 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-lg justify-center items-end mt-2">
                     {sortedActive.map((rule, ri) => {
-                      const units      = rule.affectedUnits ?? 0;
+                      // Use filtered stats from combinedStats.breakdown when available
+                      const breakdown  = combinedStats?.breakdown.find(b => b.id === rule.id);
+                      const units      = breakdown ? breakdown.units    : (rule.affectedUnits ?? 0);
+                      const monthly    = breakdown ? breakdown.monthlyImpact : (rule.monthlyImpact ?? 0);
+                      const annual     = breakdown ? breakdown.annualImpact  : (rule.annualImpact  ?? 0);
+                      const campuses   = breakdown ? breakdown.campuses  : (rule.affectedCampuses ?? 0);
                       const radius     = Math.max(44, Math.min(110, Math.sqrt(units) * 2.8));
                       const size       = Math.round(radius) * 2 + 8;
                       const isAdditive = isRuleAdditive(rule.action as any);
                       const color      = PALETTE[ri % PALETTE.length];
                       const dots       = genDots(units, radius);
-                      const monthly    = rule.monthlyImpact ?? 0;
-                      const annual     = rule.annualImpact  ?? 0;
                       const isHovered  = hoveredBubble === rule.id;
 
                       return (
@@ -1998,7 +2006,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                   </div>
                                   <div className="flex justify-between gap-4">
                                     <span className="text-gray-500">Campuses</span>
-                                    <span className="font-medium text-gray-900 dark:text-white">{(rule.affectedCampuses ?? 0)}</span>
+                                    <span className="font-medium text-gray-900 dark:text-white">{campuses}</span>
                                   </div>
                                   <div className="flex justify-between gap-4">
                                     <span className="text-gray-500">Monthly</span>
