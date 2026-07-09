@@ -50,6 +50,23 @@ export default function PricingControls() {
     urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"])
   );
 
+  // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
+  useEffect(() => {
+    const scrollTo = urlParams.get('scrollTo');
+    if (scrollTo === 'rules') {
+      const el = document.getElementById('rule-designer-section');
+      if (el) {
+        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
+      } else {
+        // Element may not be rendered yet — wait for paint
+        setTimeout(() => {
+          document.getElementById('rule-designer-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 800);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const filters = {
       serviceLine: selectedServiceLine,
@@ -352,6 +369,7 @@ export default function PricingControls() {
             selectedLocations={selectedLocations}
           />
 
+          <div id="rule-designer-section" className="scroll-mt-4">
           <RuleDesigner
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
@@ -366,6 +384,7 @@ export default function PricingControls() {
               />
             }
           />
+          </div>
 
           <RulePerformanceTable
             selectedServiceLine={selectedServiceLine}

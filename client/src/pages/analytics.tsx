@@ -90,7 +90,8 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
   
   if (data) {
     // Build rate card URL with filters
-    const rateCardUrl = `/rate-card?location=${encodeURIComponent(data.campusName)}&serviceLine=${encodeURIComponent(data.serviceLine || 'All')}`;
+    const sl = data.serviceLine && data.serviceLine !== 'All' ? data.serviceLine : '';
+    const pricingUrl = `/pricing-controls?location=${encodeURIComponent(data.campusName)}${sl ? `&serviceLine=${encodeURIComponent(sl)}` : ''}&scrollTo=rules`;
     
     return (
       <div style={{ pointerEvents: 'auto', padding: '20px' }}>
@@ -144,9 +145,9 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
               </p>
             )}
           </div>
-          <Link href={rateCardUrl}>
+          <Link href={pricingUrl}>
             <a className="inline-block w-full text-center px-3 py-1.5 bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white rounded text-xs font-medium transition-colors">
-              Edit Pricing →
+              Build Pricing Strategy →
             </a>
           </Link>
         </div>
