@@ -54,7 +54,11 @@ interface ColDef {
   type: ColType;
   tip: string;
   frozen?: boolean;
-  w: number; // px width
+  /** Freeze this column on mobile too (narrower set than desktop frozen) */
+  mobileFreeze?: boolean;
+  w: number; // px width (desktop)
+  /** Narrower width to use on mobile when mobileFreeze is true */
+  wMobile?: number;
 }
 
 type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any };
@@ -84,175 +88,163 @@ const GROUPS: GroupDef[] = [
     id: "campus",
     label: "Campus Information",
     cols: [
-      { key: "division", label: "Division", type: "text", w: 130, frozen: true, tip: "The operating division the campus belongs to." },
-      { key: "campus", label: "Campus", type: "text", w: 150, frozen: true, tip: "The community / facility name." },
-      { key: "serviceLine", label: "Service Line", type: "text", w: 95, frozen: true, tip: "Care level grouping (AL, SL, HC, MC, VIL, etc.)." },
-      { key: "roomType", label: "Room Type", type: "text", w: 130, frozen: true, tip: "Unit / room configuration within the service line." },
-      { key: "totalUnits", label: "Total Units/Beds", type: "int", w: 55, frozen: true, tip: "Count of units (or beds) for this campus / service line / room type in the most recent month." },
+      { key: "division", label: "Division", type: "text", w: 120, frozen: true, tip: "The operating division the campus belongs to." },
+      { key: "campus", label: "Campus", type: "text", w: 140, frozen: true, mobileFreeze: true, wMobile: 110, tip: "The community / facility name." },
+      { key: "serviceLine", label: "SL", type: "text", w: 80, frozen: true, mobileFreeze: true, wMobile: 65, tip: "Care level grouping (AL, SL, HC, MC, VIL, etc.)." },
+      { key: "roomType", label: "Room Type", type: "text", w: 120, frozen: true, mobileFreeze: true, wMobile: 95, tip: "Unit / room configuration within the service line." },
+      { key: "totalUnits", label: "Units", type: "int", w: 50, frozen: true, tip: "Count of units (or beds) for this campus / service line / room type in the most recent month." },
     ],
   },
   {
     id: "vacant",
     label: "Vacant Units",
     cols: [
-      { key: "vacantSpot", label: "Spot", type: "num1", w: 70, tip: "Vacant units right now (total units minus occupied units) in the latest month." },
-      { key: "vacantT3", label: "T3", type: "num1", w: 70, tip: "Average number of vacant units across the trailing 3 months." },
-      { key: "vacantT6", label: "T6", type: "num1", w: 70, tip: "Average number of vacant units across the trailing 6 months." },
-      { key: "vacantT12", label: "T12", type: "num1", w: 70, tip: "Average number of vacant units across the trailing 12 months." },
+      { key: "vacantSpot", label: "Spot", type: "num1", w: 65, tip: "Vacant units right now (total units minus occupied units) in the latest month." },
+      { key: "vacantT3", label: "T3", type: "num1", w: 65, tip: "Average number of vacant units across the trailing 3 months." },
+      { key: "vacantT12", label: "T12", type: "num1", w: 65, tip: "Average number of vacant units across the trailing 12 months." },
     ],
   },
   {
     id: "campusOcc",
-    label: "Campus Occupancy",
+    label: "Campus Occ.",
     expandable: true,
     historyKey: "campusOccHistory",
     historyColType: "pct",
     cols: [
-      { key: "campusOccSpot", label: "Spot", type: "pct", w: 70, tip: "Occupied units ÷ total units for the whole campus in the latest month." },
-      { key: "campusOccT3", label: "T3", type: "pct", w: 70, tip: "Average campus occupancy % across the trailing 3 months." },
-      { key: "campusOccT6", label: "T6", type: "pct", w: 70, tip: "Average campus occupancy % across the trailing 6 months." },
-      { key: "campusOccT12", label: "T12", type: "pct", w: 70, tip: "Average campus occupancy % across the trailing 12 months." },
+      { key: "campusOccSpot", label: "Spot", type: "pct", w: 65, tip: "Occupied units ÷ total units for the whole campus in the latest month." },
+      { key: "campusOccT3", label: "T3", type: "pct", w: 65, tip: "Average campus occupancy % across the trailing 3 months." },
+      { key: "campusOccT12", label: "T12", type: "pct", w: 65, tip: "Average campus occupancy % across the trailing 12 months." },
     ],
   },
   {
     id: "slOcc",
-    label: "Service Line Occupancy",
+    label: "SL Occupancy",
     expandable: true,
     historyKey: "slOccHistory",
     historyColType: "pct",
     cols: [
-      { key: "slOccSpot", label: "Spot", type: "pct", w: 70, tip: "Occupied ÷ total for this service line at this campus in the latest month." },
-      { key: "slOccT3", label: "T3", type: "pct", w: 70, tip: "Average service-line occupancy % across the trailing 3 months." },
-      { key: "slOccT6", label: "T6", type: "pct", w: 70, tip: "Average service-line occupancy % across the trailing 6 months." },
-      { key: "slOccT12", label: "T12", type: "pct", w: 70, tip: "Average service-line occupancy % across the trailing 12 months." },
+      { key: "slOccSpot", label: "Spot", type: "pct", w: 65, tip: "Occupied ÷ total for this service line at this campus in the latest month." },
+      { key: "slOccT3", label: "T3", type: "pct", w: 65, tip: "Average service-line occupancy % across the trailing 3 months." },
+      { key: "slOccT12", label: "T12", type: "pct", w: 65, tip: "Average service-line occupancy % across the trailing 12 months." },
     ],
   },
   {
     id: "rtOcc",
-    label: "Room Type Occupancy",
+    label: "Room Type Occ.",
     expandable: true,
     historyKey: "rtOccHistory",
     historyColType: "pct",
     cols: [
-      { key: "rtOccSpot", label: "Spot", type: "pct", w: 70, tip: "Occupied ÷ total for this specific room type in the latest month." },
-      { key: "rtOccT3", label: "T3", type: "pct", w: 70, tip: "Average room-type occupancy % across the trailing 3 months." },
-      { key: "rtOccT6", label: "T6", type: "pct", w: 70, tip: "Average room-type occupancy % across the trailing 6 months." },
-      { key: "rtOccT12", label: "T12", type: "pct", w: 70, tip: "Average room-type occupancy % across the trailing 12 months." },
+      { key: "rtOccSpot", label: "Spot", type: "pct", w: 65, tip: "Occupied ÷ total for this specific room type in the latest month." },
+      { key: "rtOccT3", label: "T3", type: "pct", w: 65, tip: "Average room-type occupancy % across the trailing 3 months." },
+      { key: "rtOccT12", label: "T12", type: "pct", w: 65, tip: "Average room-type occupancy % across the trailing 12 months." },
     ],
   },
   {
     id: "daysVacant",
-    label: "Days Vacant Avg by Room Type",
+    label: "Days Vacant (Avg)",
     cols: [
-      { key: "daysVacantSpot", label: "Spot", type: "num1", w: 70, tip: "Average days vacant for currently-vacant units of this room type (latest month)." },
-      { key: "daysVacantT3", label: "T3", type: "num1", w: 70, tip: "Average days vacant across the trailing 3 months." },
-      { key: "daysVacantT6", label: "T6", type: "num1", w: 70, tip: "Average days vacant across the trailing 6 months." },
-      { key: "daysVacantT12", label: "T12", type: "num1", w: 70, tip: "Average days vacant across the trailing 12 months." },
+      { key: "daysVacantSpot", label: "Spot", type: "num1", w: 65, tip: "Average days vacant for currently-vacant units of this room type (latest month)." },
+      { key: "daysVacantT3", label: "T3", type: "num1", w: 65, tip: "Average days vacant across the trailing 3 months." },
     ],
   },
   {
     id: "inquiries",
     label: "Inquiries",
     cols: [
-      { key: "inqPrevMonth", label: "Prev Month", type: "num1", w: 80, tip: "Number of inquiries recorded in the most recent month." },
-      { key: "inqVsT3", label: "Δ vs T3 Avg", type: "num1signed", w: 90, tip: "Latest month inquiries minus the trailing 3-month average (count change)." },
-      { key: "inqVsT12", label: "Δ vs T12 Avg", type: "num1signed", w: 90, tip: "Latest month inquiries minus the trailing 12-month average (count change)." },
+      { key: "inqPrevMonth", label: "Latest", type: "num1", w: 70, tip: "Number of inquiries recorded in the most recent month." },
+      { key: "inqVsT3", label: "Δ T3", type: "num1signed", w: 75, tip: "Latest month inquiries minus the trailing 3-month average (count change)." },
     ],
   },
   {
     id: "tours",
     label: "Tours",
     cols: [
-      { key: "tourPrevMonth", label: "Prev Month", type: "num1", w: 80, tip: "Number of tours recorded in the most recent month." },
-      { key: "tourVsT3", label: "Δ vs T3 Avg", type: "num1signed", w: 90, tip: "Latest month tours minus the trailing 3-month average (count change)." },
-      { key: "tourVsT12", label: "Δ vs T12 Avg", type: "num1signed", w: 90, tip: "Latest month tours minus the trailing 12-month average (count change)." },
+      { key: "tourPrevMonth", label: "Latest", type: "num1", w: 70, tip: "Number of tours recorded in the most recent month." },
+      { key: "tourVsT3", label: "Δ T3", type: "num1signed", w: 75, tip: "Latest month tours minus the trailing 3-month average (count change)." },
     ],
   },
   {
     id: "street",
-    label: "Street Rates – Single Occupant",
+    label: "Street Rates",
     expandable: true,
     historyKey: "streetHistory",
     historyColType: "money",
     cols: [
-      { key: "streetSpot", label: "Spot", type: "money", w: 85, tip: "Average published street rate for this room type in the latest month." },
-      { key: "streetIncT3", label: "T3 Incr", type: "pctfracsigned", w: 80, tip: "% change of the latest street rate vs the trailing 3-month average." },
-      { key: "streetIncT6", label: "T6 Incr", type: "pctfracsigned", w: 80, tip: "% change of the latest street rate vs the trailing 6-month average." },
-      { key: "streetIncT12", label: "T12 Incr", type: "pctfracsigned", w: 80, tip: "% change of the latest street rate vs the trailing 12-month average." },
+      { key: "streetSpot", label: "Spot", type: "money", w: 80, tip: "Average published street rate for this room type in the latest month." },
+      { key: "streetIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 3-month average." },
+      { key: "streetIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 12-month average." },
     ],
   },
   {
     id: "comp",
-    label: "Comp Rates – Top Comp",
+    label: "Comp Rates",
     cols: [
-      { key: "compBase", label: "Base Rate", type: "money", w: 85, tip: "Top competitor's base (unadjusted) rate for this room type." },
-      { key: "compAdjusted", label: "Adjusted", type: "money", w: 85, tip: "Competitor rate after adjusting for care-level and med-management differences." },
-      { key: "compVarDollar", label: "$ Var", type: "moneysigned", w: 80, tip: "Adjusted competitor rate minus base competitor rate (dollars)." },
-      { key: "compVarPct", label: "% Var", type: "pctfracsigned", w: 75, tip: "Adjusted vs base competitor rate as a percentage." },
+      { key: "compBase", label: "Base", type: "money", w: 80, tip: "Top competitor's base (unadjusted) rate for this room type." },
+      { key: "compAdjusted", label: "Adjusted", type: "money", w: 80, tip: "Competitor rate after adjusting for care-level and med-management differences." },
+      { key: "compVarPct", label: "Δ%", type: "pctfracsigned", w: 65, tip: "Adjusted vs base competitor rate as a percentage." },
     ],
   },
   {
     id: "inhouse",
     label: "In-House Rates",
     cols: [
-      { key: "ihSpot", label: "Spot", type: "money", w: 85, tip: "Average in-house (actual paid) rate for occupied units of this room type, latest month." },
-      { key: "ihVarStreetDollar", label: "$ Var to Street", type: "moneysigned", w: 95, tip: "In-house rate minus street rate (dollars)." },
-      { key: "ihVarStreetPct", label: "% Var to Street", type: "pctfracsigned", w: 95, tip: "In-house rate vs street rate as a percentage." },
-      { key: "ihIncT3", label: "T3 Incr", type: "pctfracsigned", w: 80, tip: "% change of latest in-house rate vs the trailing 3-month average." },
-      { key: "ihIncT6", label: "T6 Incr", type: "pctfracsigned", w: 80, tip: "% change of latest in-house rate vs the trailing 6-month average." },
-      { key: "ihIncT12", label: "T12 Incr", type: "pctfracsigned", w: 80, tip: "% change of latest in-house rate vs the trailing 12-month average." },
+      { key: "ihSpot", label: "Spot", type: "money", w: 80, tip: "Average in-house (actual paid) rate for occupied units of this room type, latest month." },
+      { key: "ihVarStreetPct", label: "Δ% Street", type: "pctfracsigned", w: 80, tip: "In-house rate vs street rate as a percentage." },
+      { key: "ihIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of latest in-house rate vs the trailing 3-month average." },
+      { key: "ihIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of latest in-house rate vs the trailing 12-month average." },
     ],
   },
   {
     id: "proposed",
     label: "Proposed Rates",
     cols: [
-      { key: "proposedRule", label: "Rule", type: "money", w: 85, tip: "Proposed rate from the rules engine. Blank when no adjustment rule applies to this combo." },
-      { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 80, tip: "Proposed rate minus current in-house rate (dollars)." },
-      { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 75, tip: "Proposed rate vs current in-house rate as a percentage." },
+      { key: "proposedRule", label: "Rule", type: "money", w: 80, tip: "Proposed rate from the rules engine. Blank when no adjustment rule applies to this combo." },
+      { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 75, tip: "Proposed rate minus current in-house rate (dollars)." },
+      { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 65, tip: "Proposed rate vs current in-house rate as a percentage." },
     ],
   },
   {
     id: "revenue",
     label: "Revenue Impact",
     cols: [
-      { key: "revT3MoveIns", label: "T3 Move Ins", type: "num1", w: 90, tip: "Average monthly private-pay move-ins for this combo over the trailing 3 months." },
-      { key: "revMonthlyImpact", label: "Monthly Impact", type: "moneysigned", w: 100, tip: "(Proposed rate − in-house rate) × total units — estimated monthly revenue change." },
-      { key: "revAnnualImpact", label: "Annual Impact", type: "moneysigned", w: 100, tip: "Monthly impact × 12 — estimated annual revenue change." },
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − in-house rate) × total units — estimated monthly revenue change." },
+      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change." },
     ],
   },
   {
     id: "growthTarget",
-    label: "Revenue Growth Target",
+    label: "Growth Target",
     cols: [
-      { key: "revenueGrowthTarget", label: "Target", type: "pct", w: 80, tip: "Target annual revenue growth % set for this campus / service line on the Pricing Controls page." },
+      { key: "revenueGrowthTarget", label: "Target", type: "pct", w: 70, tip: "Target annual revenue growth % set for this campus / service line on the Pricing Controls page." },
     ],
   },
   {
     id: "elasticity",
-    label: "Elasticity & Days To Sell",
+    label: "Elasticity & DTS",
     cols: [
-      { key: "elasticity", label: "Elasticity", type: "num1", w: 80, tip: "Estimated price elasticity for this combo — how sensitive demand (days to sell) is to a rate change." },
-      { key: "daysToSellBefore", label: "DTS Before", type: "num1", w: 85, tip: "Estimated days to sell at the current in-house rate." },
-      { key: "daysToSellAfter", label: "DTS After", type: "num1", w: 85, tip: "Estimated days to sell at the proposed rule rate." },
-      { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 75, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },
+      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this combo — how sensitive demand (days to sell) is to a rate change." },
+      { key: "daysToSellBefore", label: "DTS Now", type: "num1", w: 75, tip: "Estimated days to sell at the current in-house rate." },
+      { key: "daysToSellAfter", label: "DTS New", type: "num1", w: 75, tip: "Estimated days to sell at the proposed rule rate." },
+      { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 65, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },
     ],
   },
   {
     id: "elasticityImpact",
-    label: "Elasticity Revenue Impact",
+    label: "Elast. Rev. Impact",
     cols: [
-      { key: "elasticityMonthlyImpact", label: "Monthly", type: "moneysigned", w: 100, tip: "Elasticity-adjusted estimated monthly revenue change, accounting for the demand response to the proposed rate." },
-      { key: "elasticityAnnualImpact", label: "Annual", type: "moneysigned", w: 100, tip: "Elasticity-adjusted estimated annual revenue change (monthly × 12)." },
+      { key: "elasticityMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated monthly revenue change, accounting for the demand response to the proposed rate." },
+      { key: "elasticityAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated annual revenue change (monthly × 12)." },
     ],
   },
 ];
 
 const ALL_COLS: ColDef[] = GROUPS.flatMap((g) => g.cols);
 const FROZEN_COLS = ALL_COLS.filter((c) => c.frozen);
+const MOBILE_FROZEN_COLS = ALL_COLS.filter((c) => c.mobileFreeze);
 const NUMERIC_TYPES: ColType[] = ["int", "num1", "num1signed", "pct", "pctfrac", "pctfracsigned", "money", "moneysigned"];
 
-// cumulative left offsets for frozen columns
+// cumulative left offsets for frozen columns (desktop)
 const FROZEN_LEFT: Record<string, number> = (() => {
   const map: Record<string, number> = {};
   let acc = 0;
@@ -263,6 +255,17 @@ const FROZEN_LEFT: Record<string, number> = (() => {
   return map;
 })();
 const FROZEN_TOTAL_WIDTH = FROZEN_COLS.reduce((s, c) => s + c.w, 0);
+
+// cumulative left offsets for mobile-frozen columns (use wMobile if set)
+const MOBILE_FROZEN_LEFT: Record<string, number> = (() => {
+  const map: Record<string, number> = {};
+  let acc = 0;
+  for (const c of MOBILE_FROZEN_COLS) {
+    map[c.key] = acc;
+    acc += c.wMobile ?? c.w;
+  }
+  return map;
+})();
 
 // ── value formatting ───────────────────────────────────────────────
 function fmt(value: any, type: ColType): string {
@@ -642,9 +645,9 @@ export default function ReferenceDataTable({
               key={g.id}
               colSpan={g.cols.length}
               className={`sticky top-0 z-20 border-b border-r border-border px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wide text-white ${
-                gi === 0 && !isMobile ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
+                gi === 0 ? "left-0 z-40 bg-blue-900" : g.ruleInfo ? "bg-teal-700" : gi % 2 === 0 ? "bg-blue-900" : "bg-blue-700"
               }`}
-              style={gi === 0 && !isMobile ? { left: 0 } : undefined}
+              style={gi === 0 ? { left: 0 } : undefined}
             >
               {g.ruleInfo ? (
                 <Popover>
@@ -716,7 +719,9 @@ export default function ReferenceDataTable({
       {/* Sub-column header row */}
       <tr>
         {dynAllCols.map((c) => {
-          const isFrozen = !!c.frozen && !isMobile;
+          const isFrozen = isMobile ? !!c.mobileFreeze : !!c.frozen;
+          const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
+          const frozenLeft = isMobile ? MOBILE_FROZEN_LEFT[c.key] : FROZEN_LEFT[c.key];
           const sorted = sortKey === c.key;
           const hasFilter = (filters[c.key] ?? "").trim() !== "";
           return (
@@ -727,9 +732,9 @@ export default function ReferenceDataTable({
               }`}
               style={{
                 top: 30,
-                minWidth: c.w,
-                width: c.w,
-                ...(isFrozen ? { left: FROZEN_LEFT[c.key], position: "sticky" } : {}),
+                minWidth: colW,
+                width: colW,
+                ...(isFrozen ? { left: frozenLeft, position: "sticky" } : {}),
               }}
             >
               <div className="flex items-center justify-between gap-1">
@@ -814,7 +819,9 @@ export default function ReferenceDataTable({
         <tr key={ri} className="hover:bg-muted/30" data-testid={`refdata-row-${ri}`}>
           {dynGroups.map((g, gi) =>
             g.cols.map((c) => {
-              const isFrozen = !!c.frozen && !isMobile;
+              const isFrozen = isMobile ? !!c.mobileFreeze : !!c.frozen;
+              const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
+              const frozenLeft = isMobile ? MOBILE_FROZEN_LEFT[c.key] : FROZEN_LEFT[c.key];
               const display = fmt(row[c.key], c.type);
               const colorCls = signClass(row[c.key], c.type);
               return (
@@ -828,9 +835,9 @@ export default function ReferenceDataTable({
                       : groupBg(g.id, gi)
                   }`}
                   style={{
-                    minWidth: c.w,
-                    width: c.w,
-                    ...(isFrozen ? { left: FROZEN_LEFT[c.key] } : {}),
+                    minWidth: colW,
+                    width: colW,
+                    ...(isFrozen ? { left: frozenLeft } : {}),
                   }}
                 >
                   {c.key === "proposedRule" ? (() => {
