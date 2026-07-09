@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
-  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers
+  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle
@@ -119,6 +119,10 @@ interface AdjustmentRule {
   volumeAdjustedAnnualImpact?: number;
   trigger?: unknown;
   action?: unknown;
+  effectiveDate?: string | null;
+  isHistorical?: boolean;
+  locationId?: string | null;
+  serviceLine?: string | null;
 }
 
 interface ImpactData {
@@ -210,6 +214,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const [editingRuleSLs, setEditingRuleSLs] = useState<string[]>([]);
   const [newRuleSLs, setNewRuleSLs] = useState<string[]>([]);
   const [effectiveDate, setEffectiveDate] = useState<string>(''); // '' = effective immediately (YYYY-MM-DD)
+  const [saveAsHistorical, setSaveAsHistorical] = useState(false); // true = record of a past change; never applied to current rates
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyFrom, setHistoryFrom] = useState<string>(`${new Date().getFullYear()}-01-01`); // Pricing History review defaults to Jan 1
+  const [historyRules, setHistoryRules] = useState<AdjustmentRule[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [stackRule, setStackRule] = useState(true); // true = stacks with other rules; false = exclusive
   const [slPickerOpen, setSlPickerOpen] = useState(false);
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
@@ -280,6 +289,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   }, [locationId, serviceLine]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  // Pricing History — historical records of past pricing changes (never applied to current rates)
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (historyFrom) params.set('from', historyFrom);
+      if (locationId) params.set('locationId', locationId);
+      const res = await fetch(`/api/adjustment-rules/history?${params}`);
+      if (res.ok) setHistoryRules(await res.json());
+    } catch { /* non-fatal */ } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyFrom, locationId]);
+
+  useEffect(() => { if (historyOpen) fetchHistory(); }, [historyOpen, fetchHistory]);
 
   const clearManualOverride = useCallback(async (locationName: string, sl: string, rt: string) => {
     try {
@@ -414,7 +439,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, effectiveDate: effectiveDate || null, isAdditive: stackRule }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, effectiveDate: effectiveDate || null, isAdditive: stackRule, isHistorical: saveAsHistorical }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -428,7 +453,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       setEditingRuleSLs([]);
       setNewRuleSLs([]);
       setEffectiveDate('');
+      setSaveAsHistorical(false);
       setStackRule(true);
+      if (saveAsHistorical) fetchHistory();
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
@@ -450,6 +477,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
     setEditingRuleSLs([]);
     setNewRuleSLs([]);
     setEffectiveDate('');
+    setSaveAsHistorical(false);
     setStackRule(true);
     setSlPickerOpen(false);
     setNewSlPickerOpen(false);
@@ -852,6 +880,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                     )}
                   </div>
 
+                  {/* Historical record — only offered when effective date is in the past */}
+                  {effectiveDate && effectiveDate < new Date().toISOString().slice(0, 10) && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">Historical record:</span>
+                      <Switch
+                        checked={saveAsHistorical}
+                        onCheckedChange={setSaveAsHistorical}
+                        data-testid="historical-toggle-ask-ai"
+                        aria-label="Save as historical record"
+                      />
+                      <span className="text-[10px] text-muted-foreground">
+                        {saveAsHistorical ? 'Saved to Pricing History only — will not change current rates' : 'Off — rule will apply to current rates'}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Stack rule — stacks with other rules vs exclusive */}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="font-medium text-foreground">Stack rule:</span>
@@ -934,6 +978,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                       <span className="text-[10px] text-muted-foreground">Blank = effective immediately</span>
                     )}
                   </div>
+
+                  {/* Historical record — only offered when effective date is in the past */}
+                  {effectiveDate && effectiveDate < new Date().toISOString().slice(0, 10) && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">Historical record:</span>
+                      <Switch
+                        checked={saveAsHistorical}
+                        onCheckedChange={setSaveAsHistorical}
+                        data-testid="historical-toggle-structured"
+                        aria-label="Save as historical record"
+                      />
+                      <span className="text-[10px] text-muted-foreground">
+                        {saveAsHistorical ? 'Saved to Pricing History only — will not change current rates' : 'Off — rule will apply to current rates'}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Stack rule — stacks with other rules vs exclusive */}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1702,6 +1762,70 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                       </div>
                     )}
 
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+
+            {/* ── Pricing History — historical records of past pricing changes ── */}
+            <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+              <Card className="w-full shadow-sm bg-white border border-gray-200">
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="pb-2 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors" data-testid="pricing-history-header">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <History className="h-4 w-4 text-gray-500 shrink-0" />
+                        <span className="text-base font-semibold text-gray-900">Pricing History</span>
+                        {historyOpen && historyRules.length > 0 && (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 text-xs font-medium">{historyRules.length} records</span>
+                        )}
+                      </div>
+                      <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${historyOpen ? '' : '-rotate-90'}`} />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Records of past pricing changes. These are for reference only and never change current rates.
+                    </p>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="pt-0 pb-4 px-4">
+                    <div className="flex items-center gap-2 mb-3 text-xs text-gray-600">
+                      <span className="font-medium text-gray-800">Show changes since:</span>
+                      <input
+                        type="date"
+                        data-testid="pricing-history-from"
+                        value={historyFrom}
+                        onChange={e => setHistoryFrom(e.target.value)}
+                        className="h-7 text-xs px-2 border border-gray-200 rounded-md bg-gray-50 hover:border-[var(--trilogy-teal)] transition-colors text-gray-900"
+                      />
+                      {historyLoading && <span className="text-[10px] text-gray-400">Loading…</span>}
+                    </div>
+                    {!historyLoading && historyRules.length === 0 && (
+                      <p className="text-xs text-gray-500">No historical pricing changes since {historyFrom}.</p>
+                    )}
+                    {(() => {
+                      const byDate = new Map<string, AdjustmentRule[]>();
+                      for (const r of historyRules) {
+                        const d = r.effectiveDate ? String(r.effectiveDate).slice(0, 10) : 'Unknown date';
+                        if (!byDate.has(d)) byDate.set(d, []);
+                        byDate.get(d)!.push(r);
+                      }
+                      return Array.from(byDate.entries()).map(([d, list]) => (
+                        <div key={d} className="mb-3">
+                          <p className="text-xs font-semibold text-gray-800 mb-1.5">
+                            Effective {d === 'Unknown date' ? d : new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                            <span className="ml-2 font-normal text-gray-500">{list.length} change{list.length === 1 ? '' : 's'}</span>
+                          </p>
+                          <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+                            {list.map((r: AdjustmentRule) => (
+                              <div key={r.id} className="px-3 py-2 text-xs text-gray-700 bg-white" data-testid={`history-rule-${r.id}`}>
+                                {r.description}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </CardContent>
                 </CollapsibleContent>
               </Card>

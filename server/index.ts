@@ -163,6 +163,19 @@ app.use((req, res, next) => {
     log(`[migration] rule_rate_calculated_at column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: ensure is_historical column exists on adjustment_rules.
+  // Historical rules record past pricing changes (e.g. imported spreadsheets) and are
+  // never applied to current rate calculations.
+  try {
+    await db.execute(sql`
+      ALTER TABLE adjustment_rules
+        ADD COLUMN IF NOT EXISTS is_historical boolean DEFAULT false
+    `);
+    log("[migration] adjustment_rules is_historical column ensured");
+  } catch (migErr) {
+    log(`[migration] is_historical column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules

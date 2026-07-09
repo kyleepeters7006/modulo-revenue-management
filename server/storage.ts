@@ -2269,10 +2269,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveAdjustmentRules(): Promise<AdjustmentRules[]> {
-    // Active = toggled on AND already past its effective date (NULL = effective immediately)
+    // Active = toggled on AND already past its effective date (NULL = effective immediately).
+    // Historical records (is_historical=true) document past pricing changes and are never applied.
     return await db.select().from(adjustmentRules).where(
       and(
         eq(adjustmentRules.isActive, true),
+        sql`${adjustmentRules.isHistorical} IS NOT TRUE`,
         sql`(${adjustmentRules.effectiveDate} IS NULL OR ${adjustmentRules.effectiveDate} <= CURRENT_DATE)`
       )
     );

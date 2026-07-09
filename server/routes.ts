@@ -13548,7 +13548,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine, serviceLines, effectiveDate, isAdditive } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines, effectiveDate, isAdditive, isHistorical } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -13779,7 +13779,8 @@ Respond in JSON format:
         description: parsedRule.description,
         trigger: parsedRule.trigger,
         action: parsedRule.action,
-        isActive: true,
+        isActive: !isHistorical,
+        isHistorical: !!isHistorical,
         effectiveDate: effectiveDate || null,
         createdBy: 'user',
         monthlyImpact: Math.round(monthlyImpact),
@@ -14264,15 +14265,44 @@ Respond in JSON format:
     }
   });
 
+  // Pricing History: historical adjustment-rule records (past pricing changes).
+  // ?from=YYYY-MM-DD / ?to=YYYY-MM-DD filter by effective date (from defaults to Jan 1 of current year on the client).
+  app.get("/api/adjustment-rules/history", async (req: any, res) => {
+    try {
+      const { from, to, locationId } = req.query;
+      const conditions: any[] = [sql`${adjustmentRules.isHistorical} IS TRUE`];
+      if (from && /^\d{4}-\d{2}-\d{2}$/.test(String(from))) {
+        conditions.push(sql`${adjustmentRules.effectiveDate} >= ${String(from)}`);
+      }
+      if (to && /^\d{4}-\d{2}-\d{2}$/.test(String(to))) {
+        conditions.push(sql`${adjustmentRules.effectiveDate} <= ${String(to)}`);
+      }
+      if (locationId) {
+        conditions.push(eq(adjustmentRules.locationId, locationId as string));
+      }
+      const rules = await db.select().from(adjustmentRules)
+        .where(and(...conditions))
+        .orderBy(sql`${adjustmentRules.effectiveDate} DESC NULLS LAST`, adjustmentRules.name);
+      res.json(rules);
+    } catch (error) {
+      console.error('Error fetching adjustment rule history:', error);
+      res.status(500).json({ error: "Failed to fetch pricing history" });
+    }
+  });
+
   app.get("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { locationId, serviceLine } = req.query;
+      const { locationId, serviceLine, includeHistorical } = req.query;
       
       let query = db.select().from(adjustmentRules);
       
       // Filter by location and service line if provided
       const conditions = [];
+      // Historical records live in the Pricing History view, not the active rules list
+      if (includeHistorical !== 'true') {
+        conditions.push(sql`${adjustmentRules.isHistorical} IS NOT TRUE`);
+      }
       if (locationId) {
         conditions.push(or(
           eq(adjustmentRules.locationId, locationId as string),

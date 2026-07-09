@@ -453,6 +453,7 @@ export const adjustmentRules = pgTable("adjustment_rules", {
   trigger: jsonb("trigger").notNull(), // Parsed trigger conditions
   action: jsonb("action").notNull(), // Parsed actions to take
   isActive: boolean("is_active").default(true),
+  isHistorical: boolean("is_historical").default(false), // true = historical record of a past pricing change; never applied to current rates
   effectiveDate: date("effective_date"), // NULL = effective immediately; otherwise rule only applies on/after this date
   priority: integer("priority").default(0), // Higher priority rules execute first
   createdBy: text("created_by"),
