@@ -88,10 +88,10 @@ const GROUPS: GroupDef[] = [
     id: "campus",
     label: "Campus Information",
     cols: [
-      { key: "division", label: "Division", type: "text", w: 120, frozen: true, tip: "The operating division the campus belongs to." },
+      { key: "division", label: "Division", type: "text", w: 120, frozen: true, mobileFreeze: true, wMobile: 95, tip: "The operating division the campus belongs to." },
       { key: "campus", label: "Campus", type: "text", w: 140, frozen: true, mobileFreeze: true, wMobile: 110, tip: "The community / facility name." },
-      { key: "serviceLine", label: "SL", type: "text", w: 80, frozen: true, mobileFreeze: true, wMobile: 65, tip: "Care level grouping (AL, SL, HC, MC, VIL, etc.)." },
-      { key: "roomType", label: "Room Type", type: "text", w: 120, frozen: true, mobileFreeze: true, wMobile: 95, tip: "Unit / room configuration within the service line." },
+      { key: "serviceLine", label: "SL", type: "text", w: 80, frozen: true, tip: "Care level grouping (AL, SL, HC, MC, VIL, etc.)." },
+      { key: "roomType", label: "Room Type", type: "text", w: 120, frozen: true, tip: "Unit / room configuration within the service line." },
       { key: "totalUnits", label: "Units", type: "int", w: 50, frozen: true, tip: "Count of units (or beds) for this campus / service line / room type in the most recent month." },
     ],
   },
