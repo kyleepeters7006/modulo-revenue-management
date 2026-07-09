@@ -22,6 +22,8 @@ import {
   createImportNotification,
 } from "./dataImportService";
 import { getDataset } from "@shared/importRegistry";
+import { invalidateRefDataCache } from "../refDataCache";
+import { storage } from "../storage";
 
 // ── Credential encryption ────────────────────────────────────────────
 
@@ -44,6 +46,51 @@ export function decryptSecret(payload: string): string {
   const decipher = createDecipheriv("aes-256-gcm", getKey(), Buffer.from(ivB64, "base64"));
   decipher.setAuthTag(Buffer.from(tagB64, "base64"));
   return Buffer.concat([decipher.update(Buffer.from(dataB64, "base64")), decipher.final()]).toString("utf-8");
+}
+
+// ── Post-import cache invalidation & recalculation ───────────────────
+
+/**
+ * Called after one or more files are successfully imported via SFTP.
+ * - Always invalidates the reference-data cache so dashboards show fresh numbers.
+ * - For rent_roll imports, queues a portfolio-wide pricing recalculation for the
+ *   affected client so Modulo rates are updated without waiting for the nightly cron.
+ */
+async function triggerPostImportActions(clientId: string, datasetType: string, targetMonth: string): Promise<void> {
+  // 1. Invalidate the in-memory reference-data cache for all clients so
+  //    Overview / Analytics pick up the new data on their next request.
+  invalidateRefDataCache();
+  console.log(`[ScheduledImport] Reference-data cache invalidated after ${datasetType} import for client ${clientId}`);
+
+  // 2. For rent-roll data, queue a pricing recalculation job.
+  if (datasetType === "rent_roll") {
+    try {
+      const { pricingJobManager } = await import("../pricingJobManager");
+      const historyEntry = await storage.createCalculationHistory({
+        calculationType: "scheduled",
+        status: "started",
+        startedAt: new Date(),
+        completedAt: null,
+        locationId: null,
+        uploadMonth: targetMonth,
+        totalUnits: null,
+        unitsCalculated: null,
+        averageModuloRate: null,
+        averageAIRate: null,
+        errorMessage: null,
+        metadata: {
+          triggeredBy: "sftp_import",
+          triggeredAt: new Date().toISOString(),
+          clientId,
+        },
+      });
+      const jobId = pricingJobManager.createJob({ month: targetMonth, clientId, calculationHistoryId: historyEntry.id });
+      console.log(`[ScheduledImport] Pricing recalculation job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
+    } catch (err) {
+      // Non-fatal: log and continue — rates will be refreshed by the nightly cron at worst.
+      console.error(`[ScheduledImport] Failed to queue pricing job after rent_roll import for client ${clientId}:`, err);
+    }
+  }
 }
 
 // ── Wildcard matching ────────────────────────────────────────────────
@@ -160,6 +207,7 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
     const results: string[] = [];
     let anyImported = false;
     let anyFailed = false;
+    let lastImportedPeriod: string | null = null;
 
     for (const file of matches) {
       const remoteFile = `${schedule.remotePath.replace(/\/$/, "")}/${file.name}`;
@@ -211,6 +259,7 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
         });
         if (run.status === "imported" || run.status === "partial") {
           anyImported = true;
+          if (period) lastImportedPeriod = period;
           const periodNote = period
             ? ((run.deletedRows ?? 0) > 0 ? `period ${period} replaced` : `period ${period} added`)
             : "records upserted";
@@ -231,6 +280,19 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
     }
 
     const status = anyImported && anyFailed ? "partial" : anyImported ? "success" : anyFailed ? "failed" : "skipped_duplicate";
+
+    // After a successful import, invalidate caches and (for rent roll) queue a pricing job
+    // so dashboards reflect the new data without waiting for the nightly cron.
+    if (anyImported) {
+      const now = new Date();
+      const targetMonth = lastImportedPeriod
+        || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      // Fire and forget — errors are logged inside; they must not block the SFTP result.
+      triggerPostImportActions(clientId, schedule.datasetType, targetMonth).catch((err) =>
+        console.error(`[ScheduledImport] Post-import actions failed for ${schedule.name}:`, err),
+      );
+    }
+
     return finishRun(schedule, status, results.join("; "));
   } finally {
     await sftp.end().catch(() => {});
