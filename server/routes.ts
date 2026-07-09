@@ -14371,8 +14371,21 @@ Respond in JSON format:
         return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
       }
 
-      const activeRules = await db.select().from(adjustmentRules)
-        .where(eq(adjustmentRules.isActive, true));
+      const allActiveRules = await db.select().from(adjustmentRules)
+        .where(and(
+          eq(adjustmentRules.isActive, true),
+          sql`${adjustmentRules.isHistorical} IS NOT TRUE`
+        ));
+
+      // Scope to the page filters: drop rules pinned to a different campus or service line
+      const activeRules = allActiveRules.filter(rule => {
+        if (locationId && rule.locationId && rule.locationId !== locationId) return false;
+        if (serviceLine) {
+          const ruleSLs = (rule.serviceLines?.length ? rule.serviceLines : (rule.serviceLine ? [rule.serviceLine] : []));
+          if (ruleSLs.length && !ruleSLs.includes(serviceLine as string)) return false;
+        }
+        return true;
+      });
       if (!activeRules.length) {
         return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
       }
@@ -14397,9 +14410,11 @@ Respond in JSON format:
         // Union subquery shares $1/$2 but gets its own positional params at uIdx+
         const uWhere: string[] = ['client_id = $1', 'upload_month = $2'];
 
-        if (locationId) {
-          rWhere.push(`rrd.location_id = $${rIdx}`); rParams.push(locationId as string); rIdx++;
-          uWhere.push(`location_id = $${uIdx}`); unionParams.push(locationId as string); uIdx++;
+        // Constrain to the page's campus filter, or the rule's own campus scope when no page filter
+        const scopeLocationId = (locationId as string) || rule.locationId || null;
+        if (scopeLocationId) {
+          rWhere.push(`rrd.location_id = $${rIdx}`); rParams.push(scopeLocationId); rIdx++;
+          uWhere.push(`location_id = $${uIdx}`); unionParams.push(scopeLocationId); uIdx++;
         }
         if (filters.roomType?.length) {
           rWhere.push(`rrd.room_type = ANY($${rIdx}::text[])`); rParams.push(filters.roomType); rIdx++;
@@ -14408,13 +14423,15 @@ Respond in JSON format:
         if (filters.serviceLine?.length) {
           rWhere.push(`rrd.service_line = ANY($${rIdx}::text[])`); rParams.push(filters.serviceLine); rIdx++;
           uWhere.push(`service_line = ANY($${uIdx}::text[])`); unionParams.push(filters.serviceLine); uIdx++;
-        } else if (serviceLine) {
+        }
+        // Page service-line filter always applies (intersects with the rule's own SL filter)
+        if (serviceLine) {
           rWhere.push(`rrd.service_line = $${rIdx}`); rParams.push(serviceLine as string); rIdx++;
           uWhere.push(`service_line = $${uIdx}`); unionParams.push(serviceLine as string); uIdx++;
         }
         if (filters.occupancyStatus === 'vacant') {
-          const clause = '(occupied_yn = false OR occupied_yn IS NULL)';
-          rWhere.push(`rrd.${clause}`); uWhere.push(clause);
+          rWhere.push('(rrd.occupied_yn = false OR rrd.occupied_yn IS NULL)');
+          uWhere.push('(occupied_yn = false OR occupied_yn IS NULL)');
         } else if (filters.occupancyStatus === 'occupied') {
           rWhere.push('rrd.occupied_yn = true'); uWhere.push('occupied_yn = true');
         }
