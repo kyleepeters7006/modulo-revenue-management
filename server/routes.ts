@@ -15660,6 +15660,123 @@ Respond in JSON format:
         }
       }
 
+      // ---- Historical rules (imported pricing records) --------------------
+      // Historical rules were never applied to rent roll rows, so they have no
+      // applied_rule_name footprint. Synthesize performance rows by matching
+      // units through the rule's scope (location + action.filters) and using
+      // effective_date as the applied date.
+      const histParams: any[] = [clientId, startDate, endDate];
+      let histWhere = `ar.is_historical = true AND ar.effective_date BETWEEN $2 AND $3`;
+      if (locations.length) { histParams.push(locations); histWhere += ` AND loc.name = ANY($${histParams.length})`; }
+      if (regions.length)   { histParams.push(regions);   histWhere += ` AND loc.region = ANY($${histParams.length})`; }
+      if (divisions.length) { histParams.push(divisions); histWhere += ` AND loc.division = ANY($${histParams.length})`; }
+      const histRes = await pool.query(`
+        SELECT ar.name, ar.effective_date, ar.action, ar.service_line AS rule_service_line,
+               loc.name AS location_name
+        FROM adjustment_rules ar
+        JOIN locations loc ON loc.id = ar.location_id AND loc.client_id = $1
+        WHERE ${histWhere}
+      `, histParams);
+
+      // Historical rules use their OWN attribution pool so synthetic rows never
+      // dilute the T3 credit of rules genuinely applied via applied_rule_name.
+      const histRuleNames = new Set<string>();
+      const groupTotalWeightHist = new Map<string, number>();
+
+      if (histRes.rows.length > 0) {
+        const histLocs = Array.from(new Set(histRes.rows.map((r: any) => r.location_name)));
+
+        // Latest snapshot per unit — used for CURRENT occupancy / move-in status.
+        const histUnitRes = await pool.query(`
+          SELECT DISTINCT ON (rr.location, rr.room_number)
+                 rr.location, rr.service_line, rr.room_type, rr.room_number,
+                 rr.occupied_yn, rr.move_in_date
+          FROM rent_roll_data rr
+          WHERE rr.client_id = $1 AND rr.location = ANY($2)
+          ORDER BY rr.location, rr.room_number, rr.upload_month DESC
+        `, [clientId, histLocs]);
+        const latestByKey = new Map<string, any>();
+        for (const u of histUnitRes.rows) latestByKey.set(`${u.location}|${u.room_number}`, u);
+
+        // Time-aligned cohorts: units as they existed in the snapshot at (or just
+        // before) each rule's effective month, so the matched population reflects
+        // the units/attributes present when the pricing change took effect.
+        const effMonths = Array.from(new Set(histRes.rows.map((r: any) => monthOf(new Date(r.effective_date)))));
+        // effMonth -> location -> cohort units (attributes as of that snapshot)
+        const cohortByMonth = new Map<string, Map<string, any[]>>();
+        for (const em of effMonths) {
+          const cRes = await pool.query(`
+            SELECT rr.location, rr.service_line, rr.room_type, rr.room_number
+            FROM rent_roll_data rr
+            WHERE rr.client_id = $1 AND rr.location = ANY($2)
+              AND rr.upload_month = (
+                SELECT MAX(upload_month) FROM rent_roll_data
+                WHERE client_id = $1 AND location = ANY($2) AND upload_month <= $3
+              )
+          `, [clientId, histLocs, em]);
+          const byLoc = new Map<string, any[]>();
+          for (const u of cRes.rows) {
+            if (!byLoc.has(u.location)) byLoc.set(u.location, []);
+            byLoc.get(u.location)!.push(u);
+          }
+          cohortByMonth.set(em, byLoc);
+        }
+
+        for (const hr of histRes.rows) {
+          const filters = (hr.action && hr.action.filters) || {};
+          const ruleSLs: string[] = Array.isArray(filters.serviceLine) && filters.serviceLine.length
+            ? filters.serviceLine
+            : (hr.rule_service_line ? [hr.rule_service_line] : []);
+          // Respect the page service-line filter
+          if (serviceLine && ruleSLs.length && !ruleSLs.includes(serviceLine)) continue;
+          const ruleRTs: string[] = Array.isArray(filters.roomType) ? filters.roomType : [];
+          const appliedAt = new Date(hr.effective_date);
+          const rn = hr.name as string;
+          const cohort = cohortByMonth.get(monthOf(appliedAt))?.get(hr.location_name) || [];
+          const candidates = cohort.filter((u: any) =>
+            (!ruleSLs.length || ruleSLs.includes(u.service_line)) &&
+            (!ruleRTs.length || ruleRTs.includes(u.room_type)) &&
+            (!serviceLine || u.service_line === serviceLine)
+          );
+          if (!candidates.length) continue;
+          histRuleNames.add(rn);
+
+          for (const u of candidates) {
+            const dKey = `${u.location}|${u.service_line}|${u.room_type}`;
+            // Current occupancy/move-in comes from the latest snapshot of the same unit
+            const latest = latestByKey.get(`${u.location}|${u.room_number}`);
+            const moveIn = parseMoveIn(latest?.move_in_date ?? null);
+            const soldAfterRule = !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
+            const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
+            const expected = expectedFor(u.service_line, u.room_type);
+
+            const bump = (a: Agg) => {
+              a.unitsImpacted += 1;
+              if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
+              if (soldAfterRule) {
+                a.unitsSold += 1;
+                if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
+                if (expected != null) { a.expSum += expected; a.expN += 1; }
+              }
+            };
+
+            if (!summary.has(rn)) summary.set(rn, newAgg());
+            bump(summary.get(rn)!);
+
+            if (!details.has(rn)) details.set(rn, new Map());
+            const dMap = details.get(rn)!;
+            if (!dMap.has(dKey)) dMap.set(dKey, { ...newAgg(), location: u.location, serviceLine: u.service_line, roomType: u.room_type });
+            bump(dMap.get(dKey)!);
+
+            const rgKey = `${rn}|${dKey}`;
+            const rg = ruleGroupWeight.get(rgKey);
+            if (!rg) ruleGroupWeight.set(rgKey, { weight: 1, earliestApplied: appliedAt });
+            else { rg.weight += 1; if (appliedAt < rg.earliestApplied) rg.earliestApplied = appliedAt; }
+            groupTotalWeightHist.set(dKey, (groupTotalWeightHist.get(dKey) || 0) + 1);
+          }
+        }
+      }
+
       // T3 revenue impact per (rule, group): group's T3 delta × the rule's
       // proportional share of the group's impacted units.
       type Calc = { monthly: number; t3Before: number; t3After: number; monthsBefore: number; monthsAfter: number; extrapolated: boolean; hasData: boolean };
@@ -15672,7 +15789,7 @@ Respond in JSON format:
         const gKey = rgKey.slice(sep + 1);
         const t3 = t3For(gKey, monthOf(rg.earliestApplied));
         if (!t3) { if (!detailCalc.has(rgKey)) detailCalc.set(rgKey, newCalc()); continue; }
-        const total = groupTotalWeight.get(gKey) || 1;
+        const total = (histRuleNames.has(rn) ? groupTotalWeightHist.get(gKey) : groupTotalWeight.get(gKey)) || 1;
         const frac = rg.weight / total;
         const impact = t3.delta * frac;
         const dc = detailCalc.get(rgKey) || newCalc();
