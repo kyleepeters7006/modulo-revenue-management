@@ -124,9 +124,24 @@ export async function triggerPostImportActions(clientId: string, datasetType: st
         ?? (await import("./competitorRateJobService")).startCompetitorRateJob;
       const { jobId } = await starter(targetMonth, clientId);
       console.log(`[ScheduledImport] Competitor rate job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
+      await createImportNotification(
+        clientId,
+        null,
+        "info",
+        "Competitor rate refresh queued",
+        `Competitor rate matching job queued (job ID: ${jobId}) for period ${targetMonth}.`,
+      );
     } catch (err) {
       // Non-fatal: log and continue — competitor rates will be refreshed by the nightly cron at worst.
+      const msg = err instanceof Error ? err.message : String(err);
       console.error(`[ScheduledImport] Failed to queue competitor rate job after competitive_survey import for client ${clientId}:`, err);
+      await createImportNotification(
+        clientId,
+        null,
+        "warning",
+        "Competitor rate refresh failed to queue",
+        `Could not start competitor rate matching job after competitive survey import for period ${targetMonth}. Rates will be refreshed by the nightly job. Error: ${msg}`,
+      ).catch(() => { /* swallow — notification failure must never surface */ });
     }
   }
 }
