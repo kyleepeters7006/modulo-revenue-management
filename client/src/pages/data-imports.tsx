@@ -487,9 +487,9 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
       if (!payload.password) delete payload.password;
       if (!payload.runDate) payload.runDate = null;
       if (editing) {
-        return apiRequest("PATCH", `/api/data-imports/schedules/${editing.id}`, payload);
+        return apiRequest(`/api/data-imports/schedules/${editing.id}`, "PATCH", payload);
       }
-      return apiRequest("POST", "/api/data-imports/schedules", payload);
+      return apiRequest("/api/data-imports/schedules", "POST", payload);
     },
     onSuccess: () => {
       toast({ title: editing ? "Schedule updated" : "Schedule created" });
@@ -500,7 +500,7 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("DELETE", `/api/data-imports/schedules/${id}`),
+    mutationFn: (id: string) => apiRequest(`/api/data-imports/schedules/${id}`, "DELETE"),
     onSuccess: () => {
       toast({ title: "Schedule deleted" });
       queryClient.invalidateQueries({ queryKey: ["/api/data-imports/schedules"] });
@@ -508,7 +508,7 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
   });
 
   const runMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/data-imports/schedules/${id}/run`),
+    mutationFn: (id: string) => apiRequest(`/api/data-imports/schedules/${id}/run`, "POST"),
     onSuccess: async (res: Response) => {
       const body = await res.json();
       toast({
@@ -525,7 +525,7 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiRequest("PATCH", `/api/data-imports/schedules/${id}`, { enabled }),
+      apiRequest(`/api/data-imports/schedules/${id}`, "PATCH", { enabled }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/data-imports/schedules"] }),
   });
 
@@ -708,7 +708,7 @@ function HistoryTab() {
   const { data: notifications = [] } = useQuery<Notification[]>({ queryKey: ["/api/data-imports/notifications"] });
 
   const markRead = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/data-imports/notifications/${id}/read`),
+    mutationFn: (id: string) => apiRequest(`/api/data-imports/notifications/${id}/read`, "POST"),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/data-imports/notifications"] }),
   });
 

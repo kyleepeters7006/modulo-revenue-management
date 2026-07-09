@@ -146,6 +146,7 @@ export function registerDataImportRoutes(app: Express): void {
         fileName: req.file.originalname,
         fileHash,
         source: "manual",
+        triggeredBy: req.session?.username || req.session?.userId || null,
         period,
         periodSource,
         mode,

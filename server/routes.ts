@@ -508,6 +508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clientRows = await db.select().from(clients).where(eq(clients.id, user.clientId!)).limit(1);
       const client = clientRows[0];
       (req.session as any).userId = user.id;
+      (req.session as any).username = user.username;
       (req.session as any).clientId = user.clientId;
       req.session.save(() => {
         res.json({

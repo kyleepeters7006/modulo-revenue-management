@@ -1268,6 +1268,7 @@ export const importRuns = pgTable("import_runs", {
   datasetType: text("dataset_type").notNull(), // rent_roll | competitive_survey | inquiry | room_type_occupancy
   source: text("source").notNull().default('manual'), // 'manual' | 'sftp'
   scheduledImportId: varchar("scheduled_import_id"),
+  triggeredBy: text("triggered_by"), // username/account that ran a manual import; 'scheduler' for SFTP runs
   fileName: text("file_name").notNull(),
   fileHash: text("file_hash"), // sha256 of file content, for duplicate detection
   period: text("period"), // YYYY-MM

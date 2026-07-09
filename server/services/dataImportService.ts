@@ -327,6 +327,7 @@ export interface ImportParams {
   fileHash: string | null;
   source: "manual" | "sftp";
   scheduledImportId?: string | null;
+  triggeredBy?: string | null; // account that initiated the import
   period: string | null; // YYYY-MM (final, possibly user-picked); null for non-periodic datasets
   periodSource: "column" | "filename" | "user" | null;
   mode: "replace_period" | "append";
@@ -379,6 +380,7 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
     datasetType: datasetId,
     source: params.source,
     scheduledImportId: params.scheduledImportId || null,
+    triggeredBy: params.triggeredBy || (params.source === "sftp" ? "scheduler" : null),
     fileName: params.fileName,
     fileHash: params.fileHash,
     period,

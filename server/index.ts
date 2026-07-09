@@ -145,6 +145,7 @@ app.use((req, res, next) => {
         dataset_type text NOT NULL,
         source text NOT NULL DEFAULT 'manual',
         scheduled_import_id varchar,
+        triggered_by text,
         file_name text NOT NULL,
         file_hash text,
         period text,
