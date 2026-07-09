@@ -455,6 +455,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
+  // Data import subsystem (registry, templates, manual import, SFTP schedules)
+  const { registerDataImportRoutes } = await import('./routes/dataImportRoutes');
+  registerDataImportRoutes(app);
+  const { startScheduledImportLoop } = await import('./services/scheduledImportService');
+  startScheduledImportLoop();
+
   // GET /api/auth/user — returns session user or demo state
   app.get('/api/auth/user', async (req: any, res) => {
     const session = req.session as any;

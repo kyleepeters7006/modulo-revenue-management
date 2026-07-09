@@ -19,6 +19,7 @@ import PricingAlgorithmDocs from "@/pages/PricingAlgorithmDocs";
 import FloorPlans from "@/pages/floor-plans";
 import FloorPlansAdmin from "@/pages/floor-plans-admin";
 import DataImport from "@/pages/data-import";
+import DataImports from "@/pages/data-imports";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/floor-plans" component={FloorPlans} />
       <Route path="/floor-plans-admin" component={FloorPlansAdmin} />
       <Route path="/data-import" component={DataImport} />
+      <Route path="/data-imports" component={DataImports} />
       <Route path="/about" component={AboutUs} />
       <Route path="/pricing-algorithm" component={PricingAlgorithmDocs} />
       <Route component={NotFound} />

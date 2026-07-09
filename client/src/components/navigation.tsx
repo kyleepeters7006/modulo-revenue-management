@@ -21,7 +21,8 @@ import {
   ScatterChart,
   LayoutTemplate,
   Layers,
-  Shield
+  Shield,
+  FileUp
 } from "lucide-react";
 
 const menuItems = [
@@ -35,6 +36,7 @@ const menuItems = [
   { path: "/floor-plans", label: "Floor Plans", icon: LayoutTemplate },
   { path: "/about", label: "About Us", icon: Info },
   { path: "/data-management", label: "Data Management", icon: Upload },
+  { path: "/data-imports", label: "Data Imports", icon: FileUp },
 ];
 
 interface NavigationProps {

@@ -136,6 +136,80 @@ app.use((req, res, next) => {
     log(`[migration] ih_street_variance migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: data import subsystem tables (Task: import registry/scheduling).
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS import_runs (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL DEFAULT 'demo' REFERENCES clients(id),
+        dataset_type text NOT NULL,
+        source text NOT NULL DEFAULT 'manual',
+        scheduled_import_id varchar,
+        file_name text NOT NULL,
+        file_hash text,
+        period text,
+        period_source text,
+        mode text,
+        status text NOT NULL DEFAULT 'pending',
+        total_rows integer DEFAULT 0,
+        valid_rows integer DEFAULT 0,
+        error_rows integer DEFAULT 0,
+        inserted_rows integer DEFAULT 0,
+        deleted_rows integer DEFAULT 0,
+        validation_report jsonb,
+        error_message text,
+        started_at timestamp DEFAULT now(),
+        completed_at timestamp
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS import_runs_client_idx ON import_runs (client_id, dataset_type)
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS scheduled_imports (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL DEFAULT 'demo' REFERENCES clients(id),
+        name text NOT NULL,
+        dataset_type text NOT NULL,
+        enabled boolean NOT NULL DEFAULT true,
+        host text NOT NULL,
+        port integer NOT NULL DEFAULT 22,
+        username text NOT NULL,
+        encrypted_password text,
+        remote_path text NOT NULL,
+        file_pattern text NOT NULL DEFAULT '*.csv',
+        schedule_time text NOT NULL DEFAULT '06:00',
+        frequency text NOT NULL DEFAULT 'daily',
+        day_of_week integer,
+        day_of_month integer,
+        delete_after_import boolean NOT NULL DEFAULT false,
+        last_run_at timestamp,
+        last_run_status text,
+        last_run_message text,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS import_notifications (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL DEFAULT 'demo' REFERENCES clients(id),
+        import_run_id varchar,
+        severity text NOT NULL DEFAULT 'info',
+        title text NOT NULL,
+        message text NOT NULL,
+        read boolean NOT NULL DEFAULT false,
+        created_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS import_notifications_client_idx ON import_notifications (client_id, read)
+    `);
+    log("[migration] data import subsystem tables ensured");
+  } catch (migErr) {
+    log(`[migration] data import tables migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure source_room_type column exists on rent_roll_data.
   // Added to shared/schema.ts (Task #294) but never applied to the live DB, causing
   // POST /api/publish to throw "TypeError: Cannot convert undefined or null to object"

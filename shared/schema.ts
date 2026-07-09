@@ -1258,3 +1258,93 @@ export const insertGeocodingJobSchema = createInsertSchema(geocodingJobs).omit({
 });
 export type GeocodingJob = typeof geocodingJobs.$inferSelect;
 export type InsertGeocodingJob = z.infer<typeof insertGeocodingJobSchema>;
+
+// ── Data Import Subsystem ──────────────────────────────────────────────
+
+// Audit log for every import (manual upload or scheduled SFTP pickup)
+export const importRuns = pgTable("import_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull().default('demo'),
+  datasetType: text("dataset_type").notNull(), // rent_roll | competitive_survey | inquiry | room_type_occupancy
+  source: text("source").notNull().default('manual'), // 'manual' | 'sftp'
+  scheduledImportId: varchar("scheduled_import_id"),
+  fileName: text("file_name").notNull(),
+  fileHash: text("file_hash"), // sha256 of file content, for duplicate detection
+  period: text("period"), // YYYY-MM
+  periodSource: text("period_source"), // 'column' | 'filename' | 'user'
+  mode: text("mode"), // 'replace_period' | 'append'
+  status: text("status").notNull().default('pending'), // pending | validated | imported | failed | skipped_duplicate | partial
+  totalRows: integer("total_rows").default(0),
+  validRows: integer("valid_rows").default(0),
+  errorRows: integer("error_rows").default(0),
+  insertedRows: integer("inserted_rows").default(0),
+  deletedRows: integer("deleted_rows").default(0), // rows removed when replacing a period
+  validationReport: jsonb("validation_report"), // { columnIssues: [], rowErrors: [...capped], warnings: [] }
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("import_runs_client_idx").on(table.clientId, table.datasetType),
+]);
+
+export const insertImportRunSchema = createInsertSchema(importRuns).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+export type ImportRun = typeof importRuns.$inferSelect;
+export type InsertImportRun = z.infer<typeof insertImportRunSchema>;
+
+// Scheduled SFTP import configurations
+export const scheduledImports = pgTable("scheduled_imports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull().default('demo'),
+  name: text("name").notNull(),
+  datasetType: text("dataset_type").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  host: text("host").notNull(),
+  port: integer("port").notNull().default(22),
+  username: text("username").notNull(),
+  encryptedPassword: text("encrypted_password"), // AES-256-GCM, key derived from env secret
+  remotePath: text("remote_path").notNull(), // directory on the SFTP server
+  filePattern: text("file_pattern").notNull().default('*.csv'), // wildcard, e.g. rentroll_*.csv
+  scheduleTime: text("schedule_time").notNull().default('06:00'), // HH:MM 24h, server time
+  frequency: text("frequency").notNull().default('daily'), // daily | weekly | monthly
+  dayOfWeek: integer("day_of_week"), // 0-6 for weekly
+  dayOfMonth: integer("day_of_month"), // 1-28 for monthly
+  deleteAfterImport: boolean("delete_after_import").notNull().default(false),
+  lastRunAt: timestamp("last_run_at"),
+  lastRunStatus: text("last_run_status"), // success | failed | no_files | skipped_duplicate | partial
+  lastRunMessage: text("last_run_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertScheduledImportSchema = createInsertSchema(scheduledImports).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastRunAt: true,
+  lastRunStatus: true,
+  lastRunMessage: true,
+  encryptedPassword: true,
+}).extend({
+  password: z.string().optional(), // plaintext in API only; encrypted before storage
+});
+export type ScheduledImport = typeof scheduledImports.$inferSelect;
+export type InsertScheduledImport = z.infer<typeof insertScheduledImportSchema>;
+
+// In-app notifications for import outcomes
+export const importNotifications = pgTable("import_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull().default('demo'),
+  importRunId: varchar("import_run_id"),
+  severity: text("severity").notNull().default('info'), // info | warning | error
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("import_notifications_client_idx").on(table.clientId, table.read),
+]);
+export type ImportNotification = typeof importNotifications.$inferSelect;
