@@ -228,6 +228,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(true);
+  const [rulesExpanded, setRulesExpanded] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
 
   // Combined stats (unique campus/unit counts + per-rule breakdown for click-throughs)
@@ -1510,9 +1511,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                     )}
 
                     {/* ── Rule list (table) ── */}
-                    <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <div className={`overflow-x-auto rounded-lg border border-gray-200 ${rulesExpanded && sortedRules.length > 10 ? 'max-h-[520px] overflow-y-auto' : ''}`}>
                       <table className="w-full text-sm border-collapse">
-                        <thead>
+                        <thead className={rulesExpanded && sortedRules.length > 10 ? 'sticky top-0 z-10 bg-gray-50' : ''}>
                           <tr className="bg-gray-50 border-b border-gray-200">
                             <th className="py-2 px-2 w-9" />
                             <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Rule Summary</th>
@@ -1524,7 +1525,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                           </tr>
                         </thead>
                         <tbody>
-                          {sortedRules.map((rule) => {
+                          {(rulesExpanded ? sortedRules : sortedRules.slice(0, 5)).map((rule) => {
                             const annual        = rule.annualImpact  ?? 0;
                             const monthly       = rule.monthlyImpact ?? 0;
                             const isPos         = monthly >= 0;
@@ -1756,6 +1757,21 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                         )}
                       </table>
                     </div>
+
+                    {/* Show more / less toggle */}
+                    {sortedRules.length > 5 && (
+                      <button
+                        type="button"
+                        onClick={() => setRulesExpanded(e => !e)}
+                        className="mt-2 w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-teal-700 hover:text-teal-800 hover:bg-teal-50/60 rounded-lg border border-dashed border-gray-200 transition-colors"
+                        data-testid="button-toggle-rules-expanded"
+                      >
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${rulesExpanded ? 'rotate-180' : ''}`} />
+                        {rulesExpanded
+                          ? 'Show fewer rules'
+                          : `Show all ${sortedRules.length} rules (${sortedRules.length - 5} more)`}
+                      </button>
+                    )}
 
                     {/* Exclusivity legend */}
                     {activeCount > 1 && (
