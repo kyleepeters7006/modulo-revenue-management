@@ -196,6 +196,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
 
   const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured' | 'ai-generator'>('structured');
   const [designerOpen, setDesignerOpen] = useState(false);
+  const designerCardRef = useRef<HTMLDivElement>(null);
   const [aiInput, setAiInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -474,6 +475,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
     setDesignerOpen(true);
     setSlPickerOpen(false);
     setImpactData(null);
+    // Scroll the designer card into view so mobile users don't see a blank jump
+    setTimeout(() => {
+      designerCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
 
     // ── Hydrate ruleAction from stored action ──────────────────────────────
     const action = rule.action as any;
@@ -643,7 +648,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   return (
     <div className="space-y-6">
       {/* ── Rule Designer Card ── */}
-      <Card className="w-full shadow-sm">
+      <Card ref={designerCardRef} className="w-full shadow-sm">
         <CardHeader
           className={`cursor-pointer select-none hover:bg-gray-50/60 rounded-t-lg transition-colors ${designerOpen ? 'pb-4' : 'pb-6'}`}
           onClick={() => setDesignerOpen(o => !o)}
