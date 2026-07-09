@@ -9,6 +9,7 @@ import type { RentRollData, Guardrails, PricingWeights } from '@shared/schema';
 import type { PricingInputs } from './moduloPricingAlgorithm';
 import { getSentenceExplanation, generateOverallExplanation } from './sentenceExplanations';
 import { matchAndAdjustCompetitor } from './services/competitorLookup';
+import { invalidateRefDataCache } from './refDataCache';
 
 // Pre-computed pricing context to avoid per-unit async calls
 interface PricingContext {
@@ -659,6 +660,8 @@ class PricingJobManager {
       
       job.status = 'completed';
       job.completedAt = new Date();
+      // Rates were rewritten — drop any cached reference-data responses
+      invalidateRefDataCache();
       job.result = {
         totalUnits,
         totalUpdated: allUpdates.length,

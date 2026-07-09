@@ -79,6 +79,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
+import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
@@ -396,6 +397,23 @@ async function checkAndInitializeDatabase() {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
+
+  // Invalidate the reference-data cache on any mutation that changes its inputs.
+  // (Async pricing jobs also invalidate on completion — see pricingJobManager.)
+  app.use('/api', (req, _res, next) => {
+    if (req.method !== 'GET' && (
+      req.path.startsWith('/adjustment-rules') ||
+      req.path.startsWith('/manual-rate-override') ||
+      req.path.startsWith('/pricing/') ||
+      req.path.startsWith('/upload') ||
+      req.path.startsWith('/rent-roll') ||
+      req.path.startsWith('/admin/') ||
+      req.path.includes('recalculate')
+    )) {
+      invalidateRefDataCache();
+    }
+    next();
+  });
 
   // Serve attached assets statically
   app.use('/attached_assets', express.static(path.resolve('attached_assets')));
@@ -15847,6 +15865,14 @@ Respond in JSON format:
   });
 
   // REFERENCE DATA — wide Excel-like metric grid
+  // Warm the reference-data cache for the default (unfiltered) demo view shortly
+  // after startup so the first page visit is served instantly.
+  setTimeout(() => {
+    fetch('http://localhost:5000/api/reference-data')
+      .then(r => { if (r.ok) console.log('[ref-data] cache warmed for default view'); })
+      .catch(() => {});
+  }, 8000);
+
   // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=
   // One row per (Division, Campus, Service Line, Room Type) with Spot/T3/T6/T12
   // metrics computed across the latest 12 upload_months of rent_roll_data.
@@ -15860,6 +15886,15 @@ Respond in JSON format:
       const divisions   = csv(q.divisions);
       const locations   = csv(q.locations);
       const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
+
+      // ── Cache check ──
+      const cacheKey = JSON.stringify({ clientId, serviceLine, regions, divisions, locations });
+      const cachedPayload = getRefDataCache(cacheKey);
+      if (cachedPayload) {
+        res.setHeader('X-Cache', 'HIT');
+        return res.json(cachedPayload);
+      }
+      const computeStart = Date.now();
 
       // 1) Latest 24 upload months for this client (12 for summary windows + 12 more for history drill-down)
       const monthsRes = await pool.query<{ m: string }>(
@@ -16447,7 +16482,10 @@ Respond in JSON format:
         a.division.localeCompare(b.division) || a.campus.localeCompare(b.campus) ||
         a.serviceLine.localeCompare(b.serviceLine) || a.roomType.localeCompare(b.roomType));
 
-      res.json({ rows: activeRows, months, spotMonth, calculatedAt: new Date().toISOString(), rules: activeRules });
+      const payload = { rows: activeRows, months, spotMonth, calculatedAt: new Date().toISOString(), rules: activeRules };
+      setRefDataCache(cacheKey, payload, computeStart);
+      res.setHeader('X-Cache', 'MISS');
+      res.json(payload);
     } catch (error) {
       console.error("Error building reference data:", error);
       res.status(500).json({ error: "Failed to build reference data" });

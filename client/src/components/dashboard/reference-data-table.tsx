@@ -489,7 +489,8 @@ export default function ReferenceDataTable({
       if (!res.ok) throw new Error("Failed to load reference data");
       return res.json();
     },
-    staleTime: 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
   });
