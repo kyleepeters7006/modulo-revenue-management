@@ -227,6 +227,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const newSlPickerAiRef = useRef<HTMLDivElement>(null);
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
 
   // Combined stats (unique campus/unit counts + per-rule breakdown for click-throughs)
@@ -1454,7 +1455,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                     {/* ── Combined active rules summary ── */}
                     {activeCount > 0 && (
                       <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
-                        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                        <div
+                          className={`flex items-center justify-between gap-2 flex-wrap cursor-pointer select-none ${summaryOpen ? 'mb-3' : ''}`}
+                          onClick={() => setSummaryOpen(o => !o)}
+                        >
                           <div className="flex items-center gap-2">
                             <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                               <Layers className="h-3 w-3 text-gray-500" />
@@ -1464,13 +1468,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                               <span className="font-normal text-gray-400 ml-1.5 text-xs">· new admissions only</span>
                             </p>
                           </div>
-                          {hasOverlap && (
-                            <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-                              <AlertTriangle className="h-3 w-3 shrink-0" />
-                              {exclusiveActive.length} exclusive — priority order applies
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {hasOverlap && (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                                <AlertTriangle className="h-3 w-3 shrink-0" />
+                                {exclusiveActive.length} exclusive — priority order applies
+                              </span>
+                            )}
+                            <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${summaryOpen ? '' : '-rotate-90'}`} />
+                          </div>
                         </div>
+                        {summaryOpen && (
                         <div className="grid grid-cols-4 gap-2">
                           {(() => {
                             const uCampuses = combinedStats?.uniqueCampuses  ?? combinedCampuses;
@@ -1497,6 +1505,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                             ));
                           })()}
                         </div>
+                        )}
                       </div>
                     )}
 

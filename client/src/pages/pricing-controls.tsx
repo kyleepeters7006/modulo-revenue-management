@@ -398,6 +398,7 @@ const ALL_SERVICE_LINES = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const;
 
 function CareLevel2RatesPanel() {
   const { toast } = useToast();
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const { data: locationsData } = useQuery<{ locations?: Array<{ id: string; name: string }> }>({
     queryKey: ["/api/locations"],
@@ -485,15 +486,22 @@ function CareLevel2RatesPanel() {
 
   return (
     <Card data-testid="card-care-level-rates">
-      <CardHeader className="pb-4">
-        <div className="flex items-center gap-2">
-          <HeartPulse className="h-5 w-5 text-rose-500" />
-          <CardTitle className="text-lg">Level 2 Care Rates</CardTitle>
+      <CardHeader
+        className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors"
+        onClick={() => setPanelOpen(o => !o)}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <HeartPulse className="h-5 w-5 text-rose-500" />
+            <CardTitle className="text-lg">Level 2 Care Rates</CardTitle>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${panelOpen ? '' : '-rotate-90'}`} />
         </div>
         <CardDescription>
           Set the posted Level 2 care rate per location and service line. These rates are used in the competitor adjustment formula (adjustedRate = base + theirCareL2 − ourCareL2 + …) so the pricing breakdown shows the correct "ours" value without re-uploading rent roll data.
         </CardDescription>
       </CardHeader>
+      {panelOpen && (
       <CardContent>
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-4">
@@ -593,6 +601,7 @@ function CareLevel2RatesPanel() {
           </div>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }
