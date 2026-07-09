@@ -21,6 +21,7 @@ import {
   updateSchedule,
   deleteSchedule,
   runScheduledImport,
+  triggerPostImportActions,
 } from "../services/scheduledImportService";
 import { db } from "../db";
 import { scheduledImports, importNotifications } from "@shared/schema";
@@ -154,6 +155,13 @@ export function registerDataImportRoutes(app: Express): void {
       });
       const statusCode = run.status === "failed" ? 500 : 200;
       res.status(statusCode).json(run);
+      // Fire-and-forget post-import actions (cache invalidation + rate refresh)
+      // for competitive_survey so the badge appears without waiting for the nightly cron.
+      if (run.status !== "failed" && datasetId === "competitive_survey" && period) {
+        triggerPostImportActions(clientId, datasetId, period, run.id).catch((err) =>
+          console.error("[DataImport] Post-import actions failed for manual competitive_survey import:", err),
+        );
+      }
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : "Import failed" });
     }

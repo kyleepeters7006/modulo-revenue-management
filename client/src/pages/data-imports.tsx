@@ -114,6 +114,7 @@ interface Notification {
   message: string;
   read: boolean;
   createdAt: string;
+  importRunId: string | null;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -796,6 +797,25 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
 
 // ── History tab ─────────────────────────────────────────────────────
 
+const RATE_REFRESH_TITLES = new Set([
+  "Competitor rate refresh queued",
+  "Competitor rate refresh failed to queue",
+]);
+
+function rateRefreshBadge(notification: Notification) {
+  const isSuccess = notification.severity === "info";
+  return (
+    <Badge
+      variant={isSuccess ? "default" : "secondary"}
+      className={`gap-1 text-xs ${isSuccess ? "bg-emerald-600 hover:bg-emerald-600 text-white" : "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border border-yellow-500/40"}`}
+      title={notification.message}
+    >
+      <RefreshCw className="h-3 w-3" />
+      {isSuccess ? "Rates refreshed" : "Rate refresh failed"}
+    </Badge>
+  );
+}
+
 function HistoryTab() {
   const { data: runs = [], isLoading } = useQuery<ImportRun[]>({ queryKey: ["/api/data-imports/runs"] });
   const { data: notifications = [] } = useQuery<Notification[]>({ queryKey: ["/api/data-imports/notifications"] });
@@ -806,6 +826,14 @@ function HistoryTab() {
   });
 
   const unread = notifications.filter((n) => !n.read);
+
+  // Build a lookup: importRunId → rate-refresh notification (first match per run)
+  const rateRefreshByRunId = new Map<string, Notification>();
+  for (const n of notifications) {
+    if (n.importRunId && RATE_REFRESH_TITLES.has(n.title) && !rateRefreshByRunId.has(n.importRunId)) {
+      rateRefreshByRunId.set(n.importRunId, n);
+    }
+  }
 
   return (
     <div className="space-y-4 mt-4">
@@ -850,22 +878,28 @@ function HistoryTab() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {runs.map((r) => (
-                    <TableRow key={r.id} data-testid={`row-run-${r.id}`}>
-                      <TableCell className="whitespace-nowrap text-sm">{new Date(r.startedAt).toLocaleString()}</TableCell>
-                      <TableCell>{r.datasetType}</TableCell>
-                      <TableCell className="max-w-48 truncate" title={r.fileName}>{r.fileName}</TableCell>
-                      <TableCell>{r.source}</TableCell>
-                      <TableCell>{r.period || "—"}</TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">
-                        {r.insertedRows ?? 0} in{r.deletedRows ? ` / ${r.deletedRows} replaced` : ""}{r.errorRows ? ` / ${r.errorRows} err` : ""}
-                      </TableCell>
-                      <TableCell>
-                        {statusBadge(r.status)}
-                        {r.errorMessage && <p className="text-xs text-destructive mt-1 max-w-56 truncate" title={r.errorMessage}>{r.errorMessage}</p>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {runs.map((r) => {
+                    const rateNotif = rateRefreshByRunId.get(r.id);
+                    return (
+                      <TableRow key={r.id} data-testid={`row-run-${r.id}`}>
+                        <TableCell className="whitespace-nowrap text-sm">{new Date(r.startedAt).toLocaleString()}</TableCell>
+                        <TableCell>{r.datasetType}</TableCell>
+                        <TableCell className="max-w-48 truncate" title={r.fileName}>{r.fileName}</TableCell>
+                        <TableCell>{r.source}</TableCell>
+                        <TableCell>{r.period || "—"}</TableCell>
+                        <TableCell className="text-sm whitespace-nowrap">
+                          {r.insertedRows ?? 0} in{r.deletedRows ? ` / ${r.deletedRows} replaced` : ""}{r.errorRows ? ` / ${r.errorRows} err` : ""}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {statusBadge(r.status)}
+                            {rateNotif && rateRefreshBadge(rateNotif)}
+                          </div>
+                          {r.errorMessage && <p className="text-xs text-destructive mt-1 max-w-56 truncate" title={r.errorMessage}>{r.errorMessage}</p>}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
