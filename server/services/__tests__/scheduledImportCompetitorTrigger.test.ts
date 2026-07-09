@@ -61,7 +61,7 @@ console.log("\ncompetitive-survey SFTP trigger — triggerPostImportActions\n");
 await test("competitive_survey import calls startCompetitorRateJob(targetMonth, clientId)", async () => {
   const spy = makeSpy();
 
-  await triggerPostImportActions("trilogy", "competitive_survey", "2025-11", {
+  await triggerPostImportActions("trilogy", "competitive_survey", "2025-11", null, {
     startCompetitorRateJob: spy.fn,
   });
 
@@ -74,7 +74,7 @@ await test("competitive_survey import calls startCompetitorRateJob(targetMonth, 
 await test("competitive_survey forwards different clientId and targetMonth correctly", async () => {
   const spy = makeSpy();
 
-  await triggerPostImportActions("glm", "competitive_survey", "2026-03", {
+  await triggerPostImportActions("glm", "competitive_survey", "2026-03", null, {
     startCompetitorRateJob: spy.fn,
   });
 
@@ -90,7 +90,7 @@ await test("rent_roll import does NOT call startCompetitorRateJob", async () => 
   const competitorSpy = makeSpy();
   const pricingJobCalls: Array<{ targetMonth: string; clientId: string }> = [];
 
-  await triggerPostImportActions("trilogy", "rent_roll", "2025-11", {
+  await triggerPostImportActions("trilogy", "rent_roll", "2025-11", null, {
     startCompetitorRateJob: competitorSpy.fn,
     startPricingJob: async (targetMonth, clientId) => {
       pricingJobCalls.push({ targetMonth, clientId });
@@ -109,7 +109,7 @@ await test("rent_roll import does NOT call startCompetitorRateJob", async () => 
 await test("unknown dataset type does NOT call startCompetitorRateJob", async () => {
   const spy = makeSpy();
 
-  await triggerPostImportActions("demo", "keystats", "2025-11", {
+  await triggerPostImportActions("demo", "keystats", "2025-11", null, {
     startCompetitorRateJob: spy.fn,
   });
 
@@ -123,7 +123,7 @@ await test("error in startCompetitorRateJob is caught and does not propagate", a
   };
 
   // Should resolve without throwing even though the job starter threw.
-  await triggerPostImportActions("ssmg", "competitive_survey", "2025-12", {
+  await triggerPostImportActions("ssmg", "competitive_survey", "2025-12", null, {
     startCompetitorRateJob: throwingFn,
   });
   // If we reach here the error was correctly swallowed.
@@ -133,10 +133,10 @@ await test("error in startCompetitorRateJob is caught and does not propagate", a
 await test("two sequential competitive_survey imports each trigger one job", async () => {
   const spy = makeSpy();
 
-  await triggerPostImportActions("trilogy", "competitive_survey", "2025-10", {
+  await triggerPostImportActions("trilogy", "competitive_survey", "2025-10", null, {
     startCompetitorRateJob: spy.fn,
   });
-  await triggerPostImportActions("trilogy", "competitive_survey", "2025-11", {
+  await triggerPostImportActions("trilogy", "competitive_survey", "2025-11", null, {
     startCompetitorRateJob: spy.fn,
   });
 

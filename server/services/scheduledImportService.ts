@@ -72,7 +72,7 @@ export interface PostImportDeps {
  * The optional `_deps` parameter is for unit-testing only — pass mock callbacks
  * to avoid real DB/network calls.  Production code always omits it.
  */
-export async function triggerPostImportActions(clientId: string, datasetType: string, targetMonth: string, _deps?: PostImportDeps): Promise<void> {
+export async function triggerPostImportActions(clientId: string, datasetType: string, targetMonth: string, importRunId?: string | null, _deps?: PostImportDeps): Promise<void> {
   // 1. Invalidate the in-memory reference-data cache for all clients so
   //    Overview / Analytics pick up the new data on their next request.
   invalidateRefDataCache();
@@ -126,7 +126,7 @@ export async function triggerPostImportActions(clientId: string, datasetType: st
       console.log(`[ScheduledImport] Competitor rate job ${jobId} queued for client ${clientId}, month ${targetMonth}`);
       await createImportNotification(
         clientId,
-        null,
+        importRunId ?? null,
         "info",
         "Competitor rate refresh queued",
         `Competitor rate matching job queued (job ID: ${jobId}) for period ${targetMonth}.`,
@@ -137,7 +137,7 @@ export async function triggerPostImportActions(clientId: string, datasetType: st
       console.error(`[ScheduledImport] Failed to queue competitor rate job after competitive_survey import for client ${clientId}:`, err);
       await createImportNotification(
         clientId,
-        null,
+        importRunId ?? null,
         "warning",
         "Competitor rate refresh failed to queue",
         `Could not start competitor rate matching job after competitive survey import for period ${targetMonth}. Rates will be refreshed by the nightly job. Error: ${msg}`,
@@ -261,6 +261,7 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
     let anyImported = false;
     let anyFailed = false;
     let lastImportedPeriod: string | null = null;
+    let lastImportedRunId: string | null = null;
 
     for (const file of matches) {
       const remoteFile = `${schedule.remotePath.replace(/\/$/, "")}/${file.name}`;
@@ -312,6 +313,7 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
         });
         if (run.status === "imported" || run.status === "partial") {
           anyImported = true;
+          lastImportedRunId = run.id;
           if (period) lastImportedPeriod = period;
           const periodNote = period
             ? ((run.deletedRows ?? 0) > 0 ? `period ${period} replaced` : `period ${period} added`)
@@ -341,7 +343,7 @@ export async function runScheduledImport(schedule: ScheduledImport): Promise<{ s
       const targetMonth = lastImportedPeriod
         || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
       // Fire and forget — errors are logged inside; they must not block the SFTP result.
-      triggerPostImportActions(clientId, schedule.datasetType, targetMonth).catch((err) =>
+      triggerPostImportActions(clientId, schedule.datasetType, targetMonth, lastImportedRunId).catch((err) =>
         console.error(`[ScheduledImport] Post-import actions failed for ${schedule.name}:`, err),
       );
     }
