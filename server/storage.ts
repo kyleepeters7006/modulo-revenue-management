@@ -144,6 +144,7 @@ export interface IStorage {
   updateCalculationHistory(id: string, data: Partial<InsertCalculationHistory>): Promise<void>;
   getLatestCalculationHistory(locationId?: string | null): Promise<CalculationHistory | undefined>;
   getCalculationHistoryByMonth(uploadMonth: string): Promise<CalculationHistory[]>;
+  getRecentSftpPricingHistory(limit?: number, clientId?: string): Promise<CalculationHistory[]>;
   
   // Inquiry metrics
   bulkInsertInquiryMetrics(uploadMonth: string, data: InsertInquiryMetrics[], options?: { clientId?: string; serviceLineScope?: string[] }): Promise<void>;
@@ -973,6 +974,23 @@ export class DatabaseStorage implements IStorage {
       .from(calculationHistory)
       .where(eq(calculationHistory.uploadMonth, uploadMonth))
       .orderBy(desc(calculationHistory.startedAt));
+  }
+
+  async getRecentSftpPricingHistory(limit = 10, clientId?: string): Promise<CalculationHistory[]> {
+    // Filter to entries whose metadata contains triggeredBy = 'sftp_import',
+    // scoped to the requesting tenant via metadata.clientId when provided.
+    const conditions: any[] = [
+      sql`(${calculationHistory.metadata}->>'triggeredBy') = 'sftp_import'`,
+    ];
+    if (clientId) {
+      conditions.push(sql`(${calculationHistory.metadata}->>'clientId') = ${clientId}`);
+    }
+    return await db
+      .select()
+      .from(calculationHistory)
+      .where(and(...conditions))
+      .orderBy(desc(calculationHistory.startedAt))
+      .limit(limit);
   }
 
   // Inquiry metrics

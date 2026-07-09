@@ -489,22 +489,28 @@ class PricingJobManager {
       const targetMonth = month || '2025-10';
       const jobClientId_ = jobClientId || 'demo';
       
-      // Create calculation history entry
-      const historyEntry = await storage.createCalculationHistory({
-        calculationType: 'manual',
-        status: 'started',
-        startedAt: new Date(),
-        completedAt: null,
-        locationId: locationFilter?.[0] || locationId || null,
-        uploadMonth: targetMonth,
-        totalUnits: null,
-        unitsCalculated: null,
-        averageModuloRate: null,
-        averageAIRate: null,
-        errorMessage: null,
-        metadata: null
-      });
-      calculationHistoryId = historyEntry.id;
+      // Reuse the history entry created by the caller (e.g. triggerPostImportActions) when
+      // one is provided.  If not, create a fresh entry so manual/cron runs are still tracked.
+      if (job.params.calculationHistoryId) {
+        calculationHistoryId = job.params.calculationHistoryId;
+        console.log(`[PricingJob ${jobId}] Reusing existing calculation history entry ${calculationHistoryId}`);
+      } else {
+        const historyEntry = await storage.createCalculationHistory({
+          calculationType: 'manual',
+          status: 'started',
+          startedAt: new Date(),
+          completedAt: null,
+          locationId: locationFilter?.[0] || locationId || null,
+          uploadMonth: targetMonth,
+          totalUnits: null,
+          unitsCalculated: null,
+          averageModuloRate: null,
+          averageAIRate: null,
+          errorMessage: null,
+          metadata: null
+        });
+        calculationHistoryId = historyEntry.id;
+      }
       
       // Initialize cache once for all batches
       console.log(`[PricingJob ${jobId}] Initializing attribute pricing cache for month: ${targetMonth}`);
@@ -668,7 +674,9 @@ class PricingJobManager {
         processingTimeMs: processingTime
       };
       
-      // Update calculation history to completed
+      // Update calculation history to completed.
+      // Merge SFTP-origin fields back into metadata so the triggeredBy filter remains valid
+      // for SFTP-triggered jobs even after the history row transitions to "completed".
       if (calculationHistoryId) {
         await storage.updateCalculationHistory(calculationHistoryId, {
           status: 'completed',
@@ -678,8 +686,12 @@ class PricingJobManager {
           averageModuloRate: avgModuloRate,
           averageAIRate: null, // AI rates are calculated separately
           metadata: {
+            // Preserve SFTP origin markers when this job was triggered by an import
+            ...(job.params.calculationHistoryId
+              ? { triggeredBy: 'sftp_import', clientId: jobClientId_ }
+              : {}),
             processingTimeMs: processingTime,
-            batchesProcessed: totalBatches
+            batchesProcessed: totalBatches,
           }
         });
       }
@@ -692,12 +704,16 @@ class PricingJobManager {
       job.error = error instanceof Error ? error.message : 'Unknown error';
       job.completedAt = new Date();
       
-      // Update calculation history to failed
+      // Update calculation history to failed.
+      // Re-include SFTP origin markers so the triggeredBy filter still works.
       if (calculationHistoryId) {
         await storage.updateCalculationHistory(calculationHistoryId, {
           status: 'failed',
           completedAt: new Date(),
-          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          ...(job.params.calculationHistoryId
+            ? { metadata: { triggeredBy: 'sftp_import', clientId: job.params.clientId || 'demo' } }
+            : {}),
         });
       }
     } finally {

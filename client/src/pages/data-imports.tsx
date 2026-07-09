@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, Download, FileSpreadsheet, FileText, CheckCircle2, XCircle, AlertTriangle, Clock, Play, Trash2, Pencil, Server, Bell } from "lucide-react";
+import { Upload, Download, FileSpreadsheet, FileText, CheckCircle2, XCircle, AlertTriangle, Clock, Play, Trash2, Pencil, Server, Bell, RefreshCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 // ── Types (mirror server registry / API) ────────────────────────────
@@ -91,6 +91,20 @@ interface Schedule {
   lastRunStatus: string | null;
   lastRunMessage: string | null;
   hasPassword?: boolean;
+}
+
+interface PricingJobRecord {
+  id: string;
+  calculationType: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  uploadMonth: string | null;
+  totalUnits: number | null;
+  unitsCalculated: number | null;
+  averageModuloRate: number | null;
+  errorMessage: string | null;
+  metadata: Record<string, any> | null;
 }
 
 interface Notification {
@@ -480,6 +494,10 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
   const [form, setForm] = useState<any>(emptySchedule);
 
   const { data: schedules = [], isLoading } = useQuery<Schedule[]>({ queryKey: ["/api/data-imports/schedules"] });
+  const { data: pricingHistoryData, isLoading: pricingHistoryLoading, refetch: refetchPricingHistory } = useQuery<{ success: boolean; history: PricingJobRecord[] }>({
+    queryKey: ["/api/data-imports/pricing-history"],
+  });
+  const pricingHistory = pricingHistoryData?.history ?? [];
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -697,6 +715,81 @@ function SchedulesTab({ registry }: { registry: DatasetDefinition[] }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Pricing recalculation health monitor */}
+      <Card data-testid="card-pricing-health">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Pricing recalculation log
+            </CardTitle>
+            <Button size="sm" variant="ghost" onClick={() => refetchPricingHistory()} data-testid="button-refresh-pricing-history">
+              Refresh
+            </Button>
+          </div>
+          <CardDescription>
+            After each rent roll SFTP import, a pricing recalculation runs automatically. This log confirms each job completed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {pricingHistoryLoading ? (
+            <p className="text-muted-foreground text-sm">Loading…</p>
+          ) : pricingHistory.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No SFTP-triggered pricing jobs yet. They appear here after a rent roll import completes.</p>
+          ) : (
+            <div className="border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Started</TableHead>
+                    <TableHead>Month</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Units</TableHead>
+                    <TableHead>Completed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pricingHistory.map((p) => {
+                    const durationMs = p.completedAt
+                      ? new Date(p.completedAt).getTime() - new Date(p.startedAt).getTime()
+                      : null;
+                    const durationStr = durationMs !== null
+                      ? durationMs < 60000
+                        ? `${(durationMs / 1000).toFixed(0)}s`
+                        : `${(durationMs / 60000).toFixed(1)}m`
+                      : null;
+                    return (
+                      <TableRow key={p.id} data-testid={`row-pricing-${p.id}`}>
+                        <TableCell className="whitespace-nowrap text-sm">{new Date(p.startedAt).toLocaleString()}</TableCell>
+                        <TableCell className="text-sm">{p.uploadMonth || "—"}</TableCell>
+                        <TableCell>
+                          {p.status === "completed" ? (
+                            <Badge variant="default" className="gap-1"><CheckCircle2 className="h-3 w-3" />completed</Badge>
+                          ) : p.status === "failed" ? (
+                            <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />failed</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="gap-1"><Clock className="h-3 w-3" />{p.status}</Badge>
+                          )}
+                          {p.errorMessage && (
+                            <p className="text-xs text-destructive mt-1 max-w-56 truncate" title={p.errorMessage}>{p.errorMessage}</p>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {p.unitsCalculated !== null ? `${p.unitsCalculated?.toLocaleString()} / ${p.totalUnits?.toLocaleString()}` : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {p.completedAt ? `${new Date(p.completedAt).toLocaleTimeString()}${durationStr ? ` (${durationStr})` : ""}` : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

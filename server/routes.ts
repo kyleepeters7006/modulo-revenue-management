@@ -9511,6 +9511,21 @@ ${campusOccLines.join('\n')}
     }
   });
   
+  // SFTP-triggered pricing job history — used by the Scheduled Imports admin panel
+  // to confirm that recalculations are completing after each rent-roll import.
+  // Results are scoped to the requesting tenant so cross-client data is never exposed.
+  app.get("/api/data-imports/pricing-history", async (req: any, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 10, 50);
+      const clientId: string = req.clientId || 'demo';
+      const history = await storage.getRecentSftpPricingHistory(limit, clientId);
+      res.json({ success: true, history });
+    } catch (error) {
+      console.error("Error fetching SFTP pricing history:", error);
+      res.status(500).json({ error: "Failed to fetch SFTP pricing history" });
+    }
+  });
+
   // Get calculation history endpoint
   app.get("/api/pricing/calculation-history", async (req, res) => {
     try {
