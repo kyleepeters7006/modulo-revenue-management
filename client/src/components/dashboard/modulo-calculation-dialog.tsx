@@ -322,6 +322,14 @@ export default function ModuloCalculationDialog({
     });
   })();
 
+  // Determine if the replayed rule chain lands on a different rate than the stored ruleAdjustedRate.
+  // A $1 tolerance avoids false positives from floating-point rounding.
+  const hasStaleRules = (() => {
+    if (!ruleAdjustedRate || ruleChainSteps.length === 0) return false;
+    const chainFinal = ruleChainSteps[ruleChainSteps.length - 1].after;
+    return Math.abs(chainFinal - ruleAdjustedRate) > 1;
+  })();
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -520,6 +528,30 @@ export default function ModuloCalculationDialog({
                             </>
                           );
                         })()}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Stale Rule Chain Warning */}
+              {hasStaleRules && (
+                <Card className="bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-1">
+                          Rules have changed since this rate was calculated
+                        </h4>
+                        <p className="text-xs text-amber-800 dark:text-amber-200">
+                          The replayed rule chain produces{' '}
+                          <span className="font-semibold">{formatCurrency(ruleChainSteps[ruleChainSteps.length - 1].after)}</span>,
+                          but the saved rate is{' '}
+                          <span className="font-semibold">{formatCurrency(ruleAdjustedRate!)}</span>.
+                          One or more rules may have been edited or deleted after this rate was last saved.
+                          Regenerate to update.
+                        </p>
                       </div>
                     </div>
                   </CardContent>
