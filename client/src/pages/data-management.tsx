@@ -80,30 +80,6 @@ export default function DataManagement() {
     }
   };
 
-  const regenerateDemoDataMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch('/api/admin/regenerate-demo-data', { method: 'POST' });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to regenerate demo data');
-      }
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Demo Data Regenerated",
-        description: data.message || "Demo data has been successfully regenerated.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Regeneration Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
 
   const backfillCareLevelRatesMutation = useMutation({
     mutationFn: async () => {
@@ -1350,37 +1326,6 @@ export default function DataManagement() {
             </CardContent>
           </Card>
 
-          {/* Admin: Regenerate Demo Data — visible to authenticated admins only */}
-          {isAdmin && (
-            <Card className="border-amber-200 bg-amber-50">
-              <CardHeader>
-                <CardTitle className="text-amber-900">Admin: Demo Data Management</CardTitle>
-                <CardDescription className="text-amber-700">
-                  Re-seed the demo environment with fresh synthetic data. This will replace all existing demo locations, rent roll, competitive, and inquiry records.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => regenerateDemoDataMutation.mutate()}
-                  disabled={regenerateDemoDataMutation.isPending}
-                  className="bg-amber-600 hover:bg-amber-700 text-white"
-                  data-testid="button-regenerate-demo-data"
-                >
-                  {regenerateDemoDataMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Regenerating...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Regenerate Demo Data
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Admin: Backfill Level 2 Care Rates — visible to authenticated admins only */}
           {isAdmin && (
