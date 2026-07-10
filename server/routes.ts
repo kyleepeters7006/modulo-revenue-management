@@ -170,6 +170,15 @@ function setCachedAnalytics(key: string, data: any): void {
   analyticsCache.set(key, { data, timestamp: Date.now() });
 }
 
+// Purge all adjustment-rule-related cache entries for a client so that any
+// filter combination (location, service line, or "all") sees the fresh DB state.
+function purgeRuleCaches(clientId: string): void {
+  const prefixes = [`adj-rules:${clientId}:`, `rule-strategy-analysis:${clientId}`, `adj-rules-combined:${clientId}`];
+  for (const key of Array.from(analyticsCache.keys())) {
+    if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
+  }
+}
+
 // Function to process image and detect room numbers using OCR
 async function processImageForRooms(imageBuffer: Buffer): Promise<any[]> {
   try {
@@ -13992,6 +14001,7 @@ Respond in JSON format:
         volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
         elasticity: elasticityImpact,
       });
+      purgeRuleCaches(clientId);
     } catch (error) {
       console.error('Error creating adjustment rule:', error);
       res.status(500).json({ error: "Failed to create adjustment rule" });
@@ -15086,6 +15096,7 @@ Return ONLY valid JSON with no markdown fences:
         volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
       });
 
+      purgeRuleCaches(clientId);
       res.json({ rule: { ...updated, ...impact }, affectedUnits: impact.affectedUnits });
     } catch (error) {
       console.error('Error updating adjustment rule:', error);
@@ -15093,9 +15104,10 @@ Return ONLY valid JSON with no markdown fences:
     }
   });
 
-  app.patch("/api/adjustment-rules/:id/toggle", async (req, res) => {
+  app.patch("/api/adjustment-rules/:id/toggle", async (req: any, res) => {
     try {
       const { id } = req.params;
+      const clientId = req.clientId || 'demo';
       const rules = await storage.getAdjustmentRules();
       const rule = rules.find(r => r.id === id);
       
@@ -15106,6 +15118,10 @@ Return ONLY valid JSON with no markdown fences:
       const updated = await storage.updateAdjustmentRule(id, {
         isActive: !rule.isActive,
       });
+
+      // Clear all cached rule-list variants so every location/service-line
+      // filter sees the updated active state immediately (not the stale cache).
+      purgeRuleCaches(clientId);
       
       res.json(updated);
     } catch (error) {
@@ -15114,9 +15130,10 @@ Return ONLY valid JSON with no markdown fences:
     }
   });
   
-  app.patch("/api/adjustment-rules/:id/additive", async (req, res) => {
+  app.patch("/api/adjustment-rules/:id/additive", async (req: any, res) => {
     try {
       const { id } = req.params;
+      const clientId = req.clientId || 'demo';
       const rules = await storage.getAdjustmentRules();
       const rule = rules.find(r => r.id === id);
       if (!rule) return res.status(404).json({ error: "Rule not found" });
@@ -15124,6 +15141,7 @@ Return ONLY valid JSON with no markdown fences:
       const updated = await storage.updateAdjustmentRule(id, {
         action: { ...action, isAdditive: action.isAdditive === false },
       });
+      purgeRuleCaches(clientId);
       res.json(updated);
     } catch (error) {
       console.error('Error updating rule additive flag:', error);
@@ -15131,10 +15149,12 @@ Return ONLY valid JSON with no markdown fences:
     }
   });
 
-  app.delete("/api/adjustment-rules/:id", async (req, res) => {
+  app.delete("/api/adjustment-rules/:id", async (req: any, res) => {
     try {
       const { id } = req.params;
+      const clientId = req.clientId || 'demo';
       await storage.deleteAdjustmentRule(id);
+      purgeRuleCaches(clientId);
       res.json({ success: true });
     } catch (error) {
       console.error('Error deleting adjustment rule:', error);
