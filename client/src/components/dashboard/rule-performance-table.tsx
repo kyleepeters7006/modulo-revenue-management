@@ -39,6 +39,7 @@ interface PerfMetrics {
   daysFasterThanExpected: number | null;
   monthlyRevenueImpact: number | null;
   annualRevenueImpact: number | null;
+  projected?: boolean;
   dateApplied: string | null;
   calc: CalcBreakdown | null;
 }
@@ -310,7 +311,10 @@ export function RulePerformanceTable({
               Speed vs. Expected compares the average days-to-sell of units sold after the rule was applied
               against the historical average days vacant for the same service line and room type. Revenue
               impact compares trailing 3-month average realized revenue before the rule against the 3 months
-              after (capturing both rate and occupancy changes). Click any impact value to see the calculation.
+              after (capturing both rate and occupancy changes). Click any impact value to see the calculation.{" "}
+              Values marked <span className="font-medium">(est.)</span> are projected estimates based on the
+              rate delta and current occupancy data — they will be replaced by realized figures once enough
+              before/after revenue history accumulates.
             </p>
           </>
         )}
@@ -373,6 +377,34 @@ export function RulePerformanceTable({
                 </p>
               </div>
             </div>
+          ) : calcOpen?.metrics.projected && calcOpen.metrics.monthlyRevenueImpact != null ? (
+            <div className="space-y-3 text-sm">
+              <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
+                <div className="flex items-center justify-between border-b border-border pb-2 mb-1">
+                  <span className="text-muted-foreground font-medium">Projected monthly impact</span>
+                  <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)} <span className="text-xs font-normal opacity-70">(est.)</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Projected annual impact (monthly × 12)</span>
+                  <span className={`font-medium tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {fmtMoney(calcOpen.metrics.annualRevenueImpact)} <span className="text-xs font-normal opacity-70">(est.)</span>
+                  </span>
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1.5">
+                <p>
+                  Not yet enough before/after revenue history to compute a realized T3 comparison. This
+                  estimate is based on the difference between the rule-adjusted rate and the current
+                  in-house rate across all impacted units (HC and HC/MC rates converted to monthly).
+                </p>
+                <p>
+                  Once at least one full revenue snapshot month exists both before and after this rule was
+                  applied, this will automatically switch to the realized T3 comparison.
+                </p>
+              </div>
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">
               Not enough revenue history to compute a before/after comparison for this rule (needs at least
@@ -398,14 +430,17 @@ function RowGroup({
   tdCls: string;
   onCalcClick: (title: string, metrics: PerfMetrics) => void;
 }) {
-  const speedBadge = (n: number | null) => {
+  const speedBadge = (n: number | null, isProj?: boolean) => {
     if (n == null) return <span className="text-muted-foreground">–</span>;
+    const estTag = isProj ? <span className="ml-1 text-[10px] font-normal opacity-60">(est.)</span> : null;
     if (n > 0)
-      return <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{fmtDaysFaster(n)}</Badge>;
+      return <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{fmtDaysFaster(n)}{estTag}</Badge>;
     if (n < 0)
-      return <Badge variant="outline" className="border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">{fmtDaysFaster(n)}</Badge>;
-    return <Badge variant="outline">on pace</Badge>;
+      return <Badge variant="outline" className="border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">{fmtDaysFaster(n)}{estTag}</Badge>;
+    return <Badge variant="outline">on pace{estTag}</Badge>;
   };
+
+  const estLabel = <span className="ml-1 text-[10px] font-normal opacity-60">(est.)</span>;
 
   return (
     <>
@@ -423,20 +458,20 @@ function RowGroup({
         <td className={tdCls}>{fmtDate(row.dateApplied)}</td>
         <td className={`${tdCls} text-right tabular-nums`}>{row.unitsImpacted.toLocaleString()}</td>
         <td className={`${tdCls} text-right tabular-nums`}>{row.unitsSold.toLocaleString()}</td>
-        <td className={tdCls}>{speedBadge(row.daysFasterThanExpected)}</td>
+        <td className={tdCls}>{speedBadge(row.daysFasterThanExpected, row.projected)}</td>
         <td
           className={`${tdCls} text-right tabular-nums cursor-pointer underline decoration-dotted underline-offset-2 ${(row.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
           onClick={(e) => { e.stopPropagation(); onCalcClick(row.ruleName, row); }}
           data-testid={`cell-perf-monthly-${row.ruleName}`}
         >
-          {fmtMoney(row.monthlyRevenueImpact)}
+          {fmtMoney(row.monthlyRevenueImpact)}{row.projected && row.monthlyRevenueImpact != null && estLabel}
         </td>
         <td
           className={`${tdCls} text-right tabular-nums font-medium cursor-pointer underline decoration-dotted underline-offset-2 ${(row.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
           onClick={(e) => { e.stopPropagation(); onCalcClick(row.ruleName, row); }}
           data-testid={`cell-perf-annual-${row.ruleName}`}
         >
-          {fmtMoney(row.annualRevenueImpact)}
+          {fmtMoney(row.annualRevenueImpact)}{row.projected && row.annualRevenueImpact != null && estLabel}
         </td>
       </tr>
       {open &&
@@ -448,18 +483,18 @@ function RowGroup({
             <td className={tdCls}>{fmtDate(d.dateApplied)}</td>
             <td className={`${tdCls} text-right tabular-nums`}>{d.unitsImpacted.toLocaleString()}</td>
             <td className={`${tdCls} text-right tabular-nums`}>{d.unitsSold.toLocaleString()}</td>
-            <td className={`${tdCls} text-xs`}>{fmtDaysFaster(d.daysFasterThanExpected)}</td>
+            <td className={`${tdCls} text-xs`}>{fmtDaysFaster(d.daysFasterThanExpected)}{d.projected && d.daysFasterThanExpected != null && <span className="ml-1 text-[10px] opacity-60">(est.)</span>}</td>
             <td
               className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
               onClick={() => onCalcClick(`${row.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
             >
-              {fmtMoney(d.monthlyRevenueImpact)}
+              {fmtMoney(d.monthlyRevenueImpact)}{d.projected && d.monthlyRevenueImpact != null && <span className="ml-1 text-[10px] opacity-60">(est.)</span>}
             </td>
             <td
               className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
               onClick={() => onCalcClick(`${row.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
             >
-              {fmtMoney(d.annualRevenueImpact)}
+              {fmtMoney(d.annualRevenueImpact)}{d.projected && d.annualRevenueImpact != null && <span className="ml-1 text-[10px] opacity-60">(est.)</span>}
             </td>
           </tr>
         ))}

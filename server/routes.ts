@@ -15912,7 +15912,7 @@ Return ONLY valid JSON with no markdown fences:
       const unitRes = await pool.query(`
         SELECT DISTINCT ON (rr.location, rr.room_number, rr.applied_rule_name)
                rr.location, rr.service_line, rr.room_type, rr.room_number,
-               rr.occupied_yn, rr.street_rate, rr.rule_adjusted_rate,
+               rr.occupied_yn, rr.street_rate, rr.in_house_rate, rr.rule_adjusted_rate,
                rr.applied_rule_name, rr.move_in_date, rr.days_vacant, rr.upload_month,
                COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) AS applied_at
         FROM rent_roll_data rr
@@ -16008,11 +16008,17 @@ Return ONLY valid JSON with no markdown fences:
 
       type Agg = {
         unitsImpacted: number; unitsSold: number;
-        dtsSum: number; dtsN: number;          // actual days-to-sell (sold units)
+        dtsSum: number; dtsN: number;          // actual days-to-sell (sold units, post-rule)
         expSum: number; expN: number;          // expected baseline for sold units
         earliestApplied: Date | null;
+        projRateSum: number;                   // fallback: sum of (rule_rate - in_house_rate) * multiplier
+        projDtsSum: number;                    // fallback: sum of days_vacant for occupied units
+        projDtsN: number;                      // fallback: count of occupied units with days_vacant
       };
-      const newAgg = (): Agg => ({ unitsImpacted: 0, unitsSold: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0, earliestApplied: null });
+      const newAgg = (): Agg => ({
+        unitsImpacted: 0, unitsSold: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0,
+        earliestApplied: null, projRateSum: 0, projDtsSum: 0, projDtsN: 0,
+      });
       // ruleName -> summary agg; ruleName -> detailKey -> agg
       const summary = new Map<string, Agg>();
       const details = new Map<string, Map<string, Agg & { location: string; serviceLine: string; roomType: string }>>();
@@ -16029,6 +16035,13 @@ Return ONLY valid JSON with no markdown fences:
         const appliedAt = new Date(u.applied_at);
         const dKey = `${u.location}|${u.service_line}|${u.room_type}`;
         const share = 1 / ruleNames.length; // proportional split when rules stack
+        // Projected monthly rate delta (used as fallback when T3 history is unavailable)
+        const isDaily = ['HC', 'HC/MC'].includes(u.service_line);
+        const rateMultiplier = isDaily ? 30.4 : 1;
+        const inHouseRate = Number(u.in_house_rate) || 0;
+        const ruleRate = Number(u.rule_adjusted_rate) || 0;
+        const projRateDelta = (ruleRate - inHouseRate) * rateMultiplier;
+        const daysVacant = u.days_vacant != null ? Number(u.days_vacant) : null;
         for (const rn of ruleNames) {
           const moveIn = parseMoveIn(u.move_in_date);
           const soldAfterRule = !!(u.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
@@ -16038,6 +16051,13 @@ Return ONLY valid JSON with no markdown fences:
           const bump = (a: Agg) => {
             a.unitsImpacted += 1;
             if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
+            // Projected rate delta — each rule gets its proportional share
+            a.projRateSum += projRateDelta * share;
+            // Projected DTS: use days_vacant for currently-occupied units (their actual sell time)
+            if (u.occupied_yn && daysVacant != null && daysVacant > 0 && daysVacant < 730) {
+              a.projDtsSum += daysVacant;
+              a.projDtsN += 1;
+            }
             if (soldAfterRule) {
               a.unitsSold += 1;
               if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
@@ -16091,7 +16111,7 @@ Return ONLY valid JSON with no markdown fences:
         const histUnitRes = await pool.query(`
           SELECT DISTINCT ON (rr.location, rr.room_number)
                  rr.location, rr.service_line, rr.room_type, rr.room_number,
-                 rr.occupied_yn, rr.move_in_date
+                 rr.occupied_yn, rr.move_in_date, rr.in_house_rate, rr.days_vacant
           FROM rent_roll_data rr
           WHERE rr.client_id = $1 AND rr.location = ANY($2)
           ORDER BY rr.location, rr.room_number, rr.upload_month DESC
@@ -16150,10 +16170,22 @@ Return ONLY valid JSON with no markdown fences:
             const soldAfterRule = !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
             const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
             const expected = expectedFor(u.service_line, u.room_type);
+            // Projected fallback values from the latest unit snapshot
+            const isDaily = ['HC', 'HC/MC'].includes(u.service_line);
+            const histProjRate = latest
+              ? ((Number(latest.in_house_rate) || 0) * (isDaily ? 30.4 : 1))
+              : 0;
+            const histDaysVacant = latest?.days_vacant != null ? Number(latest.days_vacant) : null;
 
             const bump = (a: Agg) => {
               a.unitsImpacted += 1;
               if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
+              // Projected rate delta — use latest in-house rate as proxy for rule impact
+              a.projRateSum += histProjRate;
+              if (latest?.occupied_yn && histDaysVacant != null && histDaysVacant > 0 && histDaysVacant < 730) {
+                a.projDtsSum += histDaysVacant;
+                a.projDtsN += 1;
+              }
               if (soldAfterRule) {
                 a.unitsSold += 1;
                 if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
@@ -16207,17 +16239,30 @@ Return ONLY valid JSON with no markdown fences:
       }
 
       const finish = (a: Agg, c: Calc | undefined) => {
-        const avgDts = a.dtsN > 0 ? a.dtsSum / a.dtsN : null;
-        const avgExp = a.expN > 0 ? a.expSum / a.expN : null;
         const has = !!(c && c.hasData);
+        // Days-to-sell: prefer post-rule-application actuals; fall back to days_vacant of occupied units
+        const actualDts = a.dtsN > 0 ? a.dtsSum / a.dtsN : null;
+        const projDts   = a.projDtsN > 0 ? a.projDtsSum / a.projDtsN : null;
+        const avgDts    = actualDts ?? projDts;
+        const dtsFallback = actualDts == null && projDts != null;
+        // Expected baseline
+        const avgExp = a.expN > 0 ? a.expSum / a.expN : null;
+        // Monthly revenue: prefer T3 realized delta; fall back to rate-delta projection
+        const hasProjectedRate = !has && Math.abs(a.projRateSum) > 0;
+        const monthlyImpact = has ? Math.round(c!.monthly)
+                            : hasProjectedRate ? Math.round(a.projRateSum)
+                            : null;
+        const annualImpact  = monthlyImpact != null ? Math.round(monthlyImpact * 12) : null;
+        const projected = !has && (hasProjectedRate || dtsFallback);
         return {
           unitsImpacted: a.unitsImpacted,
           unitsSold: a.unitsSold,
           avgDaysToSell: avgDts != null ? Math.round(avgDts) : null,
           expectedDaysToSell: avgExp != null ? Math.round(avgExp) : null,
           daysFasterThanExpected: avgDts != null && avgExp != null ? Math.round(avgExp - avgDts) : null,
-          monthlyRevenueImpact: has ? Math.round(c!.monthly) : null,
-          annualRevenueImpact: has ? Math.round(c!.monthly * 12) : null,
+          monthlyRevenueImpact: monthlyImpact,
+          annualRevenueImpact: annualImpact,
+          projected,
           dateApplied: a.earliestApplied,
           calc: has ? {
             t3Before: Math.round(c!.t3Before),
