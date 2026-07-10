@@ -16820,6 +16820,34 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
+      // ── Physical room vacancy from history (authoritative, excludes B-bed double-counting) ──
+      // Rent-roll counts every occupant slot (A and B beds) as a separate row, so vacant
+      // companion/studio B beds inflate the apparent vacancy. History stores physical room
+      // counts (available_units / occ_units), so avail - occ gives the true vacant room count.
+      // We collapse the rtoRTMap (keyed campus||combined_sl||rt) down to campus||rt so that
+      // each physical room type is counted exactly once regardless of how many service lines
+      // share it (no double-counting across combined SL groupings).
+      const rtoPhysRT = new Map<string, Map<string, RtoEntry>>(); // campus||rt → month → {occ, avail}
+      for (const [rtKey, monthMap] of rtoRTMap) {
+        const parts = rtKey.split('||'); // [campus, combined_sl, normalized_rt]
+        const campus = parts[0] ?? '';
+        const rt     = parts[parts.length - 1] ?? '';
+        const physKey = `${campus}||${rt}`;
+        if (!rtoPhysRT.has(physKey)) rtoPhysRT.set(physKey, new Map());
+        const pMap = rtoPhysRT.get(physKey)!;
+        for (const [mm, entry] of monthMap) {
+          const ex = pMap.get(mm) || { occ: 0, avail: 0 };
+          ex.occ += entry.occ; ex.avail += entry.avail; pMap.set(mm, ex);
+        }
+      }
+      // Average (avail - occ) over a window of months — mirrors the rent-roll vacWindow helper.
+      const physVacWindow = (map: Map<string, RtoEntry> | undefined, window: string[]): number | null => {
+        if (!map) return null;
+        const vals: number[] = [];
+        for (const mm of window) { const e = map.get(mm); if (e) vals.push(e.avail - e.occ); }
+        return vals.length ? Math.round(avg(vals) * 10) / 10 : null;
+      };
+
       // Override refSlOcc / refCampusOcc from RTO spot month (sum occ / sum avail)
       rtoSLMap.forEach((monthMap, slKey) => {
         const e = monthMap.get(spotMonth);
@@ -17076,6 +17104,18 @@ Return ONLY valid JSON, no markdown fences:
         manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
       }
 
+      // Physical vacancy from history covers ALL SLs that share a room type (e.g. one Studio
+      // row in history counts AL+AL/MC+HC+SL studios together). To avoid repeating that total
+      // on every SL row, distribute it proportionally by each SL's spot-month unit count.
+      // campusRTSpotUnits: campus||rt → total rent-roll units across all SLs at spot month.
+      const campusRTSpotUnits = new Map<string, number>();
+      for (const c of comboMap.values()) {
+        const spot = c.byMonth.get(spotMonth);
+        if (!spot) continue;
+        const key = `${c.campus}||${c.roomType}`;
+        campusRTSpotUnits.set(key, (campusRTSpotUnits.get(key) ?? 0) + spot.total);
+      }
+
       const rows = Array.from(comboMap.values()).map(c => {
         const bm = c.byMonth;
         const spot = bm.get(spotMonth);
@@ -17109,11 +17149,32 @@ Return ONLY valid JSON, no markdown fences:
           roomType: c.roomType,
           locationId: c.locationId,
           totalUnits,
-          // Vacant units
-          vacantSpot: spot ? spot.total - spot.occupied : null,
-          vacantT3: vacWindow(bm, t3Months),
-          vacantT6: vacWindow(bm, t6Months),
-          vacantT12: vacWindow(bm, t12Months),
+          // Vacant units — sourced from room_type_occupancy_history (physical rooms,
+          // excludes B-bed double-counting in rent-roll). A room type can serve multiple
+          // SLs in history (e.g. one Studio row covers AL+AL/MC+HC+SL); we distribute
+          // physical vacancy proportionally by each SL's spot-month unit share so the
+          // numbers sum correctly. Falls back to rent-roll when history is absent.
+          ...((): { vacantSpot: number|null; vacantT3: number|null; vacantT6: number|null; vacantT12: number|null } => {
+            const physMap = rtoPhysRT.get(`${c.campus}||${c.roomType}`);
+            if (!physMap) {
+              return {
+                vacantSpot: spot ? spot.total - spot.occupied : null,
+                vacantT3: vacWindow(bm, t3Months),
+                vacantT6: vacWindow(bm, t6Months),
+                vacantT12: vacWindow(bm, t12Months),
+              };
+            }
+            // Proportional share: this SL's spot-month units / total units for this rt across all SLs
+            const rtTotal = campusRTSpotUnits.get(`${c.campus}||${c.roomType}`) ?? 0;
+            const share = (rtTotal > 0 && spot?.total) ? spot.total / rtTotal : 1;
+            const applyShare = (v: number | null) => v !== null ? Math.round(v * share * 10) / 10 : null;
+            return {
+              vacantSpot: applyShare(physVacWindow(physMap, [spotMonth])),
+              vacantT3:   applyShare(physVacWindow(physMap, t3Months))  ?? vacWindow(bm, t3Months),
+              vacantT6:   applyShare(physVacWindow(physMap, t6Months))  ?? vacWindow(bm, t6Months),
+              vacantT12:  applyShare(physVacWindow(physMap, t12Months)) ?? vacWindow(bm, t12Months),
+            };
+          })(),
           // Campus occupancy — from RTO (sum occ/sum avail) with rent_roll fallback
           campusOccSpot: rtoOccWindow(rtoCampusMap.get(c.campus), [spotMonth]) ?? occPctWindow(cOcc, [spotMonth]),
           campusOccT3:   rtoOccWindow(rtoCampusMap.get(c.campus), t3Months)   ?? occPctWindow(cOcc, t3Months),
