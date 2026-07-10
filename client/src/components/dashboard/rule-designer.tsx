@@ -230,6 +230,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const [summaryOpen, setSummaryOpen] = useState(true);
   const [rulesExpanded, setRulesExpanded] = useState(false);
   const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
+  const [strategyAnalysis, setStrategyAnalysis] = useState<{
+    portfolioNarrative: string;
+    rules: Array<{
+      id: string;
+      strategyGroup: string;
+      intendedStrategy: string;
+      aiSummary: string;
+      expectedOutcome: string;
+    }>;
+  } | null>(null);
+  const [strategyLoading, setStrategyLoading] = useState(false);
 
   // Combined stats (unique campus/unit counts + per-rule breakdown for click-throughs)
   const [combinedStats, setCombinedStats] = useState<{
@@ -330,6 +341,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   }, [rules, locationId, serviceLine]);
 
   useEffect(() => { fetchCombinedStats(); }, [fetchCombinedStats]);
+
+  const fetchStrategyAnalysis = useCallback(async () => {
+    if (strategyAnalysis || strategyLoading) return;
+    setStrategyLoading(true);
+    try {
+      const res = await fetch('/api/adjustment-rules/strategy-analysis');
+      if (res.ok) setStrategyAnalysis(await res.json());
+    } catch { /* silent */ } finally {
+      setStrategyLoading(false);
+    }
+  }, [strategyAnalysis, strategyLoading]);
 
   // Fetch T3 move-in baseline
   const fetchT3MoveIns = useCallback(async () => {
@@ -1400,6 +1422,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
         // Assign a unique hue per rule for the bubble map
         const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c'];
 
+        const STRATEGY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+          'Revenue Growth':       { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-200'  },
+          'Occupancy Recovery':   { bg: 'bg-blue-100',   text: 'text-blue-800',   border: 'border-blue-200'   },
+          'Service Line Premium': { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+          'Market Positioning':   { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-200' },
+          'Portfolio-Wide':       { bg: 'bg-teal-100',   text: 'text-teal-800',   border: 'border-teal-200'   },
+        };
+
         return (
           <>
             <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
@@ -1423,7 +1453,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                           <Button
                             variant="outline" size="sm"
                             className="h-7 text-xs gap-1.5 text-teal-700 border-teal-200 bg-teal-50 hover:bg-teal-100"
-                            onClick={e => { e.stopPropagation(); setBubbleMapOpen(true); }}
+                            onClick={e => { e.stopPropagation(); setBubbleMapOpen(true); fetchStrategyAnalysis(); }}
                             title="View bubble map of rule coverage"
                           >
                             <Eye className="h-3 w-3" />
@@ -1571,7 +1601,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                 {/* Rule Summary / Intent */}
                                 <td className="py-2.5 px-2 align-top max-w-[220px]">
                                   <div className="flex flex-col gap-1">
-                                    <span className="text-sm font-semibold text-gray-900 leading-snug">{displayName}</span>
+                                    <span
+                                      className="text-sm font-semibold text-gray-900 leading-snug cursor-pointer hover:text-teal-700 hover:underline"
+                                      onClick={() => { setInfoRule(rule); fetchStrategyAnalysis(); }}
+                                      title="Click for AI strategy analysis"
+                                    >{displayName}</span>
                                     {(() => {
                                       const eff = (rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : null;
                                       if (!eff || eff <= new Date().toISOString().slice(0, 10)) return null;
@@ -1590,6 +1624,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                         {isAdditive ? '+ stacks' : '⊙ exclusive'}
                                       </span>
                                     )}
+                                    {(() => {
+                                      const si = strategyAnalysis?.rules.find(r => r.id === rule.id);
+                                      if (!si) return null;
+                                      const sc = STRATEGY_COLORS[si.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' };
+                                      return (
+                                        <span
+                                          className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide cursor-pointer ${sc.bg} ${sc.text} ${sc.border}`}
+                                          onClick={() => { setInfoRule(rule); }}
+                                          title={si.intendedStrategy}
+                                        >
+                                          {si.strategyGroup}
+                                        </span>
+                                      );
+                                    })()}
                                   </div>
                                 </td>
 
@@ -1928,7 +1976,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                   <DialogTitle className="text-gray-900 text-base">Rule Coverage — Bubble Map</DialogTitle>
                   <p className="text-xs text-gray-500 mt-1">
                     Each circle represents one rule. Circle size is proportional to units affected.
-                    Dots inside show unit density (up to 64 sampled). Hover for details.
+                    Hover for metrics — click any circle for AI strategy analysis.
                     {(locationId || serviceLine) && (
                       <span className="ml-1 text-teal-600 font-medium">
                         Filtered to {locationName || 'selected location'}{serviceLine ? ` · ${serviceLine}` : ''}.
@@ -1968,13 +2016,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                       const dots       = genDots(units, radius);
                       const isHovered  = hoveredBubble === rule.id;
 
+                      const bubbleSI = strategyAnalysis?.rules.find(s => s.id === rule.id);
+                      const bubbleSC = bubbleSI ? (STRATEGY_COLORS[bubbleSI.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' }) : null;
+
                       return (
                         <div
                           key={rule.id}
                           className="relative flex flex-col items-center gap-1.5"
                           onMouseEnter={() => setHoveredBubble(rule.id)}
                           onMouseLeave={() => setHoveredBubble(null)}
-                          style={{ cursor: 'default' }}
+                          onClick={() => { setBubbleMapOpen(false); setTimeout(() => setInfoRule(rule), 80); }}
+                          style={{ cursor: 'pointer' }}
+                          title="Click for AI strategy analysis"
                         >
                           <svg width={size} height={size} style={{ overflow: 'visible' }}>
                             {/* Outer ring for exclusive rules */}
@@ -2028,6 +2081,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                               {rule.name}
                             </p>
                             <p className="text-[10px] text-gray-500 dark:text-gray-400">{units.toLocaleString()} units</p>
+                            {bubbleSI && bubbleSC && (
+                              <span className={`inline-block mt-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full border ${bubbleSC.bg} ${bubbleSC.text} ${bubbleSC.border}`}>
+                                {bubbleSI.strategyGroup}
+                              </span>
+                            )}
                           </div>
 
                           {/* Hover tooltip */}
@@ -2035,7 +2093,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none"
                                  style={{ minWidth: 180 }}>
                               <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3">
-                                <p className="text-xs font-semibold text-gray-900 dark:text-white mb-1">{rule.name}</p>
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <p className="text-xs font-semibold text-gray-900 dark:text-white leading-snug">{rule.name}</p>
+                                  {bubbleSI && bubbleSC && (
+                                    <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${bubbleSC.bg} ${bubbleSC.text} ${bubbleSC.border}`}>
+                                      {bubbleSI.strategyGroup}
+                                    </span>
+                                  )}
+                                </div>
+                                {bubbleSI && (
+                                  <p className="text-[10px] text-purple-600 italic mb-1.5 leading-snug">{bubbleSI.aiSummary}</p>
+                                )}
                                 <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-2 leading-snug">{rule.description}</p>
                                 <div className="space-y-0.5 text-[11px]">
                                   <div className="flex justify-between gap-4">
@@ -2151,6 +2219,44 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                     </DialogHeader>
 
                     <div className="space-y-4 mt-1">
+
+                      {/* AI Strategy Section */}
+                      {(() => {
+                        const si = strategyAnalysis?.rules.find(r => r.id === infoRule.id);
+                        if (strategyLoading && !si) {
+                          return (
+                            <div className="rounded-lg bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 p-3 flex items-center gap-2.5">
+                              <Sparkles className="h-4 w-4 text-purple-400 animate-pulse shrink-0" />
+                              <span className="text-xs text-purple-600">Generating AI strategy analysis…</span>
+                            </div>
+                          );
+                        }
+                        if (!si) return null;
+                        const sc = STRATEGY_COLORS[si.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' };
+                        return (
+                          <div className="rounded-lg bg-gradient-to-br from-purple-50/90 to-indigo-50/60 border border-purple-100 p-4 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+                              <span className="text-[11px] font-semibold uppercase tracking-wide text-purple-600">AI Strategy Analysis</span>
+                              <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${sc.bg} ${sc.text} ${sc.border}`}>
+                                {si.strategyGroup}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Summary</p>
+                              <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">{si.aiSummary}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Intended Strategy</p>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{si.intendedStrategy}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Expected Outcome</p>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{si.expectedOutcome}</p>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Applies to */}
                       <div>

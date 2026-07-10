@@ -14774,6 +14774,103 @@ Respond in JSON format:
     }
   });
 
+  // ── AI Strategy Analysis — per-rule strategic grouping ──────────────────────
+  app.get("/api/adjustment-rules/strategy-analysis", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const cacheKey = `rule-strategy-analysis:${clientId}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) return res.json(cached);
+
+      const rulesRes = await pool.query(
+        `SELECT id, name, description, action, service_line, service_lines, priority,
+                monthly_impact, annual_impact, execution_count
+         FROM adjustment_rules
+         WHERE is_active = true AND (is_historical IS NOT TRUE)
+         ORDER BY priority DESC NULLS LAST`,
+      );
+      const rules = rulesRes.rows;
+      if (rules.length === 0) {
+        return res.json({ portfolioNarrative: '', rules: [] });
+      }
+
+      const openaiModule = await import('openai');
+      const openai = new openaiModule.default();
+
+      const ruleDescriptions = rules.map((r: any) => {
+        const action = typeof r.action === 'string' ? JSON.parse(r.action) : (r.action || {});
+        return {
+          id: r.id,
+          name: r.name,
+          description: r.description || '',
+          adjustmentType: action?.adjustmentType || 'percentage',
+          adjustmentValue: action?.adjustmentValue ?? 0,
+          rateTarget: action?.target || 'street_rate',
+          occupancyFilter: action?.filters?.occupancyStatus || 'all',
+          serviceLines: action?.filters?.serviceLine || (r.service_line ? [r.service_line] : []),
+          monthlyImpact: r.monthly_impact || 0,
+          annualImpact: r.annual_impact || 0,
+        };
+      });
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        temperature: 0.3,
+        messages: [
+          {
+            role: 'system',
+            content: `You are a senior revenue management consultant specializing in senior living facilities.
+Analyze pricing rules and categorize each by strategic intent. Be specific, practical, and use plain business language.
+Strategy groups must be exactly one of:
+- "Revenue Growth" (rules that raise rates to grow revenue on occupied or new-admission units)
+- "Occupancy Recovery" (rules that discount or create incentives to fill vacant units)
+- "Service Line Premium" (rules targeting specific care types — AL, HC, SL, VIL etc. — for differentiated pricing)
+- "Market Positioning" (rules based on competitor rates, market benchmarks, or competitive dynamics)
+- "Portfolio-Wide" (broad rules affecting all or most units without a narrow occupancy or service-line focus)`,
+          },
+          {
+            role: 'user',
+            content: `Analyze these ${rules.length} active pricing rules for a senior living portfolio.
+
+Rules:
+${JSON.stringify(ruleDescriptions, null, 2)}
+
+For each rule return:
+1. strategyGroup: one of the exact group names listed above
+2. intendedStrategy: 1-2 sentences on the business rationale — what problem does this solve or what goal does it pursue?
+3. aiSummary: a single concise sentence (max 15 words) describing what the rule does in plain English
+4. expectedOutcome: a specific, measurable outcome this rule is expected to drive (1 sentence)
+
+Also include portfolioNarrative: 2-3 sentences on the overall pricing strategy across all rules.
+
+Return ONLY valid JSON with no markdown fences:
+{
+  "portfolioNarrative": "...",
+  "rules": [
+    {
+      "id": "<rule id>",
+      "strategyGroup": "Revenue Growth",
+      "intendedStrategy": "...",
+      "aiSummary": "...",
+      "expectedOutcome": "..."
+    }
+  ]
+}`,
+          },
+        ],
+      });
+
+      const content = completion.choices[0]?.message?.content || '{}';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const result = jsonMatch ? JSON.parse(jsonMatch[0]) : { portfolioNarrative: '', rules: [] };
+      setCachedAnalytics(cacheKey, result);
+      res.json(result);
+    } catch (error) {
+      console.error('[strategy-analysis] error:', error);
+      res.status(500).json({ error: 'Failed to generate strategy analysis' });
+    }
+  });
+
   // ── Export active rules as formatted Excel ─────────────────────────────────
   app.get("/api/adjustment-rules/export", async (req: any, res) => {
     try {
