@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UploadProvider } from "@/contexts/upload-context";
+import { usePrefetch } from "@/hooks/usePrefetch";
 import Overview from "@/pages/overview";
 import DataManagement from "@/pages/data-management";
 import RateCard from "@/pages/rate-card";
@@ -21,6 +22,18 @@ import FloorPlansAdmin from "@/pages/floor-plans-admin";
 import DataImport from "@/pages/data-import";
 import DataImports from "@/pages/data-imports";
 import NotFound from "@/pages/not-found";
+
+function AppContent() {
+  usePrefetch();
+  return (
+    <TooltipProvider>
+      <div className="dark">
+        <Toaster />
+        <Router />
+      </div>
+    </TooltipProvider>
+  );
+}
 
 function Router() {
   return (
@@ -56,12 +69,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <UploadProvider>
-        <TooltipProvider>
-          <div className="dark">
-            <Toaster />
-            <Router />
-          </div>
-        </TooltipProvider>
+        <AppContent />
       </UploadProvider>
     </QueryClientProvider>
   );

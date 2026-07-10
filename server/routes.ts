@@ -3396,6 +3396,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeRange = req.query.timeRange as string || '12M';
       const clientId = req.clientId || 'demo';
       const months = timeRange === '1M' ? 1 : timeRange === '3M' ? 3 : timeRange === '12M' ? 12 : 24;
+
+      const seriesCacheKey = `series_${clientId}_${timeRange}`;
+      const seriesCached = getCachedAnalytics(seriesCacheKey);
+      if (seriesCached) {
+        res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
+        return res.json(seriesCached);
+      }
       
       const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 
@@ -3561,13 +3568,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ 
+      const seriesResponse = { 
         labels, 
         revenue, 
         sp500, 
         industry,
         dataSource: useRealSP500Data ? "Alpha Vantage (Real Market Data)" : "Market data unavailable (API key not configured)"
-      });
+      };
+      setCachedAnalytics(seriesCacheKey, seriesResponse);
+      res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
+      res.json(seriesResponse);
     } catch (error) {
       console.error("Error generating series data:", error);
       res.status(500).json({ error: "Failed to generate series data" });
@@ -8068,6 +8078,13 @@ ${campusOccLines.join('\n')}
       if (!validTileTypes.includes(tileType)) {
         return res.status(400).json({ error: `Invalid tile type. Must be one of: ${validTileTypes.join(', ')}` });
       }
+
+      const tileCacheKey = `tiledetails_${clientId}_${tileType}`;
+      const tileCached = getCachedAnalytics(tileCacheKey);
+      if (tileCached) {
+        res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
+        return res.json(tileCached);
+      }
       
       // Helper function to calculate growth percentage
       const calculateGrowth = (current: number, previous: number): number => {
@@ -8706,7 +8723,7 @@ ${campusOccLines.join('\n')}
         t12: sl.growthStats.t12
       }));
       
-      res.json({
+      const tileResponse = {
         tileType,
         currentValue,
         monthlyTrend,
@@ -8721,7 +8738,10 @@ ${campusOccLines.join('\n')}
         },
         serviceLineGrowthBreakdown,
         rateMetrics
-      });
+      };
+      setCachedAnalytics(tileCacheKey, tileResponse);
+      res.setHeader('Cache-Control', 'private, max-age=120, stale-while-revalidate=300');
+      res.json(tileResponse);
       
     } catch (error) {
       console.error('Tile details error:', error);
