@@ -15055,39 +15055,20 @@ Return ONLY valid JSON with no markdown fences:
           e.occ += occ; e.avail += avail; rohByToken[tok] = e;
         }
       }
-      // When a single service line is selected, the "overall" occupancy must reflect
-      // just that service line's history bucket — not the whole in-scope portfolio.
-      const slFiltered = serviceLine && serviceLine !== 'All';
-      const selectedBucket = slFiltered ? rohByToken[serviceLine] : null;
-      const historyOccAvail = slFiltered
-        ? (selectedBucket ? selectedBucket.avail : 0)
-        : rohTotalAvail;
-      const historyOccOccupied = slFiltered
-        ? (selectedBucket ? selectedBucket.occ : 0)
-        : rohTotalOcc;
-      const hasHistoryOcc = historyOccAvail > 0;
+      // History service_line values are room-type groupings like "AL, AL/MC, HC" —
+      // one row covers multiple service lines. Token-matching units to individual SLs
+      // causes double-counting (e.g. a room serving AL+AL/MC+HC contributes its units
+      // to each token). History is therefore only reliable for the OVERALL aggregate.
+      // Per-SL breakdown stays on rent_roll which counts each unit under exactly one SL.
+      const hasHistoryOcc = rohTotalAvail > 0;
 
-      // When history occupancy is available, override the rent-roll occupancy fields
-      // on each service-line row so every occupancy figure comes from the same source.
-      if (rohTotalAvail > 0) {
-        for (const r of slRows) {
-          const tok = rohByToken[r.service_line];
-          if (tok && tok.avail > 0) {
-            const occPct = Math.round((tok.occ / tok.avail) * 1000) / 10;
-            r.occ_pct = occPct;
-            r.total = Math.round(tok.avail);
-            r.vacant = Math.round(tok.avail - tok.occ);
-          }
-        }
-      }
-
-      // Aggregate totals — prefer history when present (service-line-aware), otherwise
-      // fall back to rent-roll snapshot totals for the same scope.
+      // Aggregate totals — prefer history overall sum when available (exact),
+      // fall back to rent-roll snapshot totals when history is absent (e.g. demo).
       const totalUnits = hasHistoryOcc
-        ? Math.round(historyOccAvail)
+        ? Math.round(rohTotalAvail)
         : slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
       const totalVacant = hasHistoryOcc
-        ? Math.round(historyOccAvail - historyOccOccupied)
+        ? Math.round(rohTotalAvail - rohTotalOcc)
         : slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
       const overallOcc = totalUnits > 0 ? Math.round((totalUnits - totalVacant) / totalUnits * 1000) / 10 : 0;
 
