@@ -361,7 +361,12 @@ export default function PricingControls() {
         </div>
 
 
-        <PricingCommentaryCard />
+        <PricingCommentaryCard
+          selectedServiceLine={selectedServiceLine}
+          selectedLocations={selectedLocations}
+          selectedRegions={selectedRegions}
+          selectedDivisions={selectedDivisions}
+        />
 
         <div className="space-y-6 sm:space-y-8">
           <ReferenceDataTable
@@ -416,33 +421,57 @@ function parseBold(text: string): React.ReactNode {
   );
 }
 
-// ── AI strategy commentary strip ─────────────────────────────────────────────
-function PricingCommentaryCard() {
-  const { data, isLoading, refetch, isFetching } = useQuery<{ bullets: string[]; generatedAt: string }>({
-    queryKey: ["/api/pricing-controls/commentary"],
+// ── Strategy Overview strip ───────────────────────────────────────────────────
+interface StrategyOverviewData {
+  summary: string;
+  pricingTrend: string;
+  rulesSummary: string;
+  rules: { name: string; strategy: string }[];
+  generatedAt: string;
+}
+
+interface PricingCommentaryCardProps {
+  selectedServiceLine: string;
+  selectedLocations: string[];
+  selectedRegions: string[];
+  selectedDivisions: string[];
+}
+
+function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions }: PricingCommentaryCardProps) {
+  // Build query params to pass filters to the endpoint
+  const params = new URLSearchParams();
+  if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
+  selectedLocations.forEach(l => params.append('locations', l));
+  selectedRegions.forEach(r => params.append('regions', r));
+  selectedDivisions.forEach(d => params.append('divisions', d));
+  const qs = params.toString();
+
+  const { data, isLoading, refetch, isFetching } = useQuery<StrategyOverviewData>({
+    queryKey: ["/api/pricing-controls/commentary", selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
+    queryFn: () => fetch(`/api/pricing-controls/commentary${qs ? '?' + qs : ''}`).then(r => r.json()),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
-  const bullets = data?.bullets ?? [];
+  const hasData = data && (data.summary || data.rules?.length > 0);
 
   return (
-    <div className="rounded-xl border border-teal-200/70 bg-gradient-to-br from-teal-50/80 via-white to-slate-50/60 shadow-sm mb-6 overflow-hidden">
-      {/* header strip */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-teal-100/80 bg-teal-50/60">
+    <div className="rounded-xl border border-teal-200/70 bg-gradient-to-br from-teal-50/60 via-white to-slate-50/40 shadow-sm mb-6 overflow-hidden">
+      {/* header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-teal-100/80 bg-teal-50/50">
         <div className="flex items-center gap-2">
           <div className="flex items-center justify-center w-6 h-6 rounded-full bg-teal-600/10">
             <Sparkles className="h-3.5 w-3.5 text-teal-600" />
           </div>
-          <span className="text-sm font-semibold text-teal-800 tracking-wide uppercase" style={{ letterSpacing: '0.04em' }}>
-            AI Strategy Briefing
+          <span className="text-sm font-semibold text-teal-800 tracking-wide uppercase" style={{ letterSpacing: '0.05em' }}>
+            Strategy Overview
           </span>
         </div>
         <button
           onClick={() => refetch()}
           disabled={isFetching}
           className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-800 transition-colors disabled:opacity-40"
-          title="Refresh commentary"
+          title="Refresh overview"
         >
           <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
           <span className="hidden sm:inline">Refresh</span>
@@ -450,34 +479,65 @@ function PricingCommentaryCard() {
       </div>
 
       {/* body */}
-      <div className="px-5 py-4">
+      <div className="px-5 py-5 space-y-5">
         {isLoading ? (
-          /* skeleton */
-          <div className="space-y-3">
-            {[85, 70, 90, 65].map((w, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className="mt-1.5 h-1.5 w-1.5 rounded-full bg-teal-300 shrink-0" />
-                <div className="h-4 rounded bg-gray-200 animate-pulse" style={{ width: `${w}%` }} />
-              </div>
-            ))}
+          <div className="space-y-4">
+            <div className="h-4 rounded bg-gray-200 animate-pulse w-full" />
+            <div className="h-4 rounded bg-gray-200 animate-pulse w-4/5" />
+            <div className="space-y-2 pt-1">
+              {[70, 85, 60, 75].map((w, i) => (
+                <div key={i} className="h-3.5 rounded bg-gray-100 animate-pulse" style={{ width: `${w}%` }} />
+              ))}
+            </div>
           </div>
-        ) : bullets.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No commentary available — add pricing rules to generate insights.</p>
+        ) : !hasData ? (
+          <p className="text-sm text-gray-400 italic">No overview available — add pricing rules to generate insights.</p>
         ) : (
-          <ul className="space-y-3">
-            {bullets.map((bullet, i) => (
-              <li key={i} className="flex items-start gap-3 group">
-                {/* accent dot with teal left bar */}
-                <div className="flex items-start gap-2 shrink-0 pt-[3px]">
-                  <div className="h-full w-[3px] rounded-full bg-teal-400/70 self-stretch" style={{ minHeight: '1rem' }} />
-                  <div className="h-[7px] w-[7px] rounded-full bg-teal-500 mt-[4px] shrink-0" />
-                </div>
-                <p className="text-[15px] leading-relaxed text-gray-700">
-                  {parseBold(bullet)}
+          <>
+            {/* 1 — Occupancy & revenue summary */}
+            {data.summary && (
+              <p className="text-[15px] leading-relaxed text-gray-800 font-medium">
+                {parseBold(data.summary)}
+              </p>
+            )}
+
+            {/* 2 — 6-month pricing trend */}
+            {data.pricingTrend && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-teal-600 mb-1.5">Pricing Trends · Last 6 Months</p>
+                <p className="text-[14px] leading-relaxed text-gray-700">{parseBold(data.pricingTrend)}</p>
+              </div>
+            )}
+
+            {/* 3 — Active rules */}
+            {(data.rulesSummary || data.rules?.length > 0) && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-teal-600 mb-1.5">
+                  Active Rules · {data.rules?.length || 0} configured
                 </p>
-              </li>
-            ))}
-          </ul>
+                {data.rulesSummary && (
+                  <p className="text-[14px] leading-relaxed text-gray-700 mb-3">{parseBold(data.rulesSummary)}</p>
+                )}
+                {data.rules?.length > 0 && (
+                  <ul className="space-y-2">
+                    {data.rules.map((rule, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <div className="flex items-start gap-1.5 shrink-0 pt-[4px]">
+                          <div className="w-[3px] rounded-full bg-teal-400/60 self-stretch" style={{ minHeight: '14px' }} />
+                          <div className="h-[6px] w-[6px] rounded-full bg-teal-500 mt-[3px] shrink-0" />
+                        </div>
+                        <div>
+                          <span className="text-[13px] font-semibold text-gray-800">{rule.name}</span>
+                          <span className="text-[13px] text-gray-500 mx-1">—</span>
+                          <span className="text-[13px] text-gray-600">{parseBold(rule.strategy)}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -485,7 +545,7 @@ function PricingCommentaryCard() {
       {data?.generatedAt && !isLoading && (
         <div className="px-5 pb-3 text-[11px] text-gray-400">
           Generated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          {" · "}Refreshes automatically when rules change
+          {" · "}Updates automatically when rules change
         </div>
       )}
     </div>

@@ -14892,113 +14892,210 @@ Return ONLY valid JSON with no markdown fences:
   app.get("/api/pricing-controls/commentary", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const cacheKey = `pc-commentary:${clientId}`;
+      // Filter params from the page filter bar
+      const locations: string[] = req.query.locations ? (Array.isArray(req.query.locations) ? req.query.locations : [req.query.locations]) : [];
+      const regions: string[] = req.query.regions ? (Array.isArray(req.query.regions) ? req.query.regions : [req.query.regions]) : [];
+      const divisions: string[] = req.query.divisions ? (Array.isArray(req.query.divisions) ? req.query.divisions : [req.query.divisions]) : [];
+      const serviceLine: string = (req.query.serviceLine as string) || 'All';
+
+      // Cache key includes filter fingerprint so different filter combos get fresh commentary
+      const filterKey = [locations.sort().join(','), regions.sort().join(','), divisions.sort().join(','), serviceLine].join('|');
+      const cacheKey = `pc-commentary:${clientId}:${filterKey}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) return res.json(cached);
 
-      // Parallel: active rules summary + portfolio snapshot
-      const [rulesRes, snapshotRes, competitorRes] = await Promise.all([
+      // Build dynamic WHERE clauses for rent_roll_data
+      const rrParams: any[] = [clientId];
+      const rrFilters: string[] = [];
+      if (locations.length > 0) {
+        rrParams.push(locations);
+        rrFilters.push(`rrd.location = ANY($${rrParams.length})`);
+      }
+      if (regions.length > 0) {
+        rrParams.push(regions);
+        rrFilters.push(`l.region = ANY($${rrParams.length})`);
+      }
+      if (divisions.length > 0) {
+        rrParams.push(divisions);
+        rrFilters.push(`l.division = ANY($${rrParams.length})`);
+      }
+      if (serviceLine && serviceLine !== 'All') {
+        rrParams.push(serviceLine);
+        rrFilters.push(`rrd.service_line = $${rrParams.length}`);
+      }
+      const rrWhere = rrFilters.length > 0 ? ' AND ' + rrFilters.join(' AND ') : '';
+
+      // Build rule service-line filter
+      const ruleSlFilter = (serviceLine && serviceLine !== 'All')
+        ? `AND (service_line = '${serviceLine.replace(/'/g, "''")}' OR service_line IS NULL OR (service_lines IS NOT NULL AND '${serviceLine.replace(/'/g, "''")}' = ANY(service_lines)))`
+        : '';
+
+      const [snapshotBySLRes, trendRes, rulesRes, competitorRes] = await Promise.all([
+        // Per-service-line occupancy snapshot (latest month)
         pool.query(`
-          SELECT
-            COUNT(*) FILTER (WHERE is_active AND is_historical IS NOT TRUE) AS active_rules,
-            COUNT(*) FILTER (WHERE is_active AND is_historical IS NOT TRUE AND (action->>'adjustmentValue')::numeric > 0) AS positive_rules,
-            COUNT(*) FILTER (WHERE is_active AND is_historical IS NOT TRUE AND (action->>'adjustmentValue')::numeric < 0) AS discount_rules,
-            ROUND(AVG((action->>'adjustmentValue')::numeric) FILTER (WHERE is_active AND is_historical IS NOT TRUE AND (action->>'adjustmentValue')::numeric > 0), 1) AS avg_positive_pct,
-            SUM(monthly_impact) FILTER (WHERE is_active AND is_historical IS NOT TRUE) AS total_monthly_impact,
-            SUM(annual_impact) FILTER (WHERE is_active AND is_historical IS NOT TRUE) AS total_annual_impact,
-            COUNT(DISTINCT service_line) FILTER (WHERE is_active AND is_historical IS NOT TRUE) AS service_lines_covered
+          SELECT rrd.service_line,
+            ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
+            COUNT(*) FILTER (WHERE NOT rrd.occupied_yn) AS vacant,
+            COUNT(*) AS total,
+            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+            ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
+            ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
+          FROM rent_roll_data rrd
+          LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
+          WHERE rrd.client_id = $1
+            AND rrd.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
+            ${rrWhere}
+          GROUP BY rrd.service_line
+          ORDER BY rrd.service_line
+        `, rrParams),
+
+        // 6-month street rate trend per service line
+        pool.query(`
+          SELECT rrd.upload_month, rrd.service_line,
+            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+            ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
+            ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct
+          FROM rent_roll_data rrd
+          LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
+          WHERE rrd.client_id = $1
+            AND rrd.upload_month >= to_char(NOW() - INTERVAL '6 months', 'YYYY-MM')
+            ${rrWhere}
+          GROUP BY rrd.upload_month, rrd.service_line
+          ORDER BY rrd.upload_month, rrd.service_line
+        `, rrParams),
+
+        // Active non-historical rules with detail
+        pool.query(`
+          SELECT id, name, description, action, service_line, service_lines,
+                 monthly_impact, annual_impact, execution_count
           FROM adjustment_rules
+          WHERE is_active AND is_historical IS NOT TRUE
+            ${ruleSlFilter}
+          ORDER BY priority DESC, annual_impact DESC NULLS LAST
+          LIMIT 20
         `),
-        pool.query(`
-          SELECT
-            ROUND(AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occupancy_pct,
-            COUNT(*) FILTER (WHERE NOT occupied_yn) AS vacant_units,
-            COUNT(*) AS total_units,
-            ROUND(AVG(street_rate) FILTER (WHERE street_rate > 0)) AS avg_street_rate,
-            ROUND(AVG(rule_adjusted_rate) FILTER (WHERE rule_adjusted_rate > 0)) AS avg_rule_rate,
-            ROUND(AVG(days_vacant) FILTER (WHERE NOT occupied_yn AND days_vacant > 0 AND days_vacant < 730)) AS avg_days_vacant
-          FROM rent_roll_data
-          WHERE client_id = $1
-            AND upload_month = (
-              SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
-            )
-        `, [clientId]),
+
+        // Competitors for the client
         pool.query(`
           SELECT COUNT(*) AS comp_count,
-                 ROUND(AVG(street_rate)) AS avg_comp_rate
+                 ROUND(AVG(COALESCE(NULLIF(avg_care_rate,0), NULLIF(street_rate,0)))) AS avg_comp_rate,
+                 COUNT(DISTINCT service_lines) AS sl_count
           FROM competitors WHERE client_id = $1
         `, [clientId]),
       ]);
 
-      const r = rulesRes.rows[0];
-      const s = snapshotRes.rows[0];
+      const slRows = snapshotBySLRes.rows;
+      const trendRows = trendRes.rows;
+      const ruleRows = rulesRes.rows;
       const c = competitorRes.rows[0];
 
-      const metrics = {
-        activeRules: parseInt(r?.active_rules || '0'),
-        positiveRules: parseInt(r?.positive_rules || '0'),
-        discountRules: parseInt(r?.discount_rules || '0'),
-        avgPositivePct: parseFloat(r?.avg_positive_pct || '0'),
-        totalMonthlyImpact: Math.round(parseFloat(r?.total_monthly_impact || '0')),
-        totalAnnualImpact: Math.round(parseFloat(r?.total_annual_impact || '0')),
-        serviceLinesCovered: parseInt(r?.service_lines_covered || '0'),
-        occupancyPct: parseFloat(s?.occupancy_pct || '0'),
-        vacantUnits: parseInt(s?.vacant_units || '0'),
-        totalUnits: parseInt(s?.total_units || '0'),
-        avgStreetRate: parseInt(s?.avg_street_rate || '0'),
-        avgRuleRate: parseInt(s?.avg_rule_rate || '0'),
-        avgDaysVacant: parseInt(s?.avg_days_vacant || '0'),
-        competitorCount: parseInt(c?.comp_count || '0'),
-        avgCompRate: parseInt(c?.avg_comp_rate || '0'),
-      };
+      // Aggregate totals across service lines
+      const totalUnits = slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
+      const totalVacant = slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
+      const overallOcc = totalUnits > 0 ? Math.round((totalUnits - totalVacant) / totalUnits * 1000) / 10 : 0;
+
+      // Service-line snapshot summary string
+      const slSummaryParts = slRows.map((r: any) =>
+        `${r.service_line}: ${r.occ_pct}% occ (${r.vacant}/${r.total} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo${r.avg_rule_rate > 0 ? `, rule-adj $${parseInt(r.avg_rule_rate).toLocaleString()}/mo` : ''}, avg vacant ${r.avg_days_vacant || 0} days)`
+      ).join(' | ');
+
+      // 6-month trend summary per service line
+      const trendBySL: Record<string, any[]> = {};
+      for (const row of trendRows) {
+        if (!trendBySL[row.service_line]) trendBySL[row.service_line] = [];
+        trendBySL[row.service_line].push(row);
+      }
+      const trendSummary = Object.entries(trendBySL).map(([sl, months]) => {
+        const sorted = months.sort((a, b) => a.upload_month.localeCompare(b.upload_month));
+        if (sorted.length < 2) return `${sl}: insufficient history`;
+        const first = sorted[0];
+        const last = sorted[sorted.length - 1];
+        const rateChange = (parseInt(last.avg_street_rate || '0') - parseInt(first.avg_street_rate || '0'));
+        const occChange = (parseFloat(last.occ_pct || '0') - parseFloat(first.occ_pct || '0')).toFixed(1);
+        const sign = rateChange >= 0 ? '+' : '';
+        return `${sl}: street rate ${sign}$${rateChange}/mo over 6mo, occ ${occChange > '0' ? '+' : ''}${occChange}pp (${first.upload_month}→${last.upload_month})`;
+      }).join(' | ');
+
+      // Rule detail for GPT
+      const ruleDetails = ruleRows.map((r: any) => {
+        const action = typeof r.action === 'string' ? JSON.parse(r.action) : (r.action || {});
+        const adjVal = action.adjustmentValue != null ? `${action.adjustmentValue}%` : 'N/A';
+        const adjType = action.adjustmentType || 'adjustment';
+        const slScope = (r.service_lines && r.service_lines.length > 0) ? r.service_lines.join('/') : (r.service_line || 'all service lines');
+        return `  - "${r.name}" [${slScope}]: ${r.description} → ${adjVal} ${adjType}, exec ${r.execution_count || 0}x`;
+      }).join('\n');
+
+      const filterContext = [
+        locations.length > 0 ? `locations: ${locations.join(', ')}` : null,
+        regions.length > 0 ? `regions: ${regions.join(', ')}` : null,
+        divisions.length > 0 ? `divisions: ${divisions.join(', ')}` : null,
+        serviceLine !== 'All' ? `service line: ${serviceLine}` : null,
+      ].filter(Boolean).join('; ') || 'full portfolio';
+
+      const compInfo = parseInt(c?.comp_count || '0') > 0
+        ? `${c.comp_count} competitors tracked, avg rate $${parseInt(c.avg_comp_rate || '0').toLocaleString()}/mo`
+        : 'no competitors configured';
 
       const openaiModule = await import('openai');
       const openai = new openaiModule.default();
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
-        temperature: 0.35,
+        temperature: 0.3,
         messages: [
           {
             role: 'system',
-            content: `You are a senior revenue management consultant for senior living facilities. Generate sharp, data-driven strategic commentary. Wrap the most impactful numbers and key phrases in **double asterisks** for bold emphasis. Each bullet must tell a mini story: situation → implication → action. Be direct, concise, professional.`,
+            content: `You are a senior revenue management consultant for senior living facilities. Be direct, data-specific, and concise. Use **double asterisks** around key numbers and strategic phrases for bold emphasis.`,
           },
           {
             role: 'user',
-            content: `Generate exactly 3 to 5 strategic pricing commentary bullets for this portfolio. Use the real numbers provided.
+            content: `Generate a Strategy Overview for this filter scope: ${filterContext}.
 
-Portfolio snapshot:
-- Occupancy: ${metrics.occupancyPct}% (${metrics.vacantUnits} vacant of ${metrics.totalUnits} total units)
-- Avg days vacant (empty units): ${metrics.avgDaysVacant} days
-- Active pricing rules: ${metrics.activeRules} (${metrics.positiveRules} rate-increasing, ${metrics.discountRules} discount)
-- Avg rate increase across positive rules: ${metrics.avgPositivePct}%
-- Estimated monthly revenue impact from rules: $${metrics.totalMonthlyImpact.toLocaleString()}
-- Estimated annual revenue impact: $${metrics.totalAnnualImpact.toLocaleString()}
-- Avg street rate: $${metrics.avgStreetRate.toLocaleString()}/mo
-- Avg rule-adjusted rate: $${metrics.avgRuleRate > 0 ? metrics.avgRuleRate.toLocaleString() : 'not yet applied'}/mo
-- Competitors tracked: ${metrics.competitorCount}${metrics.avgCompRate > 0 ? ` (avg rate: $${metrics.avgCompRate.toLocaleString()}/mo)` : ''}
-- Service lines with active rules: ${metrics.serviceLinesCovered}
+Data provided:
 
-Rules:
-- Be specific — name the actual numbers
-- Bold the most important metrics and strategic keywords (e.g. **$2.1M annual uplift**, **85% occupancy**, **14 vacant AL units**)
-- Each bullet is 1–2 sentences max
-- Vary the insight angle: occupancy pressure, rate positioning, revenue capture, rule coverage, competitive gap, etc.
-- Do NOT start bullets with "The portfolio" or generic phrases
+SERVICE-LINE SNAPSHOT (latest month):
+${slSummaryParts || 'No data for selected filters'}
 
-Return ONLY a valid JSON array of strings, no markdown fences:
-["bullet text with **bold** markers", "...", ...]`,
+6-MONTH PRICING TREND (by service line):
+${trendSummary || 'Insufficient history'}
+
+ACTIVE PRICING RULES (${ruleRows.length} total):
+${ruleDetails || 'No active rules'}
+
+COMPETITOR INFO: ${compInfo}
+
+OVERALL: ${overallOcc}% occupancy, ${totalVacant} of ${totalUnits} units vacant
+
+Instructions — return a JSON object with exactly these 4 keys:
+
+1. "summary": One sentence covering occupancy and revenue trends at the service-line level. Use real numbers. Bold key figures.
+
+2. "pricingTrend": One to two sentences describing street rate and occupancy changes over the last 6 months across service lines. Be specific about direction and magnitude. Bold key changes.
+
+3. "rulesSummary": One sentence describing the overall pricing strategy implied by the active rules (e.g., aggressive rate-lift in AL, defensive discounting in HC, etc.). Bold the strategy type and service lines.
+
+4. "rules": Array of objects, one per active rule, each with:
+   - "name": the rule name exactly as given
+   - "strategy": one short sentence describing what this rule does strategically (not just repeating the description — explain the WHY and IMPACT). Bold the key metric or outcome.
+
+Return ONLY valid JSON, no markdown fences:
+{"summary":"...","pricingTrend":"...","rulesSummary":"...","rules":[{"name":"...","strategy":"..."}]}`,
           },
         ],
       });
 
-      const content = completion.choices[0]?.message?.content || '[]';
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      let bullets: string[] = [];
-      try { bullets = jsonMatch ? JSON.parse(jsonMatch[0]) : []; } catch { bullets = []; }
-      // Cap at 5 bullets
-      bullets = bullets.slice(0, 5);
-      const result = { bullets, generatedAt: new Date().toISOString() };
+      const content = completion.choices[0]?.message?.content || '{}';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      let parsed: any = {};
+      try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}; } catch { parsed = {}; }
+
+      const result = {
+        summary: parsed.summary || '',
+        pricingTrend: parsed.pricingTrend || '',
+        rulesSummary: parsed.rulesSummary || '',
+        rules: Array.isArray(parsed.rules) ? parsed.rules.slice(0, 20) : [],
+        generatedAt: new Date().toISOString(),
+      };
       setCachedAnalytics(cacheKey, result);
       res.json(result);
     } catch (error) {
