@@ -4698,14 +4698,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MatrixCare Street Rates Export (for new admissions)
   app.get("/api/export/street-rates", async (req, res) => {
     try {
-      const { campuses } = req.query;
+      const { campuses, date } = req.query;
       const selectedCampuses = campuses ? (campuses as string).split(',') : undefined;
+      const exportDate = date ? (date as string) : null;
       
       // Import the export function
       const { generateStreetRatesExport, validateStreetRatesExport } = await import('./matrixCareStreetRatesExport');
       
       // Generate the export file
-      const filepath = await generateStreetRatesExport(selectedCampuses);
+      const filepath = await generateStreetRatesExport(selectedCampuses, exportDate);
       
       // Validate the export
       const validation = await validateStreetRatesExport(filepath);
@@ -4734,14 +4735,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MatrixCare Special Rates Export (for current residents)
   app.get("/api/export/special-rates", async (req, res) => {
     try {
-      const { campuses } = req.query;
+      const { campuses, date } = req.query;
       const selectedCampuses = campuses ? (campuses as string).split(',') : undefined;
+      const exportDate = date ? (date as string) : null;
       
       // Import the export function
       const { generateSpecialRatesExport, validateSpecialRatesExport } = await import('./matrixCareSpecialRatesExport');
       
       // Generate the export file
-      const filepath = await generateSpecialRatesExport(selectedCampuses);
+      const filepath = await generateSpecialRatesExport(selectedCampuses, exportDate);
       
       // Validate the export
       const validation = await validateSpecialRatesExport(filepath);
@@ -4874,7 +4876,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/export/matrixcare", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { format = 'xlsx' } = req.query;
+      const { format = 'xlsx', date } = req.query;
+      const exportDate = date ? (date as string) : null;
       
       // Get all rent roll data
       const rentRollData = await storage.getRentRollData(clientId);
@@ -4888,9 +4891,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (format === 'csv') {
         // Generate CSV with validation
-        const { csv, validation } = await generateMatrixCareCSV(rentRollData);
+        const { csv, validation } = await generateMatrixCareCSV(rentRollData, exportDate);
         
-        // Log validation warnings if any
         if (!validation.isValid) {
           console.error('MatrixCare CSV export has validation issues:', validation.issues);
         }
@@ -4906,9 +4908,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.send(csv);
       } else {
         // Generate Excel with validation
-        const { buffer, validation } = await generateMatrixCareExcel(rentRollData);
+        const { buffer, validation } = await generateMatrixCareExcel(rentRollData, exportDate);
         
-        // Log validation warnings if any
         if (!validation.isValid) {
           console.error('MatrixCare Excel export has validation issues:', validation.issues);
         }

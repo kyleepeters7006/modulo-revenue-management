@@ -1,9 +1,14 @@
 import { SelectRentRollData } from '@shared/schema';
 import * as XLSX from 'xlsx';
-import { format } from 'date-fns';
+import {
+  safeExportDate,
+  fuzzyMapRoomType,
+  fuzzyMapServiceLineToLevels,
+  getRevenueAccount,
+  getPayerConfigurations,
+} from './matrixCareFuzzyMatch';
 import { callClaude } from './aiRouter';
 
-// MatrixCare field mappings
 interface MatrixCareRow {
   FacilityName: string;
   FacilityCustomerID: string;
@@ -29,166 +34,97 @@ interface MatrixCareRow {
   CopayContractualAccount: string;
 }
 
-// Map our service lines to MatrixCare level of care
-const mapServiceLineToLevelOfCare = (serviceLine: string): string => {
-  const mappings: Record<string, string> = {
-    'HC': 'BASE RATE - SKILLED - ACTIVE',
-    'SNF': 'BASE RATE - SKILLED - ACTIVE',
-    'AL': 'BASE RATE - INTERMED - ACTIVE',
-    'MC': 'BASE RATE - INTERMED - ACTIVE',
-    'AL/MC': 'BASE RATE - INTERMED - ACTIVE',
-    'SL': 'BASE RATE - INTERMED - ACTIVE',
-    'VIL': 'BASE RATE - INTERMED - ACTIVE'
-  };
-  return mappings[serviceLine] || 'BASE RATE - INTERMED - ACTIVE';
-};
-
-// Map room types to MatrixCare bed type descriptions
-const mapRoomTypeToBedType = (rentRollData: SelectRentRollData): string => {
-  let bedType = rentRollData.roomType || 'Private';
-  
-  // Add A/B/C ratings if available
+// Build a bed-type string that appends any A/B/C attribute ratings
+function buildBedTypeDescription(row: SelectRentRollData): string {
+  const base = fuzzyMapRoomType(row.roomType || '');
   const ratings: string[] = [];
-  if (rentRollData.viewRating) {
-    ratings.push(`${rentRollData.viewRating} Vw`);
-  }
-  if (rentRollData.locationRating) {
-    ratings.push(`${rentRollData.locationRating} Loc`);
-  }
-  if (rentRollData.sizeRating) {
-    ratings.push(`${rentRollData.sizeRating} Sz`);
-  }
-  
-  if (ratings.length > 0) {
-    bedType = `${bedType};${ratings.join(';')}`;
-  }
-  
-  return bedType;
-};
+  if (row.viewRating)     ratings.push(`${row.viewRating} Vw`);
+  if (row.locationRating) ratings.push(`${row.locationRating} Loc`);
+  if (row.sizeRating)     ratings.push(`${row.sizeRating} Sz`);
+  return ratings.length ? `${base};${ratings.join(';')}` : base;
+}
 
-// Generate revenue account codes based on service line
-const getRevenueAccount = (serviceLine: string): string => {
-  const accountMappings: Record<string, string> = {
-    'HC': '~C01-41010',
-    'SNF': '~C01-41010',
-    'AL': '~C01-41010',
-    'MC': '~C02-41013',
-    'AL/MC': '~C02-41013',
-    'SL': '~C01-41010',
-    'VIL': '~C01-41010'
-  };
-  return accountMappings[serviceLine] || '~C01-41010';
-};
-
-// Map payor types
-const mapPayorType = (payorType: string | null | undefined): string => {
-  if (!payorType) return 'Private HCC';
-  
-  const payorMappings: Record<string, string> = {
-    'Private Pay': 'Private HCC',
-    'Medicaid': 'Medicaid',
-    'Medicare': 'Medicare Part A',
-    'Insurance': 'Insurance',
-    'Hospice': 'Hospice Private',
-    'VA': 'Veterans Administration'
-  };
-  
-  return payorMappings[payorType] || 'Private HCC';
-};
-
-// Get facility customer ID format
-const getFacilityCustomerId = (location: string, serviceLine: string): string => {
-  // Generate a consistent ID format based on location
-  const locationCode = location.replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
-  const serviceCode = serviceLine === 'HC' || serviceLine === 'SNF' ? 'HC' : 
-                       serviceLine === 'AL' || serviceLine === 'MC' ? 'AL' : 
-                       serviceLine === 'VIL' ? 'VIL' : 'SL';
-  return `~14-${locationCode}-${serviceCode}`;
-};
+// Generate a stable facility customer-ID
+function getFacilityCustomerId(location: string, serviceLine: string): string {
+  const locCode = location.replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
+  const n = serviceLine.toUpperCase();
+  const svcCode = (n === 'HC' || n === 'SNF' || n === 'HC/MC') ? 'HC'
+                : (n === 'AL' || n === 'AL/MC' || n === 'MC')  ? 'AL'
+                : (n === 'VIL')                                 ? 'VIL'
+                : 'SL';
+  return `~14-${locCode}-${svcCode}`;
+}
 
 export function transformToMatrixCareFormat(
   rentRollData: SelectRentRollData[],
-  exportMonth: string = format(new Date(), 'M/d/yyyy')
+  exportDate?: string | null
 ): MatrixCareRow[] {
+  // Always produce a valid date string, never an empty/null value
+  const effectiveDate = safeExportDate(exportDate);
   const matrixCareRows: MatrixCareRow[] = [];
-  
-  // Group data by facility and create appropriate rows
+
+  // Group by facility
   const facilitiesMap = new Map<string, SelectRentRollData[]>();
-  
-  rentRollData.forEach(row => {
-    const facilityKey = row.location;
-    if (!facilitiesMap.has(facilityKey)) {
-      facilitiesMap.set(facilityKey, []);
-    }
-    facilitiesMap.get(facilityKey)!.push(row);
-  });
-  
-  // Generate rows for each facility
+  for (const row of rentRollData) {
+    const key = row.location;
+    if (!facilitiesMap.has(key)) facilitiesMap.set(key, []);
+    facilitiesMap.get(key)!.push(row);
+  }
+
   facilitiesMap.forEach((facilityData, facilityName) => {
-    // Get unique combinations of bed types and service lines
-    const uniqueCombinations = new Map<string, { bedType: string, serviceLine: string, basePrice: number }>();
-    
-    facilityData.forEach(row => {
-      const bedType = mapRoomTypeToBedType(row);
-      const key = `${bedType}-${row.serviceLine}`;
-      
+    // Collect unique (bedType, serviceLine) combinations; keep the first street rate encountered
+    const uniqueCombinations = new Map<string, { bedType: string; serviceLine: string; basePrice: number }>();
+
+    for (const row of facilityData) {
+      const bedType = buildBedTypeDescription(row);
+      const key = `${bedType}||${row.serviceLine}`;
       if (!uniqueCombinations.has(key)) {
-        // Calculate daily rate from monthly street rate
-        const dailyRate = Math.round((row.streetRate || 0) / 30);
-        
-        uniqueCombinations.set(key, {
-          bedType,
-          serviceLine: row.serviceLine,
-          basePrice: dailyRate
-        });
+        // Daily rate: monthly AL/SL/VIL ÷ 30.5; HC is already daily
+        const monthly = row.streetRate || 0;
+        const sl = (row.serviceLine || '').toUpperCase();
+        const isDaily = sl === 'HC' || sl === 'HC/MC' || sl === 'SNF';
+        const basePrice = Math.round(isDaily ? monthly : monthly / 30.5);
+        uniqueCombinations.set(key, { bedType, serviceLine: row.serviceLine, basePrice });
+      }
+    }
+
+    uniqueCombinations.forEach(({ bedType, serviceLine, basePrice }) => {
+      const facilityCustomerId = getFacilityCustomerId(facilityName, serviceLine);
+      const levels = fuzzyMapServiceLineToLevels(serviceLine);
+      const payers = getPayerConfigurations(serviceLine);
+
+      for (const loc of levels) {
+        for (const payer of payers) {
+          const revAcct = getRevenueAccount(serviceLine, payer.payerName);
+          matrixCareRows.push({
+            FacilityName:           `${facilityName} ${serviceLine}`,
+            FacilityCustomerID:     facilityCustomerId,
+            BedTypeDescription:     bedType,
+            LevelofCare:            loc,
+            RoomChargeDescription:  'ROOM CHARGE',
+            BasePriceBeginDate:     effectiveDate,   // always populated
+            BasePrice:              basePrice,
+            BasePriceChargeBy:      payer.payerChargeBy,
+            PayerBeginDate:         effectiveDate,   // always populated
+            PayerName:              payer.payerName,
+            PayerChargeBy:          payer.payerChargeBy,
+            Proration:              payer.proration,
+            RevenueCode:            '',
+            AllowableCharge:        0,
+            AllowablePercent:       payer.payerName.toUpperCase().includes('MEDICAID') ? 0 : 100,
+            HospBedHoldRate:        0,
+            HospBedHoldPercent:     payer.payerName.toUpperCase().includes('MEDICAID') ? 0 : 100,
+            TherBedHoldRate:        0,
+            TherBedHoldPercent:     payer.payerName.toUpperCase().includes('MEDICAID') ? 0 : 100,
+            RevenueAccount:         revAcct,
+            ContractualAccount:     revAcct,
+            CopayContractualAccount: revAcct,
+          });
+        }
       }
     });
-    
-    // Create MatrixCare rows for each unique combination with different payer types
-    uniqueCombinations.forEach(({ bedType, serviceLine, basePrice }) => {
-      const levelOfCare = mapServiceLineToLevelOfCare(serviceLine);
-      const revenueAccount = getRevenueAccount(serviceLine);
-      const facilityCustomerId = getFacilityCustomerId(facilityName, serviceLine);
-      
-      // Create rows for different payer types (Private and Hospice as shown in template)
-      const payerTypes = ['Private HCC', 'Hospice Private'];
-      
-      payerTypes.forEach(payerName => {
-        // For skilled nursing, create both SKILLED and INTERMED levels
-        const levelsOfCare = serviceLine === 'HC' || serviceLine === 'SNF' 
-          ? ['BASE RATE - SKILLED - ACTIVE', 'BASE RATE - INTERMED - ACTIVE']
-          : [levelOfCare];
-        
-        levelsOfCare.forEach(loc => {
-          matrixCareRows.push({
-            FacilityName: `${facilityName} ${serviceLine}`,
-            FacilityCustomerID: facilityCustomerId,
-            BedTypeDescription: bedType,
-            LevelofCare: loc,
-            RoomChargeDescription: 'ROOM CHARGE',
-            BasePriceBeginDate: exportMonth,
-            BasePrice: basePrice,
-            BasePriceChargeBy: 'Daily',
-            PayerBeginDate: exportMonth,
-            PayerName: payerName,
-            PayerChargeBy: 'Daily',
-            Proration: 'None',
-            RevenueCode: '',
-            AllowableCharge: 0,
-            AllowablePercent: 100,
-            HospBedHoldRate: 0,
-            HospBedHoldPercent: 100,
-            TherBedHoldRate: 0,
-            TherBedHoldPercent: 100,
-            RevenueAccount: revenueAccount,
-            ContractualAccount: revenueAccount,
-            CopayContractualAccount: revenueAccount
-          });
-        });
-      });
-    });
   });
-  
+
   return matrixCareRows;
 }
 
@@ -199,250 +135,152 @@ async function validateMatrixCareMapping(
 ): Promise<{ isValid: boolean; issues: string[]; suggestions: string[] }> {
   const issues: string[] = [];
   const suggestions: string[] = [];
-  
-  // Basic data integrity checks
+
   if (matrixCareData.length === 0) {
-    issues.push("No data generated for MatrixCare export");
+    issues.push('No data generated for MatrixCare export');
   }
-  
-  // Check for missing critical fields
+
+  // Field-level checks
   matrixCareData.forEach((row, index) => {
-    if (!row.FacilityName) {
-      issues.push(`Row ${index + 1}: Missing FacilityName`);
-    }
-    if (!row.FacilityCustomerID) {
-      issues.push(`Row ${index + 1}: Missing FacilityCustomerID`);
-    }
-    if (!row.LevelofCare) {
-      issues.push(`Row ${index + 1}: Missing LevelofCare`);
-    }
-    if (row.BasePrice === undefined || row.BasePrice < 0) {
-      issues.push(`Row ${index + 1}: Invalid BasePrice (${row.BasePrice})`);
-    }
-    if (row.BasePrice > 1000) {
-      suggestions.push(`Row ${index + 1}: Daily rate ${row.BasePrice} seems high - verify monthly to daily conversion`);
-    }
+    if (!row.FacilityName)                           issues.push(`Row ${index + 1}: Missing FacilityName`);
+    if (!row.FacilityCustomerID)                     issues.push(`Row ${index + 1}: Missing FacilityCustomerID`);
+    if (!row.LevelofCare)                            issues.push(`Row ${index + 1}: Missing LevelofCare`);
+    if (!row.BasePriceBeginDate)                     issues.push(`Row ${index + 1}: Missing BasePriceBeginDate`);
+    if (!row.PayerBeginDate)                         issues.push(`Row ${index + 1}: Missing PayerBeginDate`);
+    if (row.BasePrice === undefined || row.BasePrice < 0) issues.push(`Row ${index + 1}: Invalid BasePrice (${row.BasePrice})`);
+    if (row.BasePrice > 1000) suggestions.push(`Row ${index + 1}: Daily rate ${row.BasePrice} seems high — verify conversion`);
   });
-  
-  // Verify service line to level of care mapping
-  const invalidMappings = matrixCareData.filter(row => {
-    const hasSkilled = row.LevelofCare.includes('SKILLED');
-    const hasIntermed = row.LevelofCare.includes('INTERMED');
-    const hasIndependent = row.LevelofCare.includes('INDEPENDENT');
-    return !hasSkilled && !hasIntermed && !hasIndependent;
+
+  // Check LevelofCare values contain known tokens
+  const invalidLoc = matrixCareData.filter(r => {
+    const v = r.LevelofCare.toUpperCase();
+    return !v.includes('SKILLED') && !v.includes('INTERMED') && !v.includes('INDEPENDENT');
   });
-  
-  if (invalidMappings.length > 0) {
-    issues.push(`${invalidMappings.length} rows have invalid LevelofCare values`);
-  }
-  
-  // Check for duplicate entries
+  if (invalidLoc.length) issues.push(`${invalidLoc.length} rows have unrecognised LevelofCare values`);
+
+  // Duplicate detection
   const seen = new Set<string>();
   matrixCareData.forEach(row => {
     const key = `${row.FacilityName}-${row.BedTypeDescription}-${row.LevelofCare}-${row.PayerName}`;
-    if (seen.has(key)) {
-      suggestions.push(`Potential duplicate: ${key}`);
-    }
+    if (seen.has(key)) suggestions.push(`Potential duplicate: ${key}`);
     seen.add(key);
   });
-  
-  // Use AI for advanced validation
+
+  // AI deep-validation (sample)
   if (matrixCareData.length > 0) {
     try {
-      // Sample a few rows for AI validation
       const sampleRows = matrixCareData.slice(0, 5);
-      
-      const prompt = `As a healthcare data expert familiar with MatrixCare EHR systems, validate this data mapping:
+      const prompt = `As a healthcare data expert familiar with MatrixCare EHR, validate this mapping:
 
-Sample MatrixCare Export Data:
+Sample:
 ${JSON.stringify(sampleRows, null, 2)}
 
-Source Data Summary:
-- Total units: ${originalData.length}
+Source summary:
+- Units: ${originalData.length}
 - Service lines: ${[...new Set(originalData.map(d => d.serviceLine))].join(', ')}
 - Room types: ${[...new Set(originalData.map(d => d.roomType))].join(', ')}
 
-Please validate:
-1. Are the Level of Care mappings correct for the service lines?
-2. Are the daily rates reasonable (converted from monthly)?
-3. Are the revenue accounts properly formatted?
-4. Do the payer types match MatrixCare standards?
-5. Are there any critical fields missing or incorrectly formatted?
+Validate: LevelofCare accuracy, daily rate reasonableness, revenue account format, payer type correctness, missing/malformed fields.
 
-Respond in JSON format:
-{
-  "isValid": boolean,
-  "criticalIssues": ["list of critical issues"],
-  "suggestions": ["list of suggestions for improvement"],
-  "mappingAccuracy": "high" | "medium" | "low"
-}`;
+Respond JSON: { "isValid": bool, "criticalIssues": [], "suggestions": [], "mappingAccuracy": "high"|"medium"|"low" }`;
 
       const rawText = await callClaude(
-        'You are a healthcare data expert familiar with MatrixCare EHR systems. Always respond with valid JSON.',
+        'You are a healthcare data expert. Always respond with valid JSON.',
         prompt,
         { maxTokens: 1000, label: 'matrixcare-validation' }
       );
-
       const result = JSON.parse(rawText || '{}');
-      
-      if (result.criticalIssues) {
-        issues.push(...result.criticalIssues);
-      }
-      if (result.suggestions) {
-        suggestions.push(...result.suggestions);
-      }
-      
-      if (result.mappingAccuracy === "low") {
-        issues.push("AI validation indicates low mapping accuracy - please review the export carefully");
-      } else if (result.mappingAccuracy === "medium") {
-        suggestions.push("AI validation suggests reviewing the mapping for potential improvements");
-      }
-      
-    } catch (error) {
-      console.error('AI validation error:', error);
-      suggestions.push("AI validation unavailable - manual review recommended");
+      if (result.criticalIssues) issues.push(...result.criticalIssues);
+      if (result.suggestions)    suggestions.push(...result.suggestions);
+      if (result.mappingAccuracy === 'low')    issues.push('AI validation indicates low mapping accuracy');
+      if (result.mappingAccuracy === 'medium') suggestions.push('AI validation: medium accuracy — review recommended');
+    } catch {
+      suggestions.push('AI validation unavailable — manual review recommended');
     }
   }
-  
-  return {
-    isValid: issues.length === 0,
-    issues,
-    suggestions
-  };
+
+  return { isValid: issues.length === 0, issues, suggestions };
 }
 
-export async function generateMatrixCareExcel(rentRollData: SelectRentRollData[]): Promise<{ buffer: Buffer; validation: any }> {
-  // Transform data to MatrixCare format
-  const matrixCareData = transformToMatrixCareFormat(rentRollData);
-  
-  // Validate the mapping
+export async function generateMatrixCareExcel(
+  rentRollData: SelectRentRollData[],
+  exportDate?: string | null
+): Promise<{ buffer: Buffer; validation: any }> {
+  const matrixCareData = transformToMatrixCareFormat(rentRollData, exportDate);
   const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
-  
-  // Log validation results
-  if (!validation.isValid) {
-    console.warn('MatrixCare export validation issues:', validation.issues);
-  }
-  if (validation.suggestions.length > 0) {
-    console.info('MatrixCare export suggestions:', validation.suggestions);
-  }
-  
-  // Create a new workbook
+
+  if (!validation.isValid)        console.warn('MatrixCare export validation issues:', validation.issues);
+  if (validation.suggestions.length) console.info('MatrixCare export suggestions:', validation.suggestions);
+
   const wb = XLSX.utils.book_new();
-  
-  // Convert data to worksheet
   const ws = XLSX.utils.json_to_sheet(matrixCareData);
-  
-  // Set column widths for better readability
-  const colWidths = [
-    { wch: 30 }, // FacilityName
-    { wch: 20 }, // FacilityCustomerID
-    { wch: 25 }, // BedTypeDescription
-    { wch: 30 }, // LevelofCare
-    { wch: 20 }, // RoomChargeDescription
-    { wch: 15 }, // BasePriceBeginDate
-    { wch: 10 }, // BasePrice
-    { wch: 15 }, // BasePriceChargeBy
-    { wch: 15 }, // PayerBeginDate
-    { wch: 20 }, // PayerName
-    { wch: 15 }, // PayerChargeBy
-    { wch: 10 }, // Proration
-    { wch: 12 }, // RevenueCode
-    { wch: 15 }, // AllowableCharge
-    { wch: 15 }, // AllowablePercent
-    { wch: 15 }, // HospBedHoldRate
-    { wch: 18 }, // HospBedHoldPercent
-    { wch: 15 }, // TherBedHoldRate
-    { wch: 18 }, // TherBedHoldPercent
-    { wch: 15 }, // RevenueAccount
-    { wch: 20 }, // ContractualAccount
-    { wch: 25 }, // CopayContractualAccount
+
+  ws['!cols'] = [
+    { wch: 30 }, { wch: 20 }, { wch: 25 }, { wch: 30 }, { wch: 20 },
+    { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 20 },
+    { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
+    { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 18 }, { wch: 15 },
+    { wch: 20 }, { wch: 25 },
   ];
-  ws['!cols'] = colWidths;
-  
-  // Add worksheet to workbook
+
   XLSX.utils.book_append_sheet(wb, ws, 'MatrixCare Upload');
-  
-  // Add validation summary sheet if there are issues or suggestions
+
   if (!validation.isValid || validation.suggestions.length > 0) {
-    const validationData = [
-      { Type: 'Status', Detail: validation.isValid ? 'VALID - Export completed with warnings' : 'INVALID - Review issues before uploading' },
-      ...validation.issues.map(issue => ({ Type: 'Issue', Detail: issue })),
-      ...validation.suggestions.map(suggestion => ({ Type: 'Suggestion', Detail: suggestion }))
+    const vData = [
+      { Type: 'Status', Detail: validation.isValid ? 'VALID — export completed with warnings' : 'INVALID — review before uploading' },
+      ...validation.issues.map((d: string) => ({ Type: 'Issue', Detail: d })),
+      ...validation.suggestions.map((d: string) => ({ Type: 'Suggestion', Detail: d })),
     ];
-    
-    const validationSheet = XLSX.utils.json_to_sheet(validationData);
-    XLSX.utils.book_append_sheet(wb, validationSheet, 'Validation Report');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(vData), 'Validation Report');
   }
-  
-  // Generate Excel buffer
+
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  
-  return {
-    buffer,
-    validation
-  };
+  return { buffer, validation };
 }
 
-export async function generateMatrixCareCSV(rentRollData: SelectRentRollData[]): Promise<{ csv: string; validation: any }> {
-  // Transform data to MatrixCare format
-  const matrixCareData = transformToMatrixCareFormat(rentRollData);
-  
-  // Validate the mapping
+export async function generateMatrixCareCSV(
+  rentRollData: SelectRentRollData[],
+  exportDate?: string | null
+): Promise<{ csv: string; validation: any }> {
+  const matrixCareData = transformToMatrixCareFormat(rentRollData, exportDate);
   const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
-  
-  // Log validation results
-  if (!validation.isValid) {
-    console.warn('MatrixCare CSV export validation issues:', validation.issues);
-  }
-  if (validation.suggestions.length > 0) {
-    console.info('MatrixCare CSV export suggestions:', validation.suggestions);
-  }
-  
-  // Create CSV header
-  const headers = [
+
+  if (!validation.isValid)        console.warn('MatrixCare CSV validation issues:', validation.issues);
+  if (validation.suggestions.length) console.info('MatrixCare CSV suggestions:', validation.suggestions);
+
+  const headers: Array<keyof MatrixCareRow> = [
     'FacilityName', 'FacilityCustomerID', 'BedTypeDescription', 'LevelofCare',
     'RoomChargeDescription', 'BasePriceBeginDate', 'BasePrice', 'BasePriceChargeBy',
     'PayerBeginDate', 'PayerName', 'PayerChargeBy', 'Proration', 'RevenueCode',
     'AllowableCharge', 'AllowablePercent', 'HospBedHoldRate', 'HospBedHoldPercent',
     'TherBedHoldRate', 'TherBedHoldPercent', 'RevenueAccount', 'ContractualAccount',
-    'CopayContractualAccount'
+    'CopayContractualAccount',
   ];
-  
-  // Build CSV string
+
   let csv = headers.join(',') + '\n';
-  
-  matrixCareData.forEach(row => {
-    const values = headers.map(header => {
-      const value = row[header as keyof MatrixCareRow];
-      // Escape values containing commas or quotes
-      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-        return `"${value.replace(/"/g, '""')}"`;
+  for (const row of matrixCareData) {
+    const vals = headers.map(h => {
+      const v = row[h];
+      if (typeof v === 'string' && (v.includes(',') || v.includes('"'))) {
+        return `"${v.replace(/"/g, '""')}"`;
       }
-      return value;
+      return v;
     });
-    csv += values.join(',') + '\n';
-  });
-  
-  // Add validation comments at the end if there are issues
+    csv += vals.join(',') + '\n';
+  }
+
   if (!validation.isValid || validation.suggestions.length > 0) {
     csv += '\n# VALIDATION REPORT\n';
-    csv += `# Status: ${validation.isValid ? 'VALID with warnings' : 'INVALID - Review before uploading'}\n`;
-    if (validation.issues.length > 0) {
+    csv += `# Status: ${validation.isValid ? 'VALID with warnings' : 'INVALID — review before uploading'}\n`;
+    if (validation.issues.length) {
       csv += '# Issues:\n';
-      validation.issues.forEach(issue => {
-        csv += `# - ${issue}\n`;
-      });
+      validation.issues.forEach((i: string) => { csv += `# - ${i}\n`; });
     }
-    if (validation.suggestions.length > 0) {
+    if (validation.suggestions.length) {
       csv += '# Suggestions:\n';
-      validation.suggestions.forEach(suggestion => {
-        csv += `# - ${suggestion}\n`;
-      });
+      validation.suggestions.forEach((s: string) => { csv += `# - ${s}\n`; });
     }
   }
-  
-  return {
-    csv,
-    validation
-  };
+
+  return { csv, validation };
 }
