@@ -4881,6 +4881,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to export pricing strategy documentation' });
     }
   });
+
+  // AI-enriched Export: Excel or PDF with AI summaries per rule + overall summary
+  app.get("/api/pricing-strategy-documentation/export-ai", async (req: any, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || req.clientId || 'demo';
+      const { format = 'excel' } = req.query;
+
+      // Fetch all data in parallel
+      const [weights, ranges, guardrailsData, rentRollData, clientRow] = await Promise.all([
+        storage.getPricingWeights(),
+        storage.getAdjustmentRanges(),
+        storage.getGuardrails(),
+        storage.getRentRollData(clientId),
+        pool.query(`SELECT name FROM clients WHERE id = $1`, [clientId]),
+      ]);
+      const clientName: string = clientRow.rows[0]?.name || clientId;
+
+      // Fetch active rules with impact numbers
+      const rulesRes = await pool.query(
+        `SELECT id, name, description, action, trigger, service_line, service_lines, location_id,
+                monthly_impact, annual_impact, volume_adjusted_annual_impact, actual_annual_impact,
+                priority, execution_count
+         FROM adjustment_rules
+         WHERE is_active = true AND (is_historical IS NOT TRUE)
+         ORDER BY priority DESC NULLS LAST, created_at ASC`
+      );
+      const activeRules = rulesRes.rows;
+
+      // Portfolio stats for AI prompt
+      const statsRes = await pool.query(
+        `SELECT COUNT(DISTINCT location) AS locations,
+                COUNT(*)                 AS units,
+                AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
+                AVG(street_rate) FILTER (WHERE street_rate > 0)         AS avg_rate
+         FROM rent_roll_data
+         WHERE client_id = $1 AND upload_month = (
+           SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
+         )`,
+        [clientId]
+      );
+      const stats = statsRes.rows[0] || {};
+
+      // Generate documentation (campus/SL breakdowns)
+      const { generatePricingStrategyDocumentation } = await import('./pricingStrategyGenerator');
+      const documentation = generatePricingStrategyDocumentation(
+        {
+          weights: weights ? [weights] : [],
+          ranges: ranges ? [ranges] : [],
+          guardrails: guardrailsData || [],
+          activeRules,
+          rentRollData: rentRollData || [],
+        }
+      );
+
+      // Generate AI content
+      const { generateAiContent, generateExcelBuffer, generatePdfBuffer } = await import('./pricingStrategyExporter');
+      const aiContent = await generateAiContent(activeRules, {
+        totalLocations: Number(stats.locations) || 0,
+        totalUnits:     Number(stats.units)     || 0,
+        avgOccupancy:   Number(stats.avg_occ)   || 0,
+        avgStreetRate:  Math.round(Number(stats.avg_rate) || 0),
+        clientName,
+      });
+
+      const date = new Date().toISOString().split('T')[0];
+
+      if (format === 'pdf') {
+        const buf = await generatePdfBuffer(documentation, activeRules, aiContent, clientName);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="pricing_strategy_${date}.pdf"`);
+        return res.send(buf);
+      }
+
+      // Default: Excel
+      const buf = await generateExcelBuffer(documentation, activeRules, aiContent, clientName);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="pricing_strategy_${date}.xlsx"`);
+      return res.send(buf);
+
+    } catch (error) {
+      console.error('[pricing-strategy] export-ai error:', error);
+      res.status(500).json({ error: 'Failed to generate export' });
+    }
+  });
+
+  // AI Summary only (for displaying in the UI without downloading)
+  app.get("/api/pricing-strategy-documentation/ai-summary", async (req: any, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || req.clientId || 'demo';
+      const cacheKey = `pricing-strategy-ai-summary:${clientId}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) return res.json(cached);
+
+      const [clientRow, statsRes, rulesRes] = await Promise.all([
+        pool.query(`SELECT name FROM clients WHERE id = $1`, [clientId]),
+        pool.query(
+          `SELECT COUNT(DISTINCT location) AS locations, COUNT(*) AS units,
+                  AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
+                  AVG(street_rate) FILTER (WHERE street_rate > 0) AS avg_rate
+           FROM rent_roll_data
+           WHERE client_id = $1 AND upload_month = (
+             SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
+           )`,
+          [clientId]
+        ),
+        pool.query(
+          `SELECT id, name, description, action, service_line, service_lines, location_id,
+                  monthly_impact, annual_impact, volume_adjusted_annual_impact, actual_annual_impact,
+                  priority, execution_count
+           FROM adjustment_rules
+           WHERE is_active = true AND (is_historical IS NOT TRUE)
+           ORDER BY priority DESC NULLS LAST`
+        ),
+      ]);
+
+      const clientName: string = clientRow.rows[0]?.name || clientId;
+      const stats = statsRes.rows[0] || {};
+      const { generateAiContent } = await import('./pricingStrategyExporter');
+
+      const aiContent = await generateAiContent(rulesRes.rows, {
+        totalLocations: Number(stats.locations) || 0,
+        totalUnits:     Number(stats.units)     || 0,
+        avgOccupancy:   Number(stats.avg_occ)   || 0,
+        avgStreetRate:  Math.round(Number(stats.avg_rate) || 0),
+        clientName,
+      });
+
+      setCachedAnalytics(cacheKey, aiContent);
+      res.json(aiContent);
+    } catch (error) {
+      console.error('[pricing-strategy] ai-summary error:', error);
+      res.status(500).json({ error: 'Failed to generate AI summary' });
+    }
+  });
   
   // MatrixCare Export - Export data in MatrixCare format
   app.get("/api/export/matrixcare", async (req: any, res) => {
