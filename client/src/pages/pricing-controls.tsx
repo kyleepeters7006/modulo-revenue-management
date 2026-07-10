@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ChevronDown, X, Loader2, Save, HeartPulse } from "lucide-react";
+import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import AiRuleGenerator from "@/components/dashboard/ai-rule-generator";
@@ -361,6 +361,8 @@ export default function PricingControls() {
         </div>
 
 
+        <PricingCommentaryCard />
+
         <div className="space-y-6 sm:space-y-8">
           <ReferenceDataTable
             selectedServiceLine={selectedServiceLine}
@@ -400,6 +402,92 @@ export default function PricingControls() {
           <CareLevel2RatesPanel />
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+function parseBold(text: string): React.ReactNode {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? <strong key={i} className="font-semibold text-gray-900">{part}</strong>
+      : <span key={i}>{part}</span>
+  );
+}
+
+// ── AI strategy commentary strip ─────────────────────────────────────────────
+function PricingCommentaryCard() {
+  const { data, isLoading, refetch, isFetching } = useQuery<{ bullets: string[]; generatedAt: string }>({
+    queryKey: ["/api/pricing-controls/commentary"],
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const bullets = data?.bullets ?? [];
+
+  return (
+    <div className="rounded-xl border border-teal-200/70 bg-gradient-to-br from-teal-50/80 via-white to-slate-50/60 shadow-sm mb-6 overflow-hidden">
+      {/* header strip */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-teal-100/80 bg-teal-50/60">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-teal-600/10">
+            <Sparkles className="h-3.5 w-3.5 text-teal-600" />
+          </div>
+          <span className="text-sm font-semibold text-teal-800 tracking-wide uppercase" style={{ letterSpacing: '0.04em' }}>
+            AI Strategy Briefing
+          </span>
+        </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-800 transition-colors disabled:opacity-40"
+          title="Refresh commentary"
+        >
+          <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
+      </div>
+
+      {/* body */}
+      <div className="px-5 py-4">
+        {isLoading ? (
+          /* skeleton */
+          <div className="space-y-3">
+            {[85, 70, 90, 65].map((w, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="mt-1.5 h-1.5 w-1.5 rounded-full bg-teal-300 shrink-0" />
+                <div className="h-4 rounded bg-gray-200 animate-pulse" style={{ width: `${w}%` }} />
+              </div>
+            ))}
+          </div>
+        ) : bullets.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">No commentary available — add pricing rules to generate insights.</p>
+        ) : (
+          <ul className="space-y-3">
+            {bullets.map((bullet, i) => (
+              <li key={i} className="flex items-start gap-3 group">
+                {/* accent dot with teal left bar */}
+                <div className="flex items-start gap-2 shrink-0 pt-[3px]">
+                  <div className="h-full w-[3px] rounded-full bg-teal-400/70 self-stretch" style={{ minHeight: '1rem' }} />
+                  <div className="h-[7px] w-[7px] rounded-full bg-teal-500 mt-[4px] shrink-0" />
+                </div>
+                <p className="text-[15px] leading-relaxed text-gray-700">
+                  {parseBold(bullet)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* footer */}
+      {data?.generatedAt && !isLoading && (
+        <div className="px-5 pb-3 text-[11px] text-gray-400">
+          Generated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {" · "}Refreshes automatically when rules change
+        </div>
+      )}
     </div>
   );
 }
