@@ -9,9 +9,11 @@ import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
+import { DataImportsContent } from "@/pages/data-imports";
 
 interface FileWithDate {
   file: File;
@@ -610,7 +612,7 @@ export default function DataManagement() {
       <Navigation />
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        <div className="mb-4 sm:mb-8">
+        <div className="mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2" data-testid="text-page-title">
             Data Management
           </h1>
@@ -618,6 +620,18 @@ export default function DataManagement() {
             Upload rent roll, inquiry, and competitive data to power your revenue management dashboard
           </p>
         </div>
+
+        <Tabs defaultValue="uploads" className="w-full">
+          <TabsList className="mb-6">
+            <TabsTrigger value="uploads"><Upload className="h-4 w-4 mr-1.5" />Uploads</TabsTrigger>
+            <TabsTrigger value="data-imports"><Download className="h-4 w-4 mr-1.5" />Data Imports</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="data-imports">
+            <DataImportsContent />
+          </TabsContent>
+
+          <TabsContent value="uploads">
 
         {/* Active Uploads Banner */}
         {activeUploads.length > 0 && (
@@ -1544,6 +1558,8 @@ export default function DataManagement() {
             </Card>
           )}
         </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Periods Dialog */}

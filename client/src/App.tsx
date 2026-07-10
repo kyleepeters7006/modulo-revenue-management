@@ -42,7 +42,9 @@ function Router() {
       <Route path="/floor-plans" component={FloorPlans} />
       <Route path="/floor-plans-admin" component={FloorPlansAdmin} />
       <Route path="/data-import" component={DataImport} />
-      <Route path="/data-imports" component={DataImports} />
+      <Route path="/data-imports">
+        <Redirect to="/data-management" />
+      </Route>
       <Route path="/about" component={AboutUs} />
       <Route path="/pricing-algorithm" component={PricingAlgorithmDocs} />
       <Route component={NotFound} />

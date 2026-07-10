@@ -157,31 +157,37 @@ const emptySchedule = {
   enabled: true,
 };
 
-// ── Page ────────────────────────────────────────────────────────────
+// ── Embeddable content (used by Data Management page) ───────────────
 
-export default function DataImports() {
+export function DataImportsContent() {
   const { data: registry = [] } = useQuery<DatasetDefinition[]>({ queryKey: ["/api/data-imports/registry"] });
 
+  return (
+    <div className="space-y-6">
+      <Tabs defaultValue="import">
+        <TabsList>
+          <TabsTrigger value="import" data-testid="tab-import"><Upload className="h-4 w-4 mr-1" />Import</TabsTrigger>
+          <TabsTrigger value="templates" data-testid="tab-templates"><Download className="h-4 w-4 mr-1" />Templates & Fields</TabsTrigger>
+          <TabsTrigger value="schedules" data-testid="tab-schedules"><Server className="h-4 w-4 mr-1" />Scheduled (SFTP)</TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history"><Clock className="h-4 w-4 mr-1" />History</TabsTrigger>
+        </TabsList>
+        <TabsContent value="import"><ImportTab registry={registry} /></TabsContent>
+        <TabsContent value="templates"><TemplatesTab registry={registry} /></TabsContent>
+        <TabsContent value="schedules"><SchedulesTab registry={registry} /></TabsContent>
+        <TabsContent value="history"><HistoryTab /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ── Page (standalone, kept for backward-compat redirect) ────────────
+
+export default function DataImports() {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Data Imports</h1>
-          <p className="text-muted-foreground">Templates, manual uploads, scheduled SFTP pickups, and import history</p>
-        </div>
-        <Tabs defaultValue="import">
-          <TabsList>
-            <TabsTrigger value="import" data-testid="tab-import"><Upload className="h-4 w-4 mr-1" />Import</TabsTrigger>
-            <TabsTrigger value="templates" data-testid="tab-templates"><Download className="h-4 w-4 mr-1" />Templates & Fields</TabsTrigger>
-            <TabsTrigger value="schedules" data-testid="tab-schedules"><Server className="h-4 w-4 mr-1" />Scheduled (SFTP)</TabsTrigger>
-            <TabsTrigger value="history" data-testid="tab-history"><Clock className="h-4 w-4 mr-1" />History</TabsTrigger>
-          </TabsList>
-          <TabsContent value="import"><ImportTab registry={registry} /></TabsContent>
-          <TabsContent value="templates"><TemplatesTab registry={registry} /></TabsContent>
-          <TabsContent value="schedules"><SchedulesTab registry={registry} /></TabsContent>
-          <TabsContent value="history"><HistoryTab /></TabsContent>
-        </Tabs>
+        <DataImportsContent />
       </main>
     </div>
   );
