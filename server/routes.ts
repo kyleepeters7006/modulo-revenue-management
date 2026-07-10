@@ -8522,32 +8522,83 @@ ${campusOccLines.join('\n')}
           `, rtoParams);
 
           if (rtoRes.rows.length > 0) {
+            // Build per-location SL unit counts from rent-roll (most recent month).
+            // These are the proportional weights for splitting combined-SL history rows
+            // (e.g. "AL, SL, VIL") into individual standard service lines.
+            const rlLocSlRes = await pool.query(`
+              SELECT location, service_line, COUNT(*) AS cnt
+              FROM rent_roll_data
+              WHERE client_id = $1 AND upload_month = $2
+                AND NOT (service_line IN ('AL','SL','VIL','IL','AL/MC') AND room_number LIKE '%/B')
+              GROUP BY location, service_line
+            `, [clientId, mostRecentMonth]);
+            // rlUnitsByLocSL[location][serviceLine] = unit count
+            const rlUnitsByLocSL: Record<string, Record<string, number>> = {};
+            for (const row of rlLocSlRes.rows as any[]) {
+              if (!rlUnitsByLocSL[row.location]) rlUnitsByLocSL[row.location] = {};
+              rlUnitsByLocSL[row.location][row.service_line] = parseInt(row.cnt || '0');
+            }
+            // Global fallback weights (sum across all locations)
+            const rlUnitsGlobal: Record<string, number> = {};
+            for (const locMap of Object.values(rlUnitsByLocSL)) {
+              for (const [sl, cnt] of Object.entries(locMap)) {
+                rlUnitsGlobal[sl] = (rlUnitsGlobal[sl] || 0) + cnt;
+              }
+            }
+
+            // Helper: distribute occ/avail proportionally across a list of SL tokens
+            const distribute = (tokens: string[], locName: string, occ: number, avail: number) => {
+              const locWeights = rlUnitsByLocSL[locName] || rlUnitsGlobal;
+              const groupTotal = tokens.reduce((s, t) => s + (locWeights[t] || 0), 0);
+              return tokens.map(t => {
+                const share = groupTotal > 0 ? (locWeights[t] || 0) / groupTotal : 1 / tokens.length;
+                return { sl: t, occ: occ * share, avail: avail * share };
+              });
+            };
+
             // Reset monthlyData and sameStoreData for occupancy with RTO totals
             for (const month of months) {
               monthlyData[month] = { total: 0, occupied: 0, byServiceLine: {} };
               sameStoreData[month] = { total: 0, occupied: 0, byServiceLine: {} };
             }
+            const mostRecentYM = months[months.length - 1];
             for (const r of rtoRes.rows as any[]) {
               const ym  = `${r.year}-${String(r.month).padStart(2, '0')}`;
-              const sl  = r.service_line || 'Other';
+              const rawSL = (r.service_line || 'Other') as string;
               const occ   = Number(r.occ_units)   || 0;
               const avail = Number(r.avail_units)  || 0;
               const isSameStore = r.same_store === true;
               if (!monthlyData[ym]) continue;
-              monthlyData[ym].total    = (monthlyData[ym].total    || 0) + avail;
-              monthlyData[ym].occupied = (monthlyData[ym].occupied || 0) + occ;
-              if (!monthlyData[ym].byServiceLine[sl]) monthlyData[ym].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
-              monthlyData[ym].byServiceLine[sl].occupied = (monthlyData[ym].byServiceLine[sl].occupied || 0) + occ;
-              monthlyData[ym].byServiceLine[sl].total    = (monthlyData[ym].byServiceLine[sl].total    || 0) + avail;
-              if (isSameStore) {
-                sameStoreData[ym].total    = (sameStoreData[ym].total    || 0) + avail;
-                sameStoreData[ym].occupied = (sameStoreData[ym].occupied || 0) + occ;
-                if (!sameStoreData[ym].byServiceLine[sl]) sameStoreData[ym].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
-                sameStoreData[ym].byServiceLine[sl].occupied = (sameStoreData[ym].byServiceLine[sl].occupied || 0) + occ;
-                sameStoreData[ym].byServiceLine[sl].total    = (sameStoreData[ym].byServiceLine[sl].total    || 0) + avail;
+
+              // Split combined SL strings ("AL, SL, VIL") into individual tokens
+              const tokens = rawSL.split(',').map((t: string) => t.trim()).filter(Boolean);
+              const parts = tokens.length > 1
+                ? distribute(tokens, r.location_name, occ, avail)
+                : [{ sl: rawSL, occ, avail }];
+
+              // Accumulate overall totals (avail/occ) without double-counting
+              // Only add on the first token to avoid duplicating overall totals
+              for (let i = 0; i < parts.length; i++) {
+                const { sl, occ: slOcc, avail: slAvail } = parts[i];
+                if (i === 0) {
+                  // Add the original (un-split) avail/occ to the overall totals once
+                  monthlyData[ym].total    = (monthlyData[ym].total    || 0) + (i === 0 ? avail : 0);
+                  monthlyData[ym].occupied = (monthlyData[ym].occupied || 0) + (i === 0 ? occ   : 0);
+                }
+                if (!monthlyData[ym].byServiceLine[sl]) monthlyData[ym].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
+                monthlyData[ym].byServiceLine[sl].occupied = (monthlyData[ym].byServiceLine[sl].occupied || 0) + slOcc;
+                monthlyData[ym].byServiceLine[sl].total    = (monthlyData[ym].byServiceLine[sl].total    || 0) + slAvail;
+                if (isSameStore) {
+                  if (i === 0) {
+                    sameStoreData[ym].total    = (sameStoreData[ym].total    || 0) + avail;
+                    sameStoreData[ym].occupied = (sameStoreData[ym].occupied || 0) + occ;
+                  }
+                  if (!sameStoreData[ym].byServiceLine[sl]) sameStoreData[ym].byServiceLine[sl] = { value: 0, occupied: 0, total: 0 };
+                  sameStoreData[ym].byServiceLine[sl].occupied = (sameStoreData[ym].byServiceLine[sl].occupied || 0) + slOcc;
+                  sameStoreData[ym].byServiceLine[sl].total    = (sameStoreData[ym].byServiceLine[sl].total    || 0) + slAvail;
+                }
               }
               // Update locationStats for most recent month
-              const mostRecentYM = months[months.length - 1];
               if (ym === mostRecentYM) {
                 locationStats[r.location_name] = (locationStats[r.location_name] || 0) + occ;
               }
