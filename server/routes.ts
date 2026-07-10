@@ -13865,7 +13865,11 @@ Respond in JSON format:
   });
   
   // Helper: compute revenue impact for an adjustment rule using the latest month's data
-  async function computeRuleImpact(rule: any, clientId: string): Promise<{
+  async function computeRuleImpact(
+    rule: any,
+    clientId: string,
+    scope?: { locationId?: string; serviceLine?: string }
+  ): Promise<{
     monthlyImpact: number; annualImpact: number;
     volumeAdjustedAnnualImpact: number; affectedUnits: number; affectedCampuses: number;
   }> {
@@ -13888,6 +13892,12 @@ Respond in JSON format:
       const params: any[] = [clientId, latestMonth];
       let idx = 3;
 
+      // Scope to the page filter's campus/service line (intersects with rule's own filters)
+      if (scope?.locationId) {
+        whereParts.push(`location_id = $${idx}`);
+        params.push(scope.locationId); idx++;
+      }
+
       if (filters.roomType?.length) {
         whereParts.push(`room_type = ANY($${idx}::text[])`);
         params.push(filters.roomType); idx++;
@@ -13900,6 +13910,11 @@ Respond in JSON format:
       if (effectiveSlFilter?.length) {
         whereParts.push(`service_line = ANY($${idx}::text[])`);
         params.push(effectiveSlFilter); idx++;
+      }
+      // Page service-line filter narrows further (intersection with rule's own SL scope)
+      if (scope?.serviceLine) {
+        whereParts.push(`service_line = $${idx}`);
+        params.push(scope.serviceLine); idx++;
       }
       if (filters.occupancyStatus === 'vacant') {
         whereParts.push(`(occupied_yn = false OR occupied_yn IS NULL)`);
@@ -14383,30 +14398,37 @@ Respond in JSON format:
       
       const rules = await query;
 
-      // Always compute live impact to get affectedCampuses/affectedUnits; also refresh stale monetary values
+      // Always compute live impact to get affectedCampuses/affectedUnits; also refresh stale monetary values.
+      // When a page filter is active, scope the numbers to that campus/service line so the
+      // displayed impact reflects only what applies to the current filter selection.
+      const scope = (locationId || serviceLine)
+        ? { locationId: locationId as string | undefined, serviceLine: serviceLine as string | undefined }
+        : undefined;
+
       const enrichedRules = await Promise.all(rules.map(async (rule) => {
         const action = rule.action as any;
         const hasNonZeroAdjustment = (action?.adjustmentValue ?? 0) !== 0;
         if (!hasNonZeroAdjustment) return rule;
 
-        const impact = await computeRuleImpact(rule, clientId);
+        const impact = await computeRuleImpact(rule, clientId, scope);
         const hasZeroImpact = (rule.monthlyImpact ?? 0) === 0 && (rule.annualImpact ?? 0) === 0;
 
-        if (hasZeroImpact && (impact.monthlyImpact !== 0 || impact.affectedUnits > 0)) {
-          // Persist updated monetary values so next fetch returns them immediately
+        // Only persist portfolio-wide numbers (no scope) so stored values stay accurate for other contexts
+        if (!scope && hasZeroImpact && (impact.monthlyImpact !== 0 || impact.affectedUnits > 0)) {
           storage.updateAdjustmentRule(rule.id, {
             monthlyImpact: impact.monthlyImpact,
             annualImpact: impact.annualImpact,
             volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
           }).catch(() => {});
-          return { ...rule, ...impact };
         }
 
-        // Rule already has monetary values — just overlay the live campus/unit counts
         return {
           ...rule,
           affectedCampuses: impact.affectedCampuses,
           affectedUnits: impact.affectedUnits,
+          monthlyImpact: impact.monthlyImpact,
+          annualImpact: impact.annualImpact,
+          volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
         };
       }));
 
