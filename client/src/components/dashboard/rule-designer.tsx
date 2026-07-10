@@ -120,6 +120,7 @@ interface AdjustmentRule {
   trigger?: unknown;
   action?: unknown;
   effectiveDate?: string | null;
+  createdAt?: string | null;
   isHistorical?: boolean;
   locationId?: string | null;
   serviceLine?: string | null;
@@ -1607,7 +1608,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                       title="Click for AI strategy analysis"
                                     >{displayName}</span>
                                     {(() => {
-                                      const eff = (rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : null;
+                                      const rawEff = (rule as any).effectiveDate || (rule as any).createdAt;
+                                      const eff = rawEff ? new Date(rawEff).toISOString().slice(0, 10) : null;
                                       if (!eff) return null;
                                       const today = new Date().toISOString().slice(0, 10);
                                       const isFuture = eff > today;

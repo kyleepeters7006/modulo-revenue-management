@@ -14933,12 +14933,33 @@ Return ONLY valid JSON with no markdown fences:
         ? `(SELECT MAX(rrd2.upload_month) FROM rent_roll_data rrd2 WHERE rrd2.client_id = $1 AND rrd2.location = ANY($${locationParamIdx}))`
         : `(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)`;
 
+      // Build a separate filter set for room_type_occupancy_history (authoritative occupancy).
+      // Location filter matches location_name; region/division come from the locations join.
+      // Service line is intentionally excluded — history groups service lines per room type.
+      const rohParams: any[] = [clientId];
+      const rohFilters: string[] = [];
+      if (locations.length > 0) {
+        rohParams.push(locations);
+        rohFilters.push(`roh.location_name = ANY($${rohParams.length})`);
+      }
+      if (regions.length > 0) {
+        rohParams.push(regions);
+        rohFilters.push(`l.region = ANY($${rohParams.length})`);
+      }
+      if (divisions.length > 0) {
+        rohParams.push(divisions);
+        rohFilters.push(`l.division = ANY($${rohParams.length})`);
+      }
+      const rohWhere = rohFilters.length > 0 ? ' AND ' + rohFilters.join(' AND ') : '';
+      // Subquery uses the same predicates but aliased to roh2/l2 for the latest-month lookup.
+      const rohSubWhere = rohWhere.replace(/\broh\./g, 'roh2.').replace(/\bl\./g, 'l2.');
+
       // Build rule service-line filter
       const ruleSlFilter = (serviceLine && serviceLine !== 'All')
         ? `AND (service_line = '${serviceLine.replace(/'/g, "''")}' OR service_line IS NULL OR (service_lines IS NOT NULL AND '${serviceLine.replace(/'/g, "''")}' = ANY(service_lines)))`
         : '';
 
-      const [snapshotBySLRes, trendRes, rulesRes, competitorRes] = await Promise.all([
+      const [snapshotBySLRes, trendRes, rulesRes, rohRes, competitorRes] = await Promise.all([
         // Per-service-line occupancy snapshot (latest month)
         pool.query(`
           SELECT rrd.service_line,
@@ -14975,13 +14996,32 @@ Return ONLY valid JSON with no markdown fences:
         // Active non-historical rules with detail
         pool.query(`
           SELECT id, name, description, action, service_line, service_lines,
-                 monthly_impact, annual_impact, execution_count, effective_date
+                 monthly_impact, annual_impact, execution_count, effective_date, created_at
           FROM adjustment_rules
           WHERE is_active AND is_historical IS NOT TRUE
             ${ruleSlFilter}
           ORDER BY priority DESC, annual_impact DESC NULLS LAST
           LIMIT 20
         `),
+
+        // Room Type Occupancy History — authoritative occupancy source (VO "Avg Occ by Room Type").
+        // Scoped to the same location/region/division filters and the latest available month.
+        pool.query(`
+          SELECT roh.service_line,
+            SUM(roh.occ_units) AS occ,
+            SUM(roh.available_units) AS avail
+          FROM room_type_occupancy_history roh
+          LEFT JOIN locations l ON l.id = roh.location_id
+          WHERE roh.client_id = $1
+            AND (roh.year * 100 + roh.month) = (
+              SELECT MAX(roh2.year * 100 + roh2.month)
+              FROM room_type_occupancy_history roh2
+              LEFT JOIN locations l2 ON l2.id = roh2.location_id
+              WHERE roh2.client_id = $1${rohSubWhere}
+            )
+            ${rohWhere}
+          GROUP BY roh.service_line
+        `, rohParams),
 
         // Competitors for the client
         pool.query(`
@@ -14997,9 +15037,58 @@ Return ONLY valid JSON with no markdown fences:
       const ruleRows = rulesRes.rows;
       const c = competitorRes.rows[0];
 
-      // Aggregate totals across service lines
-      const totalUnits = slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
-      const totalVacant = slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
+      // ── Authoritative occupancy from Room Type Occupancy History ──────────────
+      // History rows group service lines per room type (e.g. "AL, AL/MC, HC"), so
+      // per-service-line occupancy is derived by matching the SL token within the
+      // comma-separated grouping. Overall occupancy is an exact sum of all rows.
+      const rohRows = rohRes.rows;
+      let rohTotalOcc = 0, rohTotalAvail = 0;
+      const rohByToken: Record<string, { occ: number; avail: number }> = {};
+      for (const r of rohRows) {
+        const occ = parseFloat(r.occ || '0');
+        const avail = parseFloat(r.avail || '0');
+        rohTotalOcc += occ;
+        rohTotalAvail += avail;
+        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        for (const tok of tokens) {
+          const e = rohByToken[tok] || { occ: 0, avail: 0 };
+          e.occ += occ; e.avail += avail; rohByToken[tok] = e;
+        }
+      }
+      // When a single service line is selected, the "overall" occupancy must reflect
+      // just that service line's history bucket — not the whole in-scope portfolio.
+      const slFiltered = serviceLine && serviceLine !== 'All';
+      const selectedBucket = slFiltered ? rohByToken[serviceLine] : null;
+      const historyOccAvail = slFiltered
+        ? (selectedBucket ? selectedBucket.avail : 0)
+        : rohTotalAvail;
+      const historyOccOccupied = slFiltered
+        ? (selectedBucket ? selectedBucket.occ : 0)
+        : rohTotalOcc;
+      const hasHistoryOcc = historyOccAvail > 0;
+
+      // When history occupancy is available, override the rent-roll occupancy fields
+      // on each service-line row so every occupancy figure comes from the same source.
+      if (rohTotalAvail > 0) {
+        for (const r of slRows) {
+          const tok = rohByToken[r.service_line];
+          if (tok && tok.avail > 0) {
+            const occPct = Math.round((tok.occ / tok.avail) * 1000) / 10;
+            r.occ_pct = occPct;
+            r.total = Math.round(tok.avail);
+            r.vacant = Math.round(tok.avail - tok.occ);
+          }
+        }
+      }
+
+      // Aggregate totals — prefer history when present (service-line-aware), otherwise
+      // fall back to rent-roll snapshot totals for the same scope.
+      const totalUnits = hasHistoryOcc
+        ? Math.round(historyOccAvail)
+        : slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
+      const totalVacant = hasHistoryOcc
+        ? Math.round(historyOccAvail - historyOccOccupied)
+        : slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
       const overallOcc = totalUnits > 0 ? Math.round((totalUnits - totalVacant) / totalUnits * 1000) / 10 : 0;
 
       // Service-line snapshot summary string
@@ -15030,7 +15119,8 @@ Return ONLY valid JSON with no markdown fences:
         const adjVal = action.adjustmentValue != null ? `${action.adjustmentValue}%` : 'N/A';
         const adjType = action.adjustmentType || 'adjustment';
         const slScope = (r.service_lines && r.service_lines.length > 0) ? r.service_lines.join('/') : (r.service_line || 'all service lines');
-        const effDate = r.effective_date ? String(r.effective_date).slice(0, 10) : 'immediate';
+        const effRaw = r.effective_date || r.created_at;
+        const effDate = effRaw ? String(new Date(effRaw).toISOString()).slice(0, 10) : 'unknown';
         return `  - "${r.name}" [${slScope}] effective ${effDate}: ${r.description} → ${adjVal} ${adjType}, exec ${r.execution_count || 0}x`;
       }).join('\n');
 
@@ -15098,10 +15188,13 @@ Return ONLY valid JSON, no markdown fences:
       let parsed: any = {};
       try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}; } catch { parsed = {}; }
 
-      // Merge effective_date from DB rows into the GPT-returned rules array
+      // Merge effective date from DB rows into the GPT-returned rules array.
+      // Falls back to created_at so rules applied in past pricing rounds show a real
+      // implementation date rather than "immediate".
       const ruleEffDates: Record<string, string | null> = {};
       for (const r of ruleRows) {
-        ruleEffDates[r.name] = r.effective_date ? String(r.effective_date).slice(0, 10) : null;
+        const effRaw = r.effective_date || r.created_at;
+        ruleEffDates[r.name] = effRaw ? new Date(effRaw).toISOString().slice(0, 10) : null;
       }
       const mergedRules = (Array.isArray(parsed.rules) ? parsed.rules.slice(0, 20) : []).map((r: any) => ({
         ...r,
@@ -16540,6 +16633,9 @@ Return ONLY valid JSON, no markdown fences:
   setTimeout(() => {
     fetch('http://localhost:5000/api/reference-data')
       .then(r => { if (r.ok) console.log('[ref-data] cache warmed for default view'); })
+      .catch(() => {});
+    fetch('http://localhost:5000/api/pricing-controls/commentary')
+      .then(r => { if (r.ok) console.log('[commentary] cache warmed for default view'); })
       .catch(() => {});
   }, 8000);
 

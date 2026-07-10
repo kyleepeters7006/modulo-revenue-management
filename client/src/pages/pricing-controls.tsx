@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
@@ -450,6 +450,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     queryKey: ["/api/pricing-controls/commentary", selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
     queryFn: () => fetch(`/api/pricing-controls/commentary${qs ? '?' + qs : ''}`).then(r => r.json()),
     staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
     retry: 1,
   });
 
@@ -530,7 +531,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                           <span className="text-[13px] font-semibold text-gray-800">{rule.name}</span>
                           <span className="text-[13px] text-gray-500 mx-1">—</span>
                           <span className="text-[13px] text-gray-600">{parseBold(rule.strategy)}</span>
-                          {rule.effectiveDate ? (() => {
+                          {rule.effectiveDate && (() => {
                             const eff = String(rule.effectiveDate).slice(0, 10);
                             const today = new Date().toISOString().slice(0, 10);
                             const isFuture = eff > today;
@@ -539,9 +540,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                 {isFuture ? 'Starts' : 'Effective'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                               </span>
                             );
-                          })() : (
-                            <span className="ml-1.5 text-[10px] text-gray-400">· immediate</span>
-                          )}
+                          })()}
                         </div>
                       </li>
                     ))}
