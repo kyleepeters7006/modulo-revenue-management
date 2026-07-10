@@ -1941,15 +1941,28 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                   <div className="py-12 text-center text-gray-400 dark:text-gray-500 text-sm">No active rules to display.</div>
                 ) : (
                   <div className="flex flex-wrap gap-6 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-lg justify-center items-end mt-2">
-                    {sortedActive.map((rule, ri) => {
+                    {(() => {
+                      // Pre-compute unit counts so we can normalize bubble sizes
+                      const unitCounts = sortedActive.map(r => {
+                        const bd = combinedStats?.breakdown.find(b => b.id === r.id);
+                        return bd ? bd.units : (r.affectedUnits ?? 0);
+                      });
+                      const maxUnits = Math.max(...unitCounts, 1);
+                      const minUnits = Math.min(...unitCounts, 0);
+                      const unitRange = Math.max(maxUnits - minUnits, 1);
+                      const MIN_R = 36, MAX_R = 100;
+
+                      return sortedActive.map((rule, ri) => {
                       // Use filtered stats from combinedStats.breakdown when available
                       const breakdown  = combinedStats?.breakdown.find(b => b.id === rule.id);
                       const units      = breakdown ? breakdown.units    : (rule.affectedUnits ?? 0);
                       const monthly    = breakdown ? breakdown.monthlyImpact : (rule.monthlyImpact ?? 0);
                       const annual     = breakdown ? breakdown.annualImpact  : (rule.annualImpact  ?? 0);
                       const campuses   = breakdown ? breakdown.campuses  : (rule.affectedCampuses ?? 0);
-                      const radius     = Math.max(44, Math.min(110, Math.sqrt(units) * 2.8));
-                      const size       = Math.round(radius) * 2 + 8;
+                      // Normalize radius: smallest rule → MIN_R, largest → MAX_R
+                      const t      = (units - minUnits) / unitRange;
+                      const radius = MIN_R + t * (MAX_R - MIN_R);
+                      const size   = Math.round(radius) * 2 + 8;
                       const isAdditive = isRuleAdditive(rule.action as any);
                       const color      = PALETTE[ri % PALETTE.length];
                       const dots       = genDots(units, radius);
@@ -2056,7 +2069,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                           )}
                         </div>
                       );
-                    })}
+                      }); // closes sortedActive.map
+                    })()} {/* closes IIFE */}
                   </div>
                 )}
 
