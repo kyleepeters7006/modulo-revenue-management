@@ -14370,6 +14370,12 @@ Respond in JSON format:
     try {
       const clientId = req.clientId || 'demo';
       const { locationId, serviceLine, includeHistorical } = req.query;
+
+      // Short-lived cache (2 min) so repeat page loads are instant.
+      // Key includes all filter dimensions so scoped views are cached separately.
+      const adjRulesCacheKey = `adj-rules:${clientId}:${locationId || ''}:${serviceLine || ''}:${includeHistorical || ''}`;
+      const adjRulesCached = getCachedAnalytics(adjRulesCacheKey);
+      if (adjRulesCached) return res.json(adjRulesCached);
       
       let query = db.select().from(adjustmentRules);
       
@@ -14398,40 +14404,101 @@ Respond in JSON format:
       
       const rules = await query;
 
-      // Always compute live impact to get affectedCampuses/affectedUnits; also refresh stale monetary values.
-      // When a page filter is active, scope the numbers to that campus/service line so the
-      // displayed impact reflects only what applies to the current filter selection.
+      // Scope impact numbers to the page filter when set
       const scope = (locationId || serviceLine)
         ? { locationId: locationId as string | undefined, serviceLine: serviceLine as string | undefined }
         : undefined;
 
-      const enrichedRules = await Promise.all(rules.map(async (rule) => {
+      // ── Batch impact: 2 queries total instead of 2×N ──────────────────────
+      // Fetch latest month once, then pull all relevant unit rows once.
+      // Per-rule impact is computed in memory — avoids N DB round trips.
+      const latestMonthRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+        [clientId]
+      );
+      const latestMonth: string | null = latestMonthRes.rows[0]?.m ?? null;
+
+      let batchUnits: any[] = [];
+      if (latestMonth) {
+        const bw: string[] = ['client_id = $1', 'upload_month = $2'];
+        const bp: any[] = [clientId, latestMonth];
+        if (scope?.locationId) { bw.push(`location_id = $${bp.push(scope.locationId)}`); }
+        const { rows } = await pool.query(
+          `SELECT location_id, service_line, room_type,
+                  street_rate::float AS street_rate, care_rate::float AS care_rate,
+                  occupied_yn, days_vacant
+           FROM rent_roll_data WHERE ${bw.join(' AND ')}`,
+          bp
+        );
+        batchUnits = rows;
+      }
+
+      const cmpOp = (val: number | null, op: string, threshold: number): boolean => {
+        if (val === null || val === undefined) return false;
+        switch (op) {
+          case '>': return val > threshold;
+          case '>=': return val >= threshold;
+          case '<': return val < threshold;
+          case '<=': return val <= threshold;
+          case '=': return val === threshold;
+          default: return false;
+        }
+      };
+
+      const enrichedRules = rules.map((rule) => {
         const action = rule.action as any;
-        const hasNonZeroAdjustment = (action?.adjustmentValue ?? 0) !== 0;
-        if (!hasNonZeroAdjustment) return rule;
+        const adjustmentValue: number = action?.adjustmentValue ?? 0;
+        if (!adjustmentValue) return rule;
 
-        const impact = await computeRuleImpact(rule, clientId, scope);
-        const hasZeroImpact = (rule.monthlyImpact ?? 0) === 0 && (rule.annualImpact ?? 0) === 0;
+        const filters = action?.filters || {};
+        const adjustmentType: string = action?.adjustmentType || 'percentage';
+        const rateCol: string = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
+        const effectiveSl: string[] = (rule as any).serviceLine
+          ? [(rule as any).serviceLine]
+          : (filters.serviceLine?.length ? filters.serviceLine : []);
 
-        // Only persist portfolio-wide numbers (no scope) so stored values stay accurate for other contexts
-        if (!scope && hasZeroImpact && (impact.monthlyImpact !== 0 || impact.affectedUnits > 0)) {
+        const matched = batchUnits.filter((u: any) => {
+          if (effectiveSl.length && !effectiveSl.includes(u.service_line)) return false;
+          if (scope?.serviceLine && u.service_line !== scope.serviceLine) return false;
+          if (filters.roomType?.length && !filters.roomType.includes(u.room_type)) return false;
+          if (filters.occupancyStatus === 'vacant' && u.occupied_yn) return false;
+          if (filters.occupancyStatus === 'occupied' && !u.occupied_yn) return false;
+          if (filters.vacancyDuration) {
+            const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
+            if (!cmpOp(Number(u.days_vacant), operator, days)) return false;
+          }
+          return true;
+        });
+
+        const unitCount = matched.length;
+        const campusCount = new Set(matched.map((u: any) => u.location_id)).size;
+        const totalRate = matched.reduce((s: number, u: any) => s + (Number(u[rateCol]) || 0), 0);
+        const monthlyImpact = adjustmentType === 'percentage'
+          ? totalRate * (adjustmentValue / 100)
+          : unitCount * adjustmentValue;
+        const annualImpact = Math.round(monthlyImpact * 12);
+        const monthlyRounded = Math.round(monthlyImpact);
+
+        // Persist portfolio-wide values if not yet computed (never write scoped results to DB)
+        if (!scope && (rule.monthlyImpact ?? 0) === 0 && monthlyRounded !== 0) {
           storage.updateAdjustmentRule(rule.id, {
-            monthlyImpact: impact.monthlyImpact,
-            annualImpact: impact.annualImpact,
-            volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
+            monthlyImpact: monthlyRounded,
+            annualImpact,
+            volumeAdjustedAnnualImpact: Math.round(annualImpact * 1.05),
           }).catch(() => {});
         }
 
         return {
           ...rule,
-          affectedCampuses: impact.affectedCampuses,
-          affectedUnits: impact.affectedUnits,
-          monthlyImpact: impact.monthlyImpact,
-          annualImpact: impact.annualImpact,
-          volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
+          affectedUnits: unitCount,
+          affectedCampuses: campusCount,
+          monthlyImpact: monthlyRounded,
+          annualImpact,
+          volumeAdjustedAnnualImpact: Math.round(annualImpact * 1.05),
         };
-      }));
+      });
 
+      setCachedAnalytics(adjRulesCacheKey, enrichedRules);
       res.json(enrichedRules);
     } catch (error) {
       console.error('Error fetching adjustment rules:', error);
@@ -15973,7 +16040,7 @@ Respond in JSON format:
       const t6Months  = months.slice(0, 6);
       const t12Months = months.slice(0, 12);
 
-      // 2) Filter clause (shared)
+      // 2) Build all filter params synchronously before launching parallel queries
       const params: any[] = [clientId, months];
       let where = `rr.client_id = $1 AND rr.upload_month = ANY($2)`;
       if (serviceLine) { params.push(serviceLine); where += ` AND rr.service_line = $${params.length}`; }
@@ -15981,38 +16048,7 @@ Respond in JSON format:
       if (regions.length)    { params.push(regions);    where += ` AND loc.region = ANY($${params.length})`; }
       if (divisions.length)  { params.push(divisions);  where += ` AND loc.division = ANY($${params.length})`; }
 
-      // 3) Per-month per-combo aggregation
-      const aggRes = await pool.query(`
-        SELECT
-          loc.id                                           AS location_id,
-          rr.location                                      AS campus,
-          COALESCE(loc.division, '—')                      AS division,
-          rr.service_line                                  AS service_line,
-          rr.room_type                                     AS room_type,
-          rr.upload_month                                  AS month,
-          COUNT(*)                                         AS total,
-          COUNT(*) FILTER (WHERE rr.occupied_yn)           AS occupied,
-          AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
-          -- Street rate is the published SINGLE-OCCUPANT asking rate, which should be uniform
-          -- per room type. Use the mode (most common value) rather than AVG so that
-          -- second-occupant entries and data-entry anomalies (e.g. a stray $159 on a Studio
-          -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
-          mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0)  AS avg_street,
-          AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
-          AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
-          AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
-          -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
-          -- No Modulo fallback — when no rule applies the proposed rate is NULL.
-          AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
-          -- HC private-pay census: occupied units with a private/PVT payor type
-          COUNT(*) FILTER (WHERE rr.occupied_yn AND (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS hc_private_pay
-        FROM rent_roll_data rr
-        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-        WHERE ${where}
-        GROUP BY loc.id, rr.location, loc.division, rr.service_line, rr.room_type, rr.upload_month
-      `, params);
-
-      // 4) Inquiry / tour by location+serviceLine+month
+      // 4) Inquiry params (built here so it's ready for the parallel Promise.all below)
       // NOTE: inquiry_metrics uses a different location naming scheme (e.g. "Battle Creek SL") vs
       // rent_roll_data ("Battle Creek - 501"), so we CANNOT filter by location/region/division here —
       // the JS-side normalization (normInqLoc / normCampus) handles the matching after the fetch.
@@ -16020,44 +16056,80 @@ Respond in JSON format:
       const inqParams: any[] = [clientId, months];
       let inqWhere = `client_id = $1 AND upload_month = ANY($2)`;
       if (serviceLine) { inqParams.push(serviceLine); inqWhere += ` AND service_line = $${inqParams.length}`; }
-      const inqRes = await pool.query(`
-        SELECT location, service_line, upload_month AS month,
-               SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
-        FROM inquiry_metrics WHERE ${inqWhere}
-        GROUP BY location, service_line, upload_month
-      `, inqParams);
 
-      // 5) T3 move-ins per (location, service_line) — distinct move-in events in last 3 months
+      // 5) Move-in params
       const moveParams: any[] = [clientId, t3Months];
       let moveWhere = `rr.client_id = $1`;
       if (serviceLine) { moveParams.push(serviceLine); moveWhere += ` AND rr.service_line = $${moveParams.length}`; }
       if (locations.length) { moveParams.push(locations); moveWhere += ` AND rr.location = ANY($${moveParams.length})`; }
       if (regions.length)   { moveParams.push(regions);   moveWhere += ` AND loc.region = ANY($${moveParams.length})`; }
       if (divisions.length) { moveParams.push(divisions); moveWhere += ` AND loc.division = ANY($${moveParams.length})`; }
-      const moveRes = await pool.query(`
-        WITH ev AS (
-          SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
-            rr.location, rr.service_line, rr.room_type, rr.payor_type,
-            CASE
-              WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
-              WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
-              ELSE NULL END AS dt
+
+      // 3-5) Run all three heavy queries in parallel — they are independent of each other
+      const [aggRes, inqRes, moveRes] = await Promise.all([
+        // 3) Per-month per-combo aggregation
+        pool.query(`
+          SELECT
+            loc.id                                           AS location_id,
+            rr.location                                      AS campus,
+            COALESCE(loc.division, '—')                      AS division,
+            rr.service_line                                  AS service_line,
+            rr.room_type                                     AS room_type,
+            rr.upload_month                                  AS month,
+            COUNT(*)                                         AS total,
+            COUNT(*) FILTER (WHERE rr.occupied_yn)           AS occupied,
+            AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
+            -- Street rate is the published SINGLE-OCCUPANT asking rate, which should be uniform
+            -- per room type. Use the mode (most common value) rather than AVG so that
+            -- second-occupant entries and data-entry anomalies (e.g. a stray $159 on a Studio
+            -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
+            mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0)  AS avg_street,
+            AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
+            AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
+            AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
+            -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
+            -- No Modulo fallback — when no rule applies the proposed rate is NULL.
+            AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
+            -- HC private-pay census: occupied units with a private/PVT payor type
+            COUNT(*) FILTER (WHERE rr.occupied_yn AND (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS hc_private_pay
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-          WHERE ${moveWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
-          ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
-                   (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
-        ),
-        valid AS (
-          SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
-          FROM ev
-          WHERE dt IS NOT NULL
-            AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
-        )
-        SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
-        FROM valid WHERE mm = ANY($2)
-        GROUP BY location, service_line, room_type
-      `, moveParams);
+          WHERE ${where}
+          GROUP BY loc.id, rr.location, loc.division, rr.service_line, rr.room_type, rr.upload_month
+        `, params),
+        // 4) Inquiry / tour by location+serviceLine+month
+        pool.query(`
+          SELECT location, service_line, upload_month AS month,
+                 SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
+          FROM inquiry_metrics WHERE ${inqWhere}
+          GROUP BY location, service_line, upload_month
+        `, inqParams),
+        // 5) T3 move-ins per (location, service_line) — distinct move-in events in last 3 months
+        pool.query(`
+          WITH ev AS (
+            SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+              rr.location, rr.service_line, rr.room_type, rr.payor_type,
+              CASE
+                WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+                WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+                ELSE NULL END AS dt
+            FROM rent_roll_data rr
+            LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+            WHERE ${moveWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+            ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+                     (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+          ),
+          valid AS (
+            SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+            FROM ev
+            WHERE dt IS NOT NULL
+              AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+          )
+          SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
+          FROM valid WHERE mm = ANY($2)
+          GROUP BY location, service_line, room_type
+        `, moveParams),
+      ]);
 
       // 6a) Pre-compute spot-month occupancy per (campus, SL) from aggRes (rent_roll_data fallback)
       //     then override from room_type_occupancy_history (the authoritative source).
@@ -16171,63 +16243,62 @@ Respond in JSON format:
       const activeRules: ActiveRule[] = rulesRes.rows as any[];
 
       // ruleRatesMap keyed `campus||sl||rt||ruleId` -> avg adjusted rate the rule produces.
-      // Keyed by immutable rule ID (not name) so duplicate rule names don't collide.
+      // Built in-memory from the already-fetched aggRes spot-month rows — avoids N per-rule
+      // DB queries (previously fired one SELECT per active rule against rent_roll_data).
+      // aggRes already respects page-level filters (serviceLine, locations, regions, divisions).
+      // street_rate is the mode per (campus, SL, RT) — uniform per room type — so computing
+      // the adjusted rate from the aggregated avg_street is equivalent to the per-unit query.
       const ruleRatesMap = new Map<string, number>();
-      await Promise.all(activeRules.map(async (rule) => {
+      for (const rule of activeRules) {
         const action = (rule.action as any) || {};
         const filters = action.filters || {};
         const adjustmentType: string = action.adjustmentType || 'percentage';
         const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
-        const rateCol = action.target === 'care_rate' ? 'care_rate' : 'street_rate';
-        // Adjusted-rate expression (uniform per unit): percentage scales, fixed adds.
-        const adjExpr = adjustmentType === 'percentage'
-          ? `rr.${rateCol} * (1 + (${adjustmentValue})::numeric / 100.0)`
-          : `rr.${rateCol} + (${adjustmentValue})::numeric`;
+        const usesCareRate = action.target === 'care_rate';
 
-        const rp: any[] = [clientId, spotMonth];
-        let rw = `rr.client_id = $1 AND rr.upload_month = $2 AND rr.${rateCol} > 0`;
-        // Page-level filters (so rule rates reflect the current view)
-        if (serviceLine) { rp.push(serviceLine); rw += ` AND rr.service_line = $${rp.length}`; }
-        if (locations.length) { rp.push(locations); rw += ` AND rr.location = ANY($${rp.length})`; }
-        if (regions.length)   { rp.push(regions);   rw += ` AND loc.region = ANY($${rp.length})`; }
-        if (divisions.length) { rp.push(divisions); rw += ` AND loc.division = ANY($${rp.length})`; }
-        // Rule's top-level scope (DB columns) — enforced in addition to action.filters
-        if (rule.location_id) { rp.push(rule.location_id); rw += ` AND rr.location_id = $${rp.length}`; }
-        if (rule.service_line) { rp.push(rule.service_line); rw += ` AND rr.service_line = $${rp.length}`; }
-        // Rule's own action filters
-        if (filters.roomType?.length)    { rp.push(filters.roomType);    rw += ` AND rr.room_type = ANY($${rp.length}::text[])`; }
-        if (filters.serviceLine?.length) { rp.push(filters.serviceLine); rw += ` AND rr.service_line = ANY($${rp.length}::text[])`; }
-        if (filters.location?.length)    { rp.push(filters.location);    rw += ` AND rr.location = ANY($${rp.length}::text[])`; }
-        if (filters.occupancyStatus === 'vacant')   rw += ` AND (rr.occupied_yn = false OR rr.occupied_yn IS NULL)`;
-        else if (filters.occupancyStatus === 'occupied') rw += ` AND rr.occupied_yn = true`;
-        if (filters.vacancyDuration && ['>','>=','<','<=','='].includes(filters.vacancyDuration.operator)) {
-          rp.push(filters.vacancyDuration.days);
-          rw += ` AND rr.days_vacant ${filters.vacancyDuration.operator} $${rp.length}`;
+        // Accumulate adjusted rate per (campus, SL, RT) across matching spot-month aggRes rows
+        const groupSums = new Map<string, { sum: number; count: number }>();
+        for (const r of aggRes.rows as any[]) {
+          if (r.month !== spotMonth) continue;
+          const baseRate = Number(usesCareRate ? r.avg_ih : r.avg_street) || 0;
+          if (!baseRate) continue;
+          // Rule's top-level scope
+          if (rule.location_id && r.location_id !== rule.location_id) continue;
+          if (rule.service_line && r.service_line !== rule.service_line) continue;
+          // Rule's own action filters
+          if (filters.roomType?.length && !filters.roomType.includes(r.room_type)) continue;
+          if (filters.serviceLine?.length && !filters.serviceLine.includes(r.service_line)) continue;
+          if (filters.location?.length && !filters.location.includes(r.campus)) continue;
+          // Occupancy status filter — approximate from aggregated counts
+          const total = Number(r.total) || 0;
+          const occ   = Number(r.occupied) || 0;
+          if (filters.occupancyStatus === 'vacant'   && occ >= total) continue;
+          if (filters.occupancyStatus === 'occupied' && occ === 0)    continue;
+          // vacancyDuration cannot be checked from aggregated data — omitted for display
+
+          const adjRate = adjustmentType === 'percentage'
+            ? baseRate * (1 + adjustmentValue / 100)
+            : baseRate + adjustmentValue;
+
+          const gKey = `${r.campus}||${r.service_line}||${r.room_type}`;
+          const e = groupSums.get(gKey) || { sum: 0, count: 0 };
+          e.sum += adjRate; e.count += 1;
+          groupSums.set(gKey, e);
         }
 
-        const { rows } = await pool.query(`
-          SELECT rr.location, rr.service_line, rr.room_type,
-                 AVG(${adjExpr}) AS avg_rule_rate
-          FROM rent_roll_data rr
-          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-          WHERE ${rw}
-          GROUP BY rr.location, rr.service_line, rr.room_type
-        `, rp);
+        for (const [gKey, { sum, count }] of groupSums) {
+          const [campus, sl, rt] = gKey.split('||');
+          const avgAdjRate = sum / count;
 
-        for (const r of rows as any[]) {
-          if (r.avg_rule_rate === null) continue;
-
-          // Evaluate the rule's trigger condition against actual spot-month occupancy
-          // (closed over from refSlOcc / refCampusOcc above) so a rule gated on e.g.
-          // "service_line_occupancy >= 0.90" shows no rate for segments below threshold.
+          // Evaluate the rule's trigger condition against spot-month occupancy
           const trig = rule.trigger as any;
           if (trig?.type === 'condition' && trig.condition?.field) {
             const { field, operator, value } = trig.condition as { field: string; operator: string; value: number };
             let metricVal: number | null = null;
             if (field === 'service_line_occupancy') {
-              metricVal = refSlOcc.get(`${r.location}||${r.service_line}`) ?? null;
+              metricVal = refSlOcc.get(`${campus}||${sl}`) ?? null;
             } else if (field === 'occupancy' || field === 'campus_occupancy') {
-              metricVal = refCampusOcc.get(r.location) ?? null;
+              metricVal = refCampusOcc.get(campus) ?? null;
             }
             if (metricVal !== null) {
               const passes =
@@ -16236,13 +16307,13 @@ Respond in JSON format:
                 operator === '<='  ? metricVal <= value :
                 operator === '<'   ? metricVal <  value :
                 Math.abs(metricVal - value) < 0.001;
-              if (!passes) continue; // rule doesn't fire for this segment — omit the column rate
+              if (!passes) continue;
             }
           }
 
-          ruleRatesMap.set(`${r.location}||${r.service_line}||${r.room_type}||${rule.id}`, Number(r.avg_rule_rate));
+          ruleRatesMap.set(`${campus}||${sl}||${rt}||${rule.id}`, avgAdjRate);
         }
-      }));
+      }
 
       // ── Roll up in JS ────────────────────────────────────────────────
       const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
