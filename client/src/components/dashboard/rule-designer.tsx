@@ -1608,10 +1608,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                     >{displayName}</span>
                                     {(() => {
                                       const eff = (rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : null;
-                                      if (!eff || eff <= new Date().toISOString().slice(0, 10)) return null;
+                                      if (!eff) return null;
+                                      const today = new Date().toISOString().slice(0, 10);
+                                      const isFuture = eff > today;
                                       return (
-                                        <span className="self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide bg-blue-50 text-blue-700 border-blue-200" title="This rule will start applying on its effective date">
-                                          Starts {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        <span className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${isFuture ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`} title={isFuture ? 'This rule will start applying on its effective date' : 'Effective date'}>
+                                          {isFuture ? 'Starts' : 'Effective'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                         </span>
                                       );
                                     })()}

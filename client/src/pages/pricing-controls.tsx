@@ -426,7 +426,7 @@ interface StrategyOverviewData {
   summary: string;
   pricingTrend: string;
   rulesSummary: string;
-  rules: { name: string; strategy: string }[];
+  rules: { name: string; strategy: string; effectiveDate?: string | null }[];
   generatedAt: string;
 }
 
@@ -530,6 +530,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                           <span className="text-[13px] font-semibold text-gray-800">{rule.name}</span>
                           <span className="text-[13px] text-gray-500 mx-1">—</span>
                           <span className="text-[13px] text-gray-600">{parseBold(rule.strategy)}</span>
+                          {rule.effectiveDate ? (() => {
+                            const eff = String(rule.effectiveDate).slice(0, 10);
+                            const today = new Date().toISOString().slice(0, 10);
+                            const isFuture = eff > today;
+                            return (
+                              <span className={`ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${isFuture ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                                {isFuture ? 'Starts' : 'Effective'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            );
+                          })() : (
+                            <span className="ml-1.5 text-[10px] text-gray-400">· immediate</span>
+                          )}
                         </div>
                       </li>
                     ))}

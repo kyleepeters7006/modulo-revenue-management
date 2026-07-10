@@ -14907,9 +14907,11 @@ Return ONLY valid JSON with no markdown fences:
       // Build dynamic WHERE clauses for rent_roll_data
       const rrParams: any[] = [clientId];
       const rrFilters: string[] = [];
+      let locationParamIdx: number | null = null;
       if (locations.length > 0) {
         rrParams.push(locations);
-        rrFilters.push(`rrd.location = ANY($${rrParams.length})`);
+        locationParamIdx = rrParams.length;
+        rrFilters.push(`rrd.location = ANY($${locationParamIdx})`);
       }
       if (regions.length > 0) {
         rrParams.push(regions);
@@ -14924,6 +14926,12 @@ Return ONLY valid JSON with no markdown fences:
         rrFilters.push(`rrd.service_line = $${rrParams.length}`);
       }
       const rrWhere = rrFilters.length > 0 ? ' AND ' + rrFilters.join(' AND ') : '';
+
+      // When filtered to specific locations, scope the MAX month to those locations
+      // so Byron Center (latest month 2026-06) isn't missed by a portfolio-wide 2026-07 max.
+      const maxMonthSubquery = locationParamIdx
+        ? `(SELECT MAX(rrd2.upload_month) FROM rent_roll_data rrd2 WHERE rrd2.client_id = $1 AND rrd2.location = ANY($${locationParamIdx}))`
+        : `(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)`;
 
       // Build rule service-line filter
       const ruleSlFilter = (serviceLine && serviceLine !== 'All')
@@ -14943,7 +14951,7 @@ Return ONLY valid JSON with no markdown fences:
           FROM rent_roll_data rrd
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
           WHERE rrd.client_id = $1
-            AND rrd.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
+            AND rrd.upload_month = ${maxMonthSubquery}
             ${rrWhere}
           GROUP BY rrd.service_line
           ORDER BY rrd.service_line
@@ -14967,7 +14975,7 @@ Return ONLY valid JSON with no markdown fences:
         // Active non-historical rules with detail
         pool.query(`
           SELECT id, name, description, action, service_line, service_lines,
-                 monthly_impact, annual_impact, execution_count
+                 monthly_impact, annual_impact, execution_count, effective_date
           FROM adjustment_rules
           WHERE is_active AND is_historical IS NOT TRUE
             ${ruleSlFilter}
@@ -15022,7 +15030,8 @@ Return ONLY valid JSON with no markdown fences:
         const adjVal = action.adjustmentValue != null ? `${action.adjustmentValue}%` : 'N/A';
         const adjType = action.adjustmentType || 'adjustment';
         const slScope = (r.service_lines && r.service_lines.length > 0) ? r.service_lines.join('/') : (r.service_line || 'all service lines');
-        return `  - "${r.name}" [${slScope}]: ${r.description} → ${adjVal} ${adjType}, exec ${r.execution_count || 0}x`;
+        const effDate = r.effective_date ? String(r.effective_date).slice(0, 10) : 'immediate';
+        return `  - "${r.name}" [${slScope}] effective ${effDate}: ${r.description} → ${adjVal} ${adjType}, exec ${r.execution_count || 0}x`;
       }).join('\n');
 
       const filterContext = [
@@ -15089,11 +15098,21 @@ Return ONLY valid JSON, no markdown fences:
       let parsed: any = {};
       try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}; } catch { parsed = {}; }
 
+      // Merge effective_date from DB rows into the GPT-returned rules array
+      const ruleEffDates: Record<string, string | null> = {};
+      for (const r of ruleRows) {
+        ruleEffDates[r.name] = r.effective_date ? String(r.effective_date).slice(0, 10) : null;
+      }
+      const mergedRules = (Array.isArray(parsed.rules) ? parsed.rules.slice(0, 20) : []).map((r: any) => ({
+        ...r,
+        effectiveDate: ruleEffDates[r.name] ?? null,
+      }));
+
       const result = {
         summary: parsed.summary || '',
         pricingTrend: parsed.pricingTrend || '',
         rulesSummary: parsed.rulesSummary || '',
-        rules: Array.isArray(parsed.rules) ? parsed.rules.slice(0, 20) : [],
+        rules: mergedRules,
         generatedAt: new Date().toISOString(),
       };
       setCachedAnalytics(cacheKey, result);
