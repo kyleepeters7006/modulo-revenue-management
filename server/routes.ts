@@ -9524,82 +9524,166 @@ ${campusOccLines.join('\n')}
 
       // Calculate summary dynamically from filtered units
       // This ensures the summary respects location/region/division filters
-      // Initialize all 6 service lines to ensure they all appear in the summary
       const ALL_SERVICE_LINES = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
       const summaryByServiceLine: Record<string, {
         serviceLine: string;
-        totalUnits: number;
-        occupancyCount: number;
+        totalUnits: number;       // physical rooms from history (avail_units)
+        occupancyCount: number;   // physical occupied from history (occ_units)
         totalStreetRate: number;
         totalModuloRate: number;
         totalRuleRate: number;
         moduloCount: number;
         ruleCount: number;
       }> = {};
-      
-      // Initialize all service lines with zeros
       for (const sl of ALL_SERVICE_LINES) {
         summaryByServiceLine[sl] = {
-          serviceLine: sl,
-          totalUnits: 0,
-          occupancyCount: 0,
-          totalStreetRate: 0,
-          totalModuloRate: 0,
-          totalRuleRate: 0,
-          moduloCount: 0,
-          ruleCount: 0
+          serviceLine: sl, totalUnits: 0, occupancyCount: 0,
+          totalStreetRate: 0, totalModuloRate: 0, totalRuleRate: 0,
+          moduloCount: 0, ruleCount: 0
         };
       }
-      
+
+      // ── Rate accumulators from rent-roll (for avg street / rules rates) ──
       for (const unit of unitLevelData) {
         const sl = unit.serviceLine || 'Unknown';
         if (!summaryByServiceLine[sl]) {
           summaryByServiceLine[sl] = {
-            serviceLine: sl,
-            totalUnits: 0,
-            occupancyCount: 0,
-            totalStreetRate: 0,
-            totalModuloRate: 0,
-            totalRuleRate: 0,
-            moduloCount: 0,
-            ruleCount: 0
+            serviceLine: sl, totalUnits: 0, occupancyCount: 0,
+            totalStreetRate: 0, totalModuloRate: 0, totalRuleRate: 0,
+            moduloCount: 0, ruleCount: 0
           };
         }
-        
-        summaryByServiceLine[sl].totalUnits++;
-        if (unit.occupiedYN) {
-          summaryByServiceLine[sl].occupancyCount++;
-        }
-        
         const rate = unit.occupiedYN ? (unit.inHouseRate || unit.streetRate || 0) : (unit.streetRate || 0);
         summaryByServiceLine[sl].totalStreetRate += rate;
-        
         if (unit.moduloSuggestedRate && unit.moduloSuggestedRate > 0) {
           summaryByServiceLine[sl].totalModuloRate += unit.moduloSuggestedRate;
           summaryByServiceLine[sl].moduloCount++;
         }
-        
-        // Rules-only pivot: the Rules Rate (ruleAdjustedRate) is the sole proposed
-        // rate. The separate Revenue Target AI rate has been retired.
         if (unit.ruleAdjustedRate && unit.ruleAdjustedRate > 0) {
           summaryByServiceLine[sl].totalRuleRate += unit.ruleAdjustedRate;
           summaryByServiceLine[sl].ruleCount++;
         }
       }
-      
-      // Sort by the defined service line order
+
+      // ── Occupancy from room_type_occupancy_history (physical rooms, no B-bed inflation) ──
+      // The campus names in history match the `location` field in rent_roll_data.
+      const campusSet = [...new Set(unitLevelData.map((u: any) => u.location).filter(Boolean))];
+      let histTotalAvail = 0, histTotalOcc = 0;
+      try {
+        // Columns: location_name, service_line (may be combined, e.g. "AL, AL/MC, HC"),
+        //          available_units, occ_units — same schema used by the reference-data endpoint.
+        const [histYr, histMo] = targetMonth.split('-').map(Number);
+        type HistRow = { location_name: string; service_line: string; avail: string; occ: string };
+        let histRes: { rows: HistRow[] } = { rows: [] };
+        if (campusSet.length > 0) {
+          histRes = await pool.query(
+            `SELECT location_name, service_line,
+                    SUM(available_units) AS avail, SUM(occ_units) AS occ
+             FROM room_type_occupancy_history
+             WHERE client_id = $1 AND year = $2 AND month = $3
+               AND location_name = ANY($4)
+             GROUP BY location_name, service_line`,
+            [clientId, histYr, histMo, campusSet]
+          ) as any;
+        } else {
+          histRes = await pool.query(
+            `SELECT location_name, service_line,
+                    SUM(available_units) AS avail, SUM(occ_units) AS occ
+             FROM room_type_occupancy_history
+             WHERE client_id = $1 AND year = $2 AND month = $3
+             GROUP BY location_name, service_line`,
+            [clientId, histYr, histMo]
+          ) as any;
+        }
+
+        // Rent-roll unit count per (campus, sl) for proportional distribution when
+        // history uses combined SL strings like "AL, AL/MC, HC".
+        const rlCampusSL = new Map<string, number>();
+        for (const u of unitLevelData) {
+          const key = `${u.location}||${u.serviceLine}`;
+          rlCampusSL.set(key, (rlCampusSL.get(key) ?? 0) + 1);
+        }
+
+        for (const r of histRes.rows) {
+          const avail = Number(r.avail) || 0;
+          const occ   = Number(r.occ)   || 0;
+          histTotalAvail += avail;
+          histTotalOcc   += occ;
+
+          // service_line may be a combined string like "AL, AL/MC, HC"
+          const sls = r.service_line.split(',').map((s: string) => s.trim()).filter(Boolean);
+          const groupTotal = sls.reduce((s: number, sl: string) =>
+            s + (rlCampusSL.get(`${r.location_name}||${sl}`) ?? 0), 0);
+          for (const sl of sls) {
+            if (!summaryByServiceLine[sl]) continue;
+            const share = groupTotal > 0
+              ? (rlCampusSL.get(`${r.location_name}||${sl}`) ?? 0) / groupTotal
+              : 1 / sls.length;
+            summaryByServiceLine[sl].totalUnits    += avail * share;
+            summaryByServiceLine[sl].occupancyCount += occ  * share;
+          }
+        }
+      } catch (_e: any) {
+        console.error('[rate-card] history query error:', _e?.message ?? _e);
+        // Fallback: derive unit/occ counts from rent-roll if history unavailable
+        for (const unit of unitLevelData) {
+          const sl = unit.serviceLine || 'Unknown';
+          if (!summaryByServiceLine[sl]) continue;
+          summaryByServiceLine[sl].totalUnits++;
+          if (unit.occupiedYN) summaryByServiceLine[sl].occupancyCount++;
+          histTotalAvail++;
+          if (unit.occupiedYN) histTotalOcc++;
+        }
+      }
+
+      // If history returned 0 rows (no data for this campus/month), fall back to rent-roll
+      if (histTotalAvail === 0) {
+        for (const unit of unitLevelData) {
+          const sl = unit.serviceLine || 'Unknown';
+          if (!summaryByServiceLine[sl]) continue;
+          summaryByServiceLine[sl].totalUnits++;
+          if (unit.occupiedYN) summaryByServiceLine[sl].occupancyCount++;
+          histTotalAvail++;
+          if (unit.occupiedYN) histTotalOcc++;
+        }
+      }
+
+      // ── Build per-SL rows (rent-roll street/rule rates; history occ counts) ──
+      const rlCountBySL: Record<string, number> = {};
+      for (const unit of unitLevelData) {
+        const sl = unit.serviceLine || 'Unknown';
+        rlCountBySL[sl] = (rlCountBySL[sl] ?? 0) + 1;
+      }
       const rateCardSummary = ALL_SERVICE_LINES.map(sl => {
-        const summary = summaryByServiceLine[sl];
+        const s = summaryByServiceLine[sl];
+        const rlCount = rlCountBySL[sl] ?? 0;
         return {
-          serviceLine: summary.serviceLine,
-          totalUnits: summary.totalUnits,
-          occupancyCount: summary.occupancyCount,
-          averageStreetRate: summary.totalUnits > 0 ? summary.totalStreetRate / summary.totalUnits : 0,
-          averageModuloRate: summary.moduloCount > 0 ? summary.totalModuloRate / summary.moduloCount : null,
-          // Rules Rate is the sole proposed rate; the Revenue Target AI rate is retired.
-          averageRuleRate: summary.ruleCount > 0 ? summary.totalRuleRate / summary.ruleCount : null,
-          averageAiRate: null
+          serviceLine: s.serviceLine,
+          totalUnits:    Math.round(s.totalUnits * 10) / 10,
+          occupancyCount: Math.round(s.occupancyCount * 10) / 10,
+          averageStreetRate: rlCount > 0 ? s.totalStreetRate / rlCount : 0,
+          averageModuloRate: s.moduloCount > 0 ? s.totalModuloRate / s.moduloCount : null,
+          averageRuleRate:   s.ruleCount   > 0 ? s.totalRuleRate   / s.ruleCount   : null,
+          averageAiRate: null,
+          isTotal: false,
         };
+      });
+
+      // ── Total row: raw history sums (non-overlapping combined entries → no double-count) ──
+      const totalStreetRate = unitLevelData.reduce((s: number, u: any) =>
+        s + (u.occupiedYN ? (u.inHouseRate || u.streetRate || 0) : (u.streetRate || 0)), 0);
+      const totalRuleCount  = unitLevelData.filter((u: any) => u.ruleAdjustedRate && u.ruleAdjustedRate > 0).length;
+      const totalRuleRate   = unitLevelData.reduce((s: number, u: any) =>
+        s + (u.ruleAdjustedRate && u.ruleAdjustedRate > 0 ? u.ruleAdjustedRate : 0), 0);
+      rateCardSummary.push({
+        serviceLine: 'Total',
+        totalUnits:    Math.round(histTotalAvail * 10) / 10,
+        occupancyCount: Math.round(histTotalOcc  * 10) / 10,
+        averageStreetRate: unitLevelData.length > 0 ? totalStreetRate / unitLevelData.length : 0,
+        averageModuloRate: null,
+        averageRuleRate:   totalRuleCount > 0 ? totalRuleRate / totalRuleCount : null,
+        averageAiRate: null,
+        isTotal: true,
       });
 
       res.json({

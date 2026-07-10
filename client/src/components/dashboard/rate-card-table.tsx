@@ -720,21 +720,39 @@ export default function RateCardTable({
               </TableHeader>
               <TableBody>
                 {summary
-                  .filter((row: any) => row.totalUnits > 0)
-                  .map((row: any, index: number) => (
-                  <TableRow key={`${row.serviceLine}-${index}`}>
-                    <TableCell className="font-medium">{row.serviceLine}</TableCell>
-                    <TableCell>
-                      <Badge variant={row.occupancyCount / row.totalUnits > 0.85 ? "default" : "secondary"}>
-                        {formatNumber(row.occupancyCount)}/{formatNumber(row.totalUnits)} <span className="text-base font-bold">({formatPercentage(row.occupancyCount / row.totalUnits)})</span>
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{formatRateByServiceLine(Math.round(row.averageStreetRate || 0), row.serviceLine)}</TableCell>
-                    <TableCell>
-                      {row.averageModuloRate ? formatRateByServiceLine(Math.round(row.averageModuloRate), row.serviceLine) : '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                  .filter((row: any) => row.isTotal || row.totalUnits > 0)
+                  .map((row: any, index: number) => {
+                    const isTotal = row.isTotal === true;
+                    const occPct = row.totalUnits > 0 ? row.occupancyCount / row.totalUnits : 0;
+                    return (
+                      <TableRow
+                        key={`${row.serviceLine}-${index}`}
+                        className={isTotal ? "border-t-2 border-slate-300 font-semibold bg-slate-50" : ""}
+                      >
+                        <TableCell className={isTotal ? "font-bold" : "font-medium"}>
+                          {row.serviceLine}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={occPct > 0.85 ? "default" : "secondary"}>
+                            {formatNumber(Math.round(row.occupancyCount))}/{formatNumber(Math.round(row.totalUnits))}{" "}
+                            <span className="text-base font-bold">({formatPercentage(occPct)})</span>
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {isTotal
+                            ? formatRateByServiceLine(Math.round(row.averageStreetRate || 0), 'AL')
+                            : formatRateByServiceLine(Math.round(row.averageStreetRate || 0), row.serviceLine)}
+                        </TableCell>
+                        <TableCell>
+                          {row.averageRuleRate
+                            ? (isTotal
+                                ? formatRateByServiceLine(Math.round(row.averageRuleRate), 'AL')
+                                : formatRateByServiceLine(Math.round(row.averageRuleRate), row.serviceLine))
+                            : '-'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
               </TableBody>
             </Table>
           </CardContent>
