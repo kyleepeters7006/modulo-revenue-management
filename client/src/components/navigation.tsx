@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import inflectLogo from "@assets/Inflect_Logo_-_No_Text_Below_1781618481726.png";
@@ -22,21 +22,26 @@ import {
   LayoutTemplate,
   Layers,
   Shield,
-  FileUp
+  ChevronDown,
 } from "lucide-react";
 
-const menuItems = [
+const primaryItems = [
   { path: "/overview", label: "Overview", icon: BarChart3 },
   { path: "/pricing-controls", label: "Pricing Controls", icon: Settings },
   { path: "/analytics", label: "Pricing Analytics", icon: ScatterChart },
   { path: "/rate-card", label: "Rate Card", icon: CreditCard },
-  { path: "/room-attributes", label: "Room Attributes", icon: Layers },
   { path: "/competitor-analysis", label: "Competitors", icon: Map },
   { path: "/ai-insights", label: "AI Insights", icon: Brain },
-  { path: "/floor-plans", label: "Floor Plans", icon: LayoutTemplate },
-  { path: "/about", label: "About Us", icon: Info },
-  { path: "/data-management", label: "Data Management", icon: Upload },
 ];
+
+const moreItems = [
+  { path: "/room-attributes", label: "Room Attributes", icon: Layers },
+  { path: "/floor-plans", label: "Floor Plans", icon: LayoutTemplate },
+  { path: "/data-management", label: "Data Management", icon: Upload },
+  { path: "/about", label: "About Us", icon: Info },
+];
+
+const allItems = [...primaryItems, ...moreItems];
 
 interface NavigationProps {
   className?: string;
@@ -46,6 +51,8 @@ export default function Navigation({ className }: NavigationProps) {
   const [location] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   const { isAuthenticated, clientName, isLoading } = useAuth();
 
   const logoutMutation = useMutation({
@@ -61,6 +68,21 @@ export default function Navigation({ className }: NavigationProps) {
       window.location.reload();
     },
   });
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const isMoreActive = moreItems.some(
+    (item) => location === item.path
+  );
 
   return (
     <div className={cn("sticky top-0 z-50", className)}>
@@ -95,9 +117,9 @@ export default function Navigation({ className }: NavigationProps) {
             </div>
             
             {/* Main Navigation - Desktop */}
-            <div className="hidden md:flex flex-1 min-w-0">
-              <div className="flex gap-x-0.5 lg:gap-x-2 xl:gap-x-3">
-                {menuItems.map((item) => {
+            <div className="hidden md:flex flex-1 min-w-0 items-center">
+              <div className="flex gap-x-0.5 lg:gap-x-2 xl:gap-x-3 items-center">
+                {primaryItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location === item.path || (location === "/" && item.path === "/overview");
                   
@@ -118,6 +140,49 @@ export default function Navigation({ className }: NavigationProps) {
                     </Link>
                   );
                 })}
+
+                {/* More dropdown */}
+                <div className="relative" ref={moreRef}>
+                  <button
+                    onClick={() => setMoreOpen((o) => !o)}
+                    className={cn(
+                      "inline-flex flex-col items-center text-center px-1 lg:px-1.5 py-1.5 border-b-2 text-xs lg:text-sm font-medium transition-colors duration-200",
+                      isMoreActive || moreOpen
+                        ? "border-[var(--trilogy-blue)] text-[var(--trilogy-dark-blue)]"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                    )}
+                    data-testid="button-more-menu"
+                  >
+                    <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 mb-0.5 transition-transform duration-200", moreOpen && "rotate-180")} />
+                    <span className="leading-tight">More</span>
+                  </button>
+
+                  {moreOpen && (
+                    <div className="absolute left-0 top-full mt-1 w-48 rounded-md shadow-lg bg-white border border-gray-200 py-1 z-50">
+                      {moreItems.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = location === item.path;
+                        return (
+                          <Link
+                            key={item.path}
+                            href={item.path}
+                            onClick={() => setMoreOpen(false)}
+                            className={cn(
+                              "flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium transition-colors duration-150",
+                              isActive
+                                ? "bg-[var(--trilogy-light-blue)] text-[var(--trilogy-dark-blue)]"
+                                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                            )}
+                            data-testid={`link-${item.path.slice(1)}`}
+                          >
+                            <Icon className="h-4 w-4 flex-shrink-0" />
+                            {item.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -174,11 +239,11 @@ export default function Navigation({ className }: NavigationProps) {
           </div>
         </div>
 
-        {/* Mobile Navigation Menu */}
+        {/* Mobile Navigation Menu — shows all items flat */}
         {isMobileMenuOpen && (
           <div className="md:hidden border-t border-gray-200">
             <div className="px-2 pt-2 pb-3 space-y-1 bg-gray-50">
-              {menuItems.map((item) => {
+              {allItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location === item.path || (location === "/" && item.path === "/overview");
                 
