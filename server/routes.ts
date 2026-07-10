@@ -15184,11 +15184,6 @@ Return ONLY valid JSON with no markdown fences:
           e.occ += occ; e.avail += avail; rohByToken[tok] = e;
         }
       }
-      // History service_line values are room-type groupings like "AL, AL/MC, HC" —
-      // one row covers multiple service lines. Token-matching units to individual SLs
-      // causes double-counting (e.g. a room serving AL+AL/MC+HC contributes its units
-      // to each token). History is therefore only reliable for the OVERALL aggregate.
-      // Per-SL breakdown stays on rent_roll which counts each unit under exactly one SL.
       const hasHistoryOcc = rohTotalAvail > 0;
 
       // Aggregate totals — prefer history overall sum when available (exact),
@@ -15201,10 +15196,53 @@ Return ONLY valid JSON with no markdown fences:
         : slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
       const overallOcc = totalUnits > 0 ? Math.round((totalUnits - totalVacant) / totalUnits * 1000) / 10 : 0;
 
-      // Service-line snapshot summary string
-      const slSummaryParts = slRows.map((r: any) =>
-        `${r.service_line}: ${r.occ_pct}% occ (${r.vacant}/${r.total} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo${r.avg_rule_rate > 0 ? `, rule-adj $${parseInt(r.avg_rule_rate).toLocaleString()}/mo` : ''}, avg vacant ${r.avg_days_vacant || 0} days)`
-      ).join(' | ');
+      // Proportional distribution of combined-SL history rows to individual service lines.
+      // History rows can contain combined service_line strings like "AL, AL/MC, HC" —
+      // the same approach used in the Rate Card Summary and Reference Data endpoints.
+      // Rent-roll unit counts per SL serve as distribution weights.
+      const rlUnitsBySL: Record<string, number> = {};
+      for (const r of slRows) rlUnitsBySL[r.service_line] = parseInt(r.total || '0');
+
+      const rohBySLDist: Record<string, { occ: number; avail: number }> = {};
+      for (const r of rohRows) {
+        const occ   = parseFloat(r.occ   || '0');
+        const avail = parseFloat(r.avail || '0');
+        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        if (tokens.length === 1) {
+          // Single SL — assign directly, no distribution needed
+          const e = rohBySLDist[tokens[0]] || { occ: 0, avail: 0 };
+          e.occ += occ; e.avail += avail;
+          rohBySLDist[tokens[0]] = e;
+        } else {
+          // Combined SL string — distribute proportionally by rent-roll unit counts
+          const groupTotal = tokens.reduce((s, sl) => s + (rlUnitsBySL[sl] || 0), 0);
+          const denom = groupTotal > 0 ? groupTotal : tokens.length; // even split as fallback
+          for (const sl of tokens) {
+            const share = groupTotal > 0 ? (rlUnitsBySL[sl] || 0) / denom : 1 / tokens.length;
+            const e = rohBySLDist[sl] || { occ: 0, avail: 0 };
+            e.occ += occ * share; e.avail += avail * share;
+            rohBySLDist[sl] = e;
+          }
+        }
+      }
+
+      // Service-line snapshot summary string.
+      // Per-SL occupancy: prefer proportionally-distributed history when available,
+      // fall back to rent-roll for any SL not covered by history (e.g. demo mode).
+      const slSummaryParts = slRows.map((r: any) => {
+        const sl = r.service_line;
+        const hist = rohBySLDist[sl];
+        const occPct = hist && hist.avail > 0
+          ? Math.round(hist.occ / hist.avail * 1000) / 10
+          : parseFloat(r.occ_pct || '0');
+        const histVacant = hist && hist.avail > 0
+          ? Math.max(0, Math.round(hist.avail - hist.occ))
+          : parseInt(r.vacant || '0');
+        const histTotal = hist && hist.avail > 0
+          ? Math.round(hist.avail)
+          : parseInt(r.total || '0');
+        return `${sl}: ${occPct}% occ (${histVacant}/${histTotal} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo${r.avg_rule_rate > 0 ? `, rule-adj $${parseInt(r.avg_rule_rate).toLocaleString()}/mo` : ''}, avg vacant ${r.avg_days_vacant || 0} days)`;
+      }).join(' | ');
 
       // 6-month trend summary per service line
       const trendBySL: Record<string, any[]> = {};
