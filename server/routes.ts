@@ -5223,6 +5223,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Analytics Debug: Total=${debugTotalUnits}, Filtered=${debugFilteredUnits}, B-beds skipped=${debugBBedsSkipped}`);
       console.log(`Analytics Debug: Found ${campusMetrics.size} unique campuses`);
 
+      // Override campus-level occupancy with room_type_occupancy_history (physical rooms, no B-bed inflation)
+      {
+        const [cmHistYr, cmHistMo] = currentMonth.split('-').map(Number);
+        const cmHistRes = await pool.query(`
+          SELECT location_name,
+                 SUM(available_units)::float AS avail,
+                 SUM(occ_units)::float        AS occ
+          FROM room_type_occupancy_history
+          WHERE client_id = $1 AND year = $2 AND month = $3
+          GROUP BY location_name
+        `, [clientId, cmHistYr, cmHistMo]);
+        for (const r of cmHistRes.rows) {
+          const m = campusMetrics.get(r.location_name);
+          if (m && Number(r.avail) > 0) {
+            m.totalUnits    = Math.round(Number(r.avail));
+            m.occupiedUnits = Math.round(Number(r.occ));
+            m.vacantUnits   = Math.max(0, m.totalUnits - m.occupiedUnits);
+          }
+        }
+      }
+
       // Calculate portfolio-wide medians by room type as fallback when competitor data is missing
       const portfolioMediansByRoomType = new Map<string, number>();
       const ratesByRoomType = new Map<string, number[]>();
@@ -7786,6 +7807,9 @@ ${campusOccLines.join('\n')}
       const rtoByRT   = new Map<string, { occ: number; avail: number }>(); // normalizedRoomType
       const rtoBySL   = new Map<string, { occ: number; avail: number }>(); // serviceLine
       const rtoBySLRT = new Map<string, { occ: number; avail: number }>(); // `sl||rt`
+      // Portfolio-wide totals from history (unfiltered — always full portfolio)
+      let histPortfolioAvail = 0;
+      let histPortfolioOcc   = 0;
 
       {
         const rtoMaxYearRes = await db
@@ -7813,6 +7837,12 @@ ${campusOccLines.join('\n')}
                 eq(roomTypeOccupancyHistory.year, rtoMaxYear),
                 eq(roomTypeOccupancyHistory.month, rtoMaxMonth)
               ));
+
+            // Portfolio totals from ALL rows (no SL filter)
+            for (const r of rtoRows) {
+              histPortfolioAvail += r.availableUnits ?? 0;
+              histPortfolioOcc   += r.occUnits       ?? 0;
+            }
 
             const filteredRto = serviceLineFilter && serviceLineFilter !== 'All'
               ? rtoRows.filter((r: any) => r.serviceLine === serviceLineFilter)
@@ -8097,23 +8127,26 @@ ${campusOccLines.join('\n')}
       
       const portfolioTotalLocations = portfolioStats[0]?.totalLocations || 0;
       
-      // Calculate actual units from rent roll data, excluding B beds for senior housing
-      // For AL, IL, SL, AL/MC: only count A beds (exclude rooms ending with "/B")
-      // For HC: count both A and B beds
-      const actualUnits = allRentRollData.filter(unit => {
-        const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
-        const isBBed = unit.roomNumber.endsWith('/B');
-        
-        // For senior housing, exclude B beds. For HC, include all beds.
-        return !isSeniorHousing || !isBBed;
-      });
-      
-      const portfolioTotalUnits = actualUnits.length;
-      
+      // Portfolio occupancy totals: prefer history (physical rooms, no B-bed inflation)
+      // Falls back to rent-roll B-bed-filtered count when history has no data.
+      let portfolioTotalUnits: number;
+      let occupiedUnits: number;
+      if (histPortfolioAvail > 0) {
+        portfolioTotalUnits = Math.round(histPortfolioAvail);
+        occupiedUnits       = Math.round(histPortfolioOcc);
+      } else {
+        const actualUnits = allRentRollData.filter((unit: any) => {
+          const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
+          const isBBed = unit.roomNumber.endsWith('/B');
+          return !isSeniorHousing || !isBBed;
+        });
+        portfolioTotalUnits = actualUnits.length;
+        occupiedUnits       = actualUnits.filter((u: any) => u.occupiedYN).length;
+      }
+
       // Units with rent roll data uploaded
-      const unitsWithData = actualUnits.length;
+      const unitsWithData = portfolioTotalUnits;
       const locationsWithData = uniqueCampuses;
-      const occupiedUnits = actualUnits.filter(u => u.occupiedYN).length;
       
       // Import rate normalization service
       const { calculateUnitAnnualRevenue } = await import('./services/rateNormalization');
@@ -9348,16 +9381,28 @@ ${campusOccLines.join('\n')}
       const occupiedBeds = allRentRollData.filter(unit => unit.occupiedYN).length;
       const databaseOccupancyRate = totalBeds > 0 ? (occupiedBeds / totalBeds) * 100 : 0;
       
-      // Calculate census totals (filtered for rate card eligible units)
+      // Census totals: use room_type_occupancy_history as authoritative physical-room count.
+      // History = physical rooms (no B-bed duplication) — this IS the census view.
+      // Fall back to rent-roll A-bed count when history has no data for this client/month.
+      const [censYr, censMo] = mostRecentMonth.split('-').map(Number);
+      const censHistRes = await pool.query(`
+        SELECT SUM(available_units)::float AS avail, SUM(occ_units)::float AS occ
+        FROM room_type_occupancy_history
+        WHERE client_id = $1 AND year = $2 AND month = $3
+      `, [clientId, censYr, censMo]);
+      const censHistAvail = Number(censHistRes.rows[0]?.avail) || 0;
+      const censHistOcc   = Number(censHistRes.rows[0]?.occ)   || 0;
+
+      // Keep rent-roll A-bed filter as fallback reference
       const censusUnits = allRentRollData.filter(unit => {
         const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
         const isBBed = unit.roomNumber.endsWith('/B');
         // For senior housing, exclude B beds. For HC, include all beds.
         return !isSeniorHousing || !isBBed;
       });
-      
-      const censusTotalBeds = censusUnits.length;
-      const censusOccupiedBeds = censusUnits.filter(unit => unit.occupiedYN).length;
+
+      const censusTotalBeds    = censHistAvail > 0 ? Math.round(censHistAvail) : censusUnits.length;
+      const censusOccupiedBeds = censHistAvail > 0 ? Math.round(censHistOcc)   : censusUnits.filter(unit => unit.occupiedYN).length;
       const censusOccupancyRate = censusTotalBeds > 0 ? (censusOccupiedBeds / censusTotalBeds) * 100 : 0;
       
       // Calculate service line breakdown
