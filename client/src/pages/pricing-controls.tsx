@@ -689,9 +689,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   </div>
                 </div>
 
-                {/* Mini bubble map ── right sidebar */}
+                {/* Mini bubble map ── right sidebar (hidden on mobile) */}
                 <div
-                  className="w-48 shrink-0 rounded-xl border border-slate-200 bg-slate-50 flex flex-col items-center justify-center cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-all group"
+                  className="hidden sm:flex w-48 shrink-0 rounded-xl border border-slate-200 bg-slate-50 flex-col items-center justify-center cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-all group"
                   onClick={() => setFullMapOpen(true)}
                   title="Click to expand full rule coverage map"
                 >
