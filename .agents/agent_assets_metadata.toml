@@ -6,3 +6,9 @@ id = "2vRWanIEivu93OZBcTxeG"
 uri = "file://modulo-platform-overview.pptx"
 type = "slides"
 title = "Modulo Platform Overview — Slide Deck"
+
+[[outputs]]
+id = "8npuvPqeUx_E2ruTVPvr0"
+uri = "file://inquiry_tours_2026_06.csv"
+type = "table"
+title = "Inquiry & Tours Export — June 2026"
