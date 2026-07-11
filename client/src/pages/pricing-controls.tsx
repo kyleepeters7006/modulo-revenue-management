@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
-import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw } from "lucide-react";
+import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3 } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import AiRuleGenerator from "@/components/dashboard/ai-rule-generator";
@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -438,7 +439,9 @@ interface PricingCommentaryCardProps {
 }
 
 function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions }: PricingCommentaryCardProps) {
-  // Build query params to pass filters to the endpoint
+  const [selectedRule, setSelectedRule] = useState<any>(null);
+  const [fullMapOpen, setFullMapOpen] = useState(false);
+
   const params = new URLSearchParams();
   if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
   selectedLocations.forEach(l => params.append('locations', l));
@@ -454,111 +457,425 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     retry: 1,
   });
 
+  const { data: rulesData } = useQuery<any[]>({
+    queryKey: ['/api/adjustment-rules'],
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const activeRules = (rulesData || []).filter((r: any) => r.isActive);
+  const totalAnnualImpact = activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+  const positiveImpact = activeRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
+  const negativeImpact = activeRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
+
+  const fmtImpact = (v: number, sign = true) => {
+    const abs = Math.abs(v);
+    const pfx = sign ? (v < 0 ? '-' : '+') : '';
+    if (abs >= 1_000_000) return `${pfx}$${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${pfx}$${(abs / 1_000).toFixed(0)}K`;
+    return `${pfx}$${Math.round(abs).toLocaleString()}`;
+  };
+
+  const getActionInfo = (rule: any) => {
+    const action = rule.action || {};
+    const adj = action.adjustmentType;
+    const val = Number(action.adjustmentValue ?? 0);
+    const isNeg = val < 0;
+    const absVal = Math.abs(val);
+    const display = adj === 'percentage' ? `${isNeg ? '' : '+'}${val}%` : `${isNeg ? '-' : '+'}$${absVal}`;
+    const positive = (rule.annualImpact || 0) >= 0;
+    return { positive, display, isIncrease: !isNeg };
+  };
+
+  const getTriggerLabel = (rule: any) => {
+    const trigger = rule.trigger || {};
+    if (trigger.type === 'immediate') return 'Always active';
+    const conditions = trigger.conditions || (trigger.condition ? [trigger.condition] : []);
+    if (!conditions.length) return 'Conditional';
+    const c = conditions[0];
+    const fieldMap: Record<string, string> = {
+      service_line_occupancy: 'SL occ', room_type_occupancy: 'RT occ',
+      campus_occupancy: 'Campus occ', days_vacant: 'Days vacant',
+    };
+    const field = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
+    const val = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.value;
+    const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
+    const extra = conditions.length > 1 ? ` +${conditions.length - 1}` : '';
+    return `${field} ${op} ${val}${extra}`;
+  };
+
+  const getSLs = (rule: any): string[] => {
+    const f = rule.action?.filters || {};
+    return (f.serviceLine || []).slice(0, 3);
+  };
+
+  const SL_COLORS: Record<string, string> = {
+    AL: 'bg-teal-100 text-teal-800', 'AL/MC': 'bg-purple-100 text-purple-800',
+    HC: 'bg-orange-100 text-orange-800', 'HC/MC': 'bg-blue-100 text-blue-800',
+    SL: 'bg-emerald-100 text-emerald-800', VIL: 'bg-violet-100 text-violet-800',
+  };
+
+  const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#b45309'];
+
+  const genMiniDots = (count: number, r: number) => {
+    const n = Math.min(count, 32);
+    return Array.from({ length: n }, (_, i) => {
+      const theta = i * 2.39996;
+      const rad = Math.sqrt((i + 0.5) / n) * (r - 4);
+      return { x: Math.cos(theta) * rad, y: Math.sin(theta) * rad };
+    });
+  };
+
   const hasData = data && (data.summary || data.rules?.length > 0);
 
   return (
-    <div className="rounded-xl border border-teal-200/70 bg-gradient-to-br from-teal-50/60 via-white to-slate-50/40 shadow-sm mb-6 overflow-hidden">
-      {/* header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-teal-100/80 bg-teal-50/50">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-teal-600/10">
-            <Sparkles className="h-3.5 w-3.5 text-teal-600" />
-          </div>
-          <span className="text-sm font-semibold text-teal-800 tracking-wide uppercase" style={{ letterSpacing: '0.05em' }}>
-            Strategy Overview
-          </span>
-        </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-800 transition-colors disabled:opacity-40"
-          title="Refresh overview"
-        >
-          <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Refresh</span>
-        </button>
-      </div>
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-md mb-6 overflow-hidden">
 
-      {/* body */}
-      <div className="px-5 py-5 space-y-5">
-        {isLoading ? (
-          <div className="space-y-4">
-            <div className="h-4 rounded bg-gray-200 animate-pulse w-full" />
-            <div className="h-4 rounded bg-gray-200 animate-pulse w-4/5" />
-            <div className="space-y-2 pt-1">
-              {[70, 85, 60, 75].map((w, i) => (
-                <div key={i} className="h-3.5 rounded bg-gray-100 animate-pulse" style={{ width: `${w}%` }} />
-              ))}
+      {/* ── Command header ── */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-teal-900 px-6 py-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-teal-400/20 border border-teal-400/30">
+              <Sparkles className="h-4 w-4 text-teal-300" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-teal-400">Strategy Overview</p>
+              <p className="text-sm text-slate-300 mt-0.5">
+                {activeRules.length > 0
+                  ? `${activeRules.length} active rule${activeRules.length !== 1 ? 's' : ''} in effect`
+                  : 'No active pricing rules'}
+              </p>
             </div>
           </div>
-        ) : !hasData ? (
-          <p className="text-sm text-gray-400 italic">No overview available — add pricing rules to generate insights.</p>
-        ) : (
-          <>
-            {/* 1 — Occupancy & revenue summary */}
-            {data.summary && (
-              <p className="text-[15px] leading-relaxed text-gray-800 font-medium">
-                {parseBold(data.summary)}
-              </p>
-            )}
 
-            {/* 2 — 6-month pricing trend */}
-            {data.pricingTrend && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-teal-600 mb-1.5">Pricing Trends · Last 6 Months</p>
-                <p className="text-[14px] leading-relaxed text-gray-700">{parseBold(data.pricingTrend)}</p>
-              </div>
-            )}
-
-            {/* 3 — Active rules */}
-            {(data.rulesSummary || data.rules?.length > 0) && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-teal-600 mb-1.5">
-                  Active Rules · {data.rules?.length || 0} configured
+          {/* KPI strip */}
+          {activeRules.length > 0 && (
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-wider text-slate-400">Net Annual Impact</p>
+                <p className={`text-xl font-bold ${totalAnnualImpact >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {fmtImpact(totalAnnualImpact)}
                 </p>
-                {data.rulesSummary && (
-                  <p className="text-[14px] leading-relaxed text-gray-700 mb-3">{parseBold(data.rulesSummary)}</p>
+              </div>
+              {positiveImpact > 0 && (
+                <div className="text-right border-l border-slate-700 pl-6">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400">Revenue Lift</p>
+                  <p className="text-lg font-semibold text-emerald-400">{fmtImpact(positiveImpact)}</p>
+                </div>
+              )}
+              {negativeImpact < 0 && (
+                <div className="text-right border-l border-slate-700 pl-6">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400">Concessions</p>
+                  <p className="text-lg font-semibold text-red-400">{fmtImpact(negativeImpact)}</p>
+                </div>
+              )}
+              <button
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-teal-300 transition-colors disabled:opacity-40 ml-2"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="p-5">
+        {isLoading && !hasData ? (
+          <div className="space-y-3 py-2">
+            <div className="h-4 rounded bg-slate-100 animate-pulse w-full" />
+            <div className="h-4 rounded bg-slate-100 animate-pulse w-4/5" />
+            <div className="grid grid-cols-4 gap-3 pt-2">
+              {[1,2,3,4].map(i => <div key={i} className="h-20 rounded-lg bg-slate-100 animate-pulse" />)}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+
+            {/* ── AI narrative (compact 2-line summary) ── */}
+            {(data?.summary || data?.pricingTrend) && (
+              <div className="rounded-lg bg-slate-50 border border-slate-100 px-4 py-3 space-y-1.5">
+                {data?.summary && (
+                  <p className="text-[13.5px] leading-relaxed text-slate-700">
+                    {parseBold(data.summary)}
+                  </p>
                 )}
-                {data.rules?.length > 0 && (
-                  <ul className="space-y-2">
-                    {data.rules.map((rule, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        <div className="flex items-start gap-1.5 shrink-0 pt-[4px]">
-                          <div className="w-[3px] rounded-full bg-teal-400/60 self-stretch" style={{ minHeight: '14px' }} />
-                          <div className="h-[6px] w-[6px] rounded-full bg-teal-500 mt-[3px] shrink-0" />
-                        </div>
-                        <div>
-                          <span className="text-[13px] font-semibold text-gray-800">{rule.name}</span>
-                          <span className="text-[13px] text-gray-500 mx-1">—</span>
-                          <span className="text-[13px] text-gray-600">{parseBold(rule.strategy)}</span>
-                          {rule.effectiveDate && (() => {
-                            const eff = String(rule.effectiveDate).slice(0, 10);
-                            const today = new Date().toISOString().slice(0, 10);
-                            const isFuture = eff > today;
-                            return (
-                              <span className={`ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${isFuture ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
-                                {isFuture ? 'Starts' : 'Effective'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                {data?.pricingTrend && (
+                  <p className="text-[12.5px] leading-relaxed text-slate-500">
+                    <span className="font-semibold text-teal-600 text-[10px] uppercase tracking-wider mr-1.5">6-mo trend</span>
+                    {parseBold(data.pricingTrend)}
+                  </p>
                 )}
               </div>
             )}
-          </>
+
+            {/* ── Rules grid + mini bubble map ── */}
+            {activeRules.length > 0 && (
+              <div className="flex gap-4">
+
+                {/* Rule cards — takes 70% width */}
+                <div className="flex-1 min-w-0">
+                  {data?.rulesSummary && (
+                    <p className="text-[11.5px] text-slate-500 mb-2.5 leading-relaxed">{parseBold(data.rulesSummary)}</p>
+                  )}
+                  <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(195px, 1fr))' }}>
+                    {activeRules.map((rule: any, ri: number) => {
+                      const { positive, display, isIncrease } = getActionInfo(rule);
+                      const sls = getSLs(rule);
+                      const trigger = getTriggerLabel(rule);
+                      const color = PALETTE[ri % PALETTE.length];
+                      const eff = rule.effectiveDate ? String(rule.effectiveDate).slice(0, 10) : null;
+                      const today = new Date().toISOString().slice(0, 10);
+                      const isFuture = eff && eff > today;
+                      const annual = rule.annualImpact || 0;
+                      const units = rule.affectedUnits || 0;
+
+                      return (
+                        <button
+                          key={rule.id}
+                          onClick={() => setSelectedRule(rule)}
+                          className="text-left rounded-xl border bg-white hover:shadow-md hover:border-teal-300 transition-all duration-150 p-3 group focus:outline-none focus:ring-2 focus:ring-teal-400"
+                          style={{ borderColor: `${color}33`, borderLeftWidth: 3, borderLeftColor: color }}
+                        >
+                          {/* action row */}
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
+                            <div className={`flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded ${positive ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                              {positive
+                                ? <ArrowUpRight className="h-3 w-3" />
+                                : <ArrowDownRight className="h-3 w-3" />}
+                              {display}
+                            </div>
+                            <div className="flex gap-1 flex-wrap justify-end">
+                              {sls.length > 0
+                                ? sls.map(sl => (
+                                    <span key={sl} className={`text-[9px] font-bold px-1 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
+                                  ))
+                                : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">All</span>
+                              }
+                            </div>
+                          </div>
+
+                          {/* name */}
+                          <p className="text-[12px] font-semibold text-slate-800 leading-tight mb-1 line-clamp-1 group-hover:text-teal-700">
+                            {rule.name}
+                          </p>
+
+                          {/* trigger */}
+                          <p className="text-[10.5px] text-slate-400 mb-2 flex items-center gap-1">
+                            <Zap className="h-2.5 w-2.5 shrink-0" />
+                            {trigger}
+                          </p>
+
+                          {/* impact + units */}
+                          <div className="flex items-center justify-between">
+                            <span className={`text-[12px] font-bold ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {fmtImpact(annual)}/yr
+                            </span>
+                            {units > 0 && (
+                              <span className="text-[10px] text-slate-400">{units.toLocaleString()} units</span>
+                            )}
+                          </div>
+
+                          {/* effective date chip */}
+                          {eff && (
+                            <div className={`mt-1.5 text-[9px] font-medium px-1.5 py-0.5 rounded inline-block ${isFuture ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>
+                              {isFuture ? '⏰ Starts' : '✓'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Mini bubble map ── right sidebar */}
+                <div
+                  className="w-48 shrink-0 rounded-xl border border-slate-200 bg-slate-50 flex flex-col items-center justify-center cursor-pointer hover:border-teal-300 hover:bg-teal-50/40 transition-all group"
+                  onClick={() => setFullMapOpen(true)}
+                  title="Click to expand full rule coverage map"
+                >
+                  <svg
+                    width="168"
+                    height="150"
+                    viewBox="-84 -75 168 150"
+                    className="overflow-visible"
+                  >
+                    {(() => {
+                      const maxImpact = Math.max(...activeRules.map((r: any) => Math.abs(r.annualImpact || 0)), 1);
+                      const MIN_R = 14, MAX_R = 38;
+                      const count = activeRules.length;
+
+                      return activeRules.map((rule: any, ri: number) => {
+                        const color = PALETTE[ri % PALETTE.length];
+                        const t = Math.sqrt(Math.abs(rule.annualImpact || 0) / maxImpact);
+                        const radius = MIN_R + t * (MAX_R - MIN_R);
+                        const units = rule.affectedUnits || 0;
+                        const dots = genMiniDots(units, radius);
+                        const positive = (rule.annualImpact || 0) >= 0;
+
+                        const theta = (ri / count) * 2 * Math.PI - Math.PI / 2;
+                        const orbitR = count <= 3 ? 28 : count <= 5 ? 34 : 40;
+                        const cx = count === 1 ? 0 : Math.cos(theta) * orbitR;
+                        const cy = count === 1 ? 0 : Math.sin(theta) * orbitR;
+
+                        return (
+                          <g key={rule.id} transform={`translate(${cx}, ${cy})`}>
+                            <circle r={radius} fill={color} fillOpacity={0.12} stroke={color} strokeWidth={positive ? 1.5 : 1} strokeDasharray={positive ? 'none' : '3 2'} />
+                            {dots.map((d, di) => (
+                              <circle key={di} cx={d.x} cy={d.y} r={1.5} fill={color} opacity={0.5} />
+                            ))}
+                          </g>
+                        );
+                      });
+                    })()}
+                  </svg>
+                  <div className="pb-3 text-center">
+                    <p className="text-[10px] font-semibold text-slate-400 group-hover:text-teal-600 transition-colors flex items-center gap-1 justify-center">
+                      <Maximize2 className="h-3 w-3" />
+                      Coverage Map
+                    </p>
+                    <p className="text-[9px] text-slate-300">{activeRules.length} rules · click to expand</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!hasData && !isLoading && (
+              <p className="text-sm text-slate-400 italic py-4 text-center">No overview available — add pricing rules to generate insights.</p>
+            )}
+          </div>
         )}
       </div>
 
-      {/* footer */}
+      {/* ── Footer ── */}
       {data?.generatedAt && !isLoading && (
-        <div className="px-5 pb-3 text-[11px] text-gray-400">
-          Generated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          {" · "}Updates automatically when rules change
+        <div className="px-5 pb-3 text-[10px] text-slate-300 border-t border-slate-100 pt-2">
+          AI overview generated {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · updates when rules change
         </div>
       )}
+
+      {/* ── Rule detail dialog ── */}
+      <Dialog open={!!selectedRule} onOpenChange={(o) => !o && setSelectedRule(null)}>
+        <DialogContent className="max-w-lg">
+          {selectedRule && (() => {
+            const { positive, display } = getActionInfo(selectedRule);
+            const trigger = getTriggerLabel(selectedRule);
+            const sls = getSLs(selectedRule);
+            const annual = selectedRule.annualImpact || 0;
+            const monthly = selectedRule.monthlyImpact || 0;
+            const units = selectedRule.affectedUnits || 0;
+            const eff = selectedRule.effectiveDate ? String(selectedRule.effectiveDate).slice(0, 10) : null;
+            const today = new Date().toISOString().slice(0, 10);
+            const isFuture = eff && eff > today;
+            const commentaryRule = data?.rules?.find(r => r.name === selectedRule.name);
+
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base">
+                    <span className={`text-sm font-bold px-2 py-1 rounded ${positive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {display}
+                    </span>
+                    {selectedRule.name}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-1">
+                  {/* KPI row */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Annual Impact</p>
+                      <p className={`text-lg font-bold ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Monthly</p>
+                      <p className={`text-lg font-bold ${monthly >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Units Affected</p>
+                      <p className="text-lg font-bold text-slate-700">{units.toLocaleString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Rule details */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Trigger</span>
+                      <span className="text-slate-700 font-medium">{trigger}</span>
+                    </div>
+                    {sls.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Service Lines</span>
+                        <div className="flex gap-1 flex-wrap">
+                          {sls.map(sl => (
+                            <span key={sl} className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {eff && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Effective</span>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${isFuture ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                          {isFuture ? 'Starts' : 'Active since'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI strategy description from commentary */}
+                  {commentaryRule?.strategy && (
+                    <div className="rounded-lg bg-teal-50 border border-teal-100 px-4 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-teal-600 mb-1.5 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" /> AI Analysis
+                      </p>
+                      <p className="text-[13px] leading-relaxed text-slate-700">{parseBold(commentaryRule.strategy)}</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Full bubble map dialog ── */}
+      <Dialog open={fullMapOpen} onOpenChange={setFullMapOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-base">Rule Coverage Map — {activeRules.length} Active Rules</DialogTitle>
+            <p className="text-xs text-slate-500 mt-1">Circle size = relative annual revenue impact. Solid border = additive. Dashed = exclusive/priority-based. Click any rule to view details.</p>
+          </DialogHeader>
+          <div className="bg-slate-50 rounded-xl p-6 flex flex-wrap gap-8 justify-center items-end min-h-64">
+            {activeRules.map((rule: any, ri: number) => {
+              const color = PALETTE[ri % PALETTE.length];
+              const maxImpact = Math.max(...activeRules.map((r: any) => Math.abs(r.annualImpact || 0)), 1);
+              const t = Math.sqrt(Math.abs(rule.annualImpact || 0) / maxImpact);
+              const MIN_R = 32, MAX_R = 80;
+              const radius = Math.round(MIN_R + t * (MAX_R - MIN_R));
+              const size = radius * 2 + 12;
+              const units = rule.affectedUnits || 0;
+              const dots = genMiniDots(units, radius);
+              const positive = (rule.annualImpact || 0) >= 0;
+              return (
+                <div key={rule.id} className="flex flex-col items-center gap-1 cursor-pointer" onClick={() => { setFullMapOpen(false); setTimeout(() => setSelectedRule(rule), 80); }}>
+                  <svg width={size} height={size} style={{ overflow: 'visible' }}>
+                    <circle cx={size/2} cy={size/2} r={radius} fill={color} fillOpacity={0.12} stroke={color} strokeWidth={positive ? 2 : 1.5} strokeDasharray={positive ? 'none' : '4 3'} />
+                    {dots.map((d, di) => <circle key={di} cx={size/2 + d.x} cy={size/2 + d.y} r={2} fill={color} opacity={0.5} />)}
+                    <text x={size/2} y={size/2 + 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill={color} opacity={0.9}>
+                      {fmtImpact(rule.annualImpact || 0)}
+                    </text>
+                  </svg>
+                  <div className="text-center" style={{ maxWidth: Math.max(size, 80) }}>
+                    <p className="text-[11px] font-semibold text-slate-700 leading-tight text-center">{rule.name}</p>
+                    <p className="text-[9px] text-slate-400">{units.toLocaleString()} units</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
