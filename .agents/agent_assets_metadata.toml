@@ -12,3 +12,9 @@ id = "8npuvPqeUx_E2ruTVPvr0"
 uri = "file://inquiry_tours_2026_06.csv"
 type = "table"
 title = "Inquiry & Tours Export — June 2026"
+
+[[outputs]]
+id = "cag9HKpCtjv9c5MnRktLi"
+uri = "file://inquiry_tours_2026_05.csv"
+type = "table"
+title = "Inquiry & Tours Export — May 2026 (most recent with real data)"

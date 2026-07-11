@@ -1,0 +1,1834 @@
+upload_month,date,region,division,location,service_line,lead_source,inquiry_count,tour_count,conversion_count,conversion_rate,days_to_tour,days_to_move_in
+2026-05,2026-05-31,"","",Anderson HC,HC,RE-Hospital,99,0,25,25.25,0,0
+2026-05,2026-05-31,"","",Anderson HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson HC,HC/MC,AD-Community Sign,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Anderson HC,HC/MC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Anderson HC,HC/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL,RE-Sister Community,1,1,2,50,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL/MC,RE-Sister Community,0,1,2,66.67,0,0
+2026-05,2026-05-31,"","",Anderson SL,AL/MC,WEB-Google Search,1,1,1,33.33,0,0
+2026-05,2026-05-31,"","",Anderson SL,VIL,RE-Church,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,VIL,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Anderson SL,VIL,WEB-Google Search,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Ashland HC,HC,MatrixCare Import,8,0,8,100,0,0
+2026-05,2026-05-31,"","",Ashland HC,HC,RE-Hospital,6,0,2,33.33,0,0
+2026-05,2026-05-31,"","",Avon HC,HC,RE-Hospital,126,0,39,30.95,0,0
+2026-05,2026-05-31,"","",Avon HC,HC,RE-Sister Community,3,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Avon HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon HC,HC,WEB-Google Paid,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Avon HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL,RE-Community Organization,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Avon SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Avon SL,AL,RE-Sister Community,0,0,3,100,0,0
+2026-05,2026-05-31,"","",Avon SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL,WEB-Google Search,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL/MC,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL/MC,RE-Sister Community,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Avon SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL,PR-Event,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL,RE-Friends/Family,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL,WEB-Google Business Profile,6,1,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL,WEB-Google Paid,2,3,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bardstown SL,AL/MC,WEB-Organic Search,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Batesville HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Batesville HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Batesville HC,HC,RE-Hospital,14,0,6,42.86,0,0
+2026-05,2026-05-31,"","",Batesville HC,HC,RE-Physician,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Batesville HC,HC,RE-Sister Community,3,0,3,100,0,0
+2026-05,2026-05-31,"","",Batesville HC,HC,WEB-Google Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Batesville SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Batesville SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Batesville SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Batesville SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Batesville SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Batesville SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Batesville SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek HC,HC,AD-Community Sign,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Battle Creek HC,HC,RE-Hospital,66,0,11,16.67,0,0
+2026-05,2026-05-31,"","",Battle Creek HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Battle Creek HC,HC,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Battle Creek SL,AL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek SL,AL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Battle Creek SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford HC,HC,RE-Hospital,47,0,22,46.81,0,0
+2026-05,2026-05-31,"","",Bedford HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Bedford HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL/MC,RE-Church,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bedford SL,AL/MC,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue HC,HC,RE-Hospital,68,0,13,19.12,0,0
+2026-05,2026-05-31,"","",Bellevue HC,HC,RE-Medical Professional,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Bellevue HC,HC,RE-Sister Community,4,0,4,100,0,0
+2026-05,2026-05-31,"","",Bellevue SL,AL,RE-Medical Professional,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue SL,AL/MC,WEB-Google Paid,3,2,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue SL,AL/MC,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue SL,VIL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bellevue SL,VIL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont HC,HC,AD- Senior Guide,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Belmont HC,HC,AD-Billboard,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Belmont HC,HC,RE-Hospital,173,0,42,24.28,0,0
+2026-05,2026-05-31,"","",Belmont HC,HC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,AD-Billboard,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL,WEB-Organic Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL/MC,RE-Sister Community,1,1,1,33.33,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL/MC,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL/MC,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,SL,AD-Billboard,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,SL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,SL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Belmont SL,SL,WEB-Organic Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS HC,HC,RE-Employee,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Bloomington HS HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS HC,HC,RE-Hospital,101,0,29,28.71,0,0
+2026-05,2026-05-31,"","",Bloomington HS HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS HC,HC,WEB-Google Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,PR-Event,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,RE - Independent Living,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL,WEB-Organic Search,4,2,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington HS SL,AL/MC,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC HC,HC,RE-Friends/Family,4,0,3,75,0,0
+2026-05,2026-05-31,"","",Bloomington SC HC,HC,RE-Hospital,96,0,20,20.83,0,0
+2026-05,2026-05-31,"","",Bloomington SC HC,HC,RE-Sister Community,10,0,4,40,0,0
+2026-05,2026-05-31,"","",Bloomington SC HC,HC,RE-Third Party Referral,3,0,3,100,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL,PR-Event,16,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL,RE-Friends/Family,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL,RE-Sister Community,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL,WEB-Google Paid,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL,WEB-Google Search,3,2,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL/MC,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,AL/MC,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Bloomington SC SL,SL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Boonville HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Boonville HC,HC,RE-Hospital,42,0,5,11.9,0,0
+2026-05,2026-05-31,"","",Boonville HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Boonville SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Boonville SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Boonville SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Boonville SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Boonville SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Bowling Green HC,HC,RE-Hospital,91,0,30,32.97,0,0
+2026-05,2026-05-31,"","",Bowling Green HC,HC,RE-Sister Community,5,0,3,60,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL/MC,RE-Community Organization,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL/MC,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,AL/MC,WEB-Google Paid,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,SL,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,SL,WEB - Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,SL,WEB-Google Search,5,2,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,SL,WEB-Organic Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Bowling Green SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center HC,HC,RE-Hospital,134,0,29,21.64,0,0
+2026-05,2026-05-31,"","",Byron Center HC,HC/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL,WEB-Google Search,4,3,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL,WEB-Manual,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL/MC,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,SL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,SL,WEB-Google Paid,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,SL,WEB-Google Search,2,2,0,0,0,0
+2026-05,2026-05-31,"","",Byron Center SL,SL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,RE-Business,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,RE-Hospital,105,0,35,33.33,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,RE-Sister Community,3,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel HC,HC,WEB-Google Search,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL,RE-Medical Professional,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL,WEB-Organic Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL/MC,RE-Hospital,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,AL/MC,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,SL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Carmel SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain HC,HC,RE-Hospital,152,0,25,16.45,0,0
+2026-05,2026-05-31,"","",Colerain HC,HC,RE-Nursing home,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain HC,HC,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain HC,HC,WE-Online Directory,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Colerain SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,AL,WEB-Google Paid,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,AL/MC,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,SL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,VIL,WEB-Google Paid,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Colerain SL,VIL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Columbus HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Columbus HC,HC,RE-Hospital,43,0,19,44.19,0,0
+2026-05,2026-05-31,"","",Columbus HC,HC,RE-Sister Community,24,0,15,62.5,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL,RE-Friends/Family,2,2,1,20,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL,RE-Sister Community,2,2,3,42.86,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL,WEB-Google Business Profile,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL/MC,RE-Hospice,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Columbus SL,AL/MC,WEB-Google Business Profile,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Commerce HC,HC,RE-Hospital,283,0,26,9.19,0,0
+2026-05,2026-05-31,"","",Commerce HC,HC,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL,WEB-Google Business Profile,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL,WEB-Organic Search,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL/MC,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,AL/MC,WEB-Organic Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,VIL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,VIL,WEB-Google Business Profile,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Commerce SL,VIL,WEB-Organic Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Corydon HC,HC,RE-Hospice,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Corydon HC,HC,RE-Hospital,17,0,7,41.18,0,0
+2026-05,2026-05-31,"","",Corydon HC,HC,RE-Sister Community,12,0,9,75,0,0
+2026-05,2026-05-31,"","",Corydon HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL,RE-Sister Community,4,1,2,28.57,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL,WEB-Google Paid,2,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL,WEB-Organic Search,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL/MC,RE-Hospital,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,AL/MC,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,VIL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,VIL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Corydon SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville HC,HC,RE-Community Organization,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Crawfordsville HC,HC,RE-Employee,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville HC,HC,RE-Hospital,20,0,11,55,0,0
+2026-05,2026-05-31,"","",Crawfordsville HC,HC,WEB- Senior Care Finder,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville HC,HC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL,RE-Sister Community,2,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL,WEB-Bing Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL/MC,RE-Hospital,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,AL/MC,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Crawfordsville SL,SL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana HC,HC,RE-Hospital,11,0,4,36.36,0,0
+2026-05,2026-05-31,"","",Cynthiana HC,HC,RE-Sister Community,12,0,10,83.33,0,0
+2026-05,2026-05-31,"","",Cynthiana HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana HC,HC/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana HC,HC/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana SL,AL,RE-Community Organization,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana SL,AL,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Cynthiana SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL,RE-Nursing home,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Danville SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL,WEB-Organic Search,2,1,1,25,0,0
+2026-05,2026-05-31,"","",Danville SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL/MC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,AL/MC,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,SL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Danville SL,SL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Delphi HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Delphi HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Delphi HC,HC,RE-Hospital,11,0,2,18.18,0,0
+2026-05,2026-05-31,"","",Delphi HC,HC,RE-Sister Community,13,0,2,15.38,0,0
+2026-05,2026-05-31,"","",Delphi SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Delphi SL,AL,RE-Sister Community,14,0,0,0,0,0
+2026-05,2026-05-31,"","",Delphi SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Delphi SL,AL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Delphos HC,HC,RE-Hospital,34,0,13,38.24,0,0
+2026-05,2026-05-31,"","",Delphos HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Delphos SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Delphos SL,AL,RE-Sister Community,2,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Delphos SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Delphos SL,AL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Delphos SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Dupont SL,AL/MC,AD-Radio Ad,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Dupont SL,AL/MC,RE-Employee,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Dupont SL,AL/MC,RE-Third Party Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Dupont SL,AL/MC,WEB - Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Dupont SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Dupont SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing HC,HC,"",1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing HC,HC,RE-Community Organization,1,0,1,100,0,0
+2026-05,2026-05-31,"","",East Lansing HC,HC,RE-Hospital,92,0,10,10.87,0,0
+2026-05,2026-05-31,"","",East Lansing HC,HC,RE-Medical Professional,2,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing HC,HC,RE-Sister Community,14,0,8,57.14,0,0
+2026-05,2026-05-31,"","",East Lansing HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,AD-Online Ad,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,PR-Event,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,RE-Sister Community,3,0,2,40,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,WEB-Google Search,3,2,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL/MC,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,SL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",East Lansing SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart HC,HC,RE-Hospital,3,0,3,100,0,0
+2026-05,2026-05-31,"","",Elkhart HC,HC,RE-Medical Professional,161,0,14,8.7,0,0
+2026-05,2026-05-31,"","",Elkhart HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL,WEB-Organic Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,SL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Elkhart SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Elkhart SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood HC,HC,RE-Hospital,104,0,14,13.46,0,0
+2026-05,2026-05-31,"","",Englewood HC,HC,RE-Sister Community,6,0,2,33.33,0,0
+2026-05,2026-05-31,"","",Englewood HC,HC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,AD-Community Sign,0,2,1,33.33,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,RE-Community Organization,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,RE-Sister Community,2,0,2,50,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,WEB-Google Paid,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL/MC,WEB-Google Business Profile,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,VIL,RE-Volunteer,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,VIL,WEB-Facebook Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,VIL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,VIL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Englewood SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR HC,HC,RE-Hospital,60,0,6,10,0,0
+2026-05,2026-05-31,"","",Evansville NR HC,HC,RE-Physician,12,0,4,33.33,0,0
+2026-05,2026-05-31,"","",Evansville NR HC,HC,RE-Sister Community,8,0,3,37.5,0,0
+2026-05,2026-05-31,"","",Evansville NR HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,AL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,VIL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,VIL,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,VIL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville NR SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP HC,HC,RE-Hospital,76,0,15,19.74,0,0
+2026-05,2026-05-31,"","",Evansville RP HC,HC,RE-Medical Professional,8,0,5,62.5,0,0
+2026-05,2026-05-31,"","",Evansville RP HC,HC,RE-Physician,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP HC,HC,RE-Sister Community,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL,WEB-Facebook,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL,WEB-Google Paid,7,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville RP SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR HC,HC,RE-Hospital,50,0,5,10,0,0
+2026-05,2026-05-31,"","",Evansville WR HC,HC,RE-Medical Professional,23,0,9,39.13,0,0
+2026-05,2026-05-31,"","",Evansville WR HC,HC,RE-Sister Community,16,0,7,43.75,0,0
+2026-05,2026-05-31,"","",Evansville WR HC,HC/MC,RE-Medical Professional,5,0,3,60,0,0
+2026-05,2026-05-31,"","",Evansville WR HC,HC/MC,RE-Sister Community,5,0,5,100,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL,RE-Sister Community,2,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL/MC,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL/MC,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Evansville WR SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Ferdinand HC,HC,AD-Community Sign,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Ferdinand HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Ferdinand HC,HC,RE-Hospital,20,0,3,15,0,0
+2026-05,2026-05-31,"","",Ferdinand HC,HC,RE-Sister Community,8,0,6,75,0,0
+2026-05,2026-05-31,"","",Ferdinand HC,HC/MC,AD-Community Sign,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Ferdinand SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Ferdinand SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Ferdinand SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Ferdinand SL,AL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Ferdinand SL,AL/MC,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Ferdinand SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay HC,HC,RE-Hospital,30,0,8,26.67,0,0
+2026-05,2026-05-31,"","",Findlay HC,HC,RE-Medical Professional,9,0,6,66.67,0,0
+2026-05,2026-05-31,"","",Findlay HC,HC,RE-Physician,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Findlay HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,AD-Online Ad,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,RE-Sister Community,1,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL/MC,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Findlay SL,AL/MC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,SL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Findlay SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Fort Wayne HC,HC,MatrixCare Import,14,0,14,100,0,0
+2026-05,2026-05-31,"","",Fort Wayne HC,HC,RE-Hospital,6,0,4,66.67,0,0
+2026-05,2026-05-31,"","",Fort Wayne SL,AL,RE-Financial,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Fort Wayne SL,AL,RE-Medical Professional,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Fort Wayne SL,AL,WEB - Referral,10,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont HC,HC,RE-Hospital,55,0,16,29.09,0,0
+2026-05,2026-05-31,"","",Fremont HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont SL,SL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Fremont SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC,AD-Online Ad,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC,RE-Friends/Family,11,0,4,36.36,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC,RE-Hospice,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC,RE-Hospital,297,0,28,9.43,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC,RE-Sister Community,11,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC/MC,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna HC,HC/MC,RE-Medical Professional,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL,AD-Online Ad,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL,RE-Sister Community,3,0,1,25,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL/MC,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL/MC,RE-Sister Community,0,1,1,50,0,0
+2026-05,2026-05-31,"","",Gahanna SL,AL/MC,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,DM-Event Invite,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,RE-Resident,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,WEB-Google Paid,7,0,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,SL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Gahanna SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Genoa HC,HC,RE-Hospital,112,0,25,22.32,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL,RE-Sister Community,0,2,1,33.33,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL,WEB-Google Paid,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL,WEB-Organic Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL/MC,RE-Community Organization,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Genoa SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Genoa SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen MW HC,HC,RE-Friends/Family,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Goshen MW HC,HC,RE-Hospital,48,0,14,29.17,0,0
+2026-05,2026-05-31,"","",Goshen MW HC,HC,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL,RE-Friends/Family,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL,WEB-Google Search,8,1,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,SL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Goshen SL,VIL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc HC,HC,RE-Hospital,233,0,43,18.45,0,0
+2026-05,2026-05-31,"","",Grand Blanc HC,HC,RE-Sister Community,9,0,4,44.44,0,0
+2026-05,2026-05-31,"","",Grand Blanc HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL,WEB-Facebook Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL/MC,RE-Competitor,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Grand Blanc SL,AL/MC,WEB-Google Search,0,2,1,33.33,0,0
+2026-05,2026-05-31,"","",Greencastle HC,HC,RE-Friends/Family,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Greencastle HC,HC,RE-Hospital,27,0,9,33.33,0,0
+2026-05,2026-05-31,"","",Greencastle HC,HC,RE-Medical Professional,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greencastle HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL,RE-Friends/Family,0,1,1,50,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL/MC,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL/MC,WEB-Bing Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Greencastle SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Greenfield HC,HC,RE-Hospital,49,0,25,51.02,0,0
+2026-05,2026-05-31,"","",Greenfield HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Greenfield HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,AL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,AL/MC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,VIL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,VIL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,VIL,WEB-Facebook Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,VIL,WEB-Google Paid,10,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,VIL,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Greenfield SL,VIL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Greensburg HC,HC,RE-Advisory Board,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Greensburg HC,HC,RE-Hospital,21,0,7,33.33,0,0
+2026-05,2026-05-31,"","",Greensburg HC,HC,RE-Sister Community,3,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Greensburg SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Greensburg SL,AL,WEB - Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Greensburg SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greensburg SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Greensburg SL,AL/MC,RE-Hospital,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Greensburg SL,AL/MC,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Hamilton HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton HC,HC,RE-Hospital,81,0,17,20.99,0,0
+2026-05,2026-05-31,"","",Hamilton HC,HC,RE-Medical Professional,13,0,3,23.08,0,0
+2026-05,2026-05-31,"","",Hamilton HC,HC,RE-Sister Community,10,0,4,40,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,RE-Sister Community,1,1,1,33.33,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,WEB-Google Business Profile,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,WEB-Google Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL/MC,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hamilton SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hanover HC,HC,RE-Friends/Family,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Hanover HC,HC,RE-Hospital,10,0,7,70,0,0
+2026-05,2026-05-31,"","",Hanover SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Hanover SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hanover SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison HC,HC,RE-Hospital,68,0,13,19.12,0,0
+2026-05,2026-05-31,"","",Harrison HC,HC,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison HC,HC,RE-Sister Community,9,0,4,44.44,0,0
+2026-05,2026-05-31,"","",Harrison HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL,RE-Friends/Family,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL/MC,AD-Online Ad,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL/MC,WEB-Bing Search,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL/MC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL/MC,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,SL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,SL,WEB-Google Paid,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,SL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrison SL,SL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg HC,HC,RE-Employee,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Harrodsburg HC,HC,RE-Hospital,21,0,7,33.33,0,0
+2026-05,2026-05-31,"","",Harrodsburg HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Harrodsburg HC,HC,RE-Third Party Referral,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Harrodsburg HC,HC,WEB-Google Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Harrodsburg HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,AL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,VIL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,VIL,WEB - Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,VIL,WEB-Google Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Harrodsburg SL,VIL,WEB-Organic Search,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,Community Knowledge,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,Direct Mail,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,RE-Nursing home,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,WEB - Paid Search,7,0,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,WEB - Referral,15,2,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,SL,Community Knowledge,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,SL,Customer - Previous,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,SL,MatrixCare Import,0,0,5,100,0,0
+2026-05,2026-05-31,"","",Hickory SL,SL,WEB - Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hickory SL,SL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard HC,HC,RE-Hospital,246,0,35,14.23,0,0
+2026-05,2026-05-31,"","",Hilliard HC,HC,RE-Nursing home,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard HC,HC,RE-Sister Community,7,0,4,57.14,0,0
+2026-05,2026-05-31,"","",Hilliard HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL,RE-Sister Community,0,0,2,100,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL,WEB-Google Business Profile,2,1,1,25,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL,WEB-Google Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL/MC,RE-Third Party Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,AL/MC,WEB-Google Business Profile,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,SL,AD-Community Sign,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,SL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,SL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Hilliard SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Holly SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Holly SL,VIL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell HC,HC,RE-Hospital,111,0,39,35.14,0,0
+2026-05,2026-05-31,"","",Howell HC,HC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell IL SL,SL,AD-Community Sign,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell IL SL,SL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Howell IL SL,SL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell IL SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,RE-Business,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,RE-Sister Community,0,0,2,100,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,WEB-Google Paid,3,2,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,WEB-Google Search,5,2,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL/MC,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL/MC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Howell SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Howell SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville HC,HC,RE-Hospice,6,0,4,66.67,0,0
+2026-05,2026-05-31,"","",Hudsonville HC,HC,RE-Hospital,93,0,12,12.9,0,0
+2026-05,2026-05-31,"","",Hudsonville HC,HC,RE-Sister Community,3,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Hudsonville HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,AD- Senior Guide,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,RE-Sister Community,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,WEB-Google Business Profile,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,WEB-Google Paid,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL,WEB-Organic Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL/MC,RE-Hospice,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL/MC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,SL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,SL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,SL,WEB-Organic Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Hudsonville SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis AP HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Indianapolis AP HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Indianapolis AP HC,HC,RE-Hospital,183,0,54,29.51,0,0
+2026-05,2026-05-31,"","",Indianapolis AP HC,HC,RE-Medical Professional,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis AP HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis AP SL,AL,RE-Sister Community,0,1,1,50,0,0
+2026-05,2026-05-31,"","",Indianapolis AP SL,AL,WEB-Google Business Profile,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis AP SL,AL,WEB-Google Paid,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis AP SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,RE-Hospice,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,RE-Hospital,108,0,25,23.15,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,RE-Medical Professional,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL HC,HC,WEB-Organic Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL,WEB-Facebook Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL,WEB-Google Business Profile,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Indianapolis CL SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Jasper HC,HC,RE-Friends/Family,13,0,8,61.54,0,0
+2026-05,2026-05-31,"","",Jasper HC,HC,RE-Hospital,10,0,1,10,0,0
+2026-05,2026-05-31,"","",Jasper HC,HC,RE-Medical Professional,7,0,4,57.14,0,0
+2026-05,2026-05-31,"","",Jasper HC,HC,RE-Sister Community,6,0,1,16.67,0,0
+2026-05,2026-05-31,"","",Jasper SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Jasper SL,AL,RE-Sister Community,0,0,2,100,0,0
+2026-05,2026-05-31,"","",Jasper SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Jasper SL,AL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Jasper SL,VIL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kalida HC,HC,RE-Current Lead,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kalida HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Kalida HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Kalida HC,HC,RE-Hospital,21,0,5,23.81,0,0
+2026-05,2026-05-31,"","",Kalida HC,HC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kalida SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kalida SL,AL/MC,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kalida SL,AL/MC,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kalida SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kendallville HC,HC,RE-Friends/Family,6,0,5,83.33,0,0
+2026-05,2026-05-31,"","",Kendallville HC,HC,RE-Hospital,24,0,14,58.33,0,0
+2026-05,2026-05-31,"","",Kendallville HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Kendallville SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kendallville SL,AL,WEB-Google Paid,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Kendallville SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kendallville SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kendallville SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK HC,HC,PR-Event,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK HC,HC,RE-Hospice,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Kokomo WK HC,HC,RE-Hospital,87,0,42,48.28,0,0
+2026-05,2026-05-31,"","",Kokomo WK HC,HC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,AL,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WK SL,VIL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP HC,HC,RE-Friends/Family,5,0,3,60,0,0
+2026-05,2026-05-31,"","",Kokomo WP HC,HC,RE-Hospital,82,0,33,40.24,0,0
+2026-05,2026-05-31,"","",Kokomo WP HC,HC,WEB - Referral,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Kokomo WP HC,HC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL,WEB-Bing Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL,WEB-Organic Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,VIL,Direct Mail,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,VIL,RE-Competitor,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,VIL,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,VIL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Kokomo WP SL,VIL,WEB-Organic Search,2,0,1,33.33,0,0
+2026-05,2026-05-31,"","",La Grange HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,AL,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,SL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",La Grange SL,VIL,WEB-Organic Search,2,3,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC,RE-Friends/Family,12,0,8,66.67,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC,RE-Hospital,24,0,12,50,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC,RE-Medical Professional,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC,RE-Sister Community,9,0,5,55.56,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC/MC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC/MC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lafayette CS HC,HC/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL,RE-Sister Community,0,1,2,66.67,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL,WEB-Google Paid,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL,WEB-Organic Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL/MC,RE-Sister Community,2,2,1,20,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,VIL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,VIL,WEB-Bing Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,VIL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette CS SL,VIL,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL HC,HC,A Place for Mom,4,0,3,75,0,0
+2026-05,2026-05-31,"","",Lafayette SL HC,HC,RE-Hospital,41,0,17,41.46,0,0
+2026-05,2026-05-31,"","",Lafayette SL HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Lafayette SL HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,RE-Sister Community,2,1,3,50,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,WEB-Google Paid,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SL SL,SL,RE-Assisted living,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC,RE-Hospital,9,0,3,33.33,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC,Roobrik,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC,WEB-Google Paid,7,0,0,0,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC,WEB-Google Search,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC/MC,RE-Business,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lafayette SM HC,HC/MC,WEB-Google Search,3,0,3,100,0,0
+2026-05,2026-05-31,"","",Lancaster HC,HC,RE-Friends/Family,5,0,2,40,0,0
+2026-05,2026-05-31,"","",Lancaster HC,HC,RE-Hospice,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Lancaster HC,HC,RE-Hospital,75,0,15,20,0,0
+2026-05,2026-05-31,"","",Lancaster HC,HC,RE-Sister Community,8,0,4,50,0,0
+2026-05,2026-05-31,"","",Lancaster HC,HC,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster HC,HC,WEB-Google Search,9,0,1,11.11,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,RE-Assisted living,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,RE-Hospice,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,RE-Sister Community,6,0,1,14.29,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,RE-Third Party Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,WEB-Google Business Profile,6,1,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,WEB-Google Paid,4,0,1,20,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,WEB-Google Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL/MC,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL/MC,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,AL/MC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,RE-Third Party Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lancaster SL,SL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lapeer HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lapeer HC,HC,RE-Hospital,96,0,23,23.96,0,0
+2026-05,2026-05-31,"","",Lapeer HC,HC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lapeer HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lapeer SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lapeer SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg HC,HC,RE-Friends/Family,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Lawrenceburg HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lawrenceburg HC,HC,RE-Hospital,24,0,4,16.67,0,0
+2026-05,2026-05-31,"","",Lawrenceburg HC,HC,RE-Sister Community,4,0,3,75,0,0
+2026-05,2026-05-31,"","",Lawrenceburg HC,HC,WEB-Google Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL,WEB-Organic Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL/MC,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Lawrenceburg SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lebanon HC,HC,RE-Friends/Family,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Lebanon HC,HC,RE-Hospice,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Lebanon HC,HC,RE-Hospital,16,0,4,25,0,0
+2026-05,2026-05-31,"","",Lebanon HC,HC,RE-Medical Professional,4,0,4,100,0,0
+2026-05,2026-05-31,"","",Lebanon HC,HC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lebanon SL,AL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lebanon SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lebanon SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Lebanon SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Leipsic HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Leipsic HC,HC,RE-Hospital,21,0,6,28.57,0,0
+2026-05,2026-05-31,"","",Leipsic HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Leipsic SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Leipsic SL,SL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Leipsic SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,RE-Hospital,266,0,22,8.27,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,WEB - Referral,6,0,6,100,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC SL,AL,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC SL,AL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC SL,AL/MC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WC SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF HC,HC,RE-Hospital,229,0,13,5.68,0,0
+2026-05,2026-05-31,"","",Lexington WF HC,HC,RE-Sister Community,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Lexington WF HC,HC,WEB - Referral,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lexington WF HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF HC,HC,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,AL,RE-CCRC,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,AL,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WF SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH HC,HC,RE-Hospital,299,0,7,2.34,0,0
+2026-05,2026-05-31,"","",Lexington WH HC,HC,RE-Medical Professional,69,0,26,37.68,0,0
+2026-05,2026-05-31,"","",Lexington WH HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lexington WH HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH HC,HC,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,WEB-Google Paid,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,WEB-Google Search,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,AL/MC,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lexington WH SL,SL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,AD-Community Sign,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,RE-Competitor,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,RE-Hospice,4,0,3,75,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,RE-Hospital,40,0,8,20,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,RE-Medical Professional,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Liberty Township HC,HC,RE-Sister Community,12,0,4,33.33,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,RE-Medical Professional,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,RE-Resident,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,SL,Direct Mail,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,SL,PR-Event,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Liberty Township SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL HC,HC,RE-Assisted living,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lima SL HC,HC,RE-Current Lead,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL HC,HC,RE-Hospital,60,0,15,25,0,0
+2026-05,2026-05-31,"","",Lima SL HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL,WEB-Google Search,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL/MC,RE-Assisted living,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL/MC,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Lima SL SL,AL/MC,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,RE-Advisory Board,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,RE-Employee,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,RE-Hospital,48,0,10,20.83,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC,WEB-Organic Search,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Lima SM HC,HC/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Logansport HC,HC,RE-Hospital,16,0,7,43.75,0,0
+2026-05,2026-05-31,"","",Logansport HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Logansport HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Logansport SL,AL,RE-Community Organization,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Logansport SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Logansport SL,AL,WEB-Google Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Louisville ES SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville ES SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville ES SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville ES SL,AL/MC,RE-Sister Community,1,0,4,80,0,0
+2026-05,2026-05-31,"","",Louisville ES SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,AD-Community Sign,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,RE-Assisted living,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,RE-Current Lead,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,RE-Friends/Family,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,RE-Hospice,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,RE-Hospital,47,0,35,74.47,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,RE-Sister Community,13,0,10,76.92,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,RE - Independent Living,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,RE-Assisted living,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,WEB - Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,WEB-Google Search,5,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FH SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS HC,HC,AD-Community Sign,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Louisville FS HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS HC,HC,RE-Hospital,58,0,23,39.66,0,0
+2026-05,2026-05-31,"","",Louisville FS HC,HC,RE-Sister Community,17,0,10,58.82,0,0
+2026-05,2026-05-31,"","",Louisville FS HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS HC,HC/MC,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL/MC,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL/MC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,VIL,WEB-Google Business Profile,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,VIL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,VIL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville FS SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville GR HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville GR HC,HC,RE-Hospital,79,0,29,36.71,0,0
+2026-05,2026-05-31,"","",Louisville GR HC,HC,RE-Sister Community,7,0,1,14.29,0,0
+2026-05,2026-05-31,"","",Louisville GR HC,HC,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville GR SL,AL,RE-Resident,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville GR SL,AL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville GR SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville GR SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville GR SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC,RE-Employee,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC,RE-Hospital,80,0,21,26.25,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC,WEB-Google Paid,8,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC,WEB-Organic Search,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC/MC,RE-Assisted living,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville PT HC,HC/MC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville SB HC,HC,RE-Hospital,35,0,29,82.86,0,0
+2026-05,2026-05-31,"","",Louisville SB HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Louisville SB HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB HC,HC/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL,RE-Sister Community,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL,WEB-Google Paid,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,SL,RE-Employee,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,SL,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,SL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville SB SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP HC,HC,RE-Friends/Family,8,0,7,87.5,0,0
+2026-05,2026-05-31,"","",Louisville WP HC,HC,RE-Hospital,40,0,29,72.5,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,AL,RE-Sister Community,4,0,2,33.33,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,VIL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WP SL,VIL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS HC,HC,AD-Online Ad,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville WS HC,HC,RE-Hospital,31,0,30,96.77,0,0
+2026-05,2026-05-31,"","",Louisville WS HC,HC,RE-Sister Community,9,0,6,66.67,0,0
+2026-05,2026-05-31,"","",Louisville WS HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,RE-Agency,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,RE-Third Party Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,Roobrik,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB - Referral,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB-Google Business Profile,2,2,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB-Google Search,3,3,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL/MC,RE-Agency,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,SL,RE-Resident,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,SL,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,SL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,VIL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,VIL,RE-Agency,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Louisville WS SL,VIL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,RE-Hospital,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,RE-Medical Professional,58,0,9,15.52,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,RE-Sister Community,4,0,1,25,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell HC,HC,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,AL,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,AL/MC,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Lowell SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb HC,HC,RE-Hospital,753,0,67,8.9,0,0
+2026-05,2026-05-31,"","",Macomb HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb HC,HC,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,AD-Community Sign,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,RE-Sister Community,2,1,1,25,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,WEB-Google Search,5,1,0,0,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL,WEB-Organic Search,5,1,1,14.29,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Macomb SL,AL/MC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison HC,HC,RE-Employee,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Madison HC,HC,RE-Financial,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison HC,HC,RE-Friends/Family,8,0,5,62.5,0,0
+2026-05,2026-05-31,"","",Madison HC,HC,RE-Medical Professional,3,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Madison HC,HC,RE-Sister Community,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Madison HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Madison SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Madison SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,AL,"",1,0,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,AL,AD-Online Ad,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,AL,RE-Agency,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,AL,RE-Hospital,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Marion SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,SL,WEB-Bing Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,VIL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Marion SL,VIL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,AD-Community Sign,4,0,3,75,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,RE-Home Health,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,RE-Hospital,49,0,11,22.45,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,RE-Sister Community,13,0,7,53.85,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL,WEB-Bing Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,SL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,SL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,SL,WEB-Google Paid,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,SL,WEB-Google Search,4,0,1,20,0,0
+2026-05,2026-05-31,"","",Miami Township SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miami Township SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Miamisburg HC,HC,"",1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova HC,HC,RE-Employee,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova HC,HC,RE-Hospital,177,0,29,16.38,0,0
+2026-05,2026-05-31,"","",Monclova HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Monclova SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,AL/MC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,AL/MC,WEB-Google Paid,2,3,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,VIL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,VIL,WEB-Google Business Profile,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Monclova SL,VIL,WEB-Google Paid,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Monticello HC,HC,RE-Hospital,19,0,9,47.37,0,0
+2026-05,2026-05-31,"","",Monticello HC,HC,RE-Sister Community,13,0,9,69.23,0,0
+2026-05,2026-05-31,"","",Monticello HC,HC,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monticello SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Monticello SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Monticello SL,AL/MC,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Mooresville HC,HC,RE-Hospital,66,0,24,36.36,0,0
+2026-05,2026-05-31,"","",Mooresville HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Mooresville HC,HC,WEB - Referral,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Mooresville HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Mooresville SL,AL,RE-Sister Community,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Mooresville SL,AL,WEB-Bing Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Mooresville SL,AL,WEB-Facebook Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Mooresville SL,AL,WEB-Google Paid,6,0,0,0,0,0
+2026-05,2026-05-31,"","",Mooresville SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,RE-Hospital,3,0,3,100,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,RE-Medical Professional,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,RE-Sister Community,3,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,RE-Third Party Referral,26,0,25,96.15,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC/MC,RE-Nursing home,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington HC,HC/MC,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL,RE-Friends/Family,1,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL,RE-Sister Community,1,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL,WEB-Organic Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL/MC,RE-Resident,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Mt. Washington SL,AL/MC,RE-Sister Community,1,1,4,66.67,0,0
+2026-05,2026-05-31,"","",Muncie HC,HC,RE-Hospital,87,0,25,28.74,0,0
+2026-05,2026-05-31,"","",Muncie HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL,AD-Online Ad,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL,RE-Friends/Family,0,2,1,33.33,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL,RE-Sister Community,0,1,2,66.67,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL/MC,RE-Friends/Family,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL/MC,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,VIL,RE-Friends/Family,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,VIL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Muncie SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon HC,HC,RE-Current Lead,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon HC,HC,RE-Friends/Family,6,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon HC,HC,RE-Hospital,88,0,1,1.14,0,0
+2026-05,2026-05-31,"","",Muskegon HC,HC,RE-Sister Community,7,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,AD-Billboard,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,RE-Friends/Family,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,RE-Nursing home,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,WE-Online Directory,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,WEB-Facebook Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,WEB-Google Business Profile,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,WEB-Google Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL,WEB-Organic Search,5,1,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL/MC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,AL/MC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,RE-Friends/Family,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,WEB-Google Paid,6,0,0,0,0,0
+2026-05,2026-05-31,"","",Muskegon SL,SL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,RE-Hospital,15,0,12,80,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,WE-Online Directory,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,WEB-Google Search,9,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC/MC,RE-Hospital,6,0,4,66.67,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC/MC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC/MC,WE-Online Directory,1,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany AW HC,HC/MC,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,WE-Community Site,1,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,WEB-Google Business Profile,3,3,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,WEB-Google Search,5,0,1,16.67,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,SL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,VIL,A Place for Mom,0,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,VIL,RE-Assisted living,0,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,VIL,RE-Third Party Referral,0,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,VIL,WEB-Google Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",New Albany RC SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC HC,HC,RE-Hospital,28,0,16,57.14,0,0
+2026-05,2026-05-31,"","",New Albany SC HC,HC,RE-Sister Community,8,0,4,50,0,0
+2026-05,2026-05-31,"","",New Albany SC HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,AL,RE-Sister Community,2,0,2,50,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,AL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,AL,WEB-Google Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,WEB-Google Business Profile,1,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,WEB-Google Search,4,2,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SC SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,AD-Community Sign,1,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,RE-Hospital,190,0,25,13.16,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,RE-Sister Community,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,WEB - Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM HC,HC,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,AD-Community Sign,0,0,1,100,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,WEB-Google Paid,4,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL/MC,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL/MC,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,AL/MC,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,SL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Albany SM SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,AD-Community Sign,1,0,1,100,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,RE-Hospital,31,0,7,22.58,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,RE-Sister Community,4,0,3,75,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO HC,HC/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL,AD-Community Sign,2,1,1,25,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL,RE-Sister Community,1,2,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL,WEB-Google Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL/MC,AD-Community Sign,2,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL/MC,RE-Church,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL/MC,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle GO SL,AL/MC,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Castle SL,AL,AD-Community Sign,1,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle SL,SL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Castle SL,SL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",New Castle SL,SL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",New Castle SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Noblesville HC,HC,RE-Hospital,83,0,18,21.69,0,0
+2026-05,2026-05-31,"","",Noblesville HC,HC,RE-Sister Community,6,0,4,66.67,0,0
+2026-05,2026-05-31,"","",Noblesville HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville HC,HC,WEB-Organic Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL,RE - Independent Living,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL,RE-Sister Community,0,0,2,100,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL,WEB-Google Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL,WEB-Organic Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,A Place for Mom,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,RE-Hospice,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,RE-Nursing home,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,AD-Community Sign,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,AD-Directory,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,DM-Flyer,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,Direct Mail,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,RE-Sister Community,28,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Noblesville SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC,RE-Advisory Board,1,0,1,100,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC,RE-Competitor,2,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC,RE-Hospital,19,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC/MC,RE-Employee,1,0,1,100,0,0
+2026-05,2026-05-31,"","",North Baltimore HC,HC/MC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,RE-Medical Professional,0,0,1,100,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,WE-Online Directory,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",North Baltimore SL,AL/MC,Roobrik,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,RE-Hospital,394,0,52,13.2,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,WE-Online Directory,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,WEB-Google Display,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,WEB-Google Search,5,0,1,20,0,0
+2026-05,2026-05-31,"","",Novi HC,HC,WEB-Organic Search,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Novi SL,AL,RE-Sister Community,6,1,1,12.5,0,0
+2026-05,2026-05-31,"","",Novi SL,AL,WEB-Google Paid,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Novi SL,AL,WEB-Google Search,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Novi SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Novi SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos HC,HC,RE-Hospital,107,0,16,14.95,0,0
+2026-05,2026-05-31,"","",Okemos HC,HC,RE-Medical Professional,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos HC,HC,RE-Sister Community,12,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos HC,HC,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos SL,AL,PR-Event,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos SL,AL,RE-Hospital,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Okemos SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos SL,AL,WEB-Google Search,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Okemos SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa HC,HC,Direct Mail,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Ottawa HC,HC,RE-Current Lead,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa HC,HC,RE-Hospital,22,0,10,45.45,0,0
+2026-05,2026-05-31,"","",Ottawa HC,HC,RE-Medical Professional,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Ottawa HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Ottawa HC,HC/MC,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa SL,VIL,RE-Sister Community,0,1,1,50,0,0
+2026-05,2026-05-31,"","",Ottawa SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa SL,VIL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Ottawa SL,VIL,WEB-Organic Search,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Perrysburg HC,HC,"",3,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg HC,HC,MatrixCare Import,27,0,27,100,0,0
+2026-05,2026-05-31,"","",Perrysburg HC,HC,RE-Hospital,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL,RE-Employee,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL,RE-Hospital,0,0,2,100,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL,Roobrik,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL,WEB-Google Display,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL/MC,RE-Assisted living,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL/MC,RE-Hospital,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,AL/MC,Roobrik,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,SL,RE-Assisted living,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,SL,Roobrik,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,SL,WEB - Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Perrysburg SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru HC,HC,RE-Friends/Family,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Peru HC,HC,RE-Hospital,19,0,8,42.11,0,0
+2026-05,2026-05-31,"","",Peru HC,HC,RE-Resident,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru HC,HC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Peru HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru HC,HC/MC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru SL,AL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Peru SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Peru SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Peru SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Petersburg HC,HC,PR-Event,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Petersburg HC,HC,RE-Friends/Family,3,0,3,100,0,0
+2026-05,2026-05-31,"","",Petersburg HC,HC,RE-Hospital,28,0,8,28.57,0,0
+2026-05,2026-05-31,"","",Petersburg HC,HC,RE-Resident,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Petersburg HC,HC,RE-Sister Community,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Pickerington HC,HC,RE-Community Organization,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Pickerington HC,HC,RE-Hospice,5,0,3,60,0,0
+2026-05,2026-05-31,"","",Pickerington HC,HC,RE-Hospital,170,0,30,17.65,0,0
+2026-05,2026-05-31,"","",Pickerington HC,HC,RE-Sister Community,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL,RE-Sister Community,0,1,1,50,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL,WEB-Organic Search,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL/MC,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Pickerington SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Pickerington SL,SL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,SL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,SL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,SL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Pickerington SL,VIL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Portage HC,HC,AD-Community Sign,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Portage HC,HC,WEB-Facebook Paid,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Portage HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage HC,HC,WEB-Google Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,AD-Billboard,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,WEB-Bing Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,WEB-Facebook Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,WEB-Google Business Profile,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,WEB-Google Paid,10,1,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL,WEB-Organic Search,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL/MC,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,AL/MC,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Portage SL,SL,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Princeton HC,HC,RE-Friends/Family,6,0,3,50,0,0
+2026-05,2026-05-31,"","",Princeton HC,HC,RE-Hospital,15,0,3,20,0,0
+2026-05,2026-05-31,"","",Princeton HC,HC,RE-Sister Community,6,0,5,83.33,0,0
+2026-05,2026-05-31,"","",Princeton SL,AL,DM-Event Invite,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Princeton SL,AL,RE-Friends/Family,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Princeton SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Princeton SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond FP HC,HC,RE-Hospital,41,0,10,24.39,0,0
+2026-05,2026-05-31,"","",Richmond FP HC,HC,RE-Sister Community,10,0,4,40,0,0
+2026-05,2026-05-31,"","",Richmond FP HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond FP HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond FP SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond FP SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Richmond FP SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond FP SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond SR HC,HC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond SR HC,HC,RE-Friends/Family,10,0,8,80,0,0
+2026-05,2026-05-31,"","",Richmond SR HC,HC,RE-Hospital,35,0,11,31.43,0,0
+2026-05,2026-05-31,"","",Richmond SR HC,HC,RE-Medical Professional,7,0,3,42.86,0,0
+2026-05,2026-05-31,"","",Richmond SR HC,HC,RE-Sister Community,7,0,2,28.57,0,0
+2026-05,2026-05-31,"","",Richmond SR SL,AL,RE-Sister Community,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond SR SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond SR SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Richmond SR SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Romeo HC,HC,RE-Hospital,313,0,48,15.34,0,0
+2026-05,2026-05-31,"","",Romeo HC,HC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo IL SL,SL,RE - Independent Living,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Romeo IL SL,SL,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo IL SL,SL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Romeo IL SL,SL,RE-Sister Community,3,0,2,40,0,0
+2026-05,2026-05-31,"","",Romeo IL SL,SL,RE-Third Party Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,RE-Community Organization,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,RE-Resident,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,RE-Sister Community,0,4,3,42.86,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL,WEB-Organic Search,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,SL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,SL,RE-Sister Community,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,SL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Romeo SL,SL,WEB-Organic Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,AL,PR-Event,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,AL/MC,PR-Event,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,AD-Community Sign,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,PR-Event,39,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,WEB-Facebook Paid,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,WEB-Google Business Profile,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Scio Township SL,SL,WEB-Organic Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Scottsburg HC,HC,RE-Hospital,26,0,13,50,0,0
+2026-05,2026-05-31,"","",Scottsburg HC,HC,RE-Physician,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Scottsburg HC,HC,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Scottsburg SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Scottsburg SL,AL,WEB-Google Search,2,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Scottsburg SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,RE-Competitor,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,RE-Friends/Family,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,RE-Hospice,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,RE-Hospital,42,0,16,38.1,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,RE-Physician,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,RE-Sister Community,14,0,8,57.14,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC,WEB-Google Search,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Seymour HC,HC/MC,RE-Sister Community,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL,WEB-Google Search,2,3,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL/MC,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Seymour SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville HC,HC,RE-Hospice,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Shelbyville HC,HC,RE-Hospital,26,0,11,42.31,0,0
+2026-05,2026-05-31,"","",Shelbyville HC,HC,RE-Sister Community,3,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL,WEB-Google Paid,3,2,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SF SL,AL/MC,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Shelbyville SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC,RE-Financial,1,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC,RE-Hospice,2,0,1,50,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC,RE-Hospital,128,0,15,11.72,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC,RE-Medical Professional,1,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC,RE-Sister Community,14,0,4,28.57,0,0
+2026-05,2026-05-31,"","",South Bend HC,HC/MC,RE-Hospital,2,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL,WEB-Facebook Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL,WEB-Google Search,7,1,1,11.11,0,0
+2026-05,2026-05-31,"","",South Bend SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",South Bend SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Springfield WG HC,HC,RE-Hospital,77,0,18,23.38,0,0
+2026-05,2026-05-31,"","",Springfield WG HC,HC,RE-Sister Community,3,0,2,66.67,0,0
+2026-05,2026-05-31,"","",Springfield WG HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Springfield WG SL,AL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Springfield WG SL,AL,WEB-Google Search,8,0,0,0,0,0
+2026-05,2026-05-31,"","",Springfield WG SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Springfield WG SL,SL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Sun Prairie HC,HC,RE-Hospital,30,0,2,6.67,0,0
+2026-05,2026-05-31,"","",Sun Prairie SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sun Prairie SL,AL,WEB-Google Paid,5,0,0,0,0,0
+2026-05,2026-05-31,"","",Sun Prairie SL,AL,WEB-Google Search,6,0,0,0,0,0
+2026-05,2026-05-31,"","",Sun Prairie SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania HC,HC,RE-Community Organization,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Sylvania HC,HC,RE-Hospital,221,0,25,11.31,0,0
+2026-05,2026-05-31,"","",Sylvania HC,HC,RE-Medical Professional,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Sylvania HC,HC,RE-Sister Community,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Sylvania HC,HC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KHC,HC,MatrixCare Import,27,0,27,100,0,0
+2026-05,2026-05-31,"","",Sylvania KHC,HC,RE-Hospital,2,0,1,50,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,"",2,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,AD-Community Sign,2,1,1,25,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,DM-Event Invite,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,RE-Hospital,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,RE-Nursing home,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,RE-Sister Community,2,0,2,50,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,Roobrik,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,WE-Community Site,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,WEB - Referral,4,2,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL/MC,RE-Employee,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL/MC,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL/MC,RE-Nursing home,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL/MC,Roobrik,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania KSL,AL/MC,WEB - Referral,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,RE-Friends/Family,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,RE-Sister Community,11,4,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,AD-Community Sign,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,RE-Community Organization,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,RE-Friends/Family,3,2,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,WEB-Facebook Paid,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,WEB-Google Search,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Sylvania SL,VIL,WEB-Organic Search,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Tell City HC,HC,RE-Current Lead,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Tell City HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Tell City HC,HC,RE-Hospital,26,0,6,23.08,0,0
+2026-05,2026-05-31,"","",Tell City HC,HC,RE-Medical Professional,3,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Tell City HC,HC,RE-Sister Community,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Tell City HC,HC/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tell City SL,AL,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Tell City SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tell City SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC HC,HC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC HC,HC,RE-Hospital,39,0,18,46.15,0,0
+2026-05,2026-05-31,"","",Terre Haute CC HC,HC,RE-Sister Community,5,0,2,40,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL,RE-Sister Community,0,1,2,66.67,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL/MC,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL/MC,WE-Community Site,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL/MC,WEB-Bing Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,VIL,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute CC SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute HC HC,HC,RE-Hospital,53,0,24,45.28,0,0
+2026-05,2026-05-31,"","",Terre Haute HC SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute HC SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Terre Haute HC SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute HC SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Terre Haute HC SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin HC,HC,AD-Community Sign,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin HC,HC,RE-Employee,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin HC,HC,RE-Friends/Family,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Tiffin HC,HC,RE-Hospital,73,0,15,20.55,0,0
+2026-05,2026-05-31,"","",Tiffin HC,HC,WEB-Google Paid,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,AD-Community Sign,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,RE-Friends/Family,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,RE-Sister Community,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,WEB-Bing Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,WEB-Google Paid,2,2,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,AD-Billboard,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,AD-Community Sign,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,PR-Event,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,RE-Friends/Family,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Tiffin SL,VIL,WEB-Organic Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Union Township HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township HC,HC,RE-Hospital,99,0,13,13.13,0,0
+2026-05,2026-05-31,"","",Union Township HC,HC,RE-Sister Community,10,0,2,20,0,0
+2026-05,2026-05-31,"","",Union Township HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,RE-Friends/Family,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,RE-Sister Community,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,WEB-Google Search,4,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL/MC,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL/MC,WEB-Google Paid,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,SL,AD-Community Sign,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,SL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,SL,WEB-Google Search,2,2,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,SL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Union Township SL,VIL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,RE - Independent Living,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,RE-Friends/Family,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,RE-Medical Professional,120,0,19,15.83,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,RE-Sister Community,6,0,2,33.33,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,RE-Volunteer,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso HC,HC/MC,RE-Medical Professional,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL,RE-Sister Community,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL,WEB-Google Search,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL/MC,AD-Community Sign,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL/MC,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL/MC,WEB-Google Search,1,1,1,33.33,0,0
+2026-05,2026-05-31,"","",Valparaiso SL,AL/MC,WEB-Organic Search,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Vermilion SL,AL,"",11,0,0,0,0,0
+2026-05,2026-05-31,"","",Vermilion SL,AL,Roobrik,6,1,0,0,0,0
+2026-05,2026-05-31,"","",Vermilion SL,AL,WE-Community Site,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Vermilion SL,AL,WEB - Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Vermilion SL,VIL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Vincennes HC,HC,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Vincennes HC,HC,RE-Home Health,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Vincennes HC,HC,RE-Hospital,23,0,7,30.43,0,0
+2026-05,2026-05-31,"","",Vincennes HC,HC,RE-Sister Community,6,0,3,50,0,0
+2026-05,2026-05-31,"","",Vincennes HC,HC,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Vincennes HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Vincennes SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Vincennes SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Wabash HC,HC,RE-Friends/Family,4,0,2,50,0,0
+2026-05,2026-05-31,"","",Wabash HC,HC,RE-Hospital,28,0,16,57.14,0,0
+2026-05,2026-05-31,"","",Wabash HC,HC,RE-Sister Community,5,0,4,80,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL,RE-Sister Community,2,1,2,40,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL/MC,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Wabash SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw HC,HC,RE-Friends/Family,5,0,2,40,0,0
+2026-05,2026-05-31,"","",Warsaw HC,HC,RE-Hospital,34,0,4,11.76,0,0
+2026-05,2026-05-31,"","",Warsaw HC,HC,RE-Sister Community,14,0,8,57.14,0,0
+2026-05,2026-05-31,"","",Warsaw HC,HC,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL,RE-Friends/Family,3,4,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL,WEB-Google Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL,WEB-Organic Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,AL/MC,WEB-Google Business Profile,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,SL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Warsaw SL,VIL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington HC,HC,RE-Friends/Family,6,0,2,33.33,0,0
+2026-05,2026-05-31,"","",Washington HC,HC,RE-Hospital,14,0,2,14.29,0,0
+2026-05,2026-05-31,"","",Washington HC,HC,RE-Sister Community,7,0,7,100,0,0
+2026-05,2026-05-31,"","",Washington HC,HC,WEB - Referral,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington HC,HC,WEB-Google Search,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Washington HC,HC/MC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Washington HC,HC/MC,RE-Sister Community,4,0,4,100,0,0
+2026-05,2026-05-31,"","",Washington SL,AL,RE-Community Organization,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,AL,RE-Friends/Family,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,AL,RE-Sister Community,1,0,1,50,0,0
+2026-05,2026-05-31,"","",Washington SL,AL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,AL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Washington SL,AL/MC,WEB-Google Paid,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,SL,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,VIL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Washington SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee HC,HC,RE-Hospice,3,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Waunakee HC,HC,RE-Hospital,114,0,15,13.16,0,0
+2026-05,2026-05-31,"","",Waunakee SL,AL,RE-Friends/Family,1,2,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,AL,WEB-Google Business Profile,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,AL,WEB-Google Search,4,0,1,20,0,0
+2026-05,2026-05-31,"","",Waunakee SL,AL,WEB-Organic Search,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,AL/MC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,VIL,WEB-Facebook,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,VIL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Waunakee SL,VIL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",West Lafayette HC,HC,RE-Competitor,1,0,0,0,0,0
+2026-05,2026-05-31,"","",West Lafayette HC,HC,RE-Friends/Family,3,0,0,0,0,0
+2026-05,2026-05-31,"","",West Lafayette HC,HC,RE-Hospital,25,0,13,52,0,0
+2026-05,2026-05-31,"","",West Lafayette HC,HC,RE-Sister Community,7,0,4,57.14,0,0
+2026-05,2026-05-31,"","",West Lafayette HC,HC,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",West Lafayette SL,AL,RE-Friends/Family,3,4,0,0,0,0
+2026-05,2026-05-31,"","",West Lafayette SL,AL,RE-Sister Community,0,2,2,50,0,0
+2026-05,2026-05-31,"","",West Lafayette SL,AL,WEB-Google Paid,2,1,0,0,0,0
+2026-05,2026-05-31,"","",West Lafayette SL,AL,WEB-Google Search,2,2,0,0,0,0
+2026-05,2026-05-31,"","",Westfield HC,HC,A Place for Mom,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Westfield HC,HC,RE-Hospital,55,0,23,41.82,0,0
+2026-05,2026-05-31,"","",Westfield HC,HC,RE-Third Party Referral,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Westfield HC,HC,WEB-Google Paid,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Westfield HC,HC,WEB-Google Search,3,0,1,33.33,0,0
+2026-05,2026-05-31,"","",Westfield HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL,RE-Sister Community,1,1,1,33.33,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL,WEB-Google Paid,3,1,0,0,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL,WEB-Google Search,3,2,0,0,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL,WEB-Organic Search,1,1,0,0,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL/MC,RE-Sister Community,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Westfield SL,AL/MC,WEB-Bing Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Willard HC,HC,RE-Friends/Family,1,0,1,100,0,0
+2026-05,2026-05-31,"","",Willard HC,HC,RE-Hospital,51,0,16,31.37,0,0
+2026-05,2026-05-31,"","",Willard HC,HC,RE-Sister Community,2,0,2,100,0,0
+2026-05,2026-05-31,"","",Willard SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,AL,WEB-Google Paid,0,2,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,AL,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,AL,WEB-Organic Search,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,AL/MC,RE-Friends/Family,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,VIL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,VIL,WEB-Google Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Willard SL,VIL,WEB-Google Search,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,Direct Mail,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,RE-Friends/Family,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,RE-Sister Community,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,WEB-Google Business Profile,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,WEB-Google Paid,2,0,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,WEB-Google Search,4,1,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL/MC,RE-Third Party Referral,0,0,1,100,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL/MC,WEB-Google Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Winchester SL,AL/MC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB HC,HC,RE-Friends/Family,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB HC,HC,RE-Hospital,34,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB HC,HC,RE-Medical Professional,27,0,15,55.56,0,0
+2026-05,2026-05-31,"","",Zanesville OB HC,HC,RE-Sister Community,11,0,4,36.36,0,0
+2026-05,2026-05-31,"","",Zanesville OB HC,HC,WEB-Organic Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,RE-Friends/Family,0,1,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,RE-Sister Community,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,WEB-Bing Search,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,WEB-Facebook Paid,1,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,WEB-Google Paid,3,0,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,WEB-Google Search,7,1,0,0,0,0
+2026-05,2026-05-31,"","",Zanesville OB SL,AL,WEB-Organic Search,1,0,0,0,0,0
