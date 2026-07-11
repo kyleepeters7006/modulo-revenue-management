@@ -528,56 +528,30 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const hasData = data && (data.summary || data.rules?.length > 0);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-md mb-6 overflow-hidden">
+    <div className="rounded-xl border border-teal-200/70 bg-gradient-to-br from-teal-50/60 via-white to-slate-50/40 shadow-sm mb-6 overflow-hidden">
 
-      {/* ── Command header ── */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-teal-900 px-6 py-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-teal-400/20 border border-teal-400/30">
-              <Sparkles className="h-4 w-4 text-teal-300" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-teal-400">Strategy Overview</p>
-              <p className="text-sm text-slate-300 mt-0.5">
-                {activeRules.length > 0
-                  ? `${activeRules.length} active rule${activeRules.length !== 1 ? 's' : ''} in effect`
-                  : 'No active pricing rules'}
-              </p>
-            </div>
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-teal-100/80 bg-teal-50/50">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-teal-600/10">
+            <Sparkles className="h-3.5 w-3.5 text-teal-600" />
           </div>
-
-          {/* KPI strip */}
+          <span className="text-sm font-semibold text-teal-800 uppercase tracking-wide" style={{ letterSpacing: '0.05em' }}>
+            Strategy Overview
+          </span>
           {activeRules.length > 0 && (
-            <div className="flex items-center gap-6">
-              <div className="text-right">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400">Net Annual Impact</p>
-                <p className={`text-xl font-bold ${totalAnnualImpact >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {fmtImpact(totalAnnualImpact)}
-                </p>
-              </div>
-              {positiveImpact > 0 && (
-                <div className="text-right border-l border-slate-700 pl-6">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400">Revenue Lift</p>
-                  <p className="text-lg font-semibold text-emerald-400">{fmtImpact(positiveImpact)}</p>
-                </div>
-              )}
-              {negativeImpact < 0 && (
-                <div className="text-right border-l border-slate-700 pl-6">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400">Concessions</p>
-                  <p className="text-lg font-semibold text-red-400">{fmtImpact(negativeImpact)}</p>
-                </div>
-              )}
-              <button
-                onClick={() => refetch()}
-                disabled={isFetching}
-                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-teal-300 transition-colors disabled:opacity-40 ml-2"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
+            <span className="text-xs text-teal-600 ml-1">· {activeRules.length} active rule{activeRules.length !== 1 ? 's' : ''}</span>
           )}
         </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-800 transition-colors disabled:opacity-40"
+          title="Refresh overview"
+        >
+          <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
       </div>
 
       {/* ── Body ── */}
