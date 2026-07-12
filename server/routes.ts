@@ -15107,12 +15107,40 @@ Return ONLY valid JSON with no markdown fences:
 
       if (!ourRates.rows.length) return res.json([]);
 
-      // Competitor avg rates (all upload months for latest survey)
+      // Competitor avg rates — HC/HC/MC/SMC are daily rates, but directors sometimes
+      // enter monthly by mistake (values >800). Normalize: if >800 divide by 30.
+      // Also exclude garbage below $50 for daily types, or below $500 for monthly types.
       const compRows = await pool.query(`
-        SELECT keystats_location, competitor_type, ROUND(AVG(monthly_rate_avg)::numeric,0) AS comp_rate
+        SELECT keystats_location, competitor_type,
+          ROUND(AVG(
+            CASE
+              WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                CASE
+                  WHEN monthly_rate_avg > 800  THEN monthly_rate_avg / 30.0  -- monthly entry → daily
+                  WHEN monthly_rate_avg < 50   THEN NULL                     -- garbage
+                  ELSE monthly_rate_avg
+                END
+              ELSE
+                CASE
+                  WHEN monthly_rate_avg < 500  THEN NULL                     -- too low for monthly AL/SL
+                  WHEN monthly_rate_avg > 25000 THEN NULL                    -- clearly bad
+                  ELSE monthly_rate_avg
+                END
+            END
+          )::numeric, 0) AS comp_rate
         FROM competitive_survey_data
         WHERE client_id=$1 AND monthly_rate_avg > 0
         GROUP BY keystats_location, competitor_type
+        HAVING AVG(
+          CASE
+            WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+              CASE WHEN monthly_rate_avg > 800 THEN monthly_rate_avg / 30.0
+                   WHEN monthly_rate_avg < 50  THEN NULL ELSE monthly_rate_avg END
+            ELSE
+              CASE WHEN monthly_rate_avg < 500 OR monthly_rate_avg > 25000 THEN NULL
+                   ELSE monthly_rate_avg END
+          END
+        ) IS NOT NULL
       `, [clientId]);
 
       const compMap = new Map<string, number>();
