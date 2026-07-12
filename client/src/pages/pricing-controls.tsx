@@ -809,28 +809,28 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             <DialogTitle className="text-base">Rule Coverage Map — {activeRules.length} Active Rules</DialogTitle>
             <p className="text-xs text-slate-500 mt-1">Circle size = relative annual revenue impact. Solid border = additive. Dashed = exclusive/priority-based. Click any rule to view details.</p>
           </DialogHeader>
-          <div className="bg-slate-50 rounded-xl p-6 flex flex-wrap gap-8 justify-center items-end min-h-64">
+          <div className="bg-slate-50 rounded-xl p-4 grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(activeRules.length, 4)}, 1fr)` }}>
             {activeRules.map((rule: any, ri: number) => {
               const color = PALETTE[ri % PALETTE.length];
               const maxImpact = Math.max(...activeRules.map((r: any) => Math.abs(r.annualImpact || 0)), 1);
               const t = Math.sqrt(Math.abs(rule.annualImpact || 0) / maxImpact);
-              const MIN_R = 32, MAX_R = 80;
+              const MIN_R = 22, MAX_R = 46;
               const radius = Math.round(MIN_R + t * (MAX_R - MIN_R));
-              const size = radius * 2 + 12;
+              const size = radius * 2 + 8;
               const units = rule.affectedUnits || 0;
               const dots = genMiniDots(units, radius);
               const positive = (rule.annualImpact || 0) >= 0;
               return (
-                <div key={rule.id} className="flex flex-col items-center gap-1 cursor-pointer" onClick={() => { setFullMapOpen(false); setTimeout(() => setSelectedRule(rule), 80); }}>
+                <div key={rule.id} className="flex flex-col items-center gap-1.5 cursor-pointer hover:bg-white rounded-lg p-2 transition-colors" onClick={() => { setFullMapOpen(false); setTimeout(() => setSelectedRule(rule), 80); }}>
                   <svg width={size} height={size} style={{ overflow: 'visible' }}>
                     <circle cx={size/2} cy={size/2} r={radius} fill={color} fillOpacity={0.12} stroke={color} strokeWidth={positive ? 2 : 1.5} strokeDasharray={positive ? 'none' : '4 3'} />
-                    {dots.map((d, di) => <circle key={di} cx={size/2 + d.x} cy={size/2 + d.y} r={2} fill={color} opacity={0.5} />)}
-                    <text x={size/2} y={size/2 + 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill={color} opacity={0.9}>
+                    {dots.map((d, di) => <circle key={di} cx={size/2 + d.x} cy={size/2 + d.y} r={1.5} fill={color} opacity={0.5} />)}
+                    <text x={size/2} y={size/2 + 4} textAnchor="middle" fontSize={10} fontWeight="bold" fill={color} opacity={0.9}>
                       {fmtImpact(rule.annualImpact || 0)}
                     </text>
                   </svg>
-                  <div className="text-center" style={{ maxWidth: Math.max(size, 80) }}>
-                    <p className="text-[11px] font-semibold text-slate-700 leading-tight text-center">{rule.name}</p>
+                  <div className="text-center w-full">
+                    <p className="text-[10px] font-semibold text-slate-700 leading-tight text-center line-clamp-2">{rule.name}</p>
                     <p className="text-[9px] text-slate-400">{units.toLocaleString()} units</p>
                   </div>
                 </div>
