@@ -653,6 +653,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 dataKey="marketPosition"
                 name="Market Position"
                 domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
+                ticks={[0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325]}
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 9, fill: '#94a3b8' }}
                 label={{ value: '← Below Market · At Market · Above Market →', position: 'insideBottom', offset: -12, fontSize: 9, fill: '#94a3b8' }}
