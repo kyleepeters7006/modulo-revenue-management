@@ -15107,63 +15107,108 @@ Return ONLY valid JSON with no markdown fences:
 
       if (!ourRates.rows.length) return res.json([]);
 
-      // Competitor avg rates — HC/HC/MC/SMC are daily rates, but directors sometimes
-      // enter monthly by mistake (values >800). Normalize: if >800 divide by 30.
-      // Also exclude garbage below $50 for daily types, or below $500 for monthly types.
-      const compRows = await pool.query(`
-        SELECT keystats_location, competitor_type,
-          ROUND(AVG(
+      // Competitor avg rates with care adjustments.
+      // HC/HC/MC/SMC base rates are daily — if entered >800 assume monthly mistake → /30.
+      // Care L2 and med mgmt fees for HC/HC/MC/SMC also normalized to daily (divide by 30 if >200).
+      const [compRows, careRows] = await Promise.all([
+        pool.query(`
+          SELECT keystats_location, competitor_type,
+            -- Base rate (normalized)
+            ROUND(AVG(
+              CASE
+                WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                  CASE WHEN monthly_rate_avg > 800 THEN monthly_rate_avg / 30.0
+                       WHEN monthly_rate_avg < 50  THEN NULL ELSE monthly_rate_avg END
+                ELSE
+                  CASE WHEN monthly_rate_avg < 500 OR monthly_rate_avg > 25000 THEN NULL
+                       ELSE monthly_rate_avg END
+              END
+            )::numeric, 0) AS comp_rate,
+            -- Care Level 2 rate (normalized to same unit as base rate)
+            ROUND(AVG(
+              CASE
+                WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                  CASE WHEN care_level_2_rate > 200 THEN care_level_2_rate / 30.0
+                       WHEN care_level_2_rate > 0   THEN care_level_2_rate
+                       ELSE NULL END
+                ELSE
+                  CASE WHEN care_level_2_rate BETWEEN 1 AND 5000 THEN care_level_2_rate ELSE NULL END
+              END
+            )::numeric, 0) AS comp_care_l2,
+            -- Medication management fee (normalized)
+            ROUND(AVG(
+              CASE
+                WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                  CASE WHEN medication_management_fee > 200 THEN medication_management_fee / 30.0
+                       WHEN medication_management_fee > 0   THEN medication_management_fee
+                       ELSE NULL END
+                ELSE
+                  CASE WHEN medication_management_fee BETWEEN 1 AND 2000 THEN medication_management_fee ELSE NULL END
+              END
+            )::numeric, 0) AS comp_med_mgmt
+          FROM competitive_survey_data
+          WHERE client_id=$1 AND monthly_rate_avg > 0
+          GROUP BY keystats_location, competitor_type
+          HAVING AVG(
             CASE
               WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
-                CASE
-                  WHEN monthly_rate_avg > 800  THEN monthly_rate_avg / 30.0  -- monthly entry → daily
-                  WHEN monthly_rate_avg < 50   THEN NULL                     -- garbage
-                  ELSE monthly_rate_avg
-                END
+                CASE WHEN monthly_rate_avg > 800 THEN monthly_rate_avg / 30.0
+                     WHEN monthly_rate_avg < 50  THEN NULL ELSE monthly_rate_avg END
               ELSE
-                CASE
-                  WHEN monthly_rate_avg < 500  THEN NULL                     -- too low for monthly AL/SL
-                  WHEN monthly_rate_avg > 25000 THEN NULL                    -- clearly bad
-                  ELSE monthly_rate_avg
-                END
+                CASE WHEN monthly_rate_avg < 500 OR monthly_rate_avg > 25000 THEN NULL
+                     ELSE monthly_rate_avg END
             END
-          )::numeric, 0) AS comp_rate
-        FROM competitive_survey_data
-        WHERE client_id=$1 AND monthly_rate_avg > 0
-        GROUP BY keystats_location, competitor_type
-        HAVING AVG(
-          CASE
-            WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
-              CASE WHEN monthly_rate_avg > 800 THEN monthly_rate_avg / 30.0
-                   WHEN monthly_rate_avg < 50  THEN NULL ELSE monthly_rate_avg END
-            ELSE
-              CASE WHEN monthly_rate_avg < 500 OR monthly_rate_avg > 25000 THEN NULL
-                   ELSE monthly_rate_avg END
-          END
-        ) IS NOT NULL
-      `, [clientId]);
+          ) IS NOT NULL
+        `, [clientId]),
+        // Our care Level 2 rates per location+service_line
+        pool.query(`
+          SELECT l.name AS location_name, clr.service_line, clr.level2_rate
+          FROM care_level_rates clr
+          JOIN locations l ON clr.location_id = l.id
+          WHERE clr.client_id = $1
+        `, [clientId]),
+      ]);
 
-      const compMap = new Map<string, number>();
+      // compMap: key = "location|||comp_type" → { baseRate, careL2, medMgmt }
+      const compMap = new Map<string, { baseRate: number; careL2: number; medMgmt: number }>();
       for (const row of compRows.rows) {
-        compMap.set(`${row.keystats_location}|||${row.competitor_type}`, Number(row.comp_rate));
+        compMap.set(`${row.keystats_location}|||${row.competitor_type}`, {
+          baseRate: Number(row.comp_rate) || 0,
+          careL2:   Number(row.comp_care_l2) || 0,
+          medMgmt:  Number(row.comp_med_mgmt) || 0,
+        });
+      }
+
+      // ourCareMap: key = "location|||service_line" → our care L2 rate
+      const ourCareMap = new Map<string, number>();
+      for (const row of careRows.rows) {
+        ourCareMap.set(`${row.location_name}|||${row.service_line}`, Number(row.level2_rate) || 0);
       }
 
       const points = ourRates.rows.map((row: any) => {
         const sl = row.service_line as string;
         const compTypes = SL_TO_COMP[sl] || [sl];
-        let compRate = 0;
+        let compData: { baseRate: number; careL2: number; medMgmt: number } | undefined;
         for (const ct of compTypes) {
           const v = compMap.get(`${row.location}|||${ct}`);
-          if (v && v > 0) { compRate = v; break; }
+          if (v && v.baseRate > 0) { compData = v; break; }
         }
-        if (!compRate) return null;
+        if (!compData) return null;
+
+        // Care adjustment: adjustedCompRate = base + (theirCareL2 − ourCareL2) + theirMedMgmt
+        const ourCareL2 = ourCareMap.get(`${row.location}|||${sl}`) || 0;
+        const careAdj = (compData.careL2 - ourCareL2) + compData.medMgmt;
+        const adjustedCompRate = Math.max(compData.baseRate + careAdj, 1);
+
         const ourRate = Number(row.our_rate);
-        const marketPosition = Math.round((ourRate / compRate) * 100);
+        const marketPosition = Math.round((ourRate / adjustedCompRate) * 100);
         return {
           location: row.location,
           serviceLine: sl,
           ourRate,
-          compRate,
+          compRate: Math.round(adjustedCompRate),
+          rawCompRate: compData.baseRate,
+          careAdj: Math.round(careAdj),
           marketPosition,
           occupancy: Number(row.occupancy),
         };

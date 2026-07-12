@@ -680,7 +680,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                       <p className="font-bold text-slate-800 mb-0.5">{d.location}</p>
                       <p className="text-slate-500">{d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
                       <p className="text-slate-500">Our Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
-                      <p className="text-slate-500">Mkt Avg: <strong>${d.compRate?.toLocaleString()}</strong></p>
+                      <p className="text-slate-500">
+                        Adj. Comp: <strong>${d.compRate?.toLocaleString()}</strong>
+                        {d.rawCompRate && d.rawCompRate !== d.compRate && (
+                          <span className="text-slate-400"> (base ${d.rawCompRate?.toLocaleString()}{d.careAdj ? `, care ${d.careAdj > 0 ? '+' : ''}${d.careAdj?.toLocaleString()}` : ''})</span>
+                        )}
+                      </p>
                       <p className={`font-bold mt-0.5 ${d.marketPosition > 100 ? 'text-emerald-600' : d.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
                         {d.marketPosition}% of market
                       </p>
