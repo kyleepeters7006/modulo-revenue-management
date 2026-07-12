@@ -15066,6 +15066,88 @@ Return ONLY valid JSON with no markdown fences:
     }
   });
 
+  // ── Pricing Controls Competitive Position ─────────────────────────────────
+  // Returns per-location+SL scatter data: our rate vs market, our occupancy.
+  app.get("/api/pricing-controls/competitive-position", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const locations: string[] = req.query.locations ? (Array.isArray(req.query.locations) ? req.query.locations : [req.query.locations]) : [];
+      const regions: string[] = req.query.regions ? (Array.isArray(req.query.regions) ? req.query.regions : [req.query.regions]) : [];
+      const divisions: string[] = req.query.divisions ? (Array.isArray(req.query.divisions) ? req.query.divisions : [req.query.divisions]) : [];
+      const slFilter: string = (req.query.serviceLine as string) || 'All';
+
+      const SL_TO_COMP: Record<string, string[]> = {
+        AL: ['AL'], 'AL/MC': ['AL/MC'], HC: ['HC'], 'HC/MC': ['HC/MC', 'SMC'], SL: ['IL_IL'], VIL: ['IL_Villa'],
+      };
+
+      // Latest rent roll month
+      const latestResult = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id=$1`, [clientId]
+      );
+      const latestMonth = latestResult.rows[0]?.m;
+      if (!latestMonth) return res.json([]);
+
+      // Our rates + occupancy per location+SL
+      let whereClause = `client_id=$1 AND upload_month=$2 AND street_rate>0`;
+      const params: any[] = [clientId, latestMonth];
+      let p = 3;
+      if (locations.length) { whereClause += ` AND location = ANY($${p++})`; params.push(locations); }
+      if (regions.length) { whereClause += ` AND region = ANY($${p++})`; params.push(regions); }
+      if (divisions.length) { whereClause += ` AND division = ANY($${p++})`; params.push(divisions); }
+      if (slFilter !== 'All') { whereClause += ` AND service_line=$${p++}`; params.push(slFilter); }
+
+      const ourRates = await pool.query(`
+        SELECT location, service_line,
+          ROUND(AVG(street_rate)::numeric, 0) AS our_rate,
+          ROUND(COUNT(*) FILTER (WHERE occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS occupancy
+        FROM rent_roll_data
+        WHERE ${whereClause}
+        GROUP BY location, service_line
+      `, params);
+
+      if (!ourRates.rows.length) return res.json([]);
+
+      // Competitor avg rates (all upload months for latest survey)
+      const compRows = await pool.query(`
+        SELECT keystats_location, competitor_type, ROUND(AVG(monthly_rate_avg)::numeric,0) AS comp_rate
+        FROM competitive_survey_data
+        WHERE client_id=$1 AND monthly_rate_avg > 0
+        GROUP BY keystats_location, competitor_type
+      `, [clientId]);
+
+      const compMap = new Map<string, number>();
+      for (const row of compRows.rows) {
+        compMap.set(`${row.keystats_location}|||${row.competitor_type}`, Number(row.comp_rate));
+      }
+
+      const points = ourRates.rows.map((row: any) => {
+        const sl = row.service_line as string;
+        const compTypes = SL_TO_COMP[sl] || [sl];
+        let compRate = 0;
+        for (const ct of compTypes) {
+          const v = compMap.get(`${row.location}|||${ct}`);
+          if (v && v > 0) { compRate = v; break; }
+        }
+        if (!compRate) return null;
+        const ourRate = Number(row.our_rate);
+        const marketPosition = Math.round((ourRate / compRate) * 100);
+        return {
+          location: row.location,
+          serviceLine: sl,
+          ourRate,
+          compRate,
+          marketPosition,
+          occupancy: Number(row.occupancy),
+        };
+      }).filter(Boolean);
+
+      res.json(points);
+    } catch (err) {
+      console.error('competitive-position error', err);
+      res.status(500).json([]);
+    }
+  });
+
   // ── Pricing Controls AI Commentary ────────────────────────────────────────
   // Returns 3-5 strategic bullet points with **bold** markers for key figures.
   // Cached per client; purged whenever rules change.

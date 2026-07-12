@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
+import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3 } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
@@ -462,6 +463,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     staleTime: 2 * 60 * 1000,
   });
 
+  const { data: compPositionData = [] } = useQuery<any[]>({
+    queryKey: ['/api/pricing-controls/competitive-position', selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
+    queryFn: () => fetch(`/api/pricing-controls/competitive-position${qs ? '?' + qs : ''}`).then(r => r.json()),
+    staleTime: 10 * 60 * 1000,
+  });
+
   const activeRules = (rulesData || []).filter((r: any) => r.isActive);
   const totalAnnualImpact = activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
   const positiveImpact = activeRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
@@ -612,6 +619,90 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         <div className="px-6 py-3.5 border-b border-slate-100 bg-slate-50/60">
           <span className="text-[9px] font-black uppercase tracking-[0.18em] text-teal-600 mr-2">6-Mo Trend</span>
           <span className="text-[13px] leading-relaxed text-slate-600">{parseBold(data.pricingTrend)}</span>
+        </div>
+      )}
+
+      {/* ══ COMPETITIVE POSITION SCATTER ══ */}
+      {compPositionData.length > 0 && (
+        <div className="px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Competitive Position</span>
+              <span className="text-[9px] text-slate-400">· {compPositionData.length} location/SL combinations</span>
+            </div>
+            <span className="text-[9px] text-slate-400 italic">X = rate vs market · Y = occupancy</span>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <ScatterChart margin={{ top: 8, right: 16, bottom: 20, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis
+                type="number"
+                dataKey="marketPosition"
+                name="Market Position"
+                domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
+                tickFormatter={(v) => `${v}%`}
+                tick={{ fontSize: 9, fill: '#94a3b8' }}
+                label={{ value: '← Below Market · At Market · Above Market →', position: 'insideBottom', offset: -12, fontSize: 9, fill: '#94a3b8' }}
+              />
+              <YAxis
+                type="number"
+                dataKey="occupancy"
+                name="Occupancy"
+                domain={([min, max]: [number,number]) => [Math.max(min - 3, 0), Math.min(max + 3, 100)]}
+                tickFormatter={(v) => `${v}%`}
+                tick={{ fontSize: 9, fill: '#94a3b8' }}
+                width={34}
+              />
+              <ZAxis range={[35, 35]} />
+              <ReferenceLine x={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: 8, fill: '#0d9488', position: 'insideTopRight' }} />
+              <ReferenceLine y={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: 8, fill: '#94a3b8', position: 'insideTopRight' }} />
+              <RechartsTooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0].payload;
+                  return (
+                    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
+                      <p className="font-bold text-slate-800 mb-0.5">{d.location}</p>
+                      <p className="text-slate-500">{d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
+                      <p className="text-slate-500">Our Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
+                      <p className="text-slate-500">Mkt Avg: <strong>${d.compRate?.toLocaleString()}</strong></p>
+                      <p className={`font-bold mt-0.5 ${d.marketPosition > 100 ? 'text-emerald-600' : d.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
+                        {d.marketPosition}% of market
+                      </p>
+                    </div>
+                  );
+                }}
+              />
+              {['AL','AL/MC','HC','HC/MC','SL','VIL'].map(sl => {
+                const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
+                if (!slData.length) return null;
+                const SL_DOT_COLORS: Record<string,string> = {
+                  AL:'#0d9488', 'AL/MC':'#7c3aed', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#9333ea',
+                };
+                const color = SL_DOT_COLORS[sl] || '#64748b';
+                return (
+                  <Scatter key={sl} name={sl} data={slData} fill={color}>
+                    {slData.map((_: any, i: number) => (
+                      <Cell key={i} fill={color} fillOpacity={0.75} />
+                    ))}
+                  </Scatter>
+                );
+              })}
+            </ScatterChart>
+          </ResponsiveContainer>
+          {/* SL legend */}
+          <div className="flex flex-wrap gap-3 mt-1 justify-center">
+            {(['AL','AL/MC','HC','HC/MC','SL','VIL'] as const).filter(sl => compPositionData.some((d:any) => d.serviceLine===sl)).map(sl => {
+              const SL_DOT_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#7c3aed', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#9333ea' };
+              return (
+                <span key={sl} className="flex items-center gap-1 text-[9px] text-slate-500">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: SL_DOT_COLORS[sl] }} />
+                  {sl}
+                </span>
+              );
+            })}
+          </div>
         </div>
       )}
 
