@@ -1601,48 +1601,88 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
 
                                 {/* Rule Summary / Intent */}
                                 <td className="py-2.5 px-2 align-top max-w-[220px]">
-                                  <div className="flex flex-col gap-1">
-                                    <span
-                                      className="text-sm font-semibold text-gray-900 leading-snug cursor-pointer hover:text-teal-700 hover:underline"
-                                      onClick={() => { setInfoRule(rule); fetchStrategyAnalysis(); }}
-                                      title="Click for AI strategy analysis"
-                                    >{displayName}</span>
-                                    {(() => {
-                                      const rawEff = (rule as any).effectiveDate || (rule as any).createdAt;
-                                      const eff = rawEff ? new Date(rawEff).toISOString().slice(0, 10) : null;
-                                      if (!eff) return null;
-                                      const today = new Date().toISOString().slice(0, 10);
-                                      const isFuture = eff > today;
-                                      return (
-                                        <span className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${isFuture ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`} title={isFuture ? 'This rule will start applying on its effective date' : 'Effective date'}>
-                                          {isFuture ? 'Starts' : 'Effective'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                        </span>
-                                      );
-                                    })()}
-                                    {rule.isActive && (
-                                      <span data-testid={`badge-stacking-${rule.id}`} className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide ${
-                                        isAdditive
-                                          ? 'bg-teal-50 text-teal-700 border-teal-200'
-                                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                                      }`}>
-                                        {isAdditive ? '+ stacks' : '⊙ exclusive'}
-                                      </span>
-                                    )}
-                                    {(() => {
-                                      const si = strategyAnalysis?.rules.find(r => r.id === rule.id);
-                                      if (!si) return null;
-                                      const sc = STRATEGY_COLORS[si.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' };
-                                      return (
-                                        <span
-                                          className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border tracking-wide cursor-pointer ${sc.bg} ${sc.text} ${sc.border}`}
-                                          onClick={() => { setInfoRule(rule); }}
-                                          title={si.intendedStrategy}
+                                  {(() => {
+                                    // Strip "+N more" and split into action + condition
+                                    const cleanName = displayName.replace(/\s*\+\s*\d+\s*more\s*$/i, '').trim();
+                                    const whenIdx = cleanName.search(/\s+when\s+/i);
+                                    const actionPart = whenIdx > -1 ? cleanName.slice(0, whenIdx).trim() : cleanName;
+                                    const conditionPart = whenIdx > -1 ? cleanName.slice(whenIdx).replace(/^\s*when\s*/i, '').trim() : null;
+
+                                    // Parse action into direction + amount + target
+                                    const isInc = /^increase/i.test(actionPart);
+                                    const isDec = /^decrease/i.test(actionPart);
+                                    const amtMatch = actionPart.match(/(\d+(?:\.\d+)?%|\$\d+(?:,\d+)?)/i);
+                                    const amtStr = amtMatch ? amtMatch[1] : null;
+                                    // Target = everything after the dash (e.g. "AL", "All Rates")
+                                    const dashIdx = actionPart.indexOf(' - ');
+                                    const targetStr = dashIdx > -1 ? actionPart.slice(dashIdx + 3).trim() : null;
+
+                                    // Effective date
+                                    const rawEff = (rule as any).effectiveDate || (rule as any).createdAt;
+                                    const eff = rawEff ? new Date(rawEff).toISOString().slice(0, 10) : null;
+                                    const today = new Date().toISOString().slice(0, 10);
+                                    const isFuture = eff ? eff > today : false;
+
+                                    // Strategy badge
+                                    const si = strategyAnalysis?.rules.find(r => r.id === rule.id);
+                                    const sc = si ? (STRATEGY_COLORS[si.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' }) : null;
+
+                                    return (
+                                      <div className="flex flex-col gap-1.5">
+                                        {/* Action headline */}
+                                        <div
+                                          className="cursor-pointer group"
+                                          onClick={() => { setInfoRule(rule); fetchStrategyAnalysis(); }}
+                                          title={cleanName}
                                         >
-                                          {si.strategyGroup}
-                                        </span>
-                                      );
-                                    })()}
-                                  </div>
+                                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                                            {amtStr && (
+                                              <span className={`text-sm font-bold tabular-nums ${isInc ? 'text-teal-600' : isDec ? 'text-rose-500' : 'text-gray-700'}`}>
+                                                {isInc ? '+' : isDec ? '−' : ''}{amtStr}
+                                              </span>
+                                            )}
+                                            {targetStr ? (
+                                              <span className="text-sm font-semibold text-gray-800 group-hover:text-teal-700 group-hover:underline leading-snug">
+                                                {targetStr}
+                                              </span>
+                                            ) : (
+                                              <span className="text-sm font-semibold text-gray-800 group-hover:text-teal-700 group-hover:underline leading-snug">
+                                                {!amtStr ? cleanName : (isInc ? 'Increase' : isDec ? 'Decrease' : actionPart)}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {conditionPart && (
+                                            <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                                              When {conditionPart}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        {/* Badges row */}
+                                        <div className="flex flex-wrap gap-1">
+                                          {eff && (
+                                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${isFuture ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                                              {isFuture ? '▷ Starts' : 'Since'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            </span>
+                                          )}
+                                          {rule.isActive && (
+                                            <span data-testid={`badge-stacking-${rule.id}`} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${isAdditive ? 'bg-teal-50 text-teal-600 border-teal-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
+                                              {isAdditive ? 'Stacks' : 'Exclusive'}
+                                            </span>
+                                          )}
+                                          {si && sc && (
+                                            <span
+                                              className={`text-[10px] font-medium px-1.5 py-0.5 rounded border cursor-pointer ${sc.bg} ${sc.text} ${sc.border}`}
+                                              onClick={() => { setInfoRule(rule); }}
+                                              title={si.intendedStrategy}
+                                            >
+                                              {si.strategyGroup}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
 
                                 {/* Rule Detail */}
