@@ -936,6 +936,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   <div className="text-center w-full">
                     <p className="text-[10px] font-semibold text-slate-700 leading-tight text-center line-clamp-2">{rule.name}</p>
                     <p className="text-[9px] text-slate-400">{units.toLocaleString()} units</p>
+                    {rule.effectiveDate && (
+                      <p className="text-[9px] text-slate-400">
+                        Start: {new Date(rule.effectiveDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    )}
                   </div>
                 </div>
               );
