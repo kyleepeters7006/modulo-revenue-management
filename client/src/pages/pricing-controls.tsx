@@ -49,7 +49,7 @@ export default function PricingControls() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
-    urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"])
+    urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
 
   // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
@@ -90,6 +90,19 @@ export default function PricingControls() {
   const regions = locationsData?.regions || [];
   const divisions = locationsData?.divisions || [];
   const locations = locationsData?.locations?.map((loc) => loc.name) || [];
+
+  // When the available locations change (e.g. after login/logout), drop any
+  // selections that no longer exist in the current client's data.
+  useEffect(() => {
+    if (!locationsData?.locations) return;
+    const validNames = new Set(locations);
+    const validRegions = new Set(regions);
+    const validDivisions = new Set(divisions);
+    setSelectedLocations(prev => prev.filter(l => validNames.has(l)));
+    setSelectedRegions(prev => prev.filter(r => validRegions.has(r)));
+    setSelectedDivisions(prev => prev.filter(d => validDivisions.has(d)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationsData]);
 
   const serviceLines = ["All", "HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
