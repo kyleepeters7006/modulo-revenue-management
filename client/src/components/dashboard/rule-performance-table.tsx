@@ -154,22 +154,19 @@ function buildTableRows({
     const isGroupOpen = groupExpanded.has(g.id);
     const { Icon } = g;
 
-    // Strategy group header row
+    // Strategy group header row — clickable in both modes
     rows.push(
       <tr
         key={`group-${g.id}`}
-        className={`transition-colors hover:brightness-95 ${g.rowBg} ${viewMode === "detail" ? "cursor-pointer" : ""}`}
-        onClick={() => viewMode === "detail" && onToggleGroup(g.id)}
+        className={`transition-colors hover:brightness-95 cursor-pointer ${g.rowBg}`}
+        onClick={() => onToggleGroup(g.id)}
       >
         <td className="px-3 py-2.5 font-semibold text-sm border-b border-border/70" style={{ minWidth: 260 }}>
           <span className="inline-flex items-center gap-2">
-            {viewMode === "detail" ? (
-              isGroupOpen
-                ? <ChevronDown className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
-                : <ChevronRight className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
-            ) : (
-              <Icon className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
-            )}
+            {isGroupOpen
+              ? <ChevronDown className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
+              : <ChevronRight className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
+            }
             <span style={{ color: g.accent }}>{g.label}</span>
             <span className="text-[11px] font-normal text-muted-foreground ml-1">
               {gRows.length} rule{gRows.length !== 1 ? "s" : ""}
@@ -193,8 +190,8 @@ function buildTableRows({
       </tr>
     );
 
-    // Individual rules (detail mode only)
-    if (viewMode === "detail" && isGroupOpen) {
+    // Individual rules — shown when group is expanded (both summary and detail mode)
+    if (isGroupOpen) {
       for (const r of gRows) {
         const open = expanded.has(r.ruleName);
 
@@ -284,9 +281,7 @@ export function RulePerformanceTable({
   const [start, setStart] = useState(() => isoDaysAgo(180));
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [groupExpanded, setGroupExpanded] = useState<Set<string>>(
-    new Set(PERF_RULE_GROUPS.map((g) => g.id))
-  );
+  const [groupExpanded, setGroupExpanded] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"summary" | "detail">("summary");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
 
@@ -409,7 +404,7 @@ export function RulePerformanceTable({
             <div className="flex rounded-md border border-border overflow-hidden">
               <button
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "summary" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                onClick={() => setViewMode("summary")}
+                onClick={() => { setViewMode("summary"); setGroupExpanded(new Set()); setExpanded(new Set()); }}
                 disabled={rows.length === 0}
               >
                 <Rows3 className="h-3.5 w-3.5" />Summary
@@ -497,8 +492,8 @@ export function RulePerformanceTable({
             </div>
 
             <p className="mt-2 text-[11px] text-muted-foreground">
-              <span className="font-medium">Summary</span> shows aggregated totals per strategy group.
-              Switch to <span className="font-medium">Detail</span> to see individual rules — expand each rule to view the breakdown by location, service line, and room type.{" "}
+              Click any strategy row to expand and see individual rules. Click a rule row to see the breakdown by location, service line, and room type.{" "}
+              Switch to <span className="font-medium">Detail</span> to expand all groups at once.{" "}
               <span className="font-medium">Revenue impact</span>: historical pricing changes compare actual occupied-room revenue for the 3 months before vs. after the change; active rules sum the rate adjustment across impacted units. Click any impact value for the full calculation.
             </p>
           </>
