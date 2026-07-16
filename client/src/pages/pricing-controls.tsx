@@ -492,6 +492,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
+  const [scatterExpanded, setScatterExpanded] = useState(false);
 
   const params = new URLSearchParams();
   if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
@@ -596,6 +597,79 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   };
 
   const hasData = data && (data.summary || data.rules?.length > 0);
+
+  const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#7c3aed', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#9333ea' };
+
+  const scatterTooltipContent = ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0].payload;
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
+        <p className="font-bold text-slate-800 mb-0.5">{d.location}</p>
+        <p className="text-slate-500">{SL_DISPLAY[d.serviceLine] || d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
+        <p className="text-slate-500">Our Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
+        <p className="text-slate-500">
+          Adj. Comp: <strong>${d.compRate?.toLocaleString()}</strong>
+          {d.rawCompRate && d.rawCompRate !== d.compRate && (
+            <span className="text-slate-400"> (base ${d.rawCompRate?.toLocaleString()}{d.careAdj ? `, care ${d.careAdj > 0 ? '+' : ''}${d.careAdj?.toLocaleString()}` : ''})</span>
+          )}
+        </p>
+        <p className={`font-bold mt-0.5 ${d.marketPosition > 100 ? 'text-emerald-600' : d.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
+          {d.marketPosition}% of market
+        </p>
+      </div>
+    );
+  };
+
+  const renderScatterChart = (height: number, tickFontSize: number) => (
+    <ResponsiveContainer width="100%" height={height}>
+      <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+        <XAxis
+          type="number" dataKey="occupancy" name="Occupancy"
+          domain={([min, max]: [number,number]) => [Math.max(min - 3, 0), Math.min(max + 3, 100)]}
+          tickFormatter={(v) => `${v}%`}
+          tick={{ fontSize: tickFontSize, fill: '#94a3b8' }}
+          label={{ value: '← Low Occupancy · High Occupancy →', position: 'insideBottom', offset: -14, fontSize: tickFontSize, fill: '#94a3b8' }}
+        />
+        <YAxis
+          type="number" dataKey="marketPosition" name="Market Position"
+          domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
+          ticks={[75, 100, 125, 150, 175, 200, 225, 250]}
+          tickFormatter={(v) => `${v}%`}
+          tick={{ fontSize: tickFontSize, fill: '#94a3b8' }}
+          width={42}
+        />
+        <ZAxis range={[height > 300 ? 55 : 35, height > 300 ? 55 : 35]} />
+        <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: tickFontSize + 1, fill: '#0d9488', position: 'insideTopRight' }} />
+        <ReferenceLine x={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: tickFontSize + 1, fill: '#94a3b8', position: 'insideTopRight' }} />
+        <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={scatterTooltipContent} />
+        {['AL','AL/MC','HC','HC/MC','SL','VIL'].map(sl => {
+          const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
+          if (!slData.length) return null;
+          const color = SCATTER_SL_COLORS[sl] || '#64748b';
+          return (
+            <Scatter key={sl} name={sl} data={slData} fill={color}>
+              {slData.map((_: any, i: number) => <Cell key={i} fill={color} fillOpacity={0.75} />)}
+            </Scatter>
+          );
+        })}
+      </ScatterChart>
+    </ResponsiveContainer>
+  );
+
+  const renderScatterLegend = (textSize: string) => (
+    <div className="flex flex-wrap gap-3 mt-2 justify-center">
+      {(['AL','AL/MC','HC','HC/MC','SL','VIL'] as const)
+        .filter(sl => compPositionData.some((d:any) => d.serviceLine === sl))
+        .map(sl => (
+          <span key={sl} className={`flex items-center gap-1 ${textSize} text-slate-500`}>
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: SCATTER_SL_COLORS[sl] }} />
+            {SL_DISPLAY[sl] || sl}
+          </span>
+        ))}
+    </div>
+  );
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm mb-6 overflow-hidden">
@@ -779,92 +853,46 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ══ COMPETITIVE POSITION SCATTER ══ */}
       {compPositionData.length > 0 && (
-        <div className="px-6 py-4 border-b border-slate-100">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Competitive Position</span>
-              <span className="text-[9px] text-slate-400">· {compPositionData.length} location/SL combinations</span>
+        <>
+          <div className="px-6 py-4 border-b border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Competitive Position</span>
+                <span className="text-[9px] text-slate-400">· {compPositionData.length} location/SL combinations</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[9px] text-slate-400 italic">X = occupancy · Y = rate vs market</span>
+                <button
+                  onClick={() => setScatterExpanded(true)}
+                  className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                  title="Expand chart"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-            <span className="text-[9px] text-slate-400 italic">X = occupancy · Y = rate vs market</span>
+            {renderScatterChart(200, 9)}
+            {renderScatterLegend("text-[9px]")}
           </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <ScatterChart margin={{ top: 8, right: 16, bottom: 20, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis
-                type="number"
-                dataKey="occupancy"
-                name="Occupancy"
-                domain={([min, max]: [number,number]) => [Math.max(min - 3, 0), Math.min(max + 3, 100)]}
-                tickFormatter={(v) => `${v}%`}
-                tick={{ fontSize: 9, fill: '#94a3b8' }}
-                label={{ value: '← Low Occupancy · High Occupancy →', position: 'insideBottom', offset: -12, fontSize: 9, fill: '#94a3b8' }}
-              />
-              <YAxis
-                type="number"
-                dataKey="marketPosition"
-                name="Market Position"
-                domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
-                ticks={[75, 100, 125, 150, 175, 200, 225, 250]}
-                tickFormatter={(v) => `${v}%`}
-                tick={{ fontSize: 9, fill: '#94a3b8' }}
-                width={38}
-              />
-              <ZAxis range={[35, 35]} />
-              <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: 8, fill: '#0d9488', position: 'insideTopRight' }} />
-              <ReferenceLine x={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: 8, fill: '#94a3b8', position: 'insideTopRight' }} />
-              <RechartsTooltip
-                cursor={{ strokeDasharray: '3 3' }}
-                content={({ active, payload }) => {
-                  if (!active || !payload?.length) return null;
-                  const d = payload[0].payload;
-                  return (
-                    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
-                      <p className="font-bold text-slate-800 mb-0.5">{d.location}</p>
-                      <p className="text-slate-500">{SL_DISPLAY[d.serviceLine] || d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
-                      <p className="text-slate-500">Our Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
-                      <p className="text-slate-500">
-                        Adj. Comp: <strong>${d.compRate?.toLocaleString()}</strong>
-                        {d.rawCompRate && d.rawCompRate !== d.compRate && (
-                          <span className="text-slate-400"> (base ${d.rawCompRate?.toLocaleString()}{d.careAdj ? `, care ${d.careAdj > 0 ? '+' : ''}${d.careAdj?.toLocaleString()}` : ''})</span>
-                        )}
-                      </p>
-                      <p className={`font-bold mt-0.5 ${d.marketPosition > 100 ? 'text-emerald-600' : d.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
-                        {d.marketPosition}% of market
-                      </p>
-                    </div>
-                  );
-                }}
-              />
-              {['AL','AL/MC','HC','HC/MC','SL','VIL'].map(sl => {
-                const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
-                if (!slData.length) return null;
-                const SL_DOT_COLORS: Record<string,string> = {
-                  AL:'#0d9488', 'AL/MC':'#7c3aed', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#9333ea',
-                };
-                const color = SL_DOT_COLORS[sl] || '#64748b';
-                return (
-                  <Scatter key={sl} name={sl} data={slData} fill={color}>
-                    {slData.map((_: any, i: number) => (
-                      <Cell key={i} fill={color} fillOpacity={0.75} />
-                    ))}
-                  </Scatter>
-                );
-              })}
-            </ScatterChart>
-          </ResponsiveContainer>
-          {/* SL legend */}
-          <div className="flex flex-wrap gap-3 mt-1 justify-center">
-            {(['AL','AL/MC','HC','HC/MC','SL','VIL'] as const).filter(sl => compPositionData.some((d:any) => d.serviceLine===sl)).map(sl => {
-              const SL_DOT_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#7c3aed', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#9333ea' };
-              return (
-                <span key={sl} className="flex items-center gap-1 text-[9px] text-slate-500">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: SL_DOT_COLORS[sl] }} />
-                  {SL_DISPLAY[sl] || sl}
-                </span>
-              );
-            })}
-          </div>
-        </div>
+
+          {/* Fullscreen scatter dialog */}
+          <Dialog open={scatterExpanded} onOpenChange={setScatterExpanded}>
+            <DialogContent className="max-w-[96vw] w-[1200px] max-h-[95vh] flex flex-col gap-0 p-0 overflow-hidden">
+              <DialogHeader className="px-6 pt-5 pb-3 border-b border-slate-100 shrink-0">
+                <DialogTitle className="text-base font-semibold text-slate-800">Competitive Position</DialogTitle>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {compPositionData.length} location/SL combinations · X = occupancy · Y = rate vs market
+                </p>
+              </DialogHeader>
+              <div className="flex-1 px-6 pt-4 pb-2 min-h-0">
+                {renderScatterChart(500, 11)}
+              </div>
+              <div className="px-6 pb-5 shrink-0">
+                {renderScatterLegend("text-xs")}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </>
       )}
 
       {/* ══ ACTIVE RULES ══ */}
