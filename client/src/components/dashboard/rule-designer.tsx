@@ -208,7 +208,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [rules, setRules] = useState<AdjustmentRule[]>([]);
-  const [rulesOpen, setRulesOpen] = useState(true);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [impactData, setImpactData] = useState<ImpactData | null>(null);
   const [isLoadingImpact, setIsLoadingImpact] = useState(false);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
