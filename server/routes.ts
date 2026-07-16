@@ -17168,6 +17168,7 @@ Return ONLY valid JSON, no markdown fences:
                             : null;
         const annualImpact  = monthlyImpact != null ? Math.round(monthlyImpact * 12) : null;
         const projected = useT3 && !!(has && c!.extrapolated);
+        const usedT3 = (useT3 && has) || (!hasProjectedRate && has);
         return {
           unitsImpacted: a.unitsImpacted,
           unitsSold: a.unitsSold,
@@ -17178,6 +17179,7 @@ Return ONLY valid JSON, no markdown fences:
           annualRevenueImpact: annualImpact,
           projected,
           dateApplied: a.earliestApplied,
+          method: usedT3 ? 't3' : 'rate-delta',
           calc: has ? {
             t3Before: Math.round(c!.t3Before),
             t3After: Math.round(c!.t3After),

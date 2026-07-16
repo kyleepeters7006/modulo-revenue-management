@@ -76,6 +76,14 @@ interface PerfMetrics {
   annualRevenueImpact: number | null;
   projected?: boolean;
   dateApplied: string | null;
+  method?: "t3" | "rate-delta";
+  calc?: {
+    t3Before: number;
+    t3After: number;
+    monthsBefore: number;
+    monthsAfter: number;
+    extrapolated: boolean;
+  } | null;
 }
 
 interface DetailRow extends PerfMetrics {
@@ -491,7 +499,7 @@ export function RulePerformanceTable({
             <p className="mt-2 text-[11px] text-muted-foreground">
               <span className="font-medium">Summary</span> shows aggregated totals per strategy group.
               Switch to <span className="font-medium">Detail</span> to see individual rules — expand each rule to view the breakdown by location, service line, and room type.{" "}
-              <span className="font-medium">Revenue impact</span> = sum of the rate adjustment across all impacted units (rule-adjusted rate − street rate). Click any impact value for the full calculation.
+              <span className="font-medium">Revenue impact</span>: historical pricing changes compare actual occupied-room revenue for the 3 months before vs. after the change; active rules sum the rate adjustment across impacted units. Click any impact value for the full calculation.
             </p>
           </>
         )}
@@ -508,6 +516,48 @@ export function RulePerformanceTable({
             <DialogDescription className="whitespace-normal break-words">{calcOpen?.title}</DialogDescription>
           </DialogHeader>
           {calcOpen?.metrics.monthlyRevenueImpact != null ? (
+            calcOpen.metrics.method === "t3" && calcOpen.metrics.calc ? (
+              <div className="space-y-3 text-sm">
+                <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Units impacted</span>
+                    <span className="font-medium tabular-nums">{calcOpen.metrics.unitsImpacted.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border pt-2">
+                    <span className="text-muted-foreground">
+                      Avg monthly revenue before
+                      <span className="block text-[10px]">occupied rooms, {calcOpen.metrics.calc.monthsBefore} month{calcOpen.metrics.calc.monthsBefore === 1 ? "" : "s"} before the change</span>
+                    </span>
+                    <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3Before)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">
+                      Avg monthly revenue after
+                      <span className="block text-[10px]">occupied rooms, {calcOpen.metrics.calc.monthsAfter} month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} after the change{calcOpen.metrics.calc.extrapolated ? " (all available so far)" : ""}</span>
+                    </span>
+                    <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3After)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border pt-2">
+                    <span className="font-medium">Monthly revenue impact (after − before)</span>
+                    <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">Annual revenue impact (monthly × 12)</span>
+                    <span className={`font-semibold tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {fmtMoney(calcOpen.metrics.annualRevenueImpact)}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground space-y-1.5">
+                  <p>For historical pricing changes, impact is measured from actual results: the average monthly revenue of occupied rooms in the matching location, service line, and room type for the 3 months before the change, compared to the 3 months after. HC and HC/MC daily rates are converted to monthly (× 30.4).</p>
+                  {calcOpen.metrics.calc.extrapolated && (
+                    <p>Fewer than 3 months have passed since this change, so the average of the months available so far is used as the monthly run-rate and extrapolated to annual.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
             <div className="space-y-3 text-sm">
               <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
                 <div className="flex items-center justify-between">
@@ -532,6 +582,7 @@ export function RulePerformanceTable({
                 <p>When multiple rules stack on a unit, each rule is credited with its proportional share of the combined adjustment so nothing is double-counted.</p>
               </div>
             </div>
+            )
           ) : (
             <p className="text-sm text-muted-foreground">
               No rate adjustment data available for this rule in the selected date range.
