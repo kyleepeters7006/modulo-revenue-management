@@ -328,29 +328,21 @@ export function RulePerformanceTable({
             </DialogTitle>
             <DialogDescription className="whitespace-normal break-words">{calcOpen?.title}</DialogDescription>
           </DialogHeader>
-          {calcOpen?.metrics.calc ? (
+          {calcOpen?.metrics.monthlyRevenueImpact != null ? (
             <div className="space-y-3 text-sm">
               <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Avg monthly revenue before rule (T{calcOpen.metrics.calc.monthsBefore})
-                  </span>
-                  <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3Before)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Avg monthly revenue after rule ({calcOpen.metrics.calc.monthsAfter} mo{calcOpen.metrics.calc.extrapolated ? ", extrapolated" : ""})
-                  </span>
-                  <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3After)}</span>
+                  <span className="text-muted-foreground">Units impacted</span>
+                  <span className="font-medium tabular-nums">{calcOpen.metrics.unitsImpacted.toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-border pt-2">
-                  <span className="font-medium">Monthly impact (after − before)</span>
+                  <span className="font-medium">Monthly rate impact</span>
                   <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">Annual impact (monthly × 12)</span>
+                  <span className="font-medium">Annual rate impact (monthly × 12)</span>
                   <span className={`font-semibold tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(calcOpen.metrics.annualRevenueImpact)}
                   </span>
@@ -358,56 +350,20 @@ export function RulePerformanceTable({
               </div>
               <div className="text-xs text-muted-foreground space-y-1.5">
                 <p>
-                  Revenue impact compares the trailing 3-month (T3) average realized revenue for each unit
-                  type before the rule was applied against the average for the 3 months after. Realized
-                  revenue is the sum of in-house rates for occupied units, so this captures both rate changes
-                  and occupancy changes.
-                </p>
-                {calcOpen.metrics.calc.extrapolated && (
-                  <p>
-                    Fewer than 3 months have elapsed since this rule was applied, so the average of the{" "}
-                    {calcOpen.metrics.calc.monthsAfter} elapsed month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} is
-                    extrapolated to a 3-month run-rate.
-                  </p>
-                )}
-                <p>
-                  When multiple rules stack on a unit, the impact is split proportionally — each rule is
-                  credited with its share of the unit-type's revenue change, so nothing is double-counted.
-                </p>
-              </div>
-            </div>
-          ) : calcOpen?.metrics.projected && calcOpen.metrics.monthlyRevenueImpact != null ? (
-            <div className="space-y-3 text-sm">
-              <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
-                <div className="flex items-center justify-between border-b border-border pb-2 mb-1">
-                  <span className="text-muted-foreground font-medium">Projected monthly impact</span>
-                  <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)} <span className="text-xs font-normal opacity-70">(est.)</span>
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Projected annual impact (monthly × 12)</span>
-                  <span className={`font-medium tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    {fmtMoney(calcOpen.metrics.annualRevenueImpact)} <span className="text-xs font-normal opacity-70">(est.)</span>
-                  </span>
-                </div>
-              </div>
-              <div className="text-xs text-muted-foreground space-y-1.5">
-                <p>
-                  Not yet enough before/after revenue history to compute a realized T3 comparison. This
-                  estimate is based on the difference between the rule-adjusted rate and the current
-                  in-house rate across all impacted units (HC and HC/MC rates converted to monthly).
+                  Impact = sum of the rate adjustment applied to each impacted unit
+                  (rule-adjusted rate − street rate), so this reflects only the rate change the rule
+                  introduced — not occupancy shifts. HC and HC/MC daily rates are converted to monthly
+                  (× 30.4) before summing.
                 </p>
                 <p>
-                  Once at least one full revenue snapshot month exists both before and after this rule was
-                  applied, this will automatically switch to the realized T3 comparison.
+                  When multiple rules stack on a unit, each rule is credited with its proportional share
+                  of the combined adjustment, so nothing is double-counted.
                 </p>
               </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Not enough revenue history to compute a before/after comparison for this rule (needs at least
-              one month of data before and after the rule was applied).
+              No rate adjustment data available for this rule in the selected date range.
             </p>
           )}
         </DialogContent>
