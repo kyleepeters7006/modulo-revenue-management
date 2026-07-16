@@ -15456,12 +15456,17 @@ Return ONLY valid JSON with no markdown fences:
           GROUP BY roh.service_line
         `, rohParams),
 
-        // Competitors for the client
+        // Competitors for the client — from both the competitors table and
+        // imported competitive survey data (most clients' rates live in the latter).
         pool.query(`
-          SELECT COUNT(*) AS comp_count,
-                 ROUND(AVG(COALESCE(NULLIF(avg_care_rate,0), NULLIF(street_rate,0)))) AS avg_comp_rate,
-                 COUNT(DISTINCT service_lines) AS sl_count
-          FROM competitors WHERE client_id = $1
+          SELECT
+            (SELECT COUNT(*) FROM competitors WHERE client_id = $1) AS comp_count,
+            (SELECT ROUND(AVG(COALESCE(NULLIF(avg_care_rate,0), NULLIF(street_rate,0))))
+               FROM competitors WHERE client_id = $1) AS avg_comp_rate,
+            (SELECT COUNT(DISTINCT competitor_name)
+               FROM competitive_survey_data WHERE client_id = $1) AS survey_comp_count,
+            (SELECT ROUND(AVG(NULLIF(monthly_rate_avg,0))::numeric)
+               FROM competitive_survey_data WHERE client_id = $1) AS survey_avg_rate
         `, [clientId]),
       ]);
 
@@ -15583,8 +15588,12 @@ Return ONLY valid JSON with no markdown fences:
         serviceLine !== 'All' ? `service line: ${serviceLine}` : null,
       ].filter(Boolean).join('; ') || 'full portfolio';
 
-      const compInfo = parseInt(c?.comp_count || '0') > 0
-        ? `${c.comp_count} competitors tracked, avg rate $${parseInt(c.avg_comp_rate || '0').toLocaleString()}/mo`
+      const directCompCount = parseInt(c?.comp_count || '0');
+      const surveyCompCount = parseInt(c?.survey_comp_count || '0');
+      const totalCompCount = directCompCount + surveyCompCount;
+      const compAvgRate = parseInt(c?.avg_comp_rate || c?.survey_avg_rate || '0');
+      const compInfo = totalCompCount > 0
+        ? `${totalCompCount.toLocaleString()} competitors tracked${surveyCompCount > 0 ? ' (incl. competitive survey data)' : ''}, avg market rate $${compAvgRate.toLocaleString()}/mo`
         : 'no competitors configured';
 
       // Replace the internal code "VIL" with the sales term "Patio Homes" in all data
