@@ -14818,7 +14818,13 @@ Respond in JSON format:
   app.get("/api/adjustment-rules/history", async (req: any, res) => {
     try {
       const { from, to, locationId } = req.query;
-      const conditions: any[] = [sql`${adjustmentRules.isHistorical} IS TRUE`];
+      const clientId = req.clientId || 'demo';
+      const conditions: any[] = [
+        sql`${adjustmentRules.isHistorical} IS TRUE`,
+        // Historical pricing records are tied to a specific client's locations.
+        // Rules with no location can't be attributed to any client — exclude them.
+        sql`${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId})`,
+      ];
       if (from && /^\d{4}-\d{2}-\d{2}$/.test(String(from))) {
         conditions.push(sql`${adjustmentRules.effectiveDate} >= ${String(from)}`);
       }
@@ -14856,6 +14862,11 @@ Respond in JSON format:
       // Historical records live in the Pricing History view, not the active rules list
       if (includeHistorical !== 'true') {
         conditions.push(sql`${adjustmentRules.isHistorical} IS NOT TRUE`);
+      } else {
+        // Historical rules are client-specific (via their location). Active rules
+        // stay global by design; historical ones without a matching location for
+        // this client (including orphans with no location) are filtered out.
+        conditions.push(sql`(${adjustmentRules.isHistorical} IS NOT TRUE OR ${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId}))`);
       }
       if (locationId) {
         conditions.push(or(
