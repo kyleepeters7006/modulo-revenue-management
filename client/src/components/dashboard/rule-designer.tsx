@@ -1369,7 +1369,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       {rules.length > 0 && (() => {
         const activeRules   = rules.filter(r => r.isActive);
         const disabledRules = rules.filter(r => !r.isActive);
-        const activeCount   = activeRules.length;
+        const activeCount   = activeRules.filter(r => (r.affectedUnits ?? 0) > 0).length;
 
         // Priority-ordered active rules: exclusive rules compete for units; additive always stack
         const sortedActive   = [...activeRules].reverse(); // oldest first → priority 1, 2, 3...
