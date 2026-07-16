@@ -1442,7 +1442,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <CheckCircle2 className="h-4 w-4 text-teal-600 shrink-0" />
-                        <span className="text-base font-semibold text-gray-900">Rules</span>
+                        <span className="text-base font-semibold text-gray-900">Rule Administration</span>
                         {activeCount > 0
                           ? <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 border border-green-200 px-2 py-0.5 text-xs font-medium">{activeCount} active</span>
                           : <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">none active</span>
