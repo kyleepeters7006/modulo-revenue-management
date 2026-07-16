@@ -15289,7 +15289,7 @@ Return ONLY valid JSON with no markdown fences:
           marketPosition,
           occupancy: rtoOccPct,
         };
-      }).filter(Boolean);
+      }).filter((p): p is NonNullable<typeof p> => !!p && (p.occupancy ?? 0) > 0);
 
       res.json(points);
     } catch (err) {
