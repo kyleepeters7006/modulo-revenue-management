@@ -3,3 +3,4 @@
 - [Reference-data + active-rules perf](ref-data-active-rules-perf.md) — both endpoints had N-query anti-patterns; fixed with batch in-memory approach and parallel Promise.all.
 - [Adjustment rules schema](adjustment-rules-schema.md) — has NO affected_units or affected_campuses columns; use execution_count as proxy. Impact columns: monthly_impact, annual_impact (snake_case from pool.query rows).
 - [Rule History debugging lessons](rule-history-debug.md) — three root causes fixed for 0 move-ins / 0 speed vs expected in Rule History section.
+- [Occupancy source of truth](occupancy-source.md) — room_type_occupancy_history is authoritative; several endpoints had occupied_yn fallbacks that were never overridden.

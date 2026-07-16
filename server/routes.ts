@@ -5979,10 +5979,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // ── Basic occupancy / rate stats ───────────────────────────────────────
       const totalUnits = filteredData.length;
-      const occupiedUnits = filteredData.filter(u => u.occupiedYN).length;
-      const vacantUnits = totalUnits - occupiedUnits;
-      const occupancyRate = totalUnits > 0 ? occupiedUnits / totalUnits : 0;
       const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
+
+      // ── Authoritative occupancy: room_type_occupancy_history overrides occupied_yn ──
+      const aiSuggestMY = latestMonth
+        ? { year: parseInt(latestMonth.slice(0, 4)), month: parseInt(latestMonth.slice(5, 7)) }
+        : null;
+      let rtoOcc = 0, rtoAvail = 0;
+      if (aiSuggestMY) {
+        const rtoP: any[] = [clientId, aiSuggestMY.year, aiSuggestMY.month];
+        const rtoLocW = location ? ` AND location_name = $${rtoP.push(location)}` : '';
+        const rtoRes = await pool.query(
+          `SELECT service_line, SUM(occ_units) AS occ, SUM(available_units) AS avail
+           FROM room_type_occupancy_history
+           WHERE client_id=$1 AND year=$2 AND month=$3${rtoLocW}
+           GROUP BY service_line`,
+          rtoP
+        );
+        for (const r of rtoRes.rows) {
+          const toks = String(r.service_line || '').split(',').map((t: string) => t.trim());
+          if (!serviceLine || toks.includes(serviceLine)) {
+            rtoOcc   += parseFloat(r.occ   || '0');
+            rtoAvail += parseFloat(r.avail || '0');
+          }
+        }
+      }
+      const hasRTO = rtoAvail > 0;
+      const occupiedUnits = hasRTO ? Math.round(rtoOcc)              : filteredData.filter(u => u.occupiedYN).length;
+      const vacantUnits   = hasRTO ? Math.round(rtoAvail - rtoOcc)   : totalUnits - occupiedUnits;
+      const occupancyRate = hasRTO ? rtoOcc / rtoAvail               : (totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).length / totalUnits : 0);
 
       const avgStreet = filteredData.reduce((s, u) => s + (u.streetRate || 0), 0) / totalUnits;
       const avgInHouse = filteredData.reduce((s, u) => s + (u.inHouseRate || 0), 0) / totalUnits;
@@ -6202,44 +6227,108 @@ Focus areas (in order):
       if (serviceLine && serviceLine !== 'all') filteredData = filteredData.filter(u => u.serviceLine === serviceLine);
 
       const totalUnits = filteredData.length;
-      const occupiedUnits = filteredData.filter(u => u.occupiedYN).length;
-      const vacantUnits = totalUnits - occupiedUnits;
-      const occupancyRate = totalUnits > 0 ? occupiedUnits / totalUnits : 0;
+      const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
       const avgStreet = totalUnits > 0 ? filteredData.reduce((s, u) => s + (u.streetRate || 0), 0) / totalUnits : 0;
-      const avgInHouse = totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).reduce((s, u) => s + (u.inHouseRate || 0), 0) / Math.max(1, occupiedUnits) : 0;
 
       const withModulo = filteredData.filter(u => u.moduloSuggestedRate && u.moduloSuggestedRate > 0);
       const withAI = filteredData.filter(u => u.aiSuggestedRate && u.aiSuggestedRate > 0);
       const avgModulo = withModulo.length ? withModulo.reduce((s, u) => s + u.moduloSuggestedRate!, 0) / withModulo.length : null;
       const avgAI = withAI.length ? withAI.reduce((s, u) => s + u.aiSuggestedRate!, 0) / withAI.length : null;
 
-      const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
+      // ── Authoritative occupancy from room_type_occupancy_history ──────────
+      // Query grouped by (location_name, service_line) so we can build per-campus
+      // and per-SL occupancy breakdowns from the physical-room counts.
+      const chatMY = latestMonth
+        ? { year: parseInt(latestMonth.slice(0, 4)), month: parseInt(latestMonth.slice(5, 7)) }
+        : null;
+      // Map: "campus||sl-token" -> { occ, avail }
+      const rtoMapChat = new Map<string, { occ: number; avail: number }>();
+      let rtoTotOcc = 0, rtoTotAvail = 0;
+      if (chatMY) {
+        const chatRtoP: any[] = [clientId, chatMY.year, chatMY.month];
+        const chatLocW = (location && location !== 'all')
+          ? ` AND location_name = $${chatRtoP.push(location)}` : '';
+        const chatRtoRes = await pool.query(
+          `SELECT location_name, service_line,
+                  SUM(occ_units) AS occ, SUM(available_units) AS avail
+           FROM room_type_occupancy_history
+           WHERE client_id=$1 AND year=$2 AND month=$3${chatLocW}
+           GROUP BY location_name, service_line`,
+          chatRtoP
+        );
+        for (const r of chatRtoRes.rows) {
+          const camp  = String(r.location_name || '');
+          const o     = parseFloat(r.occ   || '0');
+          const av    = parseFloat(r.avail || '0');
+          const toks  = String(r.service_line || '').split(',').map((t: string) => t.trim());
+          for (const tok of toks) {
+            if (serviceLine && serviceLine !== 'all' && tok !== serviceLine) continue;
+            const key = `${camp}||${tok}`;
+            const e   = rtoMapChat.get(key) || { occ: 0, avail: 0 };
+            e.occ   += o;
+            e.avail += av;
+            rtoMapChat.set(key, e);
+            rtoTotOcc   += o;
+            rtoTotAvail += av;
+          }
+        }
+      }
+      const chatHasRTO = rtoTotAvail > 0;
+      const occupiedUnits = chatHasRTO ? Math.round(rtoTotOcc)             : filteredData.filter(u => u.occupiedYN).length;
+      const vacantUnits   = chatHasRTO ? Math.round(rtoTotAvail - rtoTotOcc) : totalUnits - occupiedUnits;
+      const occupancyRate = chatHasRTO ? rtoTotOcc / rtoTotAvail           : (totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).length / totalUnits : 0);
+      const avgInHouse    = totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).reduce((s, u) => s + (u.inHouseRate || 0), 0) / Math.max(1, occupiedUnits) : 0;
 
-      // Per-service-line occupancy (across current scope)
-      const slOcc: Record<string, { total: number; occupied: number }> = {};
-      filteredData.forEach(u => {
-        const sl = u.serviceLine || 'Unknown';
-        if (!slOcc[sl]) slOcc[sl] = { total: 0, occupied: 0 };
-        slOcc[sl].total++;
-        if (u.occupiedYN) slOcc[sl].occupied++;
-      });
       const pct = (occ: number, tot: number) => (tot ? (100 * occ / tot).toFixed(1) : '0.0');
-      const slOccStr = Object.entries(slOcc)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([sl, o]) => `${sl}: ${o.occupied}/${o.total} (${pct(o.occupied, o.total)}%)`)
-        .join(', ');
 
-      // Per-campus x service-line occupancy breakdown — gives the AI the granular
-      // data needed to answer questions like "how many campuses have AL/MC under 90%".
-      const campusSl = new Map<string, Map<string, { total: number; occupied: number }>>();
-      for (const u of filteredData) {
-        const camp = u.location || 'Unknown';
-        const sl = u.serviceLine || 'Unknown';
-        if (!campusSl.has(camp)) campusSl.set(camp, new Map());
-        const m = campusSl.get(camp)!;
-        const e = m.get(sl) || { total: 0, occupied: 0 };
-        e.total++; if (u.occupiedYN) e.occupied++;
-        m.set(sl, e);
+      // Per-service-line occupancy — prefer RTO, fall back to rent-roll
+      let slOccStr: string;
+      if (chatHasRTO) {
+        const slTotals = new Map<string, { occ: number; avail: number }>();
+        for (const [key, v] of rtoMapChat) {
+          const sl = key.split('||')[1] || 'Unknown';
+          const e  = slTotals.get(sl) || { occ: 0, avail: 0 };
+          e.occ   += v.occ;
+          e.avail += v.avail;
+          slTotals.set(sl, e);
+        }
+        slOccStr = Array.from(slTotals.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([sl, v]) => `${sl}: ${Math.round(v.occ)}/${Math.round(v.avail)} (${pct(v.occ, v.avail)}%)`)
+          .join(', ');
+      } else {
+        const slOcc: Record<string, { total: number; occupied: number }> = {};
+        filteredData.forEach(u => {
+          const sl = u.serviceLine || 'Unknown';
+          if (!slOcc[sl]) slOcc[sl] = { total: 0, occupied: 0 };
+          slOcc[sl].total++;
+          if (u.occupiedYN) slOcc[sl].occupied++;
+        });
+        slOccStr = Object.entries(slOcc)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([sl, o]) => `${sl}: ${o.occupied}/${o.total} (${pct(o.occupied, o.total)}%)`)
+          .join(', ');
+      }
+
+      // Per-campus x service-line occupancy — prefer RTO, fall back to rent-roll
+      const campusSl = new Map<string, Map<string, { occ: number; avail: number }>>();
+      if (chatHasRTO) {
+        for (const [key, v] of rtoMapChat) {
+          const [camp, sl] = key.split('||');
+          if (!campusSl.has(camp)) campusSl.set(camp, new Map());
+          campusSl.get(camp)!.set(sl || 'Unknown', v);
+        }
+      } else {
+        for (const u of filteredData) {
+          const camp = u.location || 'Unknown';
+          const sl   = u.serviceLine || 'Unknown';
+          if (!campusSl.has(camp)) campusSl.set(camp, new Map());
+          const m = campusSl.get(camp)!;
+          const e = m.get(sl) || { occ: 0, avail: 0 };
+          e.avail++;
+          if (u.occupiedYN) e.occ++;
+          m.set(sl, e);
+        }
       }
       const campusCount = campusSl.size;
       const campusOccLines = Array.from(campusSl.entries())
@@ -6248,9 +6337,9 @@ Focus areas (in order):
           let cTot = 0, cOcc = 0;
           const parts = Array.from(slMap.entries())
             .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([sl, o]) => {
-              cTot += o.total; cOcc += o.occupied;
-              return `${sl} ${o.occupied}/${o.total} (${pct(o.occupied, o.total)}%)`;
+            .map(([sl, v]) => {
+              cTot += v.avail; cOcc += v.occ;
+              return `${sl} ${Math.round(v.occ)}/${Math.round(v.avail)} (${pct(v.occ, v.avail)}%)`;
             });
           return `${camp} [overall ${pct(cOcc, cTot)}%]: ${parts.join(', ')}`;
         });
@@ -13501,19 +13590,46 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         inquiryTourVolume: 10
       };
       
-      // Calculate service-line-specific occupancy rate — use aggregation, not full table scan
-      const occRows = await pool.query<{ service_line: string; total: string; occupied: string }>(`
-        SELECT service_line, COUNT(*)::text AS total,
-               COUNT(*) FILTER (WHERE occupied_yn = true)::text AS occupied
-        FROM rent_roll_data
+      // Calculate service-line-specific occupancy from room_type_occupancy_history (authoritative)
+      // Falls back to rent_roll_data occupied_yn counts if RTO has no data.
+      const rtoSLRes = await pool.query(`
+        SELECT service_line, SUM(occ_units) AS occ, SUM(available_units) AS avail
+        FROM room_type_occupancy_history
         WHERE client_id = $1
+          AND (year * 100 + month) = (
+            SELECT MAX(year * 100 + month) FROM room_type_occupancy_history WHERE client_id = $1
+          )
         GROUP BY service_line
       `, [clientId]);
       const serviceLineOccupancy: Record<string, number> = {};
-      for (const row of occRows.rows) {
-        const total = parseInt(row.total, 10);
-        const occupied = parseInt(row.occupied, 10);
-        serviceLineOccupancy[row.service_line] = total > 0 ? occupied / total : 0.87;
+      if (rtoSLRes.rows.length > 0) {
+        // Accumulate occ/avail per SL token (handling combined SL strings like "AL, AL/MC")
+        const slAgg: Record<string, { occ: number; avail: number }> = {};
+        for (const r of rtoSLRes.rows) {
+          const o  = parseFloat(r.occ   || '0');
+          const av = parseFloat(r.avail || '0');
+          const toks = String(r.service_line || '').split(',').map((t: string) => t.trim());
+          for (const tok of toks) {
+            if (!slAgg[tok]) slAgg[tok] = { occ: 0, avail: 0 };
+            slAgg[tok].occ   += o;
+            slAgg[tok].avail += av;
+          }
+        }
+        for (const [sl, v] of Object.entries(slAgg)) {
+          serviceLineOccupancy[sl] = v.avail > 0 ? v.occ / v.avail : 0.87;
+        }
+      } else {
+        // Fallback: rent_roll_data occupied_yn
+        const occRows = await pool.query<{ service_line: string; total: string; occupied: string }>(`
+          SELECT service_line, COUNT(*)::text AS total,
+                 COUNT(*) FILTER (WHERE occupied_yn = true)::text AS occupied
+          FROM rent_roll_data WHERE client_id = $1 GROUP BY service_line
+        `, [clientId]);
+        for (const row of occRows.rows) {
+          const total = parseInt(row.total, 10);
+          const occupied = parseInt(row.occupied, 10);
+          serviceLineOccupancy[row.service_line] = total > 0 ? occupied / total : 0.87;
+        }
       }
 
       // Use service-line-specific occupancy for this unit
@@ -15194,14 +15310,36 @@ Return ONLY valid JSON with no markdown fences:
       if (divisions.length) { whereClause += ` AND division = ANY($${p++})`; params.push(divisions); }
       if (slFilter !== 'All') { whereClause += ` AND service_line=$${p++}`; params.push(slFilter); }
 
-      const ourRates = await pool.query(`
-        SELECT location, service_line,
-          ROUND(AVG(street_rate)::numeric, 0) AS our_rate,
-          ROUND(COUNT(*) FILTER (WHERE occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS occupancy
-        FROM rent_roll_data
-        WHERE ${whereClause}
-        GROUP BY location, service_line
-      `, params);
+      const [ourRates, rtoOccRes] = await Promise.all([
+        pool.query(`
+          SELECT location, service_line,
+            ROUND(AVG(street_rate)::numeric, 0) AS our_rate,
+            ROUND(COUNT(*) FILTER (WHERE occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
+          FROM rent_roll_data
+          WHERE ${whereClause}
+          GROUP BY location, service_line
+        `, params),
+        // Authoritative occupancy aggregated per location (physical rooms, no B-bed inflation)
+        pool.query(`
+          SELECT location_name,
+                 SUM(occ_units) AS occ, SUM(available_units) AS avail
+          FROM room_type_occupancy_history
+          WHERE client_id=$1
+            AND (year * 100 + month) = (
+              SELECT MAX(year * 100 + month) FROM room_type_occupancy_history WHERE client_id=$1
+            )
+          GROUP BY location_name
+        `, [clientId]),
+      ]);
+
+      // Build RTO occupancy map: location_name -> occ% (0-100)
+      const rtoOccMap = new Map<string, number>();
+      for (const r of rtoOccRes.rows) {
+        const loc = String(r.location_name || '');
+        const o   = parseFloat(r.occ   || '0');
+        const av  = parseFloat(r.avail || '0');
+        if (av > 0) rtoOccMap.set(loc, Math.round(o / av * 1000) / 10);
+      }
 
       if (!ourRates.rows.length) return res.json([]);
 
@@ -15300,6 +15438,8 @@ Return ONLY valid JSON with no markdown fences:
 
         const ourRate = Number(row.our_rate);
         const marketPosition = Math.round((ourRate / adjustedCompRate) * 100);
+        // Prefer RTO occupancy (physical rooms); fall back to rent-roll count
+        const rtoOccPct = rtoOccMap.has(row.location) ? rtoOccMap.get(row.location)! : Number(row.rr_occupancy);
         return {
           location: row.location,
           serviceLine: sl,
@@ -15308,7 +15448,7 @@ Return ONLY valid JSON with no markdown fences:
           rawCompRate: compData.baseRate,
           careAdj: Math.round(careAdj),
           marketPosition,
-          occupancy: Number(row.occupancy),
+          occupancy: rtoOccPct,
         };
       }).filter(Boolean);
 
