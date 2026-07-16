@@ -492,6 +492,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
+  const [expandedImpactRow, setExpandedImpactRow] = useState<string | null>(null);
   const [scatterExpanded, setScatterExpanded] = useState(false);
 
   const params = new URLSearchParams();
@@ -804,52 +805,178 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 </div>
               </div>
 
-              {/* Per-rule breakdown */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
-                <div className="rounded-lg border border-slate-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Rule</th>
-                        <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Units</th>
-                        <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Monthly</th>
-                        <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Annual</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {activeRules.map((rule: any, i: number) => {
-                        const annual = rule.annualImpact || 0;
-                        const monthly = rule.monthlyImpact || 0;
-                        const isPos = annual >= 0;
-                        const action = rule.action || {};
-                        const adj = action.adjustmentType === 'percentage'
-                          ? `${action.adjustmentValue > 0 ? '+' : ''}${action.adjustmentValue}%`
-                          : `${action.adjustmentValue > 0 ? '+' : ''}$${Math.abs(action.adjustmentValue)}`;
+              {/* Per-rule breakdown — grouped by strategy, expandable rows */}
+              {(() => {
+                // Detect rules that share the same annual impact (likely double-counting)
+                const impactCount: Record<string, string[]> = {};
+                activeRules.forEach((r: any) => {
+                  const key = String(Math.round(r.annualImpact || 0));
+                  if (!impactCount[key]) impactCount[key] = [];
+                  impactCount[key].push(r.id);
+                });
+                const duplicateIds = new Set<string>(
+                  Object.values(impactCount)
+                    .filter(ids => ids.length > 1)
+                    .flat()
+                );
+                return (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
+                    {duplicateIds.size > 0 && (
+                      <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                        <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
+                        <span><span className="font-semibold">Possible double-count:</span> {duplicateIds.size} rules show identical impact numbers, meaning they may be qualifying the same units. Expand those rows for details and consider deactivating older/simpler versions.</span>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      {RULE_GROUPS.map(group => {
+                        const groupRules = activeRules.filter((r: any) => getRuleCategory(r) === group.id);
+                        if (!groupRules.length) return null;
+                        const GroupIcon = group.icon;
+                        const groupAnnual = groupRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
                         return (
-                          <tr key={rule.id || i} className="hover:bg-slate-50/60">
-                            <td className="px-3 py-2.5">
-                              <div className="font-medium text-slate-800 text-[13px]">{rule.name || 'Unnamed rule'}</div>
-                              <div className="text-[11px] text-slate-400">{adj} · {rule.serviceLine || 'All SLs'}</div>
-                            </td>
-                            <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{(rule.affectedUnits || 0).toLocaleString()}</td>
-                            <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</td>
-                            <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</td>
-                          </tr>
+                          <div key={group.id} className="rounded-lg border border-slate-200 overflow-hidden"
+                            style={{ borderLeftWidth: 3, borderLeftColor: group.accent }}>
+                            {/* Group header */}
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50 border-b border-slate-100">
+                              <div className="flex items-center gap-2">
+                                <GroupIcon className="h-3.5 w-3.5 shrink-0" style={{ color: group.accent }} />
+                                <span className="text-xs font-bold text-slate-700">{group.label}</span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${group.badge}`}>{groupRules.length}</span>
+                              </div>
+                              <span className={`text-sm font-bold tabular-nums ${groupAnnual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {fmtImpact(groupAnnual)}<span className="text-[10px] font-normal text-slate-400">/yr</span>
+                              </span>
+                            </div>
+                            {/* Rule rows */}
+                            <div className="divide-y divide-slate-100">
+                              {groupRules.map((rule: any) => {
+                                const isExpanded = expandedImpactRow === rule.id;
+                                const isDupe     = duplicateIds.has(rule.id);
+                                const annual  = rule.annualImpact  || 0;
+                                const monthly = rule.monthlyImpact || 0;
+                                const isPos   = annual >= 0;
+                                const action  = rule.action || {};
+                                const adjVal  = Number(action.adjustmentValue ?? 0);
+                                const adjPct  = action.adjustmentType === 'percentage';
+                                const adjDisp = adjPct
+                                  ? `${adjVal > 0 ? '+' : ''}${adjVal}%`
+                                  : `${adjVal > 0 ? '+' : '−'}$${Math.abs(adjVal).toLocaleString()}`;
+                                const units   = rule.affectedUnits || 0;
+                                // Derive avg street rate from stored impact
+                                const avgRate = adjPct && adjVal !== 0 && units > 0
+                                  ? Math.abs(monthly) / units / (Math.abs(adjVal) / 100)
+                                  : null;
+                                const triggerLabel = getTriggerLabel(rule);
+                                const sl = rule.serviceLine || 'All';
+                                // Describe all trigger conditions for expanded view
+                                const triggerObj = rule.trigger || {};
+                                const allConditions: any[] = triggerObj.conditions || (triggerObj.condition ? [triggerObj.condition] : []);
+                                const condLabels = allConditions.map((c: any) => {
+                                  const fieldMap: Record<string, string> = {
+                                    service_line_occupancy: 'SL occupancy',
+                                    room_type_occupancy: 'Room type occupancy',
+                                    campus_occupancy: 'Campus occupancy',
+                                    days_vacant: 'Days vacant',
+                                    street_to_comp_var: 'Street vs top comp',
+                                    vacant_units: 'Vacant units',
+                                  };
+                                  const fn = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
+                                  const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
+                                  const pct = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.field === 'street_to_comp_var' ? `${c.value}%` : String(c.value);
+                                  return `${fn} ${op} ${pct}`;
+                                });
+                                return (
+                                  <div key={rule.id}>
+                                    {/* Collapsed row — click to expand */}
+                                    <button
+                                      className={`w-full text-left px-3 py-2 hover:bg-slate-50/70 transition-colors flex items-start gap-3 ${isDupe ? 'bg-amber-50/40' : ''}`}
+                                      onClick={() => setExpandedImpactRow(isExpanded ? null : rule.id)}
+                                    >
+                                      <ChevronDown className={`h-3.5 w-3.5 mt-0.5 shrink-0 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="text-[13px] font-medium text-slate-800 leading-tight">{rule.name || 'Unnamed rule'}</span>
+                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
+                                          {isDupe && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠ may overlap</span>}
+                                        </div>
+                                        <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>
+                                      </div>
+                                      <div className="text-right shrink-0 pl-2">
+                                        <div className={`text-sm font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</div>
+                                        <div className="text-[11px] text-slate-400">{units.toLocaleString()} units</div>
+                                      </div>
+                                    </button>
+                                    {/* Expanded calculation detail */}
+                                    {isExpanded && (
+                                      <div className="mx-3 mb-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[12px] space-y-2">
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Calculation Detail</p>
+                                        {/* Trigger conditions */}
+                                        {condLabels.length > 0 && (
+                                          <div className="space-y-0.5">
+                                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Conditions (all must be true)</p>
+                                            {condLabels.map((cl: string, ci: number) => (
+                                              <div key={ci} className="flex items-center gap-1.5">
+                                                <span className="text-teal-400 text-[10px]">✓</span>
+                                                <span className="text-slate-600">{cl}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {condLabels.length === 0 && (
+                                          <p className="text-slate-500 italic">Always active — no conditions.</p>
+                                        )}
+                                        {/* Math */}
+                                        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 items-baseline border-t border-slate-200 pt-2">
+                                          {avgRate !== null && (
+                                            <>
+                                              <span className="text-slate-500">Avg street rate</span>
+                                              <span className="font-medium text-slate-700 tabular-nums">${Math.round(avgRate).toLocaleString()} / unit / mo</span>
+                                            </>
+                                          )}
+                                          <span className="text-slate-500">Qualifying units</span>
+                                          <span className="font-medium text-slate-700 tabular-nums">{units.toLocaleString()}</span>
+                                          <span className="text-slate-500">Adjustment</span>
+                                          <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-700' : 'text-red-700'}`}>{adjDisp}</span>
+                                          <span className="text-slate-500">Monthly impact</span>
+                                          {avgRate !== null ? (
+                                            <span className={`font-medium tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>
+                                              ${Math.round(avgRate).toLocaleString()} × {units.toLocaleString()} × {Math.abs(adjVal)}% = {fmtImpact(monthly)}
+                                            </span>
+                                          ) : (
+                                            <span className={`font-medium tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</span>
+                                          )}
+                                          <span className="text-slate-500">Annual impact</span>
+                                          <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 12 = {fmtImpact(annual)}</span>
+                                        </div>
+                                        {/* Overlap warning for this specific rule */}
+                                        {isDupe && (
+                                          <div className="flex items-start gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
+                                            <span className="text-amber-500 shrink-0">⚠</span>
+                                            <span>Another active rule shows the same impact amount, suggesting both are qualifying the same units. If this is an older or simpler version of a newer rule, consider deactivating it to avoid double-counting.</span>
+                                          </div>
+                                        )}
+                                        {rule.description && (
+                                          <p className="text-[11px] text-slate-400 italic border-t border-slate-200 pt-2 leading-relaxed">{rule.description}</p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
                         );
                       })}
-                    </tbody>
-                    <tfoot className="border-t-2 border-slate-200 bg-slate-50">
-                      <tr>
-                        <td className="px-3 py-2.5 font-bold text-slate-700 text-[13px]">Net Total</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-500 text-[13px]">{activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0).toLocaleString()}</td>
-                        <td className={`px-3 py-2.5 text-right tabular-nums font-bold text-[13px] ${totalAnnualImpact / 12 >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact / 12)}</td>
-                        <td className={`px-3 py-2.5 text-right tabular-nums font-black text-[13px] ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
+                    </div>
+                    {/* Net total footer */}
+                    <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-lg bg-slate-100 border border-slate-200">
+                      <span className="text-[13px] font-bold text-slate-700">Net Total</span>
+                      <span className={`text-base font-black tabular-nums ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}/yr</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Methodology note */}
               <div className="rounded-lg bg-teal-50 border border-teal-100 p-3 text-[12px] text-slate-600 space-y-1.5">
