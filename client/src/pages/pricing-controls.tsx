@@ -381,6 +381,7 @@ export default function PricingControls() {
           selectedLocations={selectedLocations}
           selectedRegions={selectedRegions}
           selectedDivisions={selectedDivisions}
+          selectedLocationId={selectedLocationId}
         />
 
         <div className="space-y-6 sm:space-y-8">
@@ -450,9 +451,10 @@ interface PricingCommentaryCardProps {
   selectedLocations: string[];
   selectedRegions: string[];
   selectedDivisions: string[];
+  selectedLocationId?: string;
 }
 
-function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions }: PricingCommentaryCardProps) {
+function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId }: PricingCommentaryCardProps) {
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
 
@@ -471,8 +473,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     retry: 1,
   });
 
+  const rulesQs = (() => {
+    const p = new URLSearchParams();
+    if (selectedLocationId) p.set('locationId', selectedLocationId);
+    if (selectedServiceLine && selectedServiceLine !== 'All') p.set('serviceLine', selectedServiceLine);
+    const s = p.toString();
+    return s ? '?' + s : '';
+  })();
+
   const { data: rulesData } = useQuery<any[]>({
-    queryKey: ['/api/adjustment-rules'],
+    queryKey: ['/api/adjustment-rules', selectedLocationId ?? '', selectedServiceLine ?? ''],
+    queryFn: () => fetch(`/api/adjustment-rules${rulesQs}`).then(r => r.json()),
     staleTime: 2 * 60 * 1000,
   });
 
