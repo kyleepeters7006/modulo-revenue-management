@@ -16967,7 +16967,12 @@ Return ONLY valid JSON, no markdown fences:
                ar.service_line AS rule_service_line, ar.service_lines AS rule_service_lines,
                loc.name AS location_name
         FROM adjustment_rules ar
-        JOIN locations loc ON loc.id = ar.location_id AND loc.client_id = $1
+        JOIN locations loc ON loc.client_id = $1
+          AND (
+            (ar.location_id IS NOT NULL AND loc.id = ar.location_id)
+            OR
+            (ar.location_id IS NULL AND ar.name LIKE 'Historical: ' || loc.name || ' %')
+          )
         WHERE ${histWhere}
       `, histParams);
 
@@ -17141,25 +17146,28 @@ Return ONLY valid JSON, no markdown fences:
         summaryCalc.set(rn, sc);
       }
 
-      const finish = (a: Agg, c: Calc | undefined) => {
+      const finish = (a: Agg, c: Calc | undefined, useT3 = false) => {
         const has = !!(c && c.hasData);
         // Days-to-sell: prefer post-rule-application actuals; fall back to days_vacant of occupied units
         const actualDts = a.dtsN > 0 ? a.dtsSum / a.dtsN : null;
         const projDts   = a.projDtsN > 0 ? a.projDtsSum / a.projDtsN : null;
         const avgDts    = actualDts ?? projDts;
-        const dtsFallback = actualDts == null && projDts != null;
         // Expected baseline: prefer sold-unit actuals; fall back to all-impacted-unit baseline
         const avgExp = a.expN > 0 ? a.expSum / a.expN
                      : a.allExpN > 0 ? a.allExpSum / a.allExpN
                      : null;
-        // Monthly revenue: use the per-unit rate delta (rule_adjusted_rate - in_house_rate)
-        // summed across impacted units. The T3 group-revenue delta is NOT used for the
-        // primary figure because it captures occupancy changes (new move-ins filling rooms)
-        // as well as the rate change, which wildly overstates the rule's rate contribution.
+        // For historical rules: use T3 revenue delta (avg occupied-room revenue 3 months
+        // before the effective date vs 3 months after). If fewer than 3 post-change months
+        // exist the monthly average of elapsed months is used; annual = monthly × 12.
+        // For active rules: fall back to rate-delta approach (projRateSum) which avoids
+        // overstating impact with occupancy-driven revenue swings.
         const hasProjectedRate = Math.abs(a.projRateSum) > 0;
-        const monthlyImpact = hasProjectedRate ? Math.round(a.projRateSum) : null;
+        const monthlyImpact = (useT3 && has) ? Math.round(c!.monthly)
+                            : hasProjectedRate ? Math.round(a.projRateSum)
+                            : has ? Math.round(c!.monthly)
+                            : null;
         const annualImpact  = monthlyImpact != null ? Math.round(monthlyImpact * 12) : null;
-        const projected = false; // rate delta is deterministic, not estimated
+        const projected = useT3 && !!(has && c!.extrapolated);
         return {
           unitsImpacted: a.unitsImpacted,
           unitsSold: a.unitsSold,
@@ -17183,11 +17191,11 @@ Return ONLY valid JSON, no markdown fences:
       const rows = Array.from(summary.entries()).map(([ruleName, agg]) => ({
         ruleName,
         category: categoryMap.get(ruleName) ?? 'hold',
-        ...finish(agg, summaryCalc.get(ruleName)),
+        ...finish(agg, summaryCalc.get(ruleName), histRuleNames.has(ruleName)),
         detail: Array.from(details.get(ruleName)?.entries() || [])
           .map(([gKey, d]) => ({
             location: d.location, serviceLine: d.serviceLine, roomType: d.roomType,
-            ...finish(d, detailCalc.get(`${ruleName}|${gKey}`)),
+            ...finish(d, detailCalc.get(`${ruleName}|${gKey}`), histRuleNames.has(ruleName)),
           }))
           .sort((x, y) => x.location.localeCompare(y.location) || x.serviceLine.localeCompare(y.serviceLine) || x.roomType.localeCompare(y.roomType)),
       })).sort((x, y) => (y.annualRevenueImpact || 0) - (x.annualRevenueImpact || 0));
