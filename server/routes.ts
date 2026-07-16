@@ -15464,7 +15464,7 @@ Return ONLY valid JSON with no markdown fences:
         const rateChange = (parseInt(last.avg_street_rate || '0') - parseInt(first.avg_street_rate || '0'));
         const occChange = (parseFloat(last.occ_pct || '0') - parseFloat(first.occ_pct || '0')).toFixed(1);
         const sign = rateChange >= 0 ? '+' : '';
-        return `${sl}: street rate ${sign}$${rateChange}/mo over 6mo, occ ${occChange > '0' ? '+' : ''}${occChange}pp (${first.upload_month}→${last.upload_month})`;
+        return `${sl}: street rate ${sign}$${rateChange}/mo over 6mo, occ ${occChange > '0' ? '+' : ''}${occChange}% (${first.upload_month}→${last.upload_month})`;
       }).join(' | ');
 
       // Rule detail for GPT
