@@ -1161,8 +1161,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       {/* ══ TREND BAND ══ */}
       {data?.pricingTrend && !isLoading && (
         <div className="px-6 py-3.5 border-b border-slate-100 bg-slate-50/60">
-          <span className="text-[9px] font-black uppercase tracking-[0.18em] text-teal-600 mr-2">6-Mo Trend</span>
-          <span className="text-[13px] leading-relaxed text-slate-600">{parseBold(data.pricingTrend)}</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600 mr-2">6-Mo Trend</span>
+          <span className="text-sm leading-relaxed text-slate-600">{parseBold(data.pricingTrend)}</span>
         </div>
       )}
 
@@ -1172,11 +1172,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           <div className="px-6 py-4 border-b border-slate-100">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Competitive Position</span>
-                <span className="text-[9px] text-slate-400">· {compPositionData.length} location/SL combinations</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Competitive Position</span>
+                <span className="text-[11px] text-slate-400">· {compPositionData.length} location/SL combinations</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-[9px] text-slate-400 italic">X = occupancy · Y = rate vs market</span>
+                <span className="text-[11px] text-slate-400 italic">X = occupancy · Y = rate vs market</span>
                 <button
                   onClick={() => setScatterExpanded(true)}
                   className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
@@ -1216,9 +1216,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           {/* section label */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Active Rules</span>
+              <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Active Rules</span>
               {data?.rulesSummary && (
-                <span className="hidden sm:inline text-[11px] text-slate-400 font-normal">— {data.rulesSummary}</span>
+                <span className="hidden sm:inline text-xs text-slate-400 font-normal">— {data.rulesSummary}</span>
               )}
             </div>
             <button
