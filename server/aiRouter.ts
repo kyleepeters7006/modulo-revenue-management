@@ -1,14 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 
-const CLAUDE_MODEL = 'claude-opus-4-5';
+const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const GPT_MODEL = 'gpt-5.4';
 
+// Prefer Replit AI Integrations (billed to the Replit account, no personal key
+// needed); fall back to a personal ANTHROPIC_API_KEY if one is ever set.
+const hasAIIntegrationsAnthropic = !!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
 const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;
 
-export const anthropicClient = hasAnthropicKey
-  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : null;
+export const anthropicClient = hasAIIntegrationsAnthropic
+  ? new Anthropic({
+      apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+    })
+  : hasAnthropicKey
+    ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    : null;
 
 export const gptClient = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -32,7 +40,6 @@ export async function callClaude(
       const response = await anthropicClient.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: maxTokens,
-        temperature,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       });
