@@ -999,7 +999,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 12 = {fmtImpact(annual)}</span>
                                         </div>
                                         <p className="text-[10px] text-slate-400 leading-relaxed">
-                                          Only new move-ins pay the adjusted rate, so impact = trailing-3-month average move-ins per month × the rate change, summed across qualifying campuses.
+                                          Only new move-ins pay the adjusted rate, so impact = qualifying units × the service line's move-in rate (trailing-3-month move-ins ÷ active units) × the rate change.
                                         </p>
                                         {/* Overlap warning for this specific rule */}
                                         {isDupe && (
@@ -1034,7 +1034,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               <div className="rounded-lg bg-teal-50 border border-teal-100 p-3 text-[12px] text-slate-600 space-y-1.5">
                 <p className="font-semibold text-teal-700 mb-1">How the math works</p>
                 <p><span className="font-medium">Qualifying units</span> are those whose campus/service-line/room-type group currently meets the rule's trigger conditions (e.g. occupancy and competitor-variance thresholds) and matches the rule's filters.</p>
-                <p><span className="font-medium">Monthly impact</span> = average move-ins per month for qualifying units (trailing 3 months) × the rate change per unit. New residents come in at the adjusted rate, so impact accrues at the pace of move-ins — not across every unit at once.</p>
+                <p><span className="font-medium">Monthly impact</span> = expected move-ins per month for qualifying units × the rate change per unit. Move-ins/mo = qualifying units × the service line's move-in rate (trailing-3-month move-ins ÷ active units). New residents come in at the adjusted rate, so impact accrues at the pace of move-ins.</p>
                 <p><span className="font-medium">Annual impact</span> = Monthly impact × 12.</p>
                 <p><span className="font-medium">HC &amp; HC/MC rates</span> are stored as daily rates in the system and are converted to monthly (× 30.4) before the calculation.</p>
                 <p><span className="font-medium">Lift</span> = total from rules that increase rates. <span className="font-medium">Concessions</span> = total from rules that reduce rates. <span className="font-medium">Net</span> = Lift + Concessions.</p>

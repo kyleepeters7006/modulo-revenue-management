@@ -44,6 +44,7 @@ export interface RuleImpactContext {
   groups: Map<string, UnitRow[]>;            // `${locId}|${sl}|${rt}`
   metrics: Map<string, GroupAgg>;            // `${locId}`, `${locId}|${sl}`, `${locId}|${sl}|${rt}`
   moveMap: Map<string, number>;              // `${locationName}||${sl}||${rt}` -> t3 move-ins / month
+  slMoveInRate: Map<string, number>;         // service line -> t3 move-ins / month / active unit
 }
 
 export interface RuleCampusImpact {
@@ -166,7 +167,46 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   }
 
   const moveMap = await getT3MoveInsMap(clientId);
-  return { clientId, latestMonth, units, groups, metrics, moveMap };
+
+  // Portfolio-wide move-in rate per service line: trailing-3-month move-in
+  // events (deduped per room + date) / 3 months / active units in the SL.
+  // Per-group event counts over-count (room-type strings vary between
+  // snapshots), so impact math uses this rate × qualified unit count instead.
+  const slRateRes = await pool.query(`
+    WITH t3 AS (
+      SELECT DISTINCT upload_month FROM rent_roll_data
+      WHERE client_id = $1 AND upload_month IS NOT NULL
+      ORDER BY upload_month DESC LIMIT 3
+    ),
+    ev AS (
+      SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line)
+        rr.service_line, rr.payor_type,
+        CASE
+          WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+          WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+          ELSE NULL END AS dt
+      FROM rent_roll_data rr
+      WHERE rr.client_id = $1 AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+    )
+    SELECT service_line, COUNT(*)::float / 3.0 AS per_month
+    FROM ev
+    WHERE dt IS NOT NULL AND TO_CHAR(dt,'YYYY-MM') IN (SELECT upload_month FROM t3)
+      AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+    GROUP BY service_line
+  `, [clientId]);
+
+  const slUnitCounts = new Map<string, number>();
+  for (const u of units) {
+    const sl = u.service_line || "Other";
+    slUnitCounts.set(sl, (slUnitCounts.get(sl) || 0) + 1);
+  }
+  const slMoveInRate = new Map<string, number>();
+  for (const r of slRateRes.rows as any[]) {
+    const total = slUnitCounts.get(r.service_line) || 0;
+    if (total > 0) slMoveInRate.set(r.service_line, (Number(r.per_month) || 0) / total);
+  }
+
+  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate };
 }
 
 /** Metric lookup with SL+RT → SL → campus fallback (mirrors the rate engine). */
@@ -341,7 +381,9 @@ export function computeQualifiedRuleImpact(
       .filter(r => r > 0);
     const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
     const delta = adjustmentType === "percentage" ? avgRate * (adjustmentValue / 100) : adjustmentValue;
-    const moveIns = ctx.moveMap.get(`${locationName}||${sl}||${rt}`) ?? 0;
+    // Move-ins = qualified units × portfolio move-in rate for the service line
+    // (T3 move-ins / month / active unit). Per-group raw counts over-count.
+    const moveIns = qualified.length * (ctx.slMoveInRate.get(sl) ?? 0);
     const gMonthly = moveIns * delta;
 
     affectedUnits += qualified.length;
