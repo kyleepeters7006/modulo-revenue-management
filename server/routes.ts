@@ -16678,7 +16678,7 @@ Return ONLY valid JSON, no markdown fences:
       }
       const now = new Date();
       const endDate = q.end ? new Date(q.end + 'T23:59:59') : now;
-      const startDate = q.start ? new Date(q.start + 'T00:00:00') : new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+      const startDate = q.start ? new Date(q.start + 'T00:00:00') : new Date(now.getTime() - 180 * 24 * 3600 * 1000);
       if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
         return res.status(400).json({ error: 'Invalid start or end date' });
       }
@@ -16808,6 +16808,7 @@ Return ONLY valid JSON, no markdown fences:
         unitsImpacted: number; unitsSold: number;
         dtsSum: number; dtsN: number;          // actual days-to-sell (sold units, post-rule)
         expSum: number; expN: number;          // expected baseline for sold units
+        allExpSum: number; allExpN: number;    // expected baseline for ALL impacted units (fallback)
         earliestApplied: Date | null;
         projRateSum: number;                   // fallback: sum of (rule_rate - in_house_rate) * multiplier
         projDtsSum: number;                    // fallback: sum of days_vacant for occupied units
@@ -16815,6 +16816,7 @@ Return ONLY valid JSON, no markdown fences:
       };
       const newAgg = (): Agg => ({
         unitsImpacted: 0, unitsSold: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0,
+        allExpSum: 0, allExpN: 0,
         earliestApplied: null, projRateSum: 0, projDtsSum: 0, projDtsN: 0,
       });
       // ruleName -> summary agg; ruleName -> detailKey -> agg
@@ -16856,6 +16858,8 @@ Return ONLY valid JSON, no markdown fences:
               a.projDtsSum += daysVacant;
               a.projDtsN += 1;
             }
+            // Accumulate baseline expected DTS for ALL units (fallback when no sold-after-rule units)
+            if (expected != null) { a.allExpSum += expected; a.allExpN += 1; }
             if (soldAfterRule) {
               a.unitsSold += 1;
               if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
@@ -16925,7 +16929,7 @@ Return ONLY valid JSON, no markdown fences:
         const cohortByMonth = new Map<string, Map<string, any[]>>();
         for (const em of effMonths) {
           const cRes = await pool.query(`
-            SELECT rr.location, rr.service_line, rr.room_type, rr.room_number
+            SELECT rr.location, rr.service_line, rr.room_type, rr.room_number, rr.occupied_yn
             FROM rent_roll_data rr
             WHERE rr.client_id = $1 AND rr.location = ANY($2)
               AND rr.upload_month = (
@@ -16948,7 +16952,10 @@ Return ONLY valid JSON, no markdown fences:
             : (hr.rule_service_line ? [hr.rule_service_line] : []);
           // Respect the page service-line filter
           if (serviceLine && ruleSLs.length && !ruleSLs.includes(serviceLine)) continue;
-          const ruleRTs: string[] = Array.isArray(filters.roomType) ? filters.roomType : [];
+          // Normalize raw room types from the rule filter to match standardized DB values
+          const ruleRTs: string[] = Array.isArray(filters.roomType) && filters.roomType.length
+            ? [...new Set((filters.roomType as string[]).map(rt => normalizeRoomType(rt)))]
+            : [];
           const appliedAt = new Date(hr.effective_date);
           const rn = hr.name as string;
           const cohort = cohortByMonth.get(monthOf(appliedAt))?.get(hr.location_name) || [];
@@ -16965,7 +16972,12 @@ Return ONLY valid JSON, no markdown fences:
             // Current occupancy/move-in comes from the latest snapshot of the same unit
             const latest = latestByKey.get(`${u.location}|${u.room_number}`);
             const moveIn = parseMoveIn(latest?.move_in_date ?? null);
-            const soldAfterRule = !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
+            // Primary: unit was vacant in the cohort snapshot but is now occupied = moved in after rule
+            // Fallback: date-based check when move_in_date is reliable
+            const wasVacantAtRule = !u.occupied_yn;
+            const isNowOccupied = !!(latest?.occupied_yn);
+            const soldAfterRule = (wasVacantAtRule && isNowOccupied) ||
+              !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
             const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
             const expected = expectedFor(u.service_line, u.room_type);
             // Projected fallback: compute actual rate delta from the rule's adjustment.
@@ -16994,6 +17006,8 @@ Return ONLY valid JSON, no markdown fences:
                 a.projDtsSum += histDaysVacant;
                 a.projDtsN += 1;
               }
+              // Accumulate baseline expected DTS for ALL units (fallback when no sold-after-rule units)
+              if (expected != null) { a.allExpSum += expected; a.allExpN += 1; }
               if (soldAfterRule) {
                 a.unitsSold += 1;
                 if (dts != null) { a.dtsSum += dts; a.dtsN += 1; }
@@ -17053,8 +17067,10 @@ Return ONLY valid JSON, no markdown fences:
         const projDts   = a.projDtsN > 0 ? a.projDtsSum / a.projDtsN : null;
         const avgDts    = actualDts ?? projDts;
         const dtsFallback = actualDts == null && projDts != null;
-        // Expected baseline
-        const avgExp = a.expN > 0 ? a.expSum / a.expN : null;
+        // Expected baseline: prefer sold-unit actuals; fall back to all-impacted-unit baseline
+        const avgExp = a.expN > 0 ? a.expSum / a.expN
+                     : a.allExpN > 0 ? a.allExpSum / a.allExpN
+                     : null;
         // Monthly revenue: prefer T3 realized delta; fall back to rate-delta projection
         const hasProjectedRate = !has && Math.abs(a.projRateSum) > 0;
         const monthlyImpact = has ? Math.round(c!.monthly)

@@ -94,7 +94,7 @@ export function RulePerformanceTable({
   selectedDivisions,
   selectedLocations,
 }: RulePerformanceTableProps = {}) {
-  const [start, setStart] = useState(() => isoDaysAgo(90));
+  const [start, setStart] = useState(() => isoDaysAgo(180));
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detailMode, setDetailMode] = useState(false);
