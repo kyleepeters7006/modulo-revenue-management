@@ -16866,12 +16866,15 @@ Return ONLY valid JSON, no markdown fences:
         const appliedAt = new Date(u.applied_at);
         const dKey = `${u.location}|${u.service_line}|${u.room_type}`;
         const share = 1 / ruleNames.length; // proportional split when rules stack
-        // Projected monthly rate delta (used as fallback when T3 history is unavailable)
+        // Projected monthly rate delta: rule_adjusted_rate - street_rate gives the
+        // actual Δ imposed by the rule (both are derived from the same base).
+        // Using in_house_rate (=0 for vacant units) would inflate the delta to the
+        // full rate rather than just the rule's adjustment.
         const isDaily = ['HC', 'HC/MC'].includes(u.service_line);
         const rateMultiplier = isDaily ? 30.4 : 1;
-        const inHouseRate = Number(u.in_house_rate) || 0;
+        const streetRate = Number(u.street_rate) || 0;
         const ruleRate = Number(u.rule_adjusted_rate) || 0;
-        const projRateDelta = (ruleRate - inHouseRate) * rateMultiplier;
+        const projRateDelta = (ruleRate - streetRate) * rateMultiplier;
         const daysVacant = u.days_vacant != null ? Number(u.days_vacant) : null;
         for (const rn of ruleNames) {
           const moveIn = parseMoveIn(u.move_in_date);
@@ -17102,13 +17105,14 @@ Return ONLY valid JSON, no markdown fences:
         const avgExp = a.expN > 0 ? a.expSum / a.expN
                      : a.allExpN > 0 ? a.allExpSum / a.allExpN
                      : null;
-        // Monthly revenue: prefer T3 realized delta; fall back to rate-delta projection
-        const hasProjectedRate = !has && Math.abs(a.projRateSum) > 0;
-        const monthlyImpact = has ? Math.round(c!.monthly)
-                            : hasProjectedRate ? Math.round(a.projRateSum)
-                            : null;
+        // Monthly revenue: use the per-unit rate delta (rule_adjusted_rate - in_house_rate)
+        // summed across impacted units. The T3 group-revenue delta is NOT used for the
+        // primary figure because it captures occupancy changes (new move-ins filling rooms)
+        // as well as the rate change, which wildly overstates the rule's rate contribution.
+        const hasProjectedRate = Math.abs(a.projRateSum) > 0;
+        const monthlyImpact = hasProjectedRate ? Math.round(a.projRateSum) : null;
         const annualImpact  = monthlyImpact != null ? Math.round(monthlyImpact * 12) : null;
-        const projected = !has && (hasProjectedRate || dtsFallback);
+        const projected = false; // rate delta is deterministic, not estimated
         return {
           unitsImpacted: a.unitsImpacted,
           unitsSold: a.unitsSold,
