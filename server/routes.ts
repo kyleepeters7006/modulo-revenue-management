@@ -16889,6 +16889,8 @@ Return ONLY valid JSON, no markdown fences:
       const revRes = await pool.query<{ upload_month: string; location: string; service_line: string; room_type: string; revenue: number }>(`
         SELECT rr.upload_month, rr.location, rr.service_line, rr.room_type,
                SUM(CASE WHEN rr.occupied_yn
+                        AND (rr.service_line NOT IN ('HC','HC/MC')
+                             OR rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')
                         THEN CASE WHEN rr.service_line IN ('HC','HC/MC') THEN rr.in_house_rate * 30.4 ELSE rr.in_house_rate END
                         ELSE 0 END) AS revenue
         FROM rent_roll_data rr
@@ -17052,7 +17054,7 @@ Return ONLY valid JSON, no markdown fences:
         const histUnitRes = await pool.query(`
           SELECT DISTINCT ON (rr.location, rr.room_number)
                  rr.location, rr.service_line, rr.room_type, rr.room_number,
-                 rr.occupied_yn, rr.move_in_date, rr.in_house_rate, rr.street_rate, rr.days_vacant
+                 rr.occupied_yn, rr.move_in_date, rr.in_house_rate, rr.street_rate, rr.days_vacant, rr.payor_type
           FROM rent_roll_data rr
           WHERE rr.client_id = $1 AND rr.location = ANY($2)
           ORDER BY rr.location, rr.room_number, rr.upload_month DESC
@@ -17068,7 +17070,7 @@ Return ONLY valid JSON, no markdown fences:
         const cohortByMonth = new Map<string, Map<string, any[]>>();
         for (const em of effMonths) {
           const cRes = await pool.query(`
-            SELECT rr.location, rr.service_line, rr.room_type, rr.room_number, rr.occupied_yn
+            SELECT rr.location, rr.service_line, rr.room_type, rr.room_number, rr.occupied_yn, rr.payor_type
             FROM rent_roll_data rr
             WHERE rr.client_id = $1 AND rr.location = ANY($2)
               AND rr.upload_month = (
@@ -17098,10 +17100,16 @@ Return ONLY valid JSON, no markdown fences:
           const appliedAt = new Date(hr.effective_date);
           const rn = hr.name as string;
           const cohort = cohortByMonth.get(monthOf(appliedAt))?.get(hr.location_name) || [];
+          // HC / HC/MC pricing only affects Private Pay residents — other payer
+          // types (Medicaid, Medicare, Insurance) are reimbursed at fixed rates,
+          // so occupied non-private units are excluded from the impacted set.
+          const isHcSl = (sl: string | null) => sl === 'HC' || sl === 'HC/MC';
+          const isPrivatePay = (p: string | null | undefined) => !!p && /private|pvt/i.test(p);
           const candidates = cohort.filter((u: any) =>
             (!ruleSLs.length || ruleSLs.includes(u.service_line)) &&
             (!ruleRTs.length || ruleRTs.includes(u.room_type)) &&
-            (!serviceLine || u.service_line === serviceLine)
+            (!serviceLine || u.service_line === serviceLine) &&
+            (!isHcSl(u.service_line) || !u.occupied_yn || isPrivatePay(u.payor_type))
           );
           if (!candidates.length) continue;
           histRuleNames.add(rn);
@@ -17115,8 +17123,11 @@ Return ONLY valid JSON, no markdown fences:
             // Fallback: date-based check when move_in_date is reliable
             const wasVacantAtRule = !u.occupied_yn;
             const isNowOccupied = !!(latest?.occupied_yn);
-            const soldAfterRule = (wasVacantAtRule && isNowOccupied) ||
-              !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
+            // HC / HC/MC: only Private Pay move-ins pay the adjusted street rate,
+            // so move-ins by other payer types don't count toward realized impact.
+            const payerOk = !isHcSl(u.service_line) || isPrivatePay(latest?.payor_type);
+            const soldAfterRule = payerOk && ((wasVacantAtRule && isNowOccupied) ||
+              !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate));
             const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
             const expected = expectedFor(u.service_line, u.room_type);
             // Projected fallback: compute actual rate delta from the rule's adjustment.
