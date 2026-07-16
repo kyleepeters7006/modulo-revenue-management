@@ -678,33 +678,33 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">Competitive Position</span>
               <span className="text-[9px] text-slate-400">· {compPositionData.length} location/SL combinations</span>
             </div>
-            <span className="text-[9px] text-slate-400 italic">X = rate vs market · Y = occupancy</span>
+            <span className="text-[9px] text-slate-400 italic">X = occupancy · Y = rate vs market</span>
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <ScatterChart margin={{ top: 8, right: 16, bottom: 20, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis
                 type="number"
-                dataKey="marketPosition"
-                name="Market Position"
-                domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
-                ticks={[0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325]}
-                tickFormatter={(v) => `${v}%`}
-                tick={{ fontSize: 9, fill: '#94a3b8' }}
-                label={{ value: '← Below Market · At Market · Above Market →', position: 'insideBottom', offset: -12, fontSize: 9, fill: '#94a3b8' }}
-              />
-              <YAxis
-                type="number"
                 dataKey="occupancy"
                 name="Occupancy"
                 domain={([min, max]: [number,number]) => [Math.max(min - 3, 0), Math.min(max + 3, 100)]}
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 9, fill: '#94a3b8' }}
-                width={34}
+                label={{ value: '← Low Occupancy · High Occupancy →', position: 'insideBottom', offset: -12, fontSize: 9, fill: '#94a3b8' }}
+              />
+              <YAxis
+                type="number"
+                dataKey="marketPosition"
+                name="Market Position"
+                domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
+                ticks={[75, 100, 125, 150, 175, 200, 225, 250]}
+                tickFormatter={(v) => `${v}%`}
+                tick={{ fontSize: 9, fill: '#94a3b8' }}
+                width={38}
               />
               <ZAxis range={[35, 35]} />
-              <ReferenceLine x={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: 8, fill: '#0d9488', position: 'insideTopRight' }} />
-              <ReferenceLine y={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: 8, fill: '#94a3b8', position: 'insideTopRight' }} />
+              <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: 8, fill: '#0d9488', position: 'insideTopRight' }} />
+              <ReferenceLine x={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: 8, fill: '#94a3b8', position: 'insideTopRight' }} />
               <RechartsTooltip
                 cursor={{ strokeDasharray: '3 3' }}
                 content={({ active, payload }) => {
