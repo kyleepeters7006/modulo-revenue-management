@@ -17,19 +17,54 @@ import {
   ChevronDown,
   Download,
   TrendingUp,
+  TrendingDown,
+  ArrowUpRight,
+  ArrowDownRight,
   Loader2,
-  ListTree,
-  List,
   Info,
+  LayoutList,
+  Rows3,
 } from "lucide-react";
 
-interface CalcBreakdown {
-  t3Before: number;
-  t3After: number;
-  monthsBefore: number;
-  monthsAfter: number;
-  extrapolated: boolean;
-}
+// ── Strategy groups ─────────────────────────────────────────────────────────
+const PERF_RULE_GROUPS = [
+  {
+    id: "push",
+    label: "High Occ — Below Market",
+    description: "Street rate trails comps → push aggressively to close the gap",
+    Icon: TrendingUp,
+    accent: "#0d9488",
+    rowBg: "bg-teal-500/5 border-l-2 border-teal-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
+    id: "hold",
+    label: "High Occ — Above Market",
+    description: "Leading comps with strong occupancy → hold and protect the premium",
+    Icon: ArrowUpRight,
+    accent: "#0284c7",
+    rowBg: "bg-blue-500/5 border-l-2 border-blue-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
+    id: "concession-al",
+    label: "Low AL/MC Occ — Rate Concession",
+    description: "Low occupancy → reduce rates to drive AL/MC move-ins",
+    Icon: TrendingDown,
+    accent: "#dc2626",
+    rowBg: "bg-red-500/5 border-l-2 border-red-500/40",
+    amtCls: "text-red-600",
+  },
+  {
+    id: "concession-sl",
+    label: "Low SL/VIL Occ — Market Align",
+    description: "SL/Villas soft on occupancy, above market → align rates down",
+    Icon: ArrowDownRight,
+    accent: "#d97706",
+    rowBg: "bg-amber-500/5 border-l-2 border-amber-500/40",
+    amtCls: "text-red-600",
+  },
+] as const;
 
 interface PerfMetrics {
   unitsImpacted: number;
@@ -41,7 +76,6 @@ interface PerfMetrics {
   annualRevenueImpact: number | null;
   projected?: boolean;
   dateApplied: string | null;
-  calc: CalcBreakdown | null;
 }
 
 interface DetailRow extends PerfMetrics {
@@ -52,16 +86,15 @@ interface DetailRow extends PerfMetrics {
 
 interface SummaryRow extends PerfMetrics {
   ruleName: string;
+  category: string;
   detail: DetailRow[];
 }
 
 interface PerfResponse {
   rows: SummaryRow[];
-  start: string;
-  end: string;
-  spotMonth?: string;
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "–";
 
@@ -81,6 +114,152 @@ const isoDaysAgo = (days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
+const speedBadge = (n: number | null) => {
+  if (n == null) return <span className="text-muted-foreground text-xs">–</span>;
+  if (n > 0) return <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600 text-[11px]">{fmtDaysFaster(n)}</Badge>;
+  if (n < 0) return <Badge variant="outline" className="border-red-500/40 bg-red-500/10 text-red-600 text-[11px]">{fmtDaysFaster(n)}</Badge>;
+  return <Badge variant="outline" className="text-[11px]">on pace</Badge>;
+};
+
+// ── buildTableRows: flat <tr> array to avoid Fragment injection issues ───────
+function buildTableRows({
+  groups, groupedRows, groupTotals, groupExpanded,
+  viewMode, expanded, tdCls, onToggleGroup, onToggleRow, onCalcClick,
+}: {
+  groups: typeof PERF_RULE_GROUPS;
+  groupedRows: Map<string, SummaryRow[]>;
+  groupTotals: Map<string, { units: number; sold: number; monthly: number; annual: number }>;
+  groupExpanded: Set<string>;
+  viewMode: "summary" | "detail";
+  expanded: Set<string>;
+  tdCls: string;
+  onToggleGroup: (id: string) => void;
+  onToggleRow: (rule: string) => void;
+  onCalcClick: (title: string, metrics: PerfMetrics) => void;
+}): JSX.Element[] {
+  const rows: JSX.Element[] = [];
+
+  for (const g of groups) {
+    const gRows = groupedRows.get(g.id) ?? [];
+    if (gRows.length === 0) continue;
+    const agg = groupTotals.get(g.id)!;
+    const isGroupOpen = groupExpanded.has(g.id);
+    const { Icon } = g;
+
+    // Strategy group header row
+    rows.push(
+      <tr
+        key={`group-${g.id}`}
+        className={`transition-colors hover:brightness-95 ${g.rowBg} ${viewMode === "detail" ? "cursor-pointer" : ""}`}
+        onClick={() => viewMode === "detail" && onToggleGroup(g.id)}
+      >
+        <td className="px-3 py-2.5 font-semibold text-sm border-b border-border/70" style={{ minWidth: 260 }}>
+          <span className="inline-flex items-center gap-2">
+            {viewMode === "detail" ? (
+              isGroupOpen
+                ? <ChevronDown className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
+                : <ChevronRight className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
+            ) : (
+              <Icon className="h-4 w-4 shrink-0" style={{ color: g.accent }} />
+            )}
+            <span style={{ color: g.accent }}>{g.label}</span>
+            <span className="text-[11px] font-normal text-muted-foreground ml-1">
+              {gRows.length} rule{gRows.length !== 1 ? "s" : ""}
+            </span>
+          </span>
+        </td>
+        <td className="px-3 py-2.5 text-xs text-muted-foreground border-b border-border/70">—</td>
+        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-sm border-b border-border/70">
+          {agg.units.toLocaleString()}
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-sm border-b border-border/70">
+          {agg.sold.toLocaleString()}
+        </td>
+        <td className="px-3 py-2.5 border-b border-border/70" />
+        <td className={`px-3 py-2.5 text-right tabular-nums font-medium text-sm border-b border-border/70 ${agg.monthly >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+          {fmtMoney(agg.monthly)}
+        </td>
+        <td className={`px-3 py-2.5 text-right tabular-nums font-semibold text-sm border-b border-border/70 ${agg.annual >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+          {fmtMoney(agg.annual)}
+        </td>
+      </tr>
+    );
+
+    // Individual rules (detail mode only)
+    if (viewMode === "detail" && isGroupOpen) {
+      for (const r of gRows) {
+        const open = expanded.has(r.ruleName);
+
+        rows.push(
+          <tr
+            key={`rule-${r.ruleName}`}
+            className="cursor-pointer bg-background hover:bg-muted/40 transition-colors"
+            onClick={() => onToggleRow(r.ruleName)}
+          >
+            <td className={`${tdCls} font-medium pl-8`}>
+              <span className="inline-flex items-center gap-1.5">
+                {open
+                  ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                <span className="whitespace-normal text-sm">{r.ruleName}</span>
+              </span>
+            </td>
+            <td className={tdCls}>{fmtDate(r.dateApplied)}</td>
+            <td className={`${tdCls} text-right tabular-nums`}>{r.unitsImpacted.toLocaleString()}</td>
+            <td className={`${tdCls} text-right tabular-nums`}>{r.unitsSold.toLocaleString()}</td>
+            <td className={tdCls}>{speedBadge(r.daysFasterThanExpected)}</td>
+            <td
+              className={`${tdCls} text-right tabular-nums cursor-pointer underline decoration-dotted underline-offset-2 ${(r.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
+              onClick={(e) => { e.stopPropagation(); onCalcClick(r.ruleName, r); }}
+            >
+              {fmtMoney(r.monthlyRevenueImpact)}
+            </td>
+            <td
+              className={`${tdCls} text-right tabular-nums font-medium cursor-pointer underline decoration-dotted underline-offset-2 ${(r.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
+              onClick={(e) => { e.stopPropagation(); onCalcClick(r.ruleName, r); }}
+            >
+              {fmtMoney(r.annualRevenueImpact)}
+            </td>
+          </tr>
+        );
+
+        // Location / SL / RT detail rows
+        if (open) {
+          for (const d of r.detail) {
+            const dKey = `detail-${r.ruleName}|${d.location}|${d.serviceLine}|${d.roomType}`;
+            rows.push(
+              <tr key={dKey} className="bg-muted/20">
+                <td className={`${tdCls} pl-14 text-muted-foreground text-xs`}>
+                  {d.location} · {d.serviceLine} · {d.roomType}
+                </td>
+                <td className={`${tdCls} text-xs`}>{fmtDate(d.dateApplied)}</td>
+                <td className={`${tdCls} text-right tabular-nums text-xs`}>{d.unitsImpacted.toLocaleString()}</td>
+                <td className={`${tdCls} text-right tabular-nums text-xs`}>{d.unitsSold.toLocaleString()}</td>
+                <td className={`${tdCls} text-xs`}>{fmtDaysFaster(d.daysFasterThanExpected)}</td>
+                <td
+                  className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
+                  onClick={() => onCalcClick(`${r.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
+                >
+                  {fmtMoney(d.monthlyRevenueImpact)}
+                </td>
+                <td
+                  className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
+                  onClick={() => onCalcClick(`${r.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
+                >
+                  {fmtMoney(d.annualRevenueImpact)}
+                </td>
+              </tr>
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return rows;
+}
+
+// ── Props ────────────────────────────────────────────────────────────────────
 interface RulePerformanceTableProps {
   selectedServiceLine?: string;
   selectedRegions?: string[];
@@ -97,7 +276,10 @@ export function RulePerformanceTable({
   const [start, setStart] = useState(() => isoDaysAgo(180));
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [detailMode, setDetailMode] = useState(false);
+  const [groupExpanded, setGroupExpanded] = useState<Set<string>>(
+    new Set(PERF_RULE_GROUPS.map((g) => g.id))
+  );
+  const [viewMode, setViewMode] = useState<"summary" | "detail">("summary");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
 
   const { data, isLoading, isFetching } = useQuery<PerfResponse>({
@@ -117,24 +299,47 @@ export function RulePerformanceTable({
 
   const rows = data?.rows ?? [];
 
-  const toggleRow = (rule: string) => {
+  const toggleRow = (rule: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(rule)) next.delete(rule);
-      else next.add(rule);
+      next.has(rule) ? next.delete(rule) : next.add(rule);
       return next;
     });
-  };
 
-  const toggleDetailMode = () => {
-    if (detailMode) {
-      setDetailMode(false);
-      setExpanded(new Set());
-    } else {
-      setDetailMode(true);
-      setExpanded(new Set(rows.map((r) => r.ruleName)));
+  const toggleGroup = (id: string) =>
+    setGroupExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  // Group rows by category
+  const groupedRows = useMemo(() => {
+    const map = new Map<string, SummaryRow[]>();
+    for (const g of PERF_RULE_GROUPS) map.set(g.id, []);
+    for (const r of rows) {
+      const cat = r.category || "hold";
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(r);
     }
-  };
+    return map;
+  }, [rows]);
+
+  // Aggregate totals per group
+  const groupTotals = useMemo(() => {
+    const t = new Map<string, { units: number; sold: number; monthly: number; annual: number }>();
+    for (const g of PERF_RULE_GROUPS) t.set(g.id, { units: 0, sold: 0, monthly: 0, annual: 0 });
+    for (const r of rows) {
+      const cat = r.category || "hold";
+      const agg = t.get(cat) ?? { units: 0, sold: 0, monthly: 0, annual: 0 };
+      agg.units += r.unitsImpacted;
+      agg.sold += r.unitsSold;
+      agg.monthly += r.monthlyRevenueImpact ?? 0;
+      agg.annual += r.annualRevenueImpact ?? 0;
+      t.set(cat, agg);
+    }
+    return t;
+  }, [rows]);
 
   const totals = useMemo(() => {
     const t = { unitsImpacted: 0, unitsSold: 0, monthly: 0, annual: 0 };
@@ -148,31 +353,20 @@ export function RulePerformanceTable({
   }, [rows]);
 
   const handleExport = () => {
-    const header = [
-      "Rule", "Location", "Service Line", "Room Type", "Date Applied",
-      "Units Impacted", "New Move-ins", "Avg Days to Sell", "Expected Days to Sell",
-      "Days Faster Than Expected", "Monthly Rate Impact", "Est. Annual Rate Impact",
-    ];
+    const header = ["Strategy", "Rule", "Location", "Service Line", "Room Type", "Date Applied",
+      "Units Impacted", "New Move-ins", "Monthly Impact", "Annual Impact"];
     const aoa: (string | number | null)[][] = [header];
-    for (const r of rows) {
-      aoa.push([
-        r.ruleName, "All", "All", "All", fmtDate(r.dateApplied),
-        r.unitsImpacted, r.unitsSold, r.avgDaysToSell, r.expectedDaysToSell,
-        r.daysFasterThanExpected, r.monthlyRevenueImpact, r.annualRevenueImpact,
-      ]);
-      for (const d of r.detail) {
-        aoa.push([
-          r.ruleName, d.location, d.serviceLine, d.roomType, fmtDate(d.dateApplied),
-          d.unitsImpacted, d.unitsSold, d.avgDaysToSell, d.expectedDaysToSell,
-          d.daysFasterThanExpected, d.monthlyRevenueImpact, d.annualRevenueImpact,
-        ]);
+    for (const g of PERF_RULE_GROUPS) {
+      for (const r of groupedRows.get(g.id) ?? []) {
+        aoa.push([g.label, r.ruleName, "All", "All", "All", fmtDate(r.dateApplied),
+          r.unitsImpacted, r.unitsSold, r.monthlyRevenueImpact, r.annualRevenueImpact]);
+        for (const d of r.detail) {
+          aoa.push([g.label, r.ruleName, d.location, d.serviceLine, d.roomType, fmtDate(d.dateApplied),
+            d.unitsImpacted, d.unitsSold, d.monthlyRevenueImpact, d.annualRevenueImpact]);
+        }
       }
     }
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [
-      { wpx: 240 }, { wpx: 140 }, { wpx: 80 }, { wpx: 110 }, { wpx: 90 },
-      { wpx: 90 }, { wpx: 70 }, { wpx: 100 }, { wpx: 120 }, { wpx: 140 }, { wpx: 130 }, { wpx: 130 },
-    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Rule Performance");
     XLSX.writeFile(wb, `Rule_Performance_${start}_to_${end}.xlsx`);
@@ -192,58 +386,46 @@ export function RulePerformanceTable({
               {isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
             <CardDescription className="mt-1">
-              How each pricing rule performed: units impacted, units sold, speed to sell vs. expected, and revenue impact.
+              Pricing rule results grouped by strategy — units impacted, move-ins, and revenue impact.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <Input
-                type="date"
-                value={start}
-                max={end}
-                onChange={(e) => setStart(e.target.value)}
-                className="h-8 w-[140px] text-xs"
-                data-testid="input-perf-start"
-              />
+              <Input type="date" value={start} max={end} onChange={(e) => setStart(e.target.value)}
+                className="h-8 w-[140px] text-xs" data-testid="input-perf-start" />
               <span className="text-xs text-muted-foreground">to</span>
-              <Input
-                type="date"
-                value={end}
-                min={start}
-                onChange={(e) => setEnd(e.target.value)}
-                className="h-8 w-[140px] text-xs"
-                data-testid="input-perf-end"
-              />
+              <Input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)}
+                className="h-8 w-[140px] text-xs" data-testid="input-perf-end" />
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={toggleDetailMode}
-              disabled={rows.length === 0}
-              data-testid="button-perf-detail-toggle"
-            >
-              {detailMode ? <List className="mr-1.5 h-3.5 w-3.5" /> : <ListTree className="mr-1.5 h-3.5 w-3.5" />}
-              {detailMode ? "Summary View" : "View Detail"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={handleExport}
-              disabled={rows.length === 0}
-              data-testid="button-perf-export"
-            >
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-              Export to Excel
+            {/* Summary / Detail toggle */}
+            <div className="flex rounded-md border border-border overflow-hidden">
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "summary" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => setViewMode("summary")}
+                disabled={rows.length === 0}
+              >
+                <Rows3 className="h-3.5 w-3.5" />Summary
+              </button>
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-l border-border ${viewMode === "detail" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => { setViewMode("detail"); setGroupExpanded(new Set(PERF_RULE_GROUPS.map((g) => g.id))); }}
+                disabled={rows.length === 0}
+              >
+                <LayoutList className="h-3.5 w-3.5" />Detail
+              </button>
+            </div>
+            <Button variant="outline" size="sm" className="h-8" onClick={handleExport}
+              disabled={rows.length === 0} data-testid="button-perf-export">
+              <Download className="mr-1.5 h-3.5 w-3.5" />Export
             </Button>
           </div>
         </div>
       </CardHeader>
+
       <CardContent>
         {isLoading ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading rule performance…
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading rule performance…
           </div>
         ) : rows.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground" data-testid="text-perf-empty">
@@ -252,8 +434,8 @@ export function RulePerformanceTable({
           </div>
         ) : (
           <>
-            {/* Leadership summary strip */}
-            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="perf-summary-strip">
+            {/* Summary strip */}
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Rules Applied</div>
                 <div className="text-lg font-semibold">{rows.length}</div>
@@ -265,26 +447,22 @@ export function RulePerformanceTable({
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">New Move-ins</div>
                 <div className="text-lg font-semibold">{totals.unitsSold.toLocaleString()}</div>
-                <div className="text-[10px] text-muted-foreground leading-tight">admitted after rule applied</div>
+                <div className="text-[10px] text-muted-foreground">admitted after rule applied</div>
               </div>
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Est. Annual Rate Impact</div>
                 <div className={`text-lg font-semibold ${totals.annual >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                   {fmtMoney(totals.annual)}
-                  {rows.every(r => r.projected) && <span className="ml-1 text-[11px] font-normal opacity-60">(est.)</span>}
                 </div>
-                <div className="text-[10px] text-muted-foreground leading-tight">rate adj. to all impacted units</div>
+                <div className="text-[10px] text-muted-foreground">rate adj. to all impacted units</div>
               </div>
             </div>
 
-            <div
-              className="overflow-auto rounded-md border border-border"
-              style={{ maxHeight: 520, WebkitOverflowScrolling: "touch", touchAction: "pan-x pan-y" }}
-            >
+            <div className="overflow-auto rounded-md border border-border" style={{ maxHeight: 560 }}>
               <table className="w-full border-collapse">
                 <thead className="sticky top-0 z-10">
                   <tr>
-                    <th className={thCls} style={{ minWidth: 260 }}>Rule</th>
+                    <th className={thCls} style={{ minWidth: 260 }}>Strategy / Rule</th>
                     <th className={thCls}>Date Applied</th>
                     <th className={`${thCls} text-right`}>Units Impacted</th>
                     <th className={`${thCls} text-right`}>New Move-ins</th>
@@ -294,31 +472,32 @@ export function RulePerformanceTable({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => {
-                    const open = expanded.has(r.ruleName);
-                    return (
-                      <RowGroup
-                        key={r.ruleName}
-                        row={r}
-                        open={open}
-                        onToggle={() => toggleRow(r.ruleName)}
-                        tdCls={tdCls}
-                        onCalcClick={(title, metrics) => setCalcOpen({ title, metrics })}
-                      />
-                    );
+                  {buildTableRows({
+                    groups: PERF_RULE_GROUPS,
+                    groupedRows,
+                    groupTotals,
+                    groupExpanded,
+                    viewMode,
+                    expanded,
+                    tdCls,
+                    onToggleGroup: toggleGroup,
+                    onToggleRow: toggleRow,
+                    onCalcClick: (title, metrics) => setCalcOpen({ title, metrics }),
                   })}
                 </tbody>
               </table>
             </div>
+
             <p className="mt-2 text-[11px] text-muted-foreground">
-              <span className="font-medium">New Move-ins</span> counts residents admitted after the rule was applied; existing occupied residents are not counted here even though their rates also changed.{" "}
-              <span className="font-medium">Revenue impact</span> reflects the rate adjustment across <span className="font-medium">all</span> impacted units — both existing residents paying the new rate and incoming move-ins — using trailing 3-month realized revenue (before vs. after the rule). Click any impact value to see the calculation.{" "}
-              Values marked <span className="font-medium">(est.)</span> are projected from the rate delta and current occupancy; they update automatically once enough before/after history accumulates.
+              <span className="font-medium">Summary</span> shows aggregated totals per strategy group.
+              Switch to <span className="font-medium">Detail</span> to see individual rules — expand each rule to view the breakdown by location, service line, and room type.{" "}
+              <span className="font-medium">Revenue impact</span> = sum of the rate adjustment across all impacted units (rule-adjusted rate − street rate). Click any impact value for the full calculation.
             </p>
           </>
         )}
       </CardContent>
 
+      {/* Calculation explanation dialog */}
       <Dialog open={!!calcOpen} onOpenChange={(o) => !o && setCalcOpen(null)}>
         <DialogContent className="max-w-md" data-testid="dialog-perf-calc">
           <DialogHeader>
@@ -349,16 +528,8 @@ export function RulePerformanceTable({
                 </div>
               </div>
               <div className="text-xs text-muted-foreground space-y-1.5">
-                <p>
-                  Impact = sum of the rate adjustment applied to each impacted unit
-                  (rule-adjusted rate − street rate), so this reflects only the rate change the rule
-                  introduced — not occupancy shifts. HC and HC/MC daily rates are converted to monthly
-                  (× 30.4) before summing.
-                </p>
-                <p>
-                  When multiple rules stack on a unit, each rule is credited with its proportional share
-                  of the combined adjustment, so nothing is double-counted.
-                </p>
+                <p>Impact = sum of the rate adjustment applied to each impacted unit (rule-adjusted rate − street rate). HC and HC/MC daily rates are converted to monthly (× 30.4) before summing.</p>
+                <p>When multiple rules stack on a unit, each rule is credited with its proportional share of the combined adjustment so nothing is double-counted.</p>
               </div>
             </div>
           ) : (
@@ -369,90 +540,5 @@ export function RulePerformanceTable({
         </DialogContent>
       </Dialog>
     </Card>
-  );
-}
-
-function RowGroup({
-  row,
-  open,
-  onToggle,
-  tdCls,
-  onCalcClick,
-}: {
-  row: SummaryRow;
-  open: boolean;
-  onToggle: () => void;
-  tdCls: string;
-  onCalcClick: (title: string, metrics: PerfMetrics) => void;
-}) {
-  const speedBadge = (n: number | null, isProj?: boolean) => {
-    if (n == null) return <span className="text-muted-foreground">–</span>;
-    const estTag = isProj ? <span className="ml-1 text-[10px] font-normal opacity-60">(est.)</span> : null;
-    if (n > 0)
-      return <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{fmtDaysFaster(n)}{estTag}</Badge>;
-    if (n < 0)
-      return <Badge variant="outline" className="border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">{fmtDaysFaster(n)}{estTag}</Badge>;
-    return <Badge variant="outline">on pace{estTag}</Badge>;
-  };
-
-  const estLabel = <span className="ml-1 text-[10px] font-normal opacity-60">(est.)</span>;
-
-  return (
-    <>
-      <tr
-        className="cursor-pointer bg-background hover:bg-muted/40 transition-colors"
-        onClick={onToggle}
-        data-testid={`row-perf-${row.ruleName}`}
-      >
-        <td className={`${tdCls} font-medium`}>
-          <span className="inline-flex items-center gap-1.5">
-            {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
-            <span className="whitespace-normal">{row.ruleName}</span>
-          </span>
-        </td>
-        <td className={tdCls}>{fmtDate(row.dateApplied)}</td>
-        <td className={`${tdCls} text-right tabular-nums`}>{row.unitsImpacted.toLocaleString()}</td>
-        <td className={`${tdCls} text-right tabular-nums`}>{row.unitsSold.toLocaleString()}</td>
-        <td className={tdCls}>{speedBadge(row.daysFasterThanExpected, row.projected)}</td>
-        <td
-          className={`${tdCls} text-right tabular-nums cursor-pointer underline decoration-dotted underline-offset-2 ${(row.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
-          onClick={(e) => { e.stopPropagation(); onCalcClick(row.ruleName, row); }}
-          data-testid={`cell-perf-monthly-${row.ruleName}`}
-        >
-          {fmtMoney(row.monthlyRevenueImpact)}{row.projected && row.monthlyRevenueImpact != null && estLabel}
-        </td>
-        <td
-          className={`${tdCls} text-right tabular-nums font-medium cursor-pointer underline decoration-dotted underline-offset-2 ${(row.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
-          onClick={(e) => { e.stopPropagation(); onCalcClick(row.ruleName, row); }}
-          data-testid={`cell-perf-annual-${row.ruleName}`}
-        >
-          {fmtMoney(row.annualRevenueImpact)}{row.projected && row.annualRevenueImpact != null && estLabel}
-        </td>
-      </tr>
-      {open &&
-        row.detail.map((d) => (
-          <tr key={`${row.ruleName}|${d.location}|${d.serviceLine}|${d.roomType}`} className="bg-muted/20">
-            <td className={`${tdCls} pl-10 text-muted-foreground`}>
-              {d.location} · {d.serviceLine} · {d.roomType}
-            </td>
-            <td className={tdCls}>{fmtDate(d.dateApplied)}</td>
-            <td className={`${tdCls} text-right tabular-nums`}>{d.unitsImpacted.toLocaleString()}</td>
-            <td className={`${tdCls} text-right tabular-nums`}>{d.unitsSold.toLocaleString()}</td>
-            <td className={`${tdCls} text-xs`}>{fmtDaysFaster(d.daysFasterThanExpected)}{d.projected && d.daysFasterThanExpected != null && <span className="ml-1 text-[10px] opacity-60">(est.)</span>}</td>
-            <td
-              className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
-              onClick={() => onCalcClick(`${row.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
-            >
-              {fmtMoney(d.monthlyRevenueImpact)}{d.projected && d.monthlyRevenueImpact != null && <span className="ml-1 text-[10px] opacity-60">(est.)</span>}
-            </td>
-            <td
-              className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
-              onClick={() => onCalcClick(`${row.ruleName} — ${d.location} · ${d.serviceLine} · ${d.roomType}`, d)}
-            >
-              {fmtMoney(d.annualRevenueImpact)}{d.projected && d.annualRevenueImpact != null && <span className="ml-1 text-[10px] opacity-60">(est.)</span>}
-            </td>
-          </tr>
-        ))}
-    </>
   );
 }

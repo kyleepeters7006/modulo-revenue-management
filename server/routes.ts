@@ -16768,13 +16768,37 @@ Return ONLY valid JSON, no markdown fences:
       if (locations.length) { baseParams.push(locations);   baseWhere += ` AND rr.location = ANY($${baseParams.length})`; }
       if (regions.length)   { baseParams.push(regions);     baseWhere += ` AND loc.region = ANY($${baseParams.length})`; }
       if (divisions.length) { baseParams.push(divisions);   baseWhere += ` AND loc.division = ANY($${baseParams.length})`; }
-      const baseRes = await pool.query<{ service_line: string; room_type: string; avg_dv: number }>(`
-        SELECT rr.service_line, rr.room_type, AVG(rr.days_vacant) AS avg_dv
-        FROM rent_roll_data rr
-        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-        WHERE ${baseWhere}
-        GROUP BY rr.service_line, rr.room_type
-      `, baseParams);
+      const [baseRes, activeRuleMetaRes] = await Promise.all([
+        pool.query<{ service_line: string; room_type: string; avg_dv: number }>(`
+          SELECT rr.service_line, rr.room_type, AVG(rr.days_vacant) AS avg_dv
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          WHERE ${baseWhere}
+          GROUP BY rr.service_line, rr.room_type
+        `, baseParams),
+        pool.query(`
+          SELECT DISTINCT ON (name) name, action, trigger, service_line
+          FROM adjustment_rules
+          WHERE is_historical IS NOT TRUE
+          ORDER BY name
+        `),
+      ]);
+
+      // ---- Rule category map (push / hold / concession-al / concession-sl) ----
+      // Mirrors the getRuleCategory logic in pricing-controls.tsx.
+      const getRuleCategoryFn = (action: any, trigger: any, sl: string): string => {
+        const val = Number(action?.adjustmentValue ?? action?.value ?? 0);
+        if (val > 0) {
+          const conds = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
+          const comp = Array.isArray(conds) ? conds.find((c: any) => c.field === 'street_to_comp_var') : null;
+          return (comp && comp.operator === '<') ? 'push' : 'hold';
+        }
+        return (sl === 'SL' || sl === 'VIL') ? 'concession-sl' : 'concession-al';
+      };
+      const categoryMap = new Map<string, string>();
+      for (const ar of activeRuleMetaRes.rows) {
+        categoryMap.set(ar.name, getRuleCategoryFn(ar.action, ar.trigger, ar.service_line || ''));
+      }
       const baseline = new Map<string, number>();
       for (const b of baseRes.rows) baseline.set(`${b.service_line}|${b.room_type}`, Number(b.avg_dv));
       const slBaseline = new Map<string, { sum: number; n: number }>();
@@ -16939,12 +16963,24 @@ Return ONLY valid JSON, no markdown fences:
       if (regions.length)   { histParams.push(regions);   histWhere += ` AND loc.region = ANY($${histParams.length})`; }
       if (divisions.length) { histParams.push(divisions); histWhere += ` AND loc.division = ANY($${histParams.length})`; }
       const histRes = await pool.query(`
-        SELECT ar.name, ar.effective_date, ar.action, ar.service_line AS rule_service_line,
+        SELECT ar.name, ar.effective_date, ar.action, ar.trigger,
+               ar.service_line AS rule_service_line, ar.service_lines AS rule_service_lines,
                loc.name AS location_name
         FROM adjustment_rules ar
         JOIN locations loc ON loc.id = ar.location_id AND loc.client_id = $1
         WHERE ${histWhere}
       `, histParams);
+
+      // Historical rules category: populate categoryMap from each rule's action+trigger
+      for (const hr of histRes.rows) {
+        if (!categoryMap.has(hr.name)) {
+          const sls: string[] = Array.isArray(hr.rule_service_lines) && hr.rule_service_lines.length
+            ? hr.rule_service_lines
+            : (hr.rule_service_line ? [hr.rule_service_line] : []);
+          const sl = sls[0] || '';
+          categoryMap.set(hr.name, getRuleCategoryFn(hr.action, hr.trigger, sl));
+        }
+      }
 
       // Historical rules use their OWN attribution pool so synthetic rows never
       // dilute the T3 credit of rules genuinely applied via applied_rule_name.
@@ -17146,6 +17182,7 @@ Return ONLY valid JSON, no markdown fences:
 
       const rows = Array.from(summary.entries()).map(([ruleName, agg]) => ({
         ruleName,
+        category: categoryMap.get(ruleName) ?? 'hold',
         ...finish(agg, summaryCalc.get(ruleName)),
         detail: Array.from(details.get(ruleName)?.entries() || [])
           .map(([gKey, d]) => ({
