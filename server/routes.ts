@@ -15489,6 +15489,14 @@ Return ONLY valid JSON with no markdown fences:
         ? `${c.comp_count} competitors tracked, avg rate $${parseInt(c.avg_comp_rate || '0').toLocaleString()}/mo`
         : 'no competitors configured';
 
+      // Replace the internal code "VIL" with the sales term "Patio Homes" in all data
+      // strings before they reach the AI, so the commentary uses correct sales language.
+      const vilToPatioHomes = (s: string) => s.replace(/\bVIL\b/g, 'Patio Homes');
+      const slSummaryPartsDisplay = vilToPatioHomes(slSummaryParts);
+      const trendSummaryDisplay   = vilToPatioHomes(trendSummary);
+      const ruleDetailsDisplay    = vilToPatioHomes(ruleDetails);
+      const filterContextDisplay  = vilToPatioHomes(filterContext);
+
       const openaiModule = await import('openai');
       const openai = new openaiModule.default();
 
@@ -15498,22 +15506,22 @@ Return ONLY valid JSON with no markdown fences:
         messages: [
           {
             role: 'system',
-            content: `You are a senior revenue management consultant for senior living facilities. Be direct, data-specific, and concise. Use **double asterisks** around key numbers and strategic phrases for bold emphasis.`,
+            content: `You are a senior revenue management consultant for senior living facilities. Be direct, data-specific, and concise. Use **double asterisks** around key numbers and strategic phrases for bold emphasis. IMPORTANT: Always refer to the VIL service line as "Patio Homes" — never use "VIL" in any output.`,
           },
           {
             role: 'user',
-            content: `Generate a Strategy Overview for this filter scope: ${filterContext}.
+            content: `Generate a Strategy Overview for this filter scope: ${filterContextDisplay}.
 
 Data provided:
 
 SERVICE-LINE SNAPSHOT (latest month):
-${slSummaryParts || 'No data for selected filters'}
+${slSummaryPartsDisplay || 'No data for selected filters'}
 
 6-MONTH PRICING TREND (by service line):
-${trendSummary || 'Insufficient history'}
+${trendSummaryDisplay || 'Insufficient history'}
 
 ACTIVE PRICING RULES (${ruleRows.length} total):
-${ruleDetails || 'No active rules'}
+${ruleDetailsDisplay || 'No active rules'}
 
 COMPETITOR INFO: ${compInfo}
 

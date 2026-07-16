@@ -566,6 +566,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     SL: 'bg-emerald-100 text-emerald-800', VIL: 'bg-violet-100 text-violet-800',
   };
 
+  // Sales-friendly display names for service line codes inside commentary
+  const SL_DISPLAY: Record<string, string> = { VIL: 'Patio Homes' };
+
   const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#b45309'];
 
   const genMiniDots = (count: number, r: number) => {
@@ -710,7 +713,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   return (
                     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
                       <p className="font-bold text-slate-800 mb-0.5">{d.location}</p>
-                      <p className="text-slate-500">{d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
+                      <p className="text-slate-500">{SL_DISPLAY[d.serviceLine] || d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
                       <p className="text-slate-500">Our Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
                       <p className="text-slate-500">
                         Adj. Comp: <strong>${d.compRate?.toLocaleString()}</strong>
@@ -749,7 +752,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               return (
                 <span key={sl} className="flex items-center gap-1 text-[9px] text-slate-500">
                   <span className="inline-block w-2 h-2 rounded-full" style={{ background: SL_DOT_COLORS[sl] }} />
-                  {sl}
+                  {SL_DISPLAY[sl] || sl}
                 </span>
               );
             })}
@@ -802,7 +805,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     <div className="flex gap-1 flex-wrap">
                       {sls.length > 0
                         ? sls.map(sl => (
-                            <span key={sl} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
+                            <span key={sl} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{SL_DISPLAY[sl] || sl}</span>
                           ))
                         : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">All SLs</span>
                       }
