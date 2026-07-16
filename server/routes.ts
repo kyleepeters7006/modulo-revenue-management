@@ -15598,6 +15598,31 @@ Return ONLY valid JSON with no markdown fences:
       const openaiModule = await import('openai');
       const openai = new openaiModule.default();
 
+      // Claude-driven strategy recommendation (runs in parallel with the GPT commentary).
+      const recommendationPromise = callClaude(
+        `You are a senior revenue management strategist for senior living portfolios. Respond with exactly ONE concise sentence — a concrete, actionable pricing strategy recommendation grounded in the data provided. Use **double asterisks** around the key action and the most important number. IMPORTANT: Always refer to the VIL service line as "Patio Homes" — never use "VIL".`,
+        `Filter scope: ${filterContextDisplay}
+
+SERVICE-LINE SNAPSHOT (latest month):
+${slSummaryPartsDisplay || 'No data for selected filters'}
+
+6-MONTH PRICING TREND (by service line):
+${trendSummaryDisplay || 'Insufficient history'}
+
+ACTIVE PRICING RULES (${ruleRows.length} total):
+${ruleDetailsDisplay || 'No active rules'}
+
+COMPETITOR INFO: ${compInfo}
+
+OVERALL: ${overallOcc}% occupancy, ${totalVacant} of ${totalUnits} units vacant
+
+What single pricing strategy move should management prioritize next? One sentence only.`,
+        { maxTokens: 200, temperature: 0.3, label: 'pc-recommendation' }
+      ).catch((err) => {
+        console.error('[pc-commentary] recommendation error:', err);
+        return '';
+      });
+
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         temperature: 0.3,
@@ -15666,6 +15691,7 @@ Return ONLY valid JSON, no markdown fences:
         pricingTrend: parsed.pricingTrend || '',
         rulesSummary: parsed.rulesSummary || '',
         rules: mergedRules,
+        recommendation: (await recommendationPromise).trim(),
         generatedAt: new Date().toISOString(),
       };
       setCachedAnalytics(cacheKey, result, COMMENTARY_CACHE_TTL);

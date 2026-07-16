@@ -475,6 +475,7 @@ function parseBold(text: string): React.ReactNode {
 interface StrategyOverviewData {
   summary: string;
   pricingTrend: string;
+  recommendation?: string;
   rulesSummary: string;
   rules: { name: string; strategy: string; effectiveDate?: string | null }[];
   generatedAt: string;
@@ -1168,6 +1169,14 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         <div className="px-6 py-3.5 border-b border-slate-100 bg-slate-50/60">
           <span className="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600 mr-2">6-Mo Trend</span>
           <span className="text-sm leading-relaxed text-slate-600">{parseBold(data.pricingTrend)}</span>
+        </div>
+      )}
+
+      {/* ══ RECOMMENDATION BAND ══ */}
+      {data?.recommendation && !isLoading && (
+        <div className="px-6 py-3.5 border-b border-slate-100 bg-amber-50/50" data-testid="text-recommendation">
+          <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mr-2">Recommendation</span>
+          <span className="text-sm leading-relaxed text-slate-600">{parseBold(data.recommendation)}</span>
         </div>
       )}
 
