@@ -587,6 +587,53 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
   const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#b45309'];
 
+  const SL_FULL: Record<string, string> = {
+    AL: 'Assisted Living', 'AL/MC': 'AL — Mem Care',
+    HC: 'Health Care', 'HC/MC': 'HC — Mem Care',
+    SL: 'Senior Living', VIL: 'Villas',
+  };
+
+  const getRuleCategory = (rule: any): string => {
+    const val = Number(rule.action?.adjustmentValue ?? 0);
+    if (val > 0) {
+      const conditions = rule.trigger?.conditions || (rule.trigger?.condition ? [rule.trigger.condition] : []);
+      const compCond = conditions.find((c: any) => c.field === 'street_to_comp_var');
+      return (compCond && compCond.operator === '<') ? 'push' : 'hold';
+    }
+    const sl = rule.serviceLine || '';
+    return (sl === 'SL' || sl === 'VIL') ? 'concession-sl' : 'concession-al';
+  };
+
+  const RULE_GROUPS: Array<{
+    id: string; label: string; description: string;
+    icon: any; accent: string; badge: string;
+  }> = [
+    {
+      id: 'push',
+      label: 'High Occ — Below Market',
+      description: 'Street rate trails top comps → push aggressively to close the gap',
+      icon: TrendingUp, accent: '#0d9488', badge: 'bg-teal-100 text-teal-800',
+    },
+    {
+      id: 'hold',
+      label: 'High Occ — Above Market',
+      description: 'Already leading comps with strong occupancy → hold and protect the premium',
+      icon: ArrowUpRight, accent: '#0284c7', badge: 'bg-blue-100 text-blue-800',
+    },
+    {
+      id: 'concession-al',
+      label: 'Low AL/MC Occ — Rate Concession',
+      description: 'Low occupancy with excess vacancy → reduce rates to drive AL/MC move-ins',
+      icon: TrendingDown, accent: '#dc2626', badge: 'bg-red-100 text-red-800',
+    },
+    {
+      id: 'concession-sl',
+      label: 'Low SL/VIL Occ — Market Align',
+      description: 'Senior Living and Villas soft on occupancy, rates well above market → align down',
+      icon: ArrowDownRight, accent: '#d97706', badge: 'bg-amber-100 text-amber-800',
+    },
+  ];
+
   const genMiniDots = (count: number, r: number) => {
     const n = Math.min(count, 32);
     return Array.from({ length: n }, (_, i) => {
@@ -915,66 +962,123 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             </button>
           </div>
 
-          {/* rule cards — editorial style */}
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
-            {activeRules.map((rule: any, ri: number) => {
-              const { positive, display } = getActionInfo(rule);
-              const sls = getSLs(rule);
-              const trigger = getTriggerLabel(rule);
-              const color = PALETTE[ri % PALETTE.length];
-              const eff = rule.effectiveDate ? String(rule.effectiveDate).slice(0, 10) : null;
-              const today = new Date().toISOString().slice(0, 10);
-              const isFuture = eff && eff > today;
-              const annual = rule.annualImpact || 0;
-              const units = rule.affectedUnits || 0;
+          {/* Rules grouped by strategic intent */}
+          <div className="flex flex-col gap-3">
+            {RULE_GROUPS.map(group => {
+              const groupRules = activeRules.filter((r: any) => getRuleCategory(r) === group.id);
+              if (!groupRules.length) return null;
+              const GroupIcon = group.icon;
+
+              // Sub-group by effective date so Apr vs Jul rows are distinct
+              const byDate: Record<string, any[]> = {};
+              groupRules.forEach((r: any) => {
+                const dk = r.effectiveDate ? String(r.effectiveDate).slice(0, 7) : 'ongoing';
+                (byDate[dk] ??= []).push(r);
+              });
+
+              const groupImpact = groupRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
 
               return (
-                <button
-                  key={rule.id}
-                  onClick={() => setSelectedRule(rule)}
-                  className="text-left rounded-xl border bg-white hover:shadow-md transition-all duration-150 p-4 group focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  style={{ borderColor: `${color}25`, borderTopWidth: 3, borderTopColor: color }}
-                >
-                  {/* SL pills + date */}
-                  <div className="flex items-center justify-between gap-1 mb-2">
-                    <div className="flex gap-1 flex-wrap">
-                      {sls.length > 0
-                        ? sls.map(sl => (
-                            <span key={sl} className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{SL_DISPLAY[sl] || sl}</span>
-                          ))
-                        : <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">All SLs</span>
-                      }
+                <div key={group.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden"
+                  style={{ borderLeftWidth: 4, borderLeftColor: group.accent }}>
+
+                  {/* ── Group header ── */}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/80 border-b border-slate-100">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <GroupIcon className="h-4 w-4 shrink-0" style={{ color: group.accent }} />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-bold text-slate-800 leading-tight">{group.label}</p>
+                        <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">{group.description}</p>
+                      </div>
                     </div>
-                    {eff && (
-                      <span className={`text-[11px] font-semibold shrink-0 ${isFuture ? 'text-blue-500' : 'text-slate-400'}`}>
-                        {isFuture ? '⏰ ' : ''}{new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                    <div className="flex items-center gap-3 shrink-0 pl-3">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${group.badge}`}>
+                        {groupRules.length} rule{groupRules.length !== 1 ? 's' : ''}
                       </span>
-                    )}
+                      {groupImpact !== 0 && (
+                        <span className={`text-sm font-black tabular-nums ${groupImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {fmtImpact(groupImpact)}<span className="text-[10px] font-normal text-slate-400">/yr</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* big adjustment badge */}
-                  <div className={`text-3xl font-black leading-none tracking-tight mb-1.5 ${positive ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {display}
-                  </div>
+                  {/* ── Date sub-groups ── */}
+                  <div className="divide-y divide-slate-100">
+                    {Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([dateKey, dateRules]) => {
+                      const today = new Date().toISOString().slice(0, 10);
+                      const isFuture = dateKey !== 'ongoing' && `${dateKey}-28` > today;
+                      const dateLabel = dateKey === 'ongoing'
+                        ? 'Always'
+                        : new Date(`${dateKey}-01T12:00:00`).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 
-                  {/* rule name */}
-                  <p className="text-sm font-bold text-slate-800 leading-snug mb-3 line-clamp-2 group-hover:text-teal-700">
-                    {rule.name}
-                  </p>
+                      // Use first rule as representative for trigger + adjustment display
+                      const rep = dateRules[0];
+                      const { display: adjDisplay, isIncrease } = getActionInfo(rep);
+                      const trigger = getTriggerLabel(rep);
+                      const subImpact = dateRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+                      const subUnits = dateRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0);
 
-                  {/* divider */}
-                  <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span className={`text-sm font-black ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {fmtImpact(annual)}<span className="font-normal text-slate-400 text-[10px]">/yr</span>
-                    </span>
-                    <span className="text-[11px] text-slate-400 flex items-center gap-0.5">
-                      <Zap className="h-3 w-3" />{trigger}
-                    </span>
+                      return (
+                        <div key={dateKey} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50/50 transition-colors group/row">
+
+                          {/* Date badge */}
+                          <div className="w-14 shrink-0">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap
+                              ${isFuture ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
+                              {dateLabel}
+                            </span>
+                          </div>
+
+                          {/* Adjustment */}
+                          <div className={`w-10 shrink-0 text-[13px] font-black tabular-nums leading-none
+                            ${isIncrease ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {adjDisplay}
+                          </div>
+
+                          {/* Service line pills — clickable, shows full name */}
+                          <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
+                            {dateRules
+                              .sort((a: any, b: any) => (a.serviceLine || '').localeCompare(b.serviceLine || ''))
+                              .map((r: any) => {
+                                const sl = r.serviceLine || 'All';
+                                return (
+                                  <button
+                                    key={r.id}
+                                    onClick={() => setSelectedRule(r)}
+                                    title={`${r.name} — click for details`}
+                                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full transition-opacity hover:opacity-70 cursor-pointer
+                                      ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}
+                                  >
+                                    {SL_FULL[sl] || sl}
+                                  </button>
+                                );
+                              })}
+                          </div>
+
+                          {/* Trigger summary */}
+                          <div className="hidden md:flex items-center gap-1 shrink-0 text-[11px] text-slate-400">
+                            <Zap className="h-3 w-3 text-slate-300 shrink-0" />
+                            <span className="whitespace-nowrap">{trigger}</span>
+                          </div>
+
+                          {/* Impact + units */}
+                          <div className="hidden lg:block shrink-0 text-right min-w-[64px]">
+                            {subImpact !== 0 && (
+                              <p className={`text-[13px] font-bold tabular-nums leading-tight
+                                ${subImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {fmtImpact(subImpact)}
+                              </p>
+                            )}
+                            {subUnits > 0 && (
+                              <p className="text-[10px] text-slate-400 leading-tight">{subUnits.toLocaleString()} units</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {units > 0 && (
-                    <p className="text-[11px] text-slate-400 mt-1">{units.toLocaleString()} units</p>
-                  )}
-                </button>
+                </div>
               );
             })}
           </div>
