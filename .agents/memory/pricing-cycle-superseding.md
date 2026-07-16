@@ -30,6 +30,7 @@ Superseded rules are shown in Active Rules section (pill: opacity-40 + line-thro
 `GET /api/adjustment-rules/:id/coverage` — per-campus unit count + impact for a single rule. Reads `action.filters` from the rule to replicate the same SL/occupancy WHERE conditions used at rule creation time. Returns `{ ruleName, campuses[], totalUnits, totalMonthlyImpact }`.
 
 ## Data snapshot (Jul 2026)
-- 11 rules with effectiveDate 2026-04-01 (Apr 26 cycle) — all superseded
-- 16 rules with effectiveDate 2026-07-01 (Jul 26 cycle) — effective
+- Apr 26 cycle rules were later fully retired: is_historical=true, is_active=false — they show in Pricing History, not the active list.
+- 16 Jul-26 rules are the only active rules; each has action.isAdditive=false (Exclusive badge, not "Stacks").
 - Net annual impact: $56.5M (was $91.97M stacked)
+- Retiring a cycle = set is_historical=true AND is_active=false; the adj-rules endpoint has a ~2-min cache, so restart the app to see changes.
