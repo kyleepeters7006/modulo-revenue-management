@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
-  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History
+  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart
 } from 'lucide-react';
+import { HistoryReportModal } from '@/components/dashboard/pricing-reports';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
@@ -220,6 +221,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const [historyFrom, setHistoryFrom] = useState<string>(`${new Date().getFullYear()}-01-01`); // Pricing History review defaults to Jan 1
   const [historyRules, setHistoryRules] = useState<AdjustmentRule[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyReportOpen, setHistoryReportOpen] = useState(false);
   const [stackRule, setStackRule] = useState(true); // true = stacks with other rules; false = exclusive
   const [slPickerOpen, setSlPickerOpen] = useState(false);
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
@@ -1897,7 +1899,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                           <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 text-xs font-medium">{historyRules.length} records</span>
                         )}
                       </div>
-                      <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${historyOpen ? '' : '-rotate-90'}`} />
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setHistoryReportOpen(true); }}
+                          className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-teal-700 border border-slate-200 hover:border-teal-300 rounded-md px-2 py-1 bg-white hover:bg-teal-50 transition-colors"
+                        >
+                          <FileBarChart className="h-3.5 w-3.5" />
+                          History Report
+                        </button>
+                        <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${historyOpen ? '' : '-rotate-90'}`} />
+                      </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Records of past pricing changes. These are for reference only and never change current rates.
@@ -1947,6 +1959,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                 </CollapsibleContent>
               </Card>
             </Collapsible>
+
+            <HistoryReportModal
+              open={historyReportOpen}
+              onClose={() => setHistoryReportOpen(false)}
+              locationId={locationId}
+              locationName={locationName}
+              serviceLine={serviceLine || undefined}
+            />
 
             {/* ── Stats Breakdown Dialog ── */}
             <Dialog open={statsDialogOpen} onOpenChange={setStatsDialogOpen}>

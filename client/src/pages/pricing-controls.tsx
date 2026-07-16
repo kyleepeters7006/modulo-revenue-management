@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
-import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3 } from "lucide-react";
+import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
+import { StrategyReportModal } from "@/components/dashboard/pricing-reports";
 import AiRuleGenerator from "@/components/dashboard/ai-rule-generator";
 import { RulePerformanceTable } from "@/components/dashboard/rule-performance-table";
 import ReferenceDataTable from "@/components/dashboard/reference-data-table";
@@ -51,6 +52,7 @@ export default function PricingControls() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
+  const [strategyReportOpen, setStrategyReportOpen] = useState(false);
 
   // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
   useEffect(() => {
@@ -150,14 +152,33 @@ export default function PricingControls() {
       <Navigation />
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-20 sm:py-8 sm:pb-8">
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2" data-testid="text-page-title">
-            Dynamic Pricing Controls
-          </h1>
-          <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
-            Configure pricing rules and guardrails for the Rules Rate engine
-          </p>
+        <div className="mb-6 sm:mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2" data-testid="text-page-title">
+              Dynamic Pricing Controls
+            </h1>
+            <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
+              Configure pricing rules and guardrails for the Rules Rate engine
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setStrategyReportOpen(true)}
+            className="shrink-0 gap-1.5 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-teal-700 hover:border-teal-300"
+          >
+            <FileBarChart className="h-4 w-4" />
+            Strategy Report
+          </Button>
         </div>
+
+        <StrategyReportModal
+          open={strategyReportOpen}
+          onClose={() => setStrategyReportOpen(false)}
+          selectedServiceLine={selectedServiceLine}
+          selectedLocations={selectedLocations}
+          selectedLocationId={selectedLocationId}
+        />
 
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <div className="space-y-4">

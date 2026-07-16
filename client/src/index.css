@@ -263,3 +263,41 @@ input[type="range"]::-moz-range-thumb {
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: var(--dashboard-muted);
 }
+
+/* ── Report print styles ─────────────────────────────────────────────────── */
+@media print {
+  /* Hide everything by default */
+  body > * { display: none !important; }
+
+  /* Show only the report modal overlay when printing */
+  body .report-modal,
+  body .report-modal * { display: revert !important; }
+
+  /* Clean up dialog chrome for print */
+  .report-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    max-width: 100vw !important;
+    max-height: none !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .report-modal .report-printable {
+    overflow: visible !important;
+    flex: 1 !important;
+  }
+
+  /* Ensure tables don't break across pages */
+  table { page-break-inside: avoid; }
+  tr { page-break-inside: avoid; }
+  .bg-slate-900 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  [class*="bg-"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  @page { margin: 0.5in; size: landscape; }
+}
