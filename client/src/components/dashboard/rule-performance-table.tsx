@@ -150,8 +150,8 @@ export function RulePerformanceTable({
   const handleExport = () => {
     const header = [
       "Rule", "Location", "Service Line", "Room Type", "Date Applied",
-      "Units Impacted", "Units Sold", "Avg Days to Sell", "Expected Days to Sell",
-      "Days Faster Than Expected", "Monthly Revenue Impact", "Annual Revenue Impact",
+      "Units Impacted", "New Move-ins", "Avg Days to Sell", "Expected Days to Sell",
+      "Days Faster Than Expected", "Monthly Rate Impact", "Est. Annual Rate Impact",
     ];
     const aoa: (string | number | null)[][] = [header];
     for (const r of rows) {
@@ -263,14 +263,17 @@ export function RulePerformanceTable({
                 <div className="text-lg font-semibold">{totals.unitsImpacted.toLocaleString()}</div>
               </div>
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Units Sold</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">New Move-ins</div>
                 <div className="text-lg font-semibold">{totals.unitsSold.toLocaleString()}</div>
+                <div className="text-[10px] text-muted-foreground leading-tight">admitted after rule applied</div>
               </div>
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Annual Revenue Impact</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Est. Annual Rate Impact</div>
                 <div className={`text-lg font-semibold ${totals.annual >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                   {fmtMoney(totals.annual)}
+                  {rows.every(r => r.projected) && <span className="ml-1 text-[11px] font-normal opacity-60">(est.)</span>}
                 </div>
+                <div className="text-[10px] text-muted-foreground leading-tight">rate adj. to all impacted units</div>
               </div>
             </div>
 
@@ -284,7 +287,7 @@ export function RulePerformanceTable({
                     <th className={thCls} style={{ minWidth: 260 }}>Rule</th>
                     <th className={thCls}>Date Applied</th>
                     <th className={`${thCls} text-right`}>Units Impacted</th>
-                    <th className={`${thCls} text-right`}>Units Sold</th>
+                    <th className={`${thCls} text-right`}>New Move-ins</th>
                     <th className={thCls}>Speed vs. Expected</th>
                     <th className={`${thCls} text-right`}>Monthly Impact</th>
                     <th className={`${thCls} text-right`}>Annual Impact</th>
@@ -308,13 +311,9 @@ export function RulePerformanceTable({
               </table>
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Speed vs. Expected compares the average days-to-sell of units sold after the rule was applied
-              against the historical average days vacant for the same service line and room type. Revenue
-              impact compares trailing 3-month average realized revenue before the rule against the 3 months
-              after (capturing both rate and occupancy changes). Click any impact value to see the calculation.{" "}
-              Values marked <span className="font-medium">(est.)</span> are projected estimates based on the
-              rate delta and current occupancy data — they will be replaced by realized figures once enough
-              before/after revenue history accumulates.
+              <span className="font-medium">New Move-ins</span> counts residents admitted after the rule was applied; existing occupied residents are not counted here even though their rates also changed.{" "}
+              <span className="font-medium">Revenue impact</span> reflects the rate adjustment across <span className="font-medium">all</span> impacted units — both existing residents paying the new rate and incoming move-ins — using trailing 3-month realized revenue (before vs. after the rule). Click any impact value to see the calculation.{" "}
+              Values marked <span className="font-medium">(est.)</span> are projected from the rate delta and current occupancy; they update automatically once enough before/after history accumulates.
             </p>
           </>
         )}
