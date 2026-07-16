@@ -9928,6 +9928,8 @@ ${campusOccLines.join('\n')}
           serviceLine: s.serviceLine,
           totalUnits:    Math.round(s.totalUnits * 10) / 10,
           occupancyCount: Math.round(s.occupancyCount * 10) / 10,
+          // Precise pct computed BEFORE rounding counts — avoids 27.2/30.2-style drift
+          occupancyPct: s.totalUnits > 0 ? Math.round(s.occupancyCount / s.totalUnits * 1000) / 10 : 0,
           averageStreetRate: rlCount > 0 ? s.totalStreetRate / rlCount : 0,
           averageModuloRate: s.moduloCount > 0 ? s.totalModuloRate / s.moduloCount : null,
           averageRuleRate:   s.ruleCount   > 0 ? s.totalRuleRate   / s.ruleCount   : null,
@@ -9946,6 +9948,7 @@ ${campusOccLines.join('\n')}
         serviceLine: 'Total',
         totalUnits:    Math.round(histTotalAvail * 10) / 10,
         occupancyCount: Math.round(histTotalOcc  * 10) / 10,
+        occupancyPct: histTotalAvail > 0 ? Math.round(histTotalOcc / histTotalAvail * 1000) / 10 : 0,
         averageStreetRate: unitLevelData.length > 0 ? totalStreetRate / unitLevelData.length : 0,
         averageModuloRate: null,
         averageRuleRate:   totalRuleCount > 0 ? totalRuleRate / totalRuleCount : null,
@@ -15200,12 +15203,15 @@ Return ONLY valid JSON with no markdown fences:
           GROUP BY location_name, service_line
         `, [clientId]),
         // Rent-roll unit counts per location+SL — distribution weights for combined-SL
-        // history rows (same approach as the commentary endpoint). Not filtered by
+        // history rows (same approach as the rate-card endpoint). Not filtered by
         // serviceLine so weights stay stable regardless of the active filter.
+        // B beds (room numbers ending in "B") are excluded for senior-housing SLs so
+        // weights reflect physical rooms — keeps occupancy identical to the rate card.
         pool.query(`
           SELECT location, service_line, COUNT(*) AS total_cnt
           FROM rent_roll_data
           WHERE ${weightWhere}
+            AND NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number LIKE '%B')
           GROUP BY location, service_line
         `, weightParams),
       ]);
@@ -15453,6 +15459,7 @@ Return ONLY valid JSON with no markdown fences:
             ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
             COUNT(*) FILTER (WHERE NOT rrd.occupied_yn) AS vacant,
             COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE NOT (rrd.service_line IN ('AL','AL/MC','SL','VIL') AND rrd.room_number LIKE '%B')) AS weight_cnt,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
             ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
             ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
@@ -15563,8 +15570,10 @@ Return ONLY valid JSON with no markdown fences:
       // History rows can contain combined service_line strings like "AL, AL/MC, HC" —
       // the same approach used in the Rate Card Summary and Reference Data endpoints.
       // Rent-roll unit counts per SL serve as distribution weights.
+      // B beds are excluded (weight_cnt) so weights reflect physical rooms —
+      // keeps per-SL occupancy identical to the rate card page.
       const rlUnitsBySL: Record<string, number> = {};
-      for (const r of slRows) rlUnitsBySL[r.service_line] = parseInt(r.total || '0');
+      for (const r of slRows) rlUnitsBySL[r.service_line] = parseInt(r.weight_cnt ?? r.total ?? '0');
 
       const rohBySLDist: Record<string, { occ: number; avail: number }> = {};
       for (const r of rohRows) {

@@ -723,7 +723,9 @@ export default function RateCardTable({
                   .filter((row: any) => row.isTotal || row.totalUnits > 0)
                   .map((row: any, index: number) => {
                     const isTotal = row.isTotal === true;
-                    const occPct = row.totalUnits > 0 ? row.occupancyCount / row.totalUnits : 0;
+                    const occPct = row.occupancyPct != null
+                      ? row.occupancyPct / 100
+                      : (row.totalUnits > 0 ? row.occupancyCount / row.totalUnits : 0);
                     return (
                       <TableRow
                         key={`${row.serviceLine}-${index}`}
