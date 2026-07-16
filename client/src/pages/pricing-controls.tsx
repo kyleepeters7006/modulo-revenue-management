@@ -1187,8 +1187,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 </button>
               </div>
             </div>
-            {renderScatterChart(200, 9)}
-            {renderScatterLegend("text-[9px]")}
+            {renderScatterChart(200, 12)}
+            {renderScatterLegend("text-xs")}
           </div>
 
           {/* Fullscreen scatter dialog */}
