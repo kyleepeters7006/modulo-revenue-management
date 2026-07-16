@@ -16883,7 +16883,7 @@ Return ONLY valid JSON, no markdown fences:
         const histUnitRes = await pool.query(`
           SELECT DISTINCT ON (rr.location, rr.room_number)
                  rr.location, rr.service_line, rr.room_type, rr.room_number,
-                 rr.occupied_yn, rr.move_in_date, rr.in_house_rate, rr.days_vacant
+                 rr.occupied_yn, rr.move_in_date, rr.in_house_rate, rr.street_rate, rr.days_vacant
           FROM rent_roll_data rr
           WHERE rr.client_id = $1 AND rr.location = ANY($2)
           ORDER BY rr.location, rr.room_number, rr.upload_month DESC
@@ -16942,17 +16942,27 @@ Return ONLY valid JSON, no markdown fences:
             const soldAfterRule = !!(latest?.occupied_yn && moveIn && moveIn >= appliedAt && moveIn <= endDate);
             const dts = soldAfterRule && moveIn ? Math.max(0, Math.round((moveIn.getTime() - appliedAt.getTime()) / 86400000)) : null;
             const expected = expectedFor(u.service_line, u.room_type);
-            // Projected fallback values from the latest unit snapshot
+            // Projected fallback: compute actual rate delta from the rule's adjustment.
+            // Use street_rate as the base (covers vacant units where in_house_rate is null).
             const isDaily = ['HC', 'HC/MC'].includes(u.service_line);
-            const histProjRate = latest
-              ? ((Number(latest.in_house_rate) || 0) * (isDaily ? 30.4 : 1))
+            const rawRate = latest
+              ? (Number(latest.in_house_rate) || Number(latest.street_rate) || 0)
               : 0;
+            const baseMonthlyRate = rawRate * (isDaily ? 30.4 : 1);
+            // Support both action formats: new {adjustmentType,adjustmentValue} and old {type,value}
+            const adjType: string = hr.action?.adjustmentType || hr.action?.type || 'percentage';
+            const adjValue = Number(hr.action?.adjustmentValue ?? hr.action?.value ?? 0);
+            const histProjRate = adjType === 'percentage'
+              ? baseMonthlyRate * (adjValue / 100)
+              : adjType === 'absolute'
+                ? (isDaily ? adjValue * 30.4 : adjValue)
+                : 0;
             const histDaysVacant = latest?.days_vacant != null ? Number(latest.days_vacant) : null;
 
             const bump = (a: Agg) => {
               a.unitsImpacted += 1;
               if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
-              // Projected rate delta — use latest in-house rate as proxy for rule impact
+              // Projected rate delta — actual increase/decrease per unit from the rule
               a.projRateSum += histProjRate;
               if (latest?.occupied_yn && histDaysVacant != null && histDaysVacant > 0 && histDaysVacant < 730) {
                 a.projDtsSum += histDaysVacant;
