@@ -875,7 +875,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           </div>
 
           {/* rule cards — editorial style */}
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
             {activeRules.map((rule: any, ri: number) => {
               const { positive, display } = getActionInfo(rule);
               const sls = getSLs(rule);
@@ -899,39 +899,39 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     <div className="flex gap-1 flex-wrap">
                       {sls.length > 0
                         ? sls.map(sl => (
-                            <span key={sl} className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{SL_DISPLAY[sl] || sl}</span>
+                            <span key={sl} className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{SL_DISPLAY[sl] || sl}</span>
                           ))
-                        : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">All SLs</span>
+                        : <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">All SLs</span>
                       }
                     </div>
                     {eff && (
-                      <span className={`text-[9px] font-semibold shrink-0 ${isFuture ? 'text-blue-500' : 'text-slate-300'}`}>
+                      <span className={`text-[11px] font-semibold shrink-0 ${isFuture ? 'text-blue-500' : 'text-slate-400'}`}>
                         {isFuture ? '⏰ ' : ''}{new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
                       </span>
                     )}
                   </div>
 
                   {/* big adjustment badge */}
-                  <div className={`text-2xl font-black leading-none tracking-tight mb-1 ${positive ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <div className={`text-3xl font-black leading-none tracking-tight mb-1.5 ${positive ? 'text-emerald-600' : 'text-red-600'}`}>
                     {display}
                   </div>
 
                   {/* rule name */}
-                  <p className="text-[12px] font-bold text-slate-800 leading-snug mb-2 line-clamp-2 group-hover:text-teal-700">
+                  <p className="text-sm font-bold text-slate-800 leading-snug mb-3 line-clamp-2 group-hover:text-teal-700">
                     {rule.name}
                   </p>
 
                   {/* divider */}
                   <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span className={`text-[11px] font-black ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {fmtImpact(annual)}<span className="font-normal text-slate-400 text-[9px]">/yr</span>
+                    <span className={`text-sm font-black ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {fmtImpact(annual)}<span className="font-normal text-slate-400 text-[10px]">/yr</span>
                     </span>
-                    <span className="text-[9px] text-slate-400 flex items-center gap-0.5">
-                      <Zap className="h-2.5 w-2.5" />{trigger}
+                    <span className="text-[11px] text-slate-400 flex items-center gap-0.5">
+                      <Zap className="h-3 w-3" />{trigger}
                     </span>
                   </div>
                   {units > 0 && (
-                    <p className="text-[9px] text-slate-300 mt-0.5">{units.toLocaleString()} units</p>
+                    <p className="text-[11px] text-slate-400 mt-1">{units.toLocaleString()} units</p>
                   )}
                 </button>
               );
