@@ -67,6 +67,7 @@ export interface RuleImpactResult {
   annualImpact: number;
   perCampus: RuleCampusImpact[];
   qualifiedUnitIds: Set<string>;
+  overlapExcludedUnits: number;    // units this rule qualifies but already claimed by a higher-precedence rule
 }
 
 /** Trailing-3-month move-ins per `${location}||${serviceLine}||${roomType}` (per month). */
@@ -350,6 +351,7 @@ export function computeQualifiedRuleImpact(
   ctx: RuleImpactContext,
   rule: any,
   scope?: { locationId?: string | null; serviceLine?: string | null },
+  excludeUnitIds?: Set<string>,
 ): RuleImpactResult {
   const action = rule.action || {};
   const adjustmentType: string = action.adjustmentType || "percentage";
@@ -364,6 +366,7 @@ export function computeQualifiedRuleImpact(
   let moveInsTotal = 0;
   let monthlyImpact = 0;
   let deltaWeighted = 0;
+  let overlapExcludedUnits = 0;
 
   for (const [gKey, groupUnits] of Array.from(ctx.groups.entries())) {
     const [locId, sl, rt] = gKey.split("|");
@@ -372,7 +375,9 @@ export function computeQualifiedRuleImpact(
     if ((scope?.locationId || rule.locationId) && locId !== (scope?.locationId || rule.locationId)) continue;
     if (!groupPassesTrigger(ctx, rule, locId, sl, rt)) continue;
 
-    const qualified = groupUnits.filter(u => unitPasses(rule, u));
+    const passing = groupUnits.filter(u => unitPasses(rule, u));
+    const qualified = excludeUnitIds ? passing.filter(u => !excludeUnitIds.has(u.id)) : passing;
+    overlapExcludedUnits += passing.length - qualified.length;
     if (!qualified.length) continue;
 
     const locationName = qualified[0].location || "Unknown";
@@ -424,5 +429,6 @@ export function computeQualifiedRuleImpact(
     annualImpact: Math.round(monthlyImpact * 12),
     perCampus: campuses,
     qualifiedUnitIds,
+    overlapExcludedUnits,
   };
 }

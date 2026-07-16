@@ -565,6 +565,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     return ids;
   })();
 
+  // ── Overlap handling: the backend deduplicates at the unit level — when
+  // multiple active rules qualify the same units, each unit is attributed to
+  // the newest rule only, so per-rule impacts already sum without any
+  // double-counting. Rules whose numbers were reduced by this carry
+  // `overlapExcludedUnits > 0` and get an informational badge.
+  const overlapRuleIds = new Set<string>(
+    activeRules
+      .filter((r: any) => (r.overlapExcludedUnits || 0) > 0 && !supersededIds.has(r.id))
+      .map((r: any) => r.id)
+  );
+
   const effectiveRules = activeRules.filter((r: any) => !supersededIds.has(r.id));
 
   const totalAnnualImpact = effectiveRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
@@ -842,18 +853,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
               {/* Per-rule breakdown — grouped by strategy, expandable rows */}
               {(() => {
-                // Detect rules that share the same annual impact (likely double-counting)
-                const impactCount: Record<string, string[]> = {};
-                activeRules.forEach((r: any) => {
-                  const key = String(Math.round(r.annualImpact || 0));
-                  if (!impactCount[key]) impactCount[key] = [];
-                  impactCount[key].push(r.id);
-                });
-                const duplicateIds = new Set<string>(
-                  Object.values(impactCount)
-                    .filter(ids => ids.length > 1)
-                    .flat()
-                );
+                // Rules sharing units with a newer rule — their shown impact
+                // already excludes those units (counted once, backend-deduped).
+                const duplicateIds = overlapRuleIds;
                 return (
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
@@ -866,7 +868,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     {duplicateIds.size > 0 && (
                       <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
                         <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
-                        <span><span className="font-semibold">Possible double-count:</span> {duplicateIds.size} rules show identical impact numbers, meaning they may be qualifying the same units. Expand those rows for details and consider deactivating older/simpler versions.</span>
+                        <span><span className="font-semibold">Overlap removed:</span> {duplicateIds.size} rule{duplicateIds.size !== 1 ? 's' : ''} qualify units already covered by a newer rule. Each unit is counted only once — the totals above contain no double-counting.</span>
                       </div>
                     )}
                     <div className="space-y-2">
@@ -874,7 +876,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                         const groupRules = activeRules.filter((r: any) => getRuleCategory(r) === group.id);
                         if (!groupRules.length) return null;
                         const GroupIcon = group.icon;
-                        const groupAnnual = groupRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+                        const groupAnnual = groupRules
+                          .filter((r: any) => !supersededIds.has(r.id))
+                          .reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
                         return (
                           <div key={group.id} className="rounded-lg border border-slate-200 overflow-hidden"
                             style={{ borderLeftWidth: 3, borderLeftColor: group.accent }}>
@@ -942,7 +946,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className={`text-[13px] font-medium leading-tight ${isSuperseded ? 'line-through text-slate-400' : 'text-slate-800'}`}>{rule.name || 'Unnamed rule'}</span>
                                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
                                           {isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">superseded</span>}
-                                          {isDupe && !isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠ may overlap</span>}
+                                          {isDupe && !isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>
                                       </div>
@@ -1006,7 +1010,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                         {isDupe && (
                                           <div className="flex items-start gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
                                             <span className="text-amber-500 shrink-0">⚠</span>
-                                            <span>Another active rule shows the same impact amount, suggesting both are qualifying the same units. If this is an older or simpler version of a newer rule, consider deactivating it to avoid double-counting.</span>
+                                            <span>{(rule.overlapExcludedUnits || 0).toLocaleString()} unit{(rule.overlapExcludedUnits || 0) !== 1 ? 's' : ''} this rule qualifies {(rule.overlapExcludedUnits || 0) !== 1 ? 'are' : 'is'} already covered by a newer rule and counted there instead — this rule's numbers include only the remaining units, so nothing is double-counted.</span>
                                           </div>
                                         )}
                                         {rule.description && (
@@ -1244,7 +1248,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 (byDate[dk] ??= []).push(r);
               });
 
-              const groupImpact = groupRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+              const groupImpact = groupRules
+                .filter((r: any) => !supersededIds.has(r.id))
+                .reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
 
               return (
                 <div key={group.id} className="rounded-lg border border-slate-200 bg-white overflow-hidden"
@@ -1281,8 +1287,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                       const rep = dateRules[0];
                       const { display: adjDisplay, isIncrease } = getActionInfo(rep);
                       const trigger = getTriggerLabel(rep);
-                      const subImpact = dateRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
-                      const subUnits = dateRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0);
+                      const countedRules = dateRules.filter((r: any) => !supersededIds.has(r.id));
+                      const subImpact = countedRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+                      const subUnits = countedRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0);
 
                       return (
                         <div key={dateKey} className="px-3 py-1.5 flex items-center gap-2.5 hover:bg-slate-50/50 transition-colors">

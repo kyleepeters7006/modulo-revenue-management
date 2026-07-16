@@ -14902,12 +14902,29 @@ Respond in JSON format:
         if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
       }
 
+      // ── Unit-level overlap dedup across active rules ──
+      // The newest active rule claims its qualified units first; older rules
+      // only count units not already claimed, so no unit is ever counted twice
+      // across the Net Annual Impact / lift / concession totals.
+      const precedenceKey = (r: any) =>
+        `${r.effectiveDate ? new Date(r.effectiveDate).toISOString() : ''}|${r.createdAt ? new Date(r.createdAt).toISOString() : ''}|${r.id}`;
+      const dedupOrder = rules
+        .filter((r: any) => r.isActive && r.isHistorical !== true && (r.action as any)?.adjustmentValue && impactCtx)
+        .sort((a: any, b: any) => precedenceKey(b).localeCompare(precedenceKey(a)));
+      const claimedUnitIds = new Set<string>();
+      const dedupedImpactById = new Map<string, any>();
+      for (const rule of dedupOrder) {
+        const impact = computeQualifiedRuleImpact(impactCtx, rule, scope, claimedUnitIds);
+        for (const id of Array.from(impact.qualifiedUnitIds)) claimedUnitIds.add(id);
+        dedupedImpactById.set(rule.id, impact);
+      }
+
       const enrichedRules = rules.map((rule) => {
         const action = rule.action as any;
         const adjustmentValue: number = action?.adjustmentValue ?? 0;
         if (!adjustmentValue || !impactCtx) return rule;
 
-        const impact = computeQualifiedRuleImpact(impactCtx, rule, scope);
+        const impact = dedupedImpactById.get(rule.id) ?? computeQualifiedRuleImpact(impactCtx, rule, scope);
 
         // Persist portfolio-wide values so other surfaces (strategy analysis,
         // history) see the same qualified numbers (never write scoped results)
@@ -14929,6 +14946,7 @@ Respond in JSON format:
           monthlyImpact: impact.monthlyImpact,
           annualImpact: impact.annualImpact,
           volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
+          overlapExcludedUnits: impact.overlapExcludedUnits ?? 0,
         };
       });
 
