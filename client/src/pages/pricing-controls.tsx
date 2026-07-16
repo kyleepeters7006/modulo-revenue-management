@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
-import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart } from "lucide-react";
+import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import { StrategyReportModal } from "@/components/dashboard/pricing-reports";
@@ -478,6 +478,7 @@ interface PricingCommentaryCardProps {
 function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId }: PricingCommentaryCardProps) {
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
+  const [impactDialogOpen, setImpactDialogOpen] = useState(false);
 
   const params = new URLSearchParams();
   if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
@@ -489,7 +490,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const { data, isLoading, refetch, isFetching } = useQuery<StrategyOverviewData>({
     queryKey: ["/api/pricing-controls/commentary", selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
     queryFn: () => fetch(`/api/pricing-controls/commentary${qs ? '?' + qs : ''}`).then(r => r.json()),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
     retry: 1,
   });
@@ -615,8 +617,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
           {/* KPI column — right-aligned on desktop */}
           {activeRules.length > 0 && !isLoading && (
-            <div className="hidden sm:flex flex-col items-end gap-0 shrink-0 pl-4 border-l border-slate-100">
-              <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-0.5">Net Annual Impact</p>
+            <button
+              onClick={() => setImpactDialogOpen(true)}
+              className="hidden sm:flex flex-col items-end gap-0 shrink-0 pl-4 border-l border-slate-100 group hover:bg-slate-50/60 rounded-lg px-3 py-1 -mr-1 transition-colors cursor-pointer text-left"
+              title="Click to see how this is calculated"
+            >
+              <div className="flex items-center gap-1 mb-0.5">
+                <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Net Annual Impact</p>
+                <Info className="h-2.5 w-2.5 text-slate-300 group-hover:text-teal-400 transition-colors" />
+              </div>
               <p className={`text-3xl font-black leading-none tracking-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {fmtImpact(totalAnnualImpact)}
               </p>
@@ -632,8 +641,93 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   </div>
                 </div>
               )}
-            </div>
+            </button>
           )}
+
+          {/* Impact explanation dialog */}
+          <Dialog open={impactDialogOpen} onOpenChange={setImpactDialogOpen}>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-base font-bold">
+                  <Info className="h-4 w-4 text-teal-500" />
+                  How Net Annual Impact is Calculated
+                </DialogTitle>
+              </DialogHeader>
+
+              {/* Summary KPIs */}
+              <div className="grid grid-cols-3 gap-3 p-4 bg-slate-50 rounded-lg">
+                <div className="text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Net Annual Impact</p>
+                  <p className={`text-2xl font-black ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
+                </div>
+                <div className="text-center border-l border-slate-200">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Revenue Lift</p>
+                  <p className="text-2xl font-black text-emerald-500">{positiveImpact > 0 ? fmtImpact(positiveImpact) : '—'}</p>
+                </div>
+                <div className="text-center border-l border-slate-200">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Concessions</p>
+                  <p className="text-2xl font-black text-red-500">{negativeImpact < 0 ? fmtImpact(negativeImpact) : '—'}</p>
+                </div>
+              </div>
+
+              {/* Per-rule breakdown */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Rule</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Units</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Monthly</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Annual</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {activeRules.map((rule: any, i: number) => {
+                        const annual = rule.annualImpact || 0;
+                        const monthly = rule.monthlyImpact || 0;
+                        const isPos = annual >= 0;
+                        const action = rule.action || {};
+                        const adj = action.adjustmentType === 'percentage'
+                          ? `${action.adjustmentValue > 0 ? '+' : ''}${action.adjustmentValue}%`
+                          : `${action.adjustmentValue > 0 ? '+' : ''}$${Math.abs(action.adjustmentValue)}`;
+                        return (
+                          <tr key={rule.id || i} className="hover:bg-slate-50/60">
+                            <td className="px-3 py-2.5">
+                              <div className="font-medium text-slate-800 text-[13px]">{rule.name || 'Unnamed rule'}</div>
+                              <div className="text-[11px] text-slate-400">{adj} · {rule.serviceLine || 'All SLs'}</div>
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{(rule.affectedUnits || 0).toLocaleString()}</td>
+                            <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</td>
+                            <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                      <tr>
+                        <td className="px-3 py-2.5 font-bold text-slate-700 text-[13px]">Net Total</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-500 text-[13px]">{activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0).toLocaleString()}</td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums font-bold text-[13px] ${totalAnnualImpact / 12 >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact / 12)}</td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums font-black text-[13px] ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Methodology note */}
+              <div className="rounded-lg bg-teal-50 border border-teal-100 p-3 text-[12px] text-slate-600 space-y-1.5">
+                <p className="font-semibold text-teal-700 mb-1">How the math works</p>
+                <p><span className="font-medium">Monthly impact</span> = sum of current street rates for all qualifying units × the rule's adjustment percentage (or flat dollar amount per unit).</p>
+                <p><span className="font-medium">Annual impact</span> = Monthly impact × 12.</p>
+                <p><span className="font-medium">HC &amp; HC/MC rates</span> are stored as daily rates in the system and are converted to monthly (× 30.4) before the calculation.</p>
+                <p><span className="font-medium">All qualifying units</span> are counted — both occupied and vacant — so the figure represents the full potential revenue effect of the rule across the current filter scope.</p>
+                <p><span className="font-medium">Lift</span> = total from rules that increase rates. <span className="font-medium">Concessions</span> = total from rules that reduce rates. <span className="font-medium">Net</span> = Lift + Concessions.</p>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <button
             onClick={() => refetch()}

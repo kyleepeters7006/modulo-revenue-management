@@ -42,6 +42,18 @@ export function usePrefetch() {
           queryFn: () => apiFetch("/api/analytics/campus-metrics"),
           staleTime: Infinity,
         }),
+        // Warm the strategy overview commentary so the Pricing Controls page
+        // loads instantly for the default (unfiltered) view.
+        queryClient.prefetchQuery({
+          queryKey: ["/api/pricing-controls/commentary", "All", "", "", ""],
+          queryFn: () => apiFetch("/api/pricing-controls/commentary"),
+          staleTime: 30 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ["/api/adjustment-rules", "", ""],
+          queryFn: () => apiFetch("/api/adjustment-rules"),
+          staleTime: 5 * 60 * 1000,
+        }),
       ]);
     };
 

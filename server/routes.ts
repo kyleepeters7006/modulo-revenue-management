@@ -148,26 +148,29 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Building maps storage
 let buildingMaps: any[] = [];
 
-// Analytics cache for expensive computations (5 minute TTL)
+// Analytics cache for expensive computations (5 minute default TTL)
 interface AnalyticsCacheEntry {
   data: any;
   timestamp: number;
+  ttl?: number; // per-entry override; defaults to ANALYTICS_CACHE_TTL
 }
 const analyticsCache = new Map<string, AnalyticsCacheEntry>();
-const ANALYTICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const ANALYTICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (default)
+const COMMENTARY_CACHE_TTL = 30 * 60 * 1000; // 30 minutes (AI commentary changes rarely)
 
 function getCachedAnalytics(key: string): any | null {
   const entry = analyticsCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.timestamp > ANALYTICS_CACHE_TTL) {
+  const ttl = entry.ttl ?? ANALYTICS_CACHE_TTL;
+  if (Date.now() - entry.timestamp > ttl) {
     analyticsCache.delete(key);
     return null;
   }
   return entry.data;
 }
 
-function setCachedAnalytics(key: string, data: any): void {
-  analyticsCache.set(key, { data, timestamp: Date.now() });
+function setCachedAnalytics(key: string, data: any, ttl?: number): void {
+  analyticsCache.set(key, { data, timestamp: Date.now(), ...(ttl !== undefined ? { ttl } : {}) });
 }
 
 // Purge all adjustment-rule-related cache entries for a client so that any
@@ -14876,7 +14879,12 @@ Respond in JSON format:
 
         const unitCount = matched.length;
         const campusCount = new Set(matched.map((u: any) => u.location_id)).size;
-        const totalRate = matched.reduce((s: number, u: any) => s + (Number(u[rateCol]) || 0), 0);
+        // HC and HC/MC store street_rate as a DAILY rate — convert to monthly before impact calc
+        const DAILY_SLS = new Set(['HC', 'HC/MC']);
+        const totalRate = matched.reduce((s: number, u: any) => {
+          const raw = Number(u[rateCol]) || 0;
+          return s + (DAILY_SLS.has(u.service_line) ? raw * 30.4 : raw);
+        }, 0);
         const monthlyImpact = adjustmentType === 'percentage'
           ? totalRate * (adjustmentValue / 100)
           : unitCount * adjustmentValue;
@@ -15645,7 +15653,7 @@ Return ONLY valid JSON, no markdown fences:
         rules: mergedRules,
         generatedAt: new Date().toISOString(),
       };
-      setCachedAnalytics(cacheKey, result);
+      setCachedAnalytics(cacheKey, result, COMMENTARY_CACHE_TTL);
       res.json(result);
     } catch (error) {
       console.error('[pc-commentary] error:', error);
