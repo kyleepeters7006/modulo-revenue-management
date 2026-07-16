@@ -15167,7 +15167,17 @@ Return ONLY valid JSON with no markdown fences:
       if (divisions.length) { whereClause += ` AND division = ANY($${p++})`; params.push(divisions); }
       if (slFilter !== 'All') { whereClause += ` AND service_line=$${p++}`; params.push(slFilter); }
 
-      const [ourRates, rtoOccRes] = await Promise.all([
+      // Distribution weights for combined-SL history rows must NOT depend on the
+      // serviceLine filter (or street_rate>0), otherwise occupancy for the same
+      // location+SL point would change when the filter is applied.
+      let weightWhere = `client_id=$1 AND upload_month=$2`;
+      const weightParams: any[] = [clientId, latestMonth];
+      let wp = 3;
+      if (locations.length) { weightWhere += ` AND location = ANY($${wp++})`; weightParams.push(locations); }
+      if (regions.length) { weightWhere += ` AND region = ANY($${wp++})`; weightParams.push(regions); }
+      if (divisions.length) { weightWhere += ` AND division = ANY($${wp++})`; weightParams.push(divisions); }
+
+      const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
           SELECT location, service_line,
             ROUND(AVG(street_rate)::numeric, 0) AS our_rate,
@@ -15176,29 +15186,70 @@ Return ONLY valid JSON with no markdown fences:
           WHERE ${whereClause}
           GROUP BY location, service_line
         `, params),
-        // Authoritative occupancy aggregated per location (physical rooms, no B-bed inflation)
+        // Authoritative occupancy per location + (possibly combined) service line grouping
+        // (physical rooms, no B-bed inflation). Combined SL strings like "AL, AL/MC, HC"
+        // are distributed proportionally to individual SLs below.
         pool.query(`
-          SELECT location_name,
+          SELECT location_name, service_line,
                  SUM(occ_units) AS occ, SUM(available_units) AS avail
           FROM room_type_occupancy_history
           WHERE client_id=$1
             AND (year * 100 + month) = (
               SELECT MAX(year * 100 + month) FROM room_type_occupancy_history WHERE client_id=$1
             )
-          GROUP BY location_name
+          GROUP BY location_name, service_line
         `, [clientId]),
+        // Rent-roll unit counts per location+SL — distribution weights for combined-SL
+        // history rows (same approach as the commentary endpoint). Not filtered by
+        // serviceLine so weights stay stable regardless of the active filter.
+        pool.query(`
+          SELECT location, service_line, COUNT(*) AS total_cnt
+          FROM rent_roll_data
+          WHERE ${weightWhere}
+          GROUP BY location, service_line
+        `, weightParams),
       ]);
 
-      // Build RTO occupancy map: location_name -> occ% (0-100)
-      const rtoOccMap = new Map<string, number>();
+      if (!ourRates.rows.length) return res.json([]);
+
+      const rlUnitsByLocSL = new Map<string, number>();
+      for (const row of weightRes.rows) {
+        rlUnitsByLocSL.set(`${row.location}|||${row.service_line}`, Number(row.total_cnt) || 0);
+      }
+
+      // Build per-location+SL RTO occupancy map: "location|||SL" -> occ% (0-100).
+      // Combined SL strings (e.g. "AL, AL/MC, HC") are distributed proportionally
+      // by rent-roll unit counts; single-SL rows are assigned directly.
+      const rtoDist = new Map<string, { occ: number; avail: number }>();
       for (const r of rtoOccRes.rows) {
         const loc = String(r.location_name || '');
         const o   = parseFloat(r.occ   || '0');
         const av  = parseFloat(r.avail || '0');
-        if (av > 0) rtoOccMap.set(loc, Math.round(o / av * 1000) / 10);
+        if (av <= 0) continue;
+        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        if (tokens.length === 1) {
+          const key = `${loc}|||${tokens[0]}`;
+          const e = rtoDist.get(key) || { occ: 0, avail: 0 };
+          e.occ += o; e.avail += av;
+          rtoDist.set(key, e);
+        } else {
+          const groupTotal = tokens.reduce((s, sl) => s + (rlUnitsByLocSL.get(`${loc}|||${sl}`) || 0), 0);
+          for (const sl of tokens) {
+            const share = groupTotal > 0
+              ? (rlUnitsByLocSL.get(`${loc}|||${sl}`) || 0) / groupTotal
+              : 1 / tokens.length;
+            if (share <= 0) continue;
+            const key = `${loc}|||${sl}`;
+            const e = rtoDist.get(key) || { occ: 0, avail: 0 };
+            e.occ += o * share; e.avail += av * share;
+            rtoDist.set(key, e);
+          }
+        }
       }
-
-      if (!ourRates.rows.length) return res.json([]);
+      const rtoOccMap = new Map<string, number>();
+      for (const [key, e] of rtoDist) {
+        if (e.avail > 0) rtoOccMap.set(key, Math.round(Math.min(e.occ / e.avail, 1) * 1000) / 10);
+      }
 
       // Competitor avg rates with care adjustments.
       // HC/HC/MC/SMC base rates are daily — if entered >800 assume monthly mistake → /30.
@@ -15295,8 +15346,11 @@ Return ONLY valid JSON with no markdown fences:
 
         const ourRate = Number(row.our_rate);
         const marketPosition = Math.round((ourRate / adjustedCompRate) * 100);
-        // Prefer RTO occupancy (physical rooms); fall back to rent-roll count
-        const rtoOccPct = rtoOccMap.has(row.location) ? rtoOccMap.get(row.location)! : Number(row.rr_occupancy);
+        // Per-service-line occupancy: prefer authoritative RTO history (physical
+        // rooms, no B-bed inflation) distributed to this location+SL; fall back
+        // to the rent-roll count when history has no coverage for this SL.
+        const rtoKey = `${row.location}|||${sl}`;
+        const rtoOccPct = rtoOccMap.has(rtoKey) ? rtoOccMap.get(rtoKey)! : Number(row.rr_occupancy);
         return {
           location: row.location,
           serviceLine: sl,
