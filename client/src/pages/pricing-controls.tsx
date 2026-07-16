@@ -542,6 +542,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   });
 
   const activeRules = (rulesData || []).filter((r: any) => r.isActive);
+  const activeRulesWithImpact = activeRules.filter((r: any) => (r.affectedUnits ?? 0) > 0);
 
   // ── Latest-cycle-wins: detect rules superseded by a newer cycle for the same SL ──
   // For display purposes — the rate engine already applies this logic.
@@ -777,9 +778,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             <div className="flex items-center gap-2 mb-2">
               <span className="inline-block w-[3px] h-4 rounded-full bg-teal-500" />
               <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Strategy Overview</span>
-              {activeRules.length > 0 && (
+              {activeRulesWithImpact.length > 0 && (
                 <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-teal-500 border border-teal-200 rounded px-1.5 py-0.5">
-                  {activeRules.length} Active Rule{activeRules.length !== 1 ? 's' : ''}
+                  {activeRulesWithImpact.length} Active Rule{activeRulesWithImpact.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
