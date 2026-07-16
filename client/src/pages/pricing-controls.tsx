@@ -963,13 +963,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           </div>
 
           {/* Rules grouped by strategic intent */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             {RULE_GROUPS.map(group => {
               const groupRules = activeRules.filter((r: any) => getRuleCategory(r) === group.id);
               if (!groupRules.length) return null;
               const GroupIcon = group.icon;
 
-              // Sub-group by effective date so Apr vs Jul rows are distinct
               const byDate: Record<string, any[]> = {};
               groupRules.forEach((r: any) => {
                 const dk = r.effectiveDate ? String(r.effectiveDate).slice(0, 7) : 'ongoing';
@@ -979,25 +978,23 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               const groupImpact = groupRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
 
               return (
-                <div key={group.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden"
-                  style={{ borderLeftWidth: 4, borderLeftColor: group.accent }}>
+                <div key={group.id} className="rounded-lg border border-slate-200 bg-white overflow-hidden"
+                  style={{ borderLeftWidth: 3, borderLeftColor: group.accent }}>
 
                   {/* ── Group header ── */}
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/80 border-b border-slate-100">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <GroupIcon className="h-4 w-4 shrink-0" style={{ color: group.accent }} />
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-bold text-slate-800 leading-tight">{group.label}</p>
-                        <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">{group.description}</p>
-                      </div>
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50/80 border-b border-slate-100">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GroupIcon className="h-3.5 w-3.5 shrink-0" style={{ color: group.accent }} />
+                      <p className="text-xs font-bold text-slate-700 leading-tight">{group.label}</p>
+                      <span className="hidden sm:inline text-xs text-slate-400">— {group.description}</span>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0 pl-3">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${group.badge}`}>
-                        {groupRules.length} rule{groupRules.length !== 1 ? 's' : ''}
+                    <div className="flex items-center gap-2 shrink-0 pl-2">
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${group.badge}`}>
+                        {groupRules.length}
                       </span>
                       {groupImpact !== 0 && (
-                        <span className={`text-sm font-black tabular-nums ${groupImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                          {fmtImpact(groupImpact)}<span className="text-[10px] font-normal text-slate-400">/yr</span>
+                        <span className={`text-sm font-bold tabular-nums ${groupImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {fmtImpact(groupImpact)}<span className="text-xs font-normal text-slate-400">/yr</span>
                         </span>
                       )}
                     </div>
@@ -1012,7 +1009,6 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                         ? 'Always'
                         : new Date(`${dateKey}-01T12:00:00`).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 
-                      // Use first rule as representative for trigger + adjustment display
                       const rep = dateRules[0];
                       const { display: adjDisplay, isIncrease } = getActionInfo(rep);
                       const trigger = getTriggerLabel(rep);
@@ -1020,24 +1016,22 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                       const subUnits = dateRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0);
 
                       return (
-                        <div key={dateKey} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50/50 transition-colors group/row">
+                        <div key={dateKey} className="px-3 py-1.5 flex items-center gap-2.5 hover:bg-slate-50/50 transition-colors">
 
                           {/* Date badge */}
-                          <div className="w-14 shrink-0">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap
-                              ${isFuture ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
-                              {dateLabel}
-                            </span>
-                          </div>
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap
+                            ${isFuture ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
+                            {dateLabel}
+                          </span>
 
                           {/* Adjustment */}
-                          <div className={`w-10 shrink-0 text-[13px] font-black tabular-nums leading-none
+                          <span className={`w-9 shrink-0 text-sm font-black tabular-nums
                             ${isIncrease ? 'text-emerald-600' : 'text-red-600'}`}>
                             {adjDisplay}
-                          </div>
+                          </span>
 
-                          {/* Service line pills — clickable, shows full name */}
-                          <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
+                          {/* Service line pills */}
+                          <div className="flex gap-1 flex-wrap flex-1 min-w-0">
                             {dateRules
                               .sort((a: any, b: any) => (a.serviceLine || '').localeCompare(b.serviceLine || ''))
                               .map((r: any) => {
@@ -1046,8 +1040,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                   <button
                                     key={r.id}
                                     onClick={() => setSelectedRule(r)}
-                                    title={`${r.name} — click for details`}
-                                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full transition-opacity hover:opacity-70 cursor-pointer
+                                    title={r.name}
+                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full hover:opacity-75 transition-opacity cursor-pointer
                                       ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}
                                   >
                                     {SL_FULL[sl] || sl}
@@ -1056,22 +1050,21 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                               })}
                           </div>
 
-                          {/* Trigger summary */}
-                          <div className="hidden md:flex items-center gap-1 shrink-0 text-[11px] text-slate-400">
+                          {/* Trigger */}
+                          <div className="hidden md:flex items-center gap-1 shrink-0 text-xs text-slate-400">
                             <Zap className="h-3 w-3 text-slate-300 shrink-0" />
                             <span className="whitespace-nowrap">{trigger}</span>
                           </div>
 
-                          {/* Impact + units */}
-                          <div className="hidden lg:block shrink-0 text-right min-w-[64px]">
+                          {/* Impact */}
+                          <div className="hidden lg:flex items-baseline gap-1 shrink-0 text-right">
                             {subImpact !== 0 && (
-                              <p className={`text-[13px] font-bold tabular-nums leading-tight
-                                ${subImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              <span className={`text-sm font-bold tabular-nums ${subImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                 {fmtImpact(subImpact)}
-                              </p>
+                              </span>
                             )}
                             {subUnits > 0 && (
-                              <p className="text-[10px] text-slate-400 leading-tight">{subUnits.toLocaleString()} units</p>
+                              <span className="text-xs text-slate-400">{subUnits.toLocaleString()} units</span>
                             )}
                           </div>
                         </div>
