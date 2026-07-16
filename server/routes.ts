@@ -604,6 +604,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // POST /api/admin/sync-rules — upsert adjustment_rules from a JSON payload (dev→prod sync)
+  app.post('/api/admin/sync-rules', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      const rules: any[] = req.body?.rules;
+      if (!Array.isArray(rules) || rules.length === 0) {
+        return res.status(400).json({ error: 'rules array required' });
+      }
+      let upserted = 0;
+      for (const r of rules) {
+        await pool.query(`
+          INSERT INTO adjustment_rules (
+            id, name, description, trigger, action, priority,
+            is_active, is_historical, service_line, service_lines,
+            effective_date, monthly_impact, annual_impact,
+            volume_adjusted_annual_impact, actual_annual_impact,
+            execution_count, location_id, created_by,
+            created_at, updated_at
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+            $11,$12,$13,$14,$15,$16,$17,$18,$19,$20
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            trigger = EXCLUDED.trigger,
+            action = EXCLUDED.action,
+            priority = EXCLUDED.priority,
+            is_active = EXCLUDED.is_active,
+            is_historical = EXCLUDED.is_historical,
+            service_line = EXCLUDED.service_line,
+            service_lines = EXCLUDED.service_lines,
+            effective_date = EXCLUDED.effective_date,
+            monthly_impact = EXCLUDED.monthly_impact,
+            annual_impact = EXCLUDED.annual_impact,
+            volume_adjusted_annual_impact = EXCLUDED.volume_adjusted_annual_impact,
+            actual_annual_impact = EXCLUDED.actual_annual_impact,
+            execution_count = EXCLUDED.execution_count,
+            location_id = EXCLUDED.location_id,
+            created_by = EXCLUDED.created_by,
+            created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at
+        `, [
+          r.id, r.name, r.description,
+          typeof r.trigger === 'string' ? r.trigger : JSON.stringify(r.trigger),
+          typeof r.action === 'string' ? r.action : JSON.stringify(r.action),
+          r.priority ?? 0,
+          r.is_active ?? false,
+          r.is_historical ?? false,
+          r.service_line ?? null,
+          r.service_lines ?? null,
+          r.effective_date ?? null,
+          r.monthly_impact ?? null,
+          r.annual_impact ?? null,
+          r.volume_adjusted_annual_impact ?? null,
+          r.actual_annual_impact ?? null,
+          r.execution_count ?? 0,
+          r.location_id ?? null,
+          r.created_by ?? null,
+          r.created_at ?? new Date().toISOString(),
+          r.updated_at ?? new Date().toISOString(),
+        ]);
+        upserted++;
+      }
+      console.log(`[sync-rules] Upserted ${upserted} rules`);
+      res.json({ success: true, upserted });
+    } catch (e: any) {
+      console.error('[sync-rules] error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/admin/geocode-missing-locations — geocode only locations that lack lat/lng
   // Protected by x-seed-secret header OR a logged-in admin session (username ending in _admin).
   app.post('/api/admin/geocode-missing-locations', async (req: any, res) => {
