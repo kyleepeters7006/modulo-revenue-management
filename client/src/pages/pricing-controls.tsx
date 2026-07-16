@@ -526,11 +526,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     staleTime: 2 * 60 * 1000,
   });
 
-  const { data: compPositionData = [] } = useQuery<any[]>({
+  const { data: compPositionRaw = [] } = useQuery<any[]>({
     queryKey: ['/api/pricing-controls/competitive-position', selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
     queryFn: () => fetch(`/api/pricing-controls/competitive-position${qs ? '?' + qs : ''}`).then(r => r.json()),
-    staleTime: 10 * 60 * 1000,
+    staleTime: 0,
   });
+  const compPositionData = compPositionRaw.filter((d: any) => (d.occupancy ?? 0) > 0);
 
   const { data: coverageData, isLoading: coverageLoading } = useQuery<any>({
     queryKey: ['/api/adjustment-rules', coverageRuleId, 'coverage'],
