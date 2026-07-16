@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
-import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info } from "lucide-react";
+import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import { StrategyReportModal } from "@/components/dashboard/pricing-reports";
@@ -494,6 +494,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
   const [expandedImpactRow, setExpandedImpactRow] = useState<string | null>(null);
   const [scatterExpanded, setScatterExpanded] = useState(false);
+  const [coverageRuleId, setCoverageRuleId] = useState<string | null>(null);
 
   const params = new URLSearchParams();
   if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
@@ -531,10 +532,43 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     staleTime: 10 * 60 * 1000,
   });
 
+  const { data: coverageData, isLoading: coverageLoading } = useQuery<any>({
+    queryKey: ['/api/adjustment-rules', coverageRuleId, 'coverage'],
+    queryFn: () => fetch(`/api/adjustment-rules/${coverageRuleId}/coverage`).then(r => r.json()),
+    enabled: !!coverageRuleId,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const activeRules = (rulesData || []).filter((r: any) => r.isActive);
-  const totalAnnualImpact = activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
-  const positiveImpact = activeRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
-  const negativeImpact = activeRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
+
+  // ── Latest-cycle-wins: detect rules superseded by a newer cycle for the same SL ──
+  // For display purposes — the rate engine already applies this logic.
+  const supersededIds = (() => {
+    const latestCyclePerSL: Record<string, string> = {};
+    activeRules.forEach((r: any) => {
+      if (!r.effectiveDate) return;
+      const sl = r.serviceLine || '*';
+      const month = String(r.effectiveDate).slice(0, 7);
+      if (!latestCyclePerSL[sl] || month > latestCyclePerSL[sl]) {
+        latestCyclePerSL[sl] = month;
+      }
+    });
+    const ids = new Set<string>();
+    activeRules.forEach((r: any) => {
+      if (!r.effectiveDate) return;
+      const sl = r.serviceLine || '*';
+      const month = String(r.effectiveDate).slice(0, 7);
+      const latest = latestCyclePerSL[sl];
+      if (latest && month < latest) ids.add(r.id);
+    });
+    return ids;
+  })();
+
+  const effectiveRules = activeRules.filter((r: any) => !supersededIds.has(r.id));
+
+  const totalAnnualImpact = effectiveRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+  const positiveImpact = effectiveRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
+  const negativeImpact = effectiveRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
 
   const fmtImpact = (v: number, sign = true) => {
     const abs = Math.abs(v);
@@ -822,6 +856,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 return (
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
+                    {supersededIds.size > 0 && (
+                      <div className="mb-2 flex items-start gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[12px] text-slate-600">
+                        <span className="text-slate-400 mt-0.5 shrink-0">↻</span>
+                        <span><span className="font-semibold">Cycle superseding active:</span> {supersededIds.size} rule{supersededIds.size !== 1 ? 's' : ''} from an earlier pricing cycle are shown crossed-out and excluded from the net total — a newer cycle now applies for those service lines.</span>
+                      </div>
+                    )}
                     {duplicateIds.size > 0 && (
                       <div className="mb-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
                         <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
@@ -886,24 +926,28 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                   const pct = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.field === 'street_to_comp_var' ? `${c.value}%` : String(c.value);
                                   return `${fn} ${op} ${pct}`;
                                 });
+                                const isSuperseded = supersededIds.has(rule.id);
                                 return (
                                   <div key={rule.id}>
                                     {/* Collapsed row — click to expand */}
                                     <button
-                                      className={`w-full text-left px-3 py-2 hover:bg-slate-50/70 transition-colors flex items-start gap-3 ${isDupe ? 'bg-amber-50/40' : ''}`}
+                                      className={`w-full text-left px-3 py-2 hover:bg-slate-50/70 transition-colors flex items-start gap-3
+                                        ${isDupe ? 'bg-amber-50/40' : ''}
+                                        ${isSuperseded ? 'opacity-50' : ''}`}
                                       onClick={() => setExpandedImpactRow(isExpanded ? null : rule.id)}
                                     >
                                       <ChevronDown className={`h-3.5 w-3.5 mt-0.5 shrink-0 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="text-[13px] font-medium text-slate-800 leading-tight">{rule.name || 'Unnamed rule'}</span>
+                                          <span className={`text-[13px] font-medium leading-tight ${isSuperseded ? 'line-through text-slate-400' : 'text-slate-800'}`}>{rule.name || 'Unnamed rule'}</span>
                                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
-                                          {isDupe && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠ may overlap</span>}
+                                          {isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">superseded</span>}
+                                          {isDupe && !isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠ may overlap</span>}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>
                                       </div>
                                       <div className="text-right shrink-0 pl-2">
-                                        <div className={`text-sm font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</div>
+                                        <div className={`text-sm font-bold tabular-nums ${isSuperseded ? 'text-slate-400 line-through' : isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</div>
                                         <div className="text-[11px] text-slate-400">{units.toLocaleString()} units</div>
                                       </div>
                                     </button>
@@ -987,6 +1031,92 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 <p><span className="font-medium">All qualifying units</span> are counted — both occupied and vacant — so the figure represents the full potential revenue effect of the rule across the current filter scope.</p>
                 <p><span className="font-medium">Lift</span> = total from rules that increase rates. <span className="font-medium">Concessions</span> = total from rules that reduce rates. <span className="font-medium">Net</span> = Lift + Concessions.</p>
               </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Campus coverage drill-down modal ── */}
+          <Dialog open={!!coverageRuleId} onOpenChange={(o) => { if (!o) setCoverageRuleId(null); }}>
+            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-base font-bold">
+                  <Building2 className="h-4 w-4 text-teal-500" />
+                  Campus Breakdown
+                </DialogTitle>
+                {coverageData && (
+                  <p className="text-[11px] text-slate-400 mt-0.5">{coverageData.ruleName}</p>
+                )}
+              </DialogHeader>
+
+              {coverageLoading && (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-teal-400" />
+                </div>
+              )}
+
+              {coverageData && !coverageLoading && (
+                <>
+                  {/* Summary row */}
+                  <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-lg text-center">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Campuses</p>
+                      <p className="text-xl font-black text-slate-700">{coverageData.campuses.length}</p>
+                    </div>
+                    <div className="border-l border-slate-200">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Total Units</p>
+                      <p className="text-xl font-black text-slate-700">{(coverageData.totalUnits || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="border-l border-slate-200">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Monthly Impact</p>
+                      <p className={`text-xl font-black ${coverageData.totalMonthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {fmtImpact(coverageData.totalMonthlyImpact)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Campus table */}
+                  <div className="rounded-lg border border-slate-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Campus</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Units</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Avg Rate</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mo. Impact</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ann. Impact</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {coverageData.campuses.map((c: any, i: number) => (
+                          <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-3 py-1.5 text-[13px] text-slate-700 font-medium max-w-[220px] truncate">{c.campusName}</td>
+                            <td className="px-3 py-1.5 text-[13px] text-slate-600 tabular-nums text-right">{(c.unitCount || 0).toLocaleString()}</td>
+                            <td className="px-3 py-1.5 text-[13px] text-slate-600 tabular-nums text-right">${(c.avgRate || 0).toLocaleString()}</td>
+                            <td className={`px-3 py-1.5 text-[13px] font-semibold tabular-nums text-right ${c.monthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {fmtImpact(c.monthlyImpact)}
+                            </td>
+                            <td className={`px-3 py-1.5 text-[13px] font-semibold tabular-nums text-right ${c.annualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {fmtImpact(c.annualImpact)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-50 border-t border-slate-200 font-bold">
+                          <td className="px-3 py-2 text-[12px] text-slate-600">Total</td>
+                          <td className="px-3 py-2 text-[12px] text-slate-700 tabular-nums text-right">{(coverageData.totalUnits || 0).toLocaleString()}</td>
+                          <td className="px-3 py-2 text-[12px] text-slate-400 text-right">—</td>
+                          <td className={`px-3 py-2 text-[13px] tabular-nums text-right ${coverageData.totalMonthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {fmtImpact(coverageData.totalMonthlyImpact)}
+                          </td>
+                          <td className={`px-3 py-2 text-[13px] tabular-nums text-right ${coverageData.totalMonthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {fmtImpact((coverageData.totalMonthlyImpact || 0) * 12)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </>
+              )}
             </DialogContent>
           </Dialog>
 
@@ -1163,16 +1293,26 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                               .sort((a: any, b: any) => (a.serviceLine || '').localeCompare(b.serviceLine || ''))
                               .map((r: any) => {
                                 const sl = r.serviceLine || 'All';
+                                const isSuperseded = supersededIds.has(r.id);
                                 return (
-                                  <button
-                                    key={r.id}
-                                    onClick={() => setSelectedRule(r)}
-                                    title={r.name}
-                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full hover:opacity-75 transition-opacity cursor-pointer
-                                      ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}
-                                  >
-                                    {SL_FULL[sl] || sl}
-                                  </button>
+                                  <span key={r.id} className="inline-flex items-center gap-0.5">
+                                    <button
+                                      onClick={() => setSelectedRule(r)}
+                                      title={r.name}
+                                      className={`text-xs font-semibold px-2 py-0.5 rounded-full hover:opacity-75 transition-opacity cursor-pointer
+                                        ${isSuperseded ? 'opacity-40 line-through' : ''}
+                                        ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}
+                                    >
+                                      {SL_FULL[sl] || sl}
+                                    </button>
+                                    <button
+                                      onClick={() => setCoverageRuleId(r.id)}
+                                      title={`See campus breakdown for ${r.name}`}
+                                      className="p-0.5 rounded text-slate-300 hover:text-teal-500 hover:bg-teal-50 transition-colors"
+                                    >
+                                      <Building2 className="h-3 w-3" />
+                                    </button>
+                                  </span>
                                 );
                               })}
                           </div>

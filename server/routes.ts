@@ -16100,6 +16100,87 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
   
+  // ── Per-rule campus/unit coverage breakdown ──────────────────────────────────
+  app.get("/api/adjustment-rules/:id/coverage", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = req.clientId || 'demo';
+
+      const ruleRes = await pool.query(
+        `SELECT * FROM adjustment_rules WHERE id = $1`,
+        [id]
+      );
+      if (!ruleRes.rows.length) return res.status(404).json({ error: 'Rule not found' });
+      const rule = ruleRes.rows[0];
+
+      const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : (rule.action || {});
+      const filters = action?.filters || {};
+      const adjustmentType: string = action?.adjustmentType || 'percentage';
+      const adjustmentValue: number = Number(action?.adjustmentValue ?? 0);
+      const rateColumn = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
+
+      const latestRes = await pool.query(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+        [clientId]
+      );
+      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
+      if (!latestMonth) return res.json({ campuses: [], totalUnits: 0, totalMonthlyImpact: 0 });
+
+      const whereParts: string[] = ['client_id = $1', 'upload_month = $2'];
+      const params: any[] = [clientId, latestMonth];
+      let idx = 3;
+
+      const effectiveSL: string[] | null = rule.service_line
+        ? [rule.service_line]
+        : (filters.serviceLine?.length ? filters.serviceLine : null);
+      if (effectiveSL?.length) {
+        whereParts.push(`service_line = ANY($${idx}::text[])`);
+        params.push(effectiveSL); idx++;
+      }
+      if (filters.occupancyStatus === 'vacant') {
+        whereParts.push('(occupied_yn = false OR occupied_yn IS NULL)');
+      } else if (filters.occupancyStatus === 'occupied') {
+        whereParts.push('occupied_yn = true');
+      }
+
+      const result = await pool.query(`
+        SELECT location AS campus_name,
+               location_id,
+               COUNT(*)::int AS unit_count,
+               ROUND(COALESCE(SUM(${rateColumn}), 0))::int AS total_rate,
+               ROUND(COALESCE(AVG(${rateColumn}), 0))::int AS avg_rate
+        FROM rent_roll_data
+        WHERE ${whereParts.join(' AND ')}
+        GROUP BY location, location_id
+        ORDER BY total_rate DESC NULLS LAST
+      `, params);
+
+      const campuses = result.rows.map((r: any) => {
+        const monthlyImpact = adjustmentType === 'percentage'
+          ? Math.round(Number(r.total_rate) * (adjustmentValue / 100))
+          : r.unit_count * adjustmentValue;
+        return {
+          campusName: r.campus_name || 'Unknown',
+          locationId: r.location_id,
+          unitCount: r.unit_count,
+          avgRate: Number(r.avg_rate),
+          monthlyImpact,
+          annualImpact: monthlyImpact * 12,
+        };
+      });
+
+      res.json({
+        ruleName: rule.name,
+        campuses,
+        totalUnits: campuses.reduce((s: number, c: any) => s + c.unitCount, 0),
+        totalMonthlyImpact: campuses.reduce((s: number, c: any) => s + c.monthlyImpact, 0),
+      });
+    } catch (error) {
+      console.error('Error fetching rule coverage:', error);
+      res.status(500).json({ error: 'Failed to fetch rule coverage' });
+    }
+  });
+
   app.get("/api/adjustment-rules/:id/history", async (req, res) => {
     try {
       const { id } = req.params;

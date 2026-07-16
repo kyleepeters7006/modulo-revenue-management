@@ -431,7 +431,10 @@ export function resolvePatchServiceLineScope(
 
 /**
  * Apply all matching adjustment rules to a unit's rate, in priority order.
- * Each rule receives the rate produced by the previous rule (stacking).
+ * Latest-cycle-wins: when rules from multiple pricing cycles (effectiveDate months)
+ * qualify for the same service line, only the most-recent cycle fires. This
+ * prevents Apr-26 rules from stacking on top of Jul-26 rules for the same SL.
+ * Rules with no effectiveDate (ongoing) always apply regardless of cycle.
  */
 export function applyAdjustmentRulesToUnit(
   unit: any,
@@ -443,16 +446,11 @@ export function applyAdjustmentRulesToUnit(
     (a, b) => (b.priority || 0) - (a.priority || 0)
   );
 
-  let currentRate = baseRate;
-  const appliedRuleNames: string[] = [];
-
-  let exclusiveApplied = false;
-
+  // ── Pass 1: collect qualifying rules (scope + trigger + action filter checks) ──
+  const qualifying: AdjustmentRules[] = [];
   for (const rule of sortedRules) {
-    // Check scope — skip if rule is scoped to a different location or service line
     if (rule.locationId && rule.locationId !== unit.locationId) continue;
 
-    // Service line scope gate — prefer serviceLines array, fall back to single serviceLine column
     const slScope: string[] | null =
       (rule as any).serviceLines?.length ? (rule as any).serviceLines
       : rule.serviceLine ? [rule.serviceLine]
@@ -464,7 +462,6 @@ export function applyAdjustmentRulesToUnit(
     const action = rule.action as any;
     if (action.type !== "adjust_rate") continue;
 
-    // Check action-level filters (room type, occupancy)
     if (action.filters) {
       const filters = action.filters;
       if (filters.roomType && Array.isArray(filters.roomType)) {
@@ -478,17 +475,41 @@ export function applyAdjustmentRulesToUnit(
       if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
     }
 
-    // Enforce exclusive/additive gating.
-    // Rules stack by default; only rules explicitly marked as exclusive
-    // (isAdditive === false) claim the exclusive slot.
+    qualifying.push(rule);
+  }
+
+  // ── Pass 2: latest-cycle-wins per service line ──────────────────────────────
+  // Find the latest effectiveDate month among qualifying rules for this unit's SL.
+  const unitSL = unit.serviceLine || '';
+  let latestCycleMonth = '0000-00';
+  for (const rule of qualifying) {
+    if (!rule.effectiveDate) continue;
+    // A rule's SL scope applies to this unit (already checked in pass 1).
+    const month = String(rule.effectiveDate).slice(0, 7);
+    if (month > latestCycleMonth) latestCycleMonth = month;
+  }
+
+  // Keep only rules from the latest cycle (or ongoing rules with no effectiveDate).
+  const finalRules = latestCycleMonth === '0000-00'
+    ? qualifying
+    : qualifying.filter(rule => {
+        if (!rule.effectiveDate) return true; // ongoing — always apply
+        return String(rule.effectiveDate).slice(0, 7) >= latestCycleMonth;
+      });
+
+  // ── Pass 3: apply final rules ───────────────────────────────────────────────
+  let currentRate = baseRate;
+  const appliedRuleNames: string[] = [];
+  let exclusiveApplied = false;
+
+  for (const rule of finalRules) {
+    const action = rule.action as any;
     const isExclusive = isRuleExclusive(action);
     if (isExclusive) {
       if (exclusiveApplied) continue;
       exclusiveApplied = true;
     }
-
     currentRate = applyRuleAdjustmentStep(currentRate, action);
-
     appliedRuleNames.push(rule.name);
   }
 
