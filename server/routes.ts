@@ -137,6 +137,7 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope } from "./services/adjustmentRulesService";
+import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc } from "./services/ruleImpactService";
 import { 
   getRevenuePerformanceForScope, 
   calculateGapAnalysis, 
@@ -183,6 +184,7 @@ function purgeRuleCaches(clientId: string): void {
     `pc-commentary:${clientId}`,
     `batchUnits:${clientId}:`,
     `latestMonth:${clientId}`,
+    `ruleImpactCtx:${clientId}`,
   ];
   for (const key of Array.from(analyticsCache.keys())) {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
@@ -14485,61 +14487,6 @@ Respond in JSON format:
 
   // ── Rules-only pivot helpers (Task #321) ────────────────────────────────────
 
-  // Trailing-3-month move-ins per `${campus}||${serviceLine}||${roomType}`,
-  // scoped to a client (optionally a campus + service line). Mirrors the move-in
-  // definition used by the reference-data endpoint (distinct move-in events,
-  // private-pay only for HC / HC/MC).
-  async function getT3MoveInsMap(
-    clientId: string,
-    scope: { locationId?: string | null; serviceLine?: string | null },
-  ): Promise<Map<string, number>> {
-    const map = new Map<string, number>();
-    const monthsRes = await pool.query(
-      `SELECT DISTINCT upload_month FROM rent_roll_data
-       WHERE client_id = $1 AND upload_month IS NOT NULL
-       ORDER BY upload_month DESC LIMIT 3`,
-      [clientId],
-    );
-    const t3 = monthsRes.rows.map((r: any) => r.upload_month).filter(Boolean);
-    if (t3.length === 0) return map;
-
-    const where: string[] = ['rr.client_id = $1'];
-    const params: any[] = [clientId];
-    let idx = 2;
-    if (scope.locationId) { where.push(`rr.location_id = $${idx}`); params.push(scope.locationId); idx++; }
-    if (scope.serviceLine) { where.push(`rr.service_line = $${idx}`); params.push(scope.serviceLine); idx++; }
-    const monthsIdx = idx;
-    params.push(t3);
-
-    const res = await pool.query(`
-      WITH ev AS (
-        SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
-          rr.location, rr.service_line, rr.room_type, rr.payor_type,
-          CASE
-            WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
-            WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
-            ELSE NULL END AS dt
-        FROM rent_roll_data rr
-        WHERE ${where.join(' AND ')} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
-        ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
-                 (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
-      ),
-      valid AS (
-        SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
-        FROM ev
-        WHERE dt IS NOT NULL
-          AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
-      )
-      SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
-      FROM valid WHERE mm = ANY($${monthsIdx})
-      GROUP BY location, service_line, room_type
-    `, params);
-    for (const r of res.rows as any[]) {
-      map.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
-    }
-    return map;
-  }
-
   // Units impacted + naive and elasticity-based revenue impact for applying a
   // parsed adjustment action to a campus + service line. Reuses elasticityService.
   type RuleElasticityImpact = {
@@ -14612,7 +14559,7 @@ Respond in JSON format:
       }
 
       const elasticityMap = await getElasticityMap(clientId);
-      const moveMap = await getT3MoveInsMap(clientId, scope);
+      const moveMap = await getT3MoveInsMapSvc(clientId, scope);
 
       let elMonthly: number | null = null;
       let elAnnual: number | null = null;
@@ -14934,110 +14881,43 @@ Respond in JSON format:
         ? { locationId: locationId as string | undefined, serviceLine: serviceLine as string | undefined }
         : undefined;
 
-      // ── Batch impact: 2 queries total instead of 2×N ──────────────────────
-      // Cache the expensive full-portfolio row fetch so multiple components on
-      // the same page (PricingCommentaryCard, RuleDesigner, StrategyReport…)
-      // all share one DB round-trip instead of each paying the full cost.
-      const latestMonthCacheKey = `latestMonth:${clientId}`;
-      let latestMonth: string | null = getCachedAnalytics(latestMonthCacheKey);
-      if (!latestMonth) {
-        const latestMonthRes = await pool.query(
-          `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
-          [clientId]
-        );
-        latestMonth = latestMonthRes.rows[0]?.m ?? null;
-        if (latestMonth) setCachedAnalytics(latestMonthCacheKey, latestMonth);
+      // ── Qualified impact: trigger conditions + action filters, move-ins × Δrate ──
+      // Shared context (one portfolio row fetch + one T3 move-ins query) is cached
+      // so every component on the page shares the same DB round-trips.
+      const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+      let impactCtx = getCachedAnalytics(ctxCacheKey);
+      if (!impactCtx) {
+        impactCtx = await buildRuleImpactContext(clientId);
+        if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
       }
-
-      let batchUnits: any[] = [];
-      if (latestMonth) {
-        const batchKey = `batchUnits:${clientId}:${latestMonth}:${scope?.locationId || ''}`;
-        const cachedBatch = getCachedAnalytics(batchKey);
-        if (cachedBatch) {
-          batchUnits = cachedBatch;
-        } else {
-          const bw: string[] = ['client_id = $1', 'upload_month = $2'];
-          const bp: any[] = [clientId, latestMonth];
-          if (scope?.locationId) { bw.push(`location_id = $${bp.push(scope.locationId)}`); }
-          const { rows } = await pool.query(
-            `SELECT location_id, service_line, room_type,
-                    street_rate::float AS street_rate, care_rate::float AS care_rate,
-                    occupied_yn, days_vacant
-             FROM rent_roll_data WHERE ${bw.join(' AND ')}`,
-            bp
-          );
-          batchUnits = rows;
-          setCachedAnalytics(batchKey, batchUnits);
-        }
-      }
-
-      const cmpOp = (val: number | null, op: string, threshold: number): boolean => {
-        if (val === null || val === undefined) return false;
-        switch (op) {
-          case '>': return val > threshold;
-          case '>=': return val >= threshold;
-          case '<': return val < threshold;
-          case '<=': return val <= threshold;
-          case '=': return val === threshold;
-          default: return false;
-        }
-      };
 
       const enrichedRules = rules.map((rule) => {
         const action = rule.action as any;
         const adjustmentValue: number = action?.adjustmentValue ?? 0;
-        if (!adjustmentValue) return rule;
+        if (!adjustmentValue || !impactCtx) return rule;
 
-        const filters = action?.filters || {};
-        const adjustmentType: string = action?.adjustmentType || 'percentage';
-        const rateCol: string = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
-        const effectiveSl: string[] = (rule as any).serviceLine
-          ? [(rule as any).serviceLine]
-          : (filters.serviceLine?.length ? filters.serviceLine : []);
+        const impact = computeQualifiedRuleImpact(impactCtx, rule, scope);
 
-        const matched = batchUnits.filter((u: any) => {
-          if (effectiveSl.length && !effectiveSl.includes(u.service_line)) return false;
-          if (scope?.serviceLine && u.service_line !== scope.serviceLine) return false;
-          if (filters.roomType?.length && !filters.roomType.includes(u.room_type)) return false;
-          if (filters.occupancyStatus === 'vacant' && u.occupied_yn) return false;
-          if (filters.occupancyStatus === 'occupied' && !u.occupied_yn) return false;
-          if (filters.vacancyDuration) {
-            const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
-            if (!cmpOp(Number(u.days_vacant), operator, days)) return false;
-          }
-          return true;
-        });
-
-        const unitCount = matched.length;
-        const campusCount = new Set(matched.map((u: any) => u.location_id)).size;
-        // HC and HC/MC store street_rate as a DAILY rate — convert to monthly before impact calc
-        const DAILY_SLS = new Set(['HC', 'HC/MC']);
-        const totalRate = matched.reduce((s: number, u: any) => {
-          const raw = Number(u[rateCol]) || 0;
-          return s + (DAILY_SLS.has(u.service_line) ? raw * 30.4 : raw);
-        }, 0);
-        const monthlyImpact = adjustmentType === 'percentage'
-          ? totalRate * (adjustmentValue / 100)
-          : unitCount * adjustmentValue;
-        const annualImpact = Math.round(monthlyImpact * 12);
-        const monthlyRounded = Math.round(monthlyImpact);
-
-        // Persist portfolio-wide values if not yet computed (never write scoped results to DB)
-        if (!scope && (rule.monthlyImpact ?? 0) === 0 && monthlyRounded !== 0) {
+        // Persist portfolio-wide values so other surfaces (strategy analysis,
+        // history) see the same qualified numbers (never write scoped results)
+        if (!scope && (rule.monthlyImpact ?? 0) !== impact.monthlyImpact) {
           storage.updateAdjustmentRule(rule.id, {
-            monthlyImpact: monthlyRounded,
-            annualImpact,
-            volumeAdjustedAnnualImpact: Math.round(annualImpact * 1.05),
+            monthlyImpact: impact.monthlyImpact,
+            annualImpact: impact.annualImpact,
+            volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
           }).catch(() => {});
         }
 
         return {
           ...rule,
-          affectedUnits: unitCount,
-          affectedCampuses: campusCount,
-          monthlyImpact: monthlyRounded,
-          annualImpact,
-          volumeAdjustedAnnualImpact: Math.round(annualImpact * 1.05),
+          affectedUnits: impact.affectedUnits,
+          affectedCampuses: impact.affectedCampuses,
+          moveInsPerMonth: impact.moveInsPerMonth,
+          avgStreetRate: impact.avgStreetRate,
+          avgRateChange: impact.avgRateChange,
+          monthlyImpact: impact.monthlyImpact,
+          annualImpact: impact.annualImpact,
+          volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
         };
       });
 
@@ -15083,96 +14963,44 @@ Respond in JSON format:
         return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
       }
 
+      // Same qualified calc (trigger conditions + action filters, move-ins × Δrate)
+      // as GET /api/adjustment-rules and the coverage click-through.
+      const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+      let impactCtx = getCachedAnalytics(ctxCacheKey);
+      if (!impactCtx) {
+        impactCtx = await buildRuleImpactContext(clientId);
+        if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
+      }
+      if (!impactCtx) {
+        return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
+      }
+
       const breakdown: any[] = [];
-      const unionSubqueries: string[] = [];
-      const unionParams: any[] = [clientId, latestMonth]; // $1, $2 shared across all subqueries
-      let uIdx = 3;
+      const allUnitIds = new Set<string>();
+      const allCampusIds = new Set<string>();
+      const pageScope = {
+        locationId: (locationId as string) || null,
+        serviceLine: (serviceLine as string) || null,
+      };
 
       for (const rule of activeRules) {
-        const action = rule.action as any;
-        const filters = action?.filters || {};
-        const adjustmentType: string = action?.adjustmentType || 'percentage';
-        const adjustmentValue: number = action?.adjustmentValue ?? 0;
-        const rateCol = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
-
-        // Per-rule independent query (its own params array)
-        const rWhere: string[] = ['rrd.client_id = $1', 'rrd.upload_month = $2'];
-        const rParams: any[] = [clientId, latestMonth];
-        let rIdx = 3;
-
-        // Union subquery shares $1/$2 but gets its own positional params at uIdx+
-        const uWhere: string[] = ['client_id = $1', 'upload_month = $2'];
-
-        // Constrain to the page's campus filter, or the rule's own campus scope when no page filter
-        const scopeLocationId = (locationId as string) || rule.locationId || null;
-        if (scopeLocationId) {
-          rWhere.push(`rrd.location_id = $${rIdx}`); rParams.push(scopeLocationId); rIdx++;
-          uWhere.push(`location_id = $${uIdx}`); unionParams.push(scopeLocationId); uIdx++;
-        }
-        if (filters.roomType?.length) {
-          rWhere.push(`rrd.room_type = ANY($${rIdx}::text[])`); rParams.push(filters.roomType); rIdx++;
-          uWhere.push(`room_type = ANY($${uIdx}::text[])`); unionParams.push(filters.roomType); uIdx++;
-        }
-        if (filters.serviceLine?.length) {
-          rWhere.push(`rrd.service_line = ANY($${rIdx}::text[])`); rParams.push(filters.serviceLine); rIdx++;
-          uWhere.push(`service_line = ANY($${uIdx}::text[])`); unionParams.push(filters.serviceLine); uIdx++;
-        }
-        // Page service-line filter always applies (intersects with the rule's own SL filter)
-        if (serviceLine) {
-          rWhere.push(`rrd.service_line = $${rIdx}`); rParams.push(serviceLine as string); rIdx++;
-          uWhere.push(`service_line = $${uIdx}`); unionParams.push(serviceLine as string); uIdx++;
-        }
-        if (filters.occupancyStatus === 'vacant') {
-          rWhere.push('(rrd.occupied_yn = false OR rrd.occupied_yn IS NULL)');
-          uWhere.push('(occupied_yn = false OR occupied_yn IS NULL)');
-        } else if (filters.occupancyStatus === 'occupied') {
-          rWhere.push('rrd.occupied_yn = true'); uWhere.push('occupied_yn = true');
-        }
-        if (filters.vacancyDuration) {
-          const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
-          rWhere.push(`rrd.days_vacant ${operator} $${rIdx}`); rParams.push(days); rIdx++;
-          uWhere.push(`days_vacant ${operator} $${uIdx}`); unionParams.push(days); uIdx++;
-        }
-
-        unionSubqueries.push(
-          `SELECT id, location_id FROM rent_roll_data WHERE ${uWhere.join(' AND ')}`
-        );
-
-        // Per-rule aggregate stats
-        const { rows: rStats } = await pool.query(`
-          SELECT
-            COUNT(*)::int                                 AS unit_count,
-            COUNT(DISTINCT rrd.location_id)::int          AS campus_count,
-            COALESCE(SUM(rrd.${rateCol}), 0)::float      AS total_rate
-          FROM rent_roll_data rrd
-          WHERE ${rWhere.join(' AND ')}
-        `, rParams);
-
-        const st = rStats[0] || { unit_count: 0, campus_count: 0, total_rate: 0 };
-        const monthly = adjustmentType === 'percentage'
-          ? st.total_rate * (adjustmentValue / 100)
-          : st.unit_count * adjustmentValue;
-
+        const impact = computeQualifiedRuleImpact(impactCtx, rule, pageScope);
+        for (const id of Array.from(impact.qualifiedUnitIds)) allUnitIds.add(id);
+        for (const c of impact.perCampus) { if (c.locationId) allCampusIds.add(c.locationId); }
         breakdown.push({
           id: rule.id,
           name: rule.name,
-          campuses: st.campus_count,
-          units: st.unit_count,
-          monthlyImpact: Math.round(monthly),
-          annualImpact: Math.round(monthly * 12),
+          campuses: impact.affectedCampuses,
+          units: impact.affectedUnits,
+          moveInsPerMonth: impact.moveInsPerMonth,
+          monthlyImpact: impact.monthlyImpact,
+          annualImpact: impact.annualImpact,
         });
       }
 
-      // Single UNION query gives truly unique campus + unit counts across all rules
-      const { rows: uniq } = await pool.query(`
-        SELECT COUNT(*)::int                       AS unique_units,
-               COUNT(DISTINCT location_id)::int    AS unique_campuses
-        FROM   (${unionSubqueries.join(' UNION ')}) combined
-      `, unionParams);
-
       res.json({
-        uniqueCampuses:  uniq[0]?.unique_campuses ?? 0,
-        uniqueUnits:     uniq[0]?.unique_units     ?? 0,
+        uniqueCampuses:  allCampusIds.size,
+        uniqueUnits:     allUnitIds.size,
         combinedMonthly: breakdown.reduce((s, r) => s + r.monthlyImpact, 0),
         combinedAnnual:  breakdown.reduce((s, r) => s + r.annualImpact,  0),
         breakdown,
@@ -16027,11 +15855,19 @@ Return ONLY valid JSON, no markdown fences:
         effectiveDate: effectiveDate !== undefined ? (effectiveDate || null) : ((existing as any).effectiveDate ?? null),
       } as any);
 
-      const impact = await computeRuleImpact(updated, clientId);
+      const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+      let impactCtx = getCachedAnalytics(ctxCacheKey);
+      if (!impactCtx) {
+        impactCtx = await buildRuleImpactContext(clientId);
+        if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
+      }
+      const impact = impactCtx
+        ? computeQualifiedRuleImpact(impactCtx, updated)
+        : { monthlyImpact: 0, annualImpact: 0, affectedUnits: 0 } as any;
       await storage.updateAdjustmentRule(id, {
         monthlyImpact: impact.monthlyImpact,
         annualImpact: impact.annualImpact,
-        volumeAdjustedAnnualImpact: impact.volumeAdjustedAnnualImpact,
+        volumeAdjustedAnnualImpact: impact.annualImpact,
       });
 
       purgeRuleCaches(clientId);
@@ -16113,67 +15949,41 @@ Return ONLY valid JSON, no markdown fences:
       if (!ruleRes.rows.length) return res.status(404).json({ error: 'Rule not found' });
       const rule = ruleRes.rows[0];
 
-      const action = typeof rule.action === 'string' ? JSON.parse(rule.action) : (rule.action || {});
-      const filters = action?.filters || {};
-      const adjustmentType: string = action?.adjustmentType || 'percentage';
-      const adjustmentValue: number = Number(action?.adjustmentValue ?? 0);
-      const rateColumn = action?.target === 'care_rate' ? 'care_rate' : 'street_rate';
-
-      const latestRes = await pool.query(
-        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
-        [clientId]
-      );
-      const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
-      if (!latestMonth) return res.json({ campuses: [], totalUnits: 0, totalMonthlyImpact: 0 });
-
-      const whereParts: string[] = ['client_id = $1', 'upload_month = $2'];
-      const params: any[] = [clientId, latestMonth];
-      let idx = 3;
-
-      const effectiveSL: string[] | null = rule.service_line
-        ? [rule.service_line]
-        : (filters.serviceLine?.length ? filters.serviceLine : null);
-      if (effectiveSL?.length) {
-        whereParts.push(`service_line = ANY($${idx}::text[])`);
-        params.push(effectiveSL); idx++;
+      // Same qualified calc (trigger conditions + action filters, move-ins × Δrate)
+      // as GET /api/adjustment-rules — the click-through must match the rule card.
+      const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+      let impactCtx = getCachedAnalytics(ctxCacheKey);
+      if (!impactCtx) {
+        impactCtx = await buildRuleImpactContext(clientId);
+        if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
       }
-      if (filters.occupancyStatus === 'vacant') {
-        whereParts.push('(occupied_yn = false OR occupied_yn IS NULL)');
-      } else if (filters.occupancyStatus === 'occupied') {
-        whereParts.push('occupied_yn = true');
-      }
+      if (!impactCtx) return res.json({ campuses: [], totalUnits: 0, totalMonthlyImpact: 0 });
 
-      const result = await pool.query(`
-        SELECT location AS campus_name,
-               location_id,
-               COUNT(*)::int AS unit_count,
-               ROUND(COALESCE(SUM(${rateColumn}), 0))::int AS total_rate,
-               ROUND(COALESCE(AVG(${rateColumn}), 0))::int AS avg_rate
-        FROM rent_roll_data
-        WHERE ${whereParts.join(' AND ')}
-        GROUP BY location, location_id
-        ORDER BY total_rate DESC NULLS LAST
-      `, params);
-
-      const campuses = result.rows.map((r: any) => {
-        const monthlyImpact = adjustmentType === 'percentage'
-          ? Math.round(Number(r.total_rate) * (adjustmentValue / 100))
-          : r.unit_count * adjustmentValue;
-        return {
-          campusName: r.campus_name || 'Unknown',
-          locationId: r.location_id,
-          unitCount: r.unit_count,
-          avgRate: Number(r.avg_rate),
-          monthlyImpact,
-          annualImpact: monthlyImpact * 12,
-        };
-      });
+      // pool.query returns snake_case — map to the camelCase shape the impact service expects
+      const camelRule = {
+        ...rule,
+        serviceLine: rule.service_line ?? null,
+        serviceLines: rule.service_lines ?? null,
+        locationId: rule.location_id ?? null,
+        action: typeof rule.action === 'string' ? JSON.parse(rule.action) : (rule.action || {}),
+        trigger: typeof rule.trigger === 'string' ? JSON.parse(rule.trigger) : (rule.trigger || {}),
+      };
+      const impact = computeQualifiedRuleImpact(impactCtx, camelRule);
 
       res.json({
         ruleName: rule.name,
-        campuses,
-        totalUnits: campuses.reduce((s: number, c: any) => s + c.unitCount, 0),
-        totalMonthlyImpact: campuses.reduce((s: number, c: any) => s + c.monthlyImpact, 0),
+        campuses: impact.perCampus.map(c => ({
+          campusName: c.campusName,
+          locationId: c.locationId,
+          unitCount: c.unitCount,
+          avgRate: c.avgRate,
+          moveInsPerMonth: c.moveInsPerMonth,
+          monthlyImpact: c.monthlyImpact,
+          annualImpact: c.annualImpact,
+        })),
+        totalUnits: impact.affectedUnits,
+        totalMoveInsPerMonth: impact.moveInsPerMonth,
+        totalMonthlyImpact: impact.monthlyImpact,
       });
     } catch (error) {
       console.error('Error fetching rule coverage:', error);

@@ -903,10 +903,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                   ? `${adjVal > 0 ? '+' : ''}${adjVal}%`
                                   : `${adjVal > 0 ? '+' : '−'}$${Math.abs(adjVal).toLocaleString()}`;
                                 const units   = rule.affectedUnits || 0;
-                                // Derive avg street rate from stored impact
-                                const avgRate = adjPct && adjVal !== 0 && units > 0
-                                  ? Math.abs(monthly) / units / (Math.abs(adjVal) / 100)
-                                  : null;
+                                const moveIns = rule.moveInsPerMonth ?? null;
+                                const avgRate = rule.avgStreetRate || null;
+                                const rateChg = rule.avgRateChange ?? null;
                                 const triggerLabel = getTriggerLabel(rule);
                                 const sl = rule.serviceLine || 'All';
                                 // Describe all trigger conditions for expanded view
@@ -980,12 +979,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           )}
                                           <span className="text-slate-500">Qualifying units</span>
                                           <span className="font-medium text-slate-700 tabular-nums">{units.toLocaleString()}</span>
+                                          {moveIns !== null && (
+                                            <>
+                                              <span className="text-slate-500">Avg move-ins / mo</span>
+                                              <span className="font-medium text-slate-700 tabular-nums">{Number(moveIns).toLocaleString()}</span>
+                                            </>
+                                          )}
                                           <span className="text-slate-500">Adjustment</span>
-                                          <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-700' : 'text-red-700'}`}>{adjDisp}</span>
+                                          <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-700' : 'text-red-700'}`}>{adjDisp}{rateChg !== null && rateChg !== 0 ? ` (≈ ${rateChg > 0 ? '+' : '−'}$${Math.abs(Math.round(rateChg)).toLocaleString()} / unit / mo)` : ''}</span>
                                           <span className="text-slate-500">Monthly impact</span>
-                                          {avgRate !== null ? (
+                                          {moveIns !== null && rateChg !== null && rateChg !== 0 ? (
                                             <span className={`font-medium tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>
-                                              ${Math.round(avgRate).toLocaleString()} × {units.toLocaleString()} × {Math.abs(adjVal)}% = {fmtImpact(monthly)}
+                                              {Number(moveIns).toLocaleString()} move-ins/mo × {rateChg > 0 ? '+' : '−'}${Math.abs(Math.round(rateChg)).toLocaleString()} = {fmtImpact(monthly)}
                                             </span>
                                           ) : (
                                             <span className={`font-medium tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</span>
@@ -993,6 +998,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className="text-slate-500">Annual impact</span>
                                           <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 12 = {fmtImpact(annual)}</span>
                                         </div>
+                                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                                          Only new move-ins pay the adjusted rate, so impact = trailing-3-month average move-ins per month × the rate change, summed across qualifying campuses.
+                                        </p>
                                         {/* Overlap warning for this specific rule */}
                                         {isDupe && (
                                           <div className="flex items-start gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
@@ -1025,10 +1033,10 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               {/* Methodology note */}
               <div className="rounded-lg bg-teal-50 border border-teal-100 p-3 text-[12px] text-slate-600 space-y-1.5">
                 <p className="font-semibold text-teal-700 mb-1">How the math works</p>
-                <p><span className="font-medium">Monthly impact</span> = sum of current street rates for all qualifying units × the rule's adjustment percentage (or flat dollar amount per unit).</p>
+                <p><span className="font-medium">Qualifying units</span> are those whose campus/service-line/room-type group currently meets the rule's trigger conditions (e.g. occupancy and competitor-variance thresholds) and matches the rule's filters.</p>
+                <p><span className="font-medium">Monthly impact</span> = average move-ins per month for qualifying units (trailing 3 months) × the rate change per unit. New residents come in at the adjusted rate, so impact accrues at the pace of move-ins — not across every unit at once.</p>
                 <p><span className="font-medium">Annual impact</span> = Monthly impact × 12.</p>
                 <p><span className="font-medium">HC &amp; HC/MC rates</span> are stored as daily rates in the system and are converted to monthly (× 30.4) before the calculation.</p>
-                <p><span className="font-medium">All qualifying units</span> are counted — both occupied and vacant — so the figure represents the full potential revenue effect of the rule across the current filter scope.</p>
                 <p><span className="font-medium">Lift</span> = total from rules that increase rates. <span className="font-medium">Concessions</span> = total from rules that reduce rates. <span className="font-medium">Net</span> = Lift + Concessions.</p>
               </div>
             </DialogContent>
@@ -1080,6 +1088,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                         <tr className="bg-slate-50 border-b border-slate-200">
                           <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Campus</th>
                           <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Units</th>
+                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Move-ins/mo</th>
                           <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Avg Rate</th>
                           <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mo. Impact</th>
                           <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ann. Impact</th>
@@ -1090,6 +1099,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                           <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-3 py-1.5 text-[13px] text-slate-700 font-medium max-w-[220px] truncate">{c.campusName}</td>
                             <td className="px-3 py-1.5 text-[13px] text-slate-600 tabular-nums text-right">{(c.unitCount || 0).toLocaleString()}</td>
+                            <td className="px-3 py-1.5 text-[13px] text-slate-600 tabular-nums text-right">{(c.moveInsPerMonth ?? 0).toLocaleString()}</td>
                             <td className="px-3 py-1.5 text-[13px] text-slate-600 tabular-nums text-right">${(c.avgRate || 0).toLocaleString()}</td>
                             <td className={`px-3 py-1.5 text-[13px] font-semibold tabular-nums text-right ${c.monthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                               {fmtImpact(c.monthlyImpact)}
@@ -1104,6 +1114,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                         <tr className="bg-slate-50 border-t border-slate-200 font-bold">
                           <td className="px-3 py-2 text-[12px] text-slate-600">Total</td>
                           <td className="px-3 py-2 text-[12px] text-slate-700 tabular-nums text-right">{(coverageData.totalUnits || 0).toLocaleString()}</td>
+                          <td className="px-3 py-2 text-[12px] text-slate-700 tabular-nums text-right">{(coverageData.totalMoveInsPerMonth ?? 0).toLocaleString()}</td>
                           <td className="px-3 py-2 text-[12px] text-slate-400 text-right">—</td>
                           <td className={`px-3 py-2 text-[13px] tabular-nums text-right ${coverageData.totalMonthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                             {fmtImpact(coverageData.totalMonthlyImpact)}
