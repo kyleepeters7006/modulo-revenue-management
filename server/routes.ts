@@ -181,6 +181,8 @@ function purgeRuleCaches(clientId: string): void {
     `rule-strategy-analysis:${clientId}`,
     `adj-rules-combined:${clientId}`,
     `pc-commentary:${clientId}`,
+    `batchUnits:${clientId}:`,
+    `latestMonth:${clientId}`,
   ];
   for (const key of Array.from(analyticsCache.keys())) {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
@@ -14817,27 +14819,40 @@ Respond in JSON format:
         : undefined;
 
       // ── Batch impact: 2 queries total instead of 2×N ──────────────────────
-      // Fetch latest month once, then pull all relevant unit rows once.
-      // Per-rule impact is computed in memory — avoids N DB round trips.
-      const latestMonthRes = await pool.query(
-        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
-        [clientId]
-      );
-      const latestMonth: string | null = latestMonthRes.rows[0]?.m ?? null;
+      // Cache the expensive full-portfolio row fetch so multiple components on
+      // the same page (PricingCommentaryCard, RuleDesigner, StrategyReport…)
+      // all share one DB round-trip instead of each paying the full cost.
+      const latestMonthCacheKey = `latestMonth:${clientId}`;
+      let latestMonth: string | null = getCachedAnalytics(latestMonthCacheKey);
+      if (!latestMonth) {
+        const latestMonthRes = await pool.query(
+          `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
+          [clientId]
+        );
+        latestMonth = latestMonthRes.rows[0]?.m ?? null;
+        if (latestMonth) setCachedAnalytics(latestMonthCacheKey, latestMonth);
+      }
 
       let batchUnits: any[] = [];
       if (latestMonth) {
-        const bw: string[] = ['client_id = $1', 'upload_month = $2'];
-        const bp: any[] = [clientId, latestMonth];
-        if (scope?.locationId) { bw.push(`location_id = $${bp.push(scope.locationId)}`); }
-        const { rows } = await pool.query(
-          `SELECT location_id, service_line, room_type,
-                  street_rate::float AS street_rate, care_rate::float AS care_rate,
-                  occupied_yn, days_vacant
-           FROM rent_roll_data WHERE ${bw.join(' AND ')}`,
-          bp
-        );
-        batchUnits = rows;
+        const batchKey = `batchUnits:${clientId}:${latestMonth}:${scope?.locationId || ''}`;
+        const cachedBatch = getCachedAnalytics(batchKey);
+        if (cachedBatch) {
+          batchUnits = cachedBatch;
+        } else {
+          const bw: string[] = ['client_id = $1', 'upload_month = $2'];
+          const bp: any[] = [clientId, latestMonth];
+          if (scope?.locationId) { bw.push(`location_id = $${bp.push(scope.locationId)}`); }
+          const { rows } = await pool.query(
+            `SELECT location_id, service_line, room_type,
+                    street_rate::float AS street_rate, care_rate::float AS care_rate,
+                    occupied_yn, days_vacant
+             FROM rent_roll_data WHERE ${bw.join(' AND ')}`,
+            bp
+          );
+          batchUnits = rows;
+          setCachedAnalytics(batchKey, batchUnits);
+        }
       }
 
       const cmpOp = (val: number | null, op: string, threshold: number): boolean => {
@@ -15309,7 +15324,10 @@ Return ONLY valid JSON with no markdown fences:
   // Cached per client; purged whenever rules change.
   app.get("/api/pricing-controls/commentary", async (req: any, res) => {
     try {
-      const clientId = req.clientId || 'demo';
+      // Allow internal localhost warm-up requests to specify the client directly
+      const internalClientId = req.headers['x-warmup-client'] as string | undefined;
+      const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1';
+      const clientId = (isLocalhost && internalClientId) ? internalClientId : (req.clientId || 'demo');
       // Filter params from the page filter bar
       const locations: string[] = req.query.locations ? (Array.isArray(req.query.locations) ? req.query.locations : [req.query.locations]) : [];
       const regions: string[] = req.query.regions ? (Array.isArray(req.query.regions) ? req.query.regions : [req.query.regions]) : [];
@@ -17083,15 +17101,22 @@ Return ONLY valid JSON, no markdown fences:
   });
 
   // REFERENCE DATA — wide Excel-like metric grid
-  // Warm the reference-data cache for the default (unfiltered) demo view shortly
-  // after startup so the first page visit is served instantly.
+  // Warm the cache for ALL client tenants shortly after startup so the first
+  // page visit for any logged-in user is served instantly.
+  const KNOWN_CLIENTS = ['demo', 'trilogy', 'glm', 'ssmg'];
   setTimeout(() => {
+    // Warm reference-data for demo (the session-less default)
     fetch('http://localhost:5000/api/reference-data')
       .then(r => { if (r.ok) console.log('[ref-data] cache warmed for default view'); })
       .catch(() => {});
-    fetch('http://localhost:5000/api/pricing-controls/commentary')
-      .then(r => { if (r.ok) console.log('[commentary] cache warmed for default view'); })
-      .catch(() => {});
+    // Warm commentary for every client tenant
+    for (const clientId of KNOWN_CLIENTS) {
+      fetch('http://localhost:5000/api/pricing-controls/commentary', {
+        headers: { 'x-warmup-client': clientId },
+      })
+        .then(r => { if (r.ok) console.log(`[commentary] cache warmed for ${clientId}`); })
+        .catch(() => {});
+    }
   }, 8000);
 
   // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=

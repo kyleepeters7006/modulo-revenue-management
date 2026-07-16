@@ -87,6 +87,8 @@ export default function PricingControls() {
     divisions?: string[];
   }>({
     queryKey: ["/api/locations"],
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const regions = locationsData?.regions || [];
@@ -95,14 +97,25 @@ export default function PricingControls() {
 
   // When the available locations change (e.g. after login/logout), drop any
   // selections that no longer exist in the current client's data.
+  // We check whether anything actually changed before calling setState to avoid
+  // spurious re-renders (and the cascade of query re-fires they trigger).
   useEffect(() => {
     if (!locationsData?.locations) return;
     const validNames = new Set(locations);
     const validRegions = new Set(regions);
     const validDivisions = new Set(divisions);
-    setSelectedLocations(prev => prev.filter(l => validNames.has(l)));
-    setSelectedRegions(prev => prev.filter(r => validRegions.has(r)));
-    setSelectedDivisions(prev => prev.filter(d => validDivisions.has(d)));
+    setSelectedLocations(prev => {
+      const next = prev.filter(l => validNames.has(l));
+      return next.length === prev.length ? prev : next;
+    });
+    setSelectedRegions(prev => {
+      const next = prev.filter(r => validRegions.has(r));
+      return next.length === prev.length ? prev : next;
+    });
+    setSelectedDivisions(prev => {
+      const next = prev.filter(d => validDivisions.has(d));
+      return next.length === prev.length ? prev : next;
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationsData]);
 
@@ -1104,15 +1117,21 @@ function CareLevel2RatesPanel() {
 
   const { data: locationsData } = useQuery<{ locations?: Array<{ id: string; name: string }> }>({
     queryKey: ["/api/locations"],
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const { data: existingRates = [], isLoading } = useQuery<CareLevelRateRow[]>({
     queryKey: ["/api/care-level-rates"],
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
 
   // Active service lines per location: locationId → string[]
   const { data: locationServiceLines = {} } = useQuery<Record<string, string[]>>({
     queryKey: ["/api/locations/service-lines"],
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   // Map of "locationId|serviceLine" → rate value string (for in-progress edits)
