@@ -809,7 +809,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               title="Click to see how this is calculated"
             >
               <div className="flex items-center gap-1 mb-0.5">
-                <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Net Annual Impact</p>
+                <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Active Rule Annual Impact</p>
                 <Info className="h-2.5 w-2.5 text-slate-300 group-hover:text-teal-400 transition-colors" />
               </div>
               <p className={`text-3xl font-black leading-none tracking-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
