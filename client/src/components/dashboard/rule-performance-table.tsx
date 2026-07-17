@@ -129,33 +129,40 @@ const speedBadge = (n: number | null) => {
   return <Badge variant="outline" className="text-[11px]">on pace</Badge>;
 };
 
+// ── Display group: one collapsible section of the table, for any grouping ────
+interface DisplayGroup {
+  id: string;
+  label: string;
+  accent: string;
+  rowBg: string;
+  rules: SummaryRow[];
+  agg: { units: number; sold: number; monthly: number; annual: number };
+}
+
 // ── buildTableRows: flat <tr> array to avoid Fragment injection issues ───────
 function buildTableRows({
-  groups, groupedRows, groupTotals, groupExpanded,
-  viewMode, expanded, tdCls, onToggleGroup, onToggleRow, onCalcClick,
+  groups, showGroupHeaders, groupExpanded,
+  expanded, tdCls, onToggleGroup, onToggleRow, onCalcClick,
 }: {
-  groups: typeof PERF_RULE_GROUPS;
-  groupedRows: Map<string, SummaryRow[]>;
-  groupTotals: Map<string, { units: number; sold: number; monthly: number; annual: number }>;
+  groups: DisplayGroup[];
+  showGroupHeaders: boolean;
   groupExpanded: Set<string>;
-  viewMode: "summary" | "detail";
   expanded: Set<string>;
   tdCls: string;
   onToggleGroup: (id: string) => void;
-  onToggleRow: (rule: string) => void;
+  onToggleRow: (rowKey: string) => void;
   onCalcClick: (title: string, metrics: PerfMetrics) => void;
 }): JSX.Element[] {
   const rows: JSX.Element[] = [];
 
   for (const g of groups) {
-    const gRows = groupedRows.get(g.id) ?? [];
+    const gRows = g.rules;
     if (gRows.length === 0) continue;
-    const agg = groupTotals.get(g.id)!;
-    const isGroupOpen = groupExpanded.has(g.id);
-    const { Icon } = g;
+    const agg = g.agg;
+    const isGroupOpen = !showGroupHeaders || groupExpanded.has(g.id);
 
-    // Strategy group header row — clickable in both modes
-    rows.push(
+    // Group header row — clickable in both modes
+    if (showGroupHeaders) rows.push(
       <tr
         key={`group-${g.id}`}
         className={`transition-colors hover:brightness-95 cursor-pointer ${g.rowBg}`}
@@ -193,13 +200,14 @@ function buildTableRows({
     // Individual rules — shown when group is expanded (both summary and detail mode)
     if (isGroupOpen) {
       for (const r of gRows) {
-        const open = expanded.has(r.ruleName);
+        const rowKey = `${g.id}|${r.ruleName}`;
+        const open = expanded.has(rowKey);
 
         rows.push(
           <tr
-            key={`rule-${r.ruleName}`}
+            key={`rule-${rowKey}`}
             className="cursor-pointer bg-background hover:bg-muted/40 transition-colors"
-            onClick={() => onToggleRow(r.ruleName)}
+            onClick={() => onToggleRow(rowKey)}
           >
             <td className={`${tdCls} font-medium pl-8`}>
               <span className="inline-flex items-center gap-1.5">
@@ -283,6 +291,7 @@ export function RulePerformanceTable({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupExpanded, setGroupExpanded] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"summary" | "detail">("summary");
+  const [groupBy, setGroupBy] = useState<"strategy" | "rule" | "serviceLine" | "campus">("strategy");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
 
   const { data, isLoading, isFetching } = useQuery<PerfResponse>({
@@ -316,33 +325,71 @@ export function RulePerformanceTable({
       return next;
     });
 
-  // Group rows by category
-  const groupedRows = useMemo(() => {
-    const map = new Map<string, SummaryRow[]>();
-    for (const g of PERF_RULE_GROUPS) map.set(g.id, []);
-    for (const r of rows) {
-      const cat = r.category || "hold";
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(r);
+  const aggOf = (rs: { unitsImpacted: number; unitsSold: number; monthlyRevenueImpact: number | null; annualRevenueImpact: number | null }[]) => {
+    const a = { units: 0, sold: 0, monthly: 0, annual: 0 };
+    for (const r of rs) {
+      a.units += r.unitsImpacted;
+      a.sold += r.unitsSold;
+      a.monthly += r.monthlyRevenueImpact ?? 0;
+      a.annual += r.annualRevenueImpact ?? 0;
     }
-    return map;
-  }, [rows]);
+    return a;
+  };
 
-  // Aggregate totals per group
-  const groupTotals = useMemo(() => {
-    const t = new Map<string, { units: number; sold: number; monthly: number; annual: number }>();
-    for (const g of PERF_RULE_GROUPS) t.set(g.id, { units: 0, sold: 0, monthly: 0, annual: 0 });
-    for (const r of rows) {
-      const cat = r.category || "hold";
-      const agg = t.get(cat) ?? { units: 0, sold: 0, monthly: 0, annual: 0 };
-      agg.units += r.unitsImpacted;
-      agg.sold += r.unitsSold;
-      agg.monthly += r.monthlyRevenueImpact ?? 0;
-      agg.annual += r.annualRevenueImpact ?? 0;
-      t.set(cat, agg);
+  // Build display groups for the selected grouping
+  const displayGroups = useMemo<DisplayGroup[]>(() => {
+    if (groupBy === "strategy") {
+      return PERF_RULE_GROUPS.map((g) => {
+        const gRows = rows.filter((r) => (r.category || "hold") === g.id);
+        return { id: g.id, label: g.label, accent: g.accent, rowBg: g.rowBg, rules: gRows, agg: aggOf(gRows) };
+      });
     }
-    return t;
-  }, [rows]);
+    if (groupBy === "rule") {
+      return [{ id: "all", label: "All Rules", accent: "#334155", rowBg: "", rules: rows, agg: aggOf(rows) }];
+    }
+    // serviceLine / campus — regroup detail rows by key, then re-aggregate per rule within each key
+    const byKey = new Map<string, Map<string, DetailRow[]>>();
+    const ruleDate = new Map<string, string | null>();
+    for (const r of rows) {
+      ruleDate.set(r.ruleName, r.dateApplied);
+      for (const d of r.detail) {
+        const key = groupBy === "serviceLine" ? d.serviceLine : d.location;
+        if (!byKey.has(key)) byKey.set(key, new Map());
+        const ruleMap = byKey.get(key)!;
+        if (!ruleMap.has(r.ruleName)) ruleMap.set(r.ruleName, []);
+        ruleMap.get(r.ruleName)!.push(d);
+      }
+    }
+    const palette = [
+      { accent: "#0d9488", rowBg: "bg-teal-500/5 border-l-2 border-teal-500/40" },
+      { accent: "#0284c7", rowBg: "bg-blue-500/5 border-l-2 border-blue-500/40" },
+      { accent: "#7c3aed", rowBg: "bg-violet-500/5 border-l-2 border-violet-500/40" },
+      { accent: "#d97706", rowBg: "bg-amber-500/5 border-l-2 border-amber-500/40" },
+      { accent: "#db2777", rowBg: "bg-pink-500/5 border-l-2 border-pink-500/40" },
+      { accent: "#059669", rowBg: "bg-emerald-500/5 border-l-2 border-emerald-500/40" },
+    ];
+    return Array.from(byKey.keys()).sort((a, b) => a.localeCompare(b)).map((key, i) => {
+      const ruleMap = byKey.get(key)!;
+      const synthRules: SummaryRow[] = Array.from(ruleMap.entries()).map(([ruleName, details]) => {
+        const a = aggOf(details);
+        return {
+          ruleName,
+          category: key,
+          detail: details,
+          unitsImpacted: a.units,
+          unitsSold: a.sold,
+          avgDaysToSell: null,
+          expectedDaysToSell: null,
+          daysFasterThanExpected: null,
+          monthlyRevenueImpact: a.monthly,
+          annualRevenueImpact: a.annual,
+          dateApplied: ruleDate.get(ruleName) ?? null,
+        };
+      });
+      const c = palette[i % palette.length];
+      return { id: key, label: key, accent: c.accent, rowBg: c.rowBg, rules: synthRules, agg: aggOf(synthRules) };
+    });
+  }, [rows, groupBy]);
 
   const totals = useMemo(() => {
     const t = { unitsImpacted: 0, unitsSold: 0, monthly: 0, annual: 0 };
@@ -356,11 +403,12 @@ export function RulePerformanceTable({
   }, [rows]);
 
   const handleExport = () => {
-    const header = ["Strategy", "Rule", "Location", "Service Line", "Room Type", "Date Applied",
+    const groupHeader = groupBy === "strategy" ? "Strategy" : groupBy === "rule" ? "Group" : groupBy === "serviceLine" ? "Service Line" : "Campus";
+    const header = [groupHeader, "Rule", "Location", "Service Line", "Room Type", "Date Applied",
       "Units Impacted", "New Move-ins", "Monthly Impact", "Annual Impact"];
     const aoa: (string | number | null)[][] = [header];
-    for (const g of PERF_RULE_GROUPS) {
-      for (const r of groupedRows.get(g.id) ?? []) {
+    for (const g of displayGroups) {
+      for (const r of g.rules) {
         aoa.push([g.label, r.ruleName, "All", "All", "All", fmtDate(r.dateApplied),
           r.unitsImpacted, r.unitsSold, r.monthlyRevenueImpact, r.annualRevenueImpact]);
         for (const d of r.detail) {
@@ -389,7 +437,7 @@ export function RulePerformanceTable({
               {isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
             <CardDescription className="mt-1">
-              Pricing rule results grouped by strategy — units impacted, move-ins, and revenue impact.
+              Pricing rule results grouped by {groupBy === "strategy" ? "strategy" : groupBy === "rule" ? "rule" : groupBy === "serviceLine" ? "service line" : "campus"} — units impacted, move-ins, and revenue impact.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -399,6 +447,25 @@ export function RulePerformanceTable({
               <span className="text-xs text-muted-foreground">to</span>
               <Input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)}
                 className="h-8 w-[140px] text-xs" data-testid="input-perf-end" />
+            </div>
+            {/* Group-by selector */}
+            <div className="flex rounded-md border border-border overflow-hidden" data-testid="group-perf-groupby">
+              {([
+                { id: "strategy", label: "Strategy" },
+                { id: "rule", label: "Rule" },
+                { id: "serviceLine", label: "Service Line" },
+                { id: "campus", label: "Campus" },
+              ] as const).map((opt, i) => (
+                <button
+                  key={opt.id}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${i > 0 ? "border-l border-border" : ""} ${groupBy === opt.id ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => { setGroupBy(opt.id); setViewMode("summary"); setGroupExpanded(new Set()); setExpanded(new Set()); }}
+                  disabled={rows.length === 0}
+                  data-testid={`button-perf-groupby-${opt.id}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
             {/* Summary / Detail toggle */}
             <div className="flex rounded-md border border-border overflow-hidden">
@@ -411,7 +478,11 @@ export function RulePerformanceTable({
               </button>
               <button
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-l border-border ${viewMode === "detail" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                onClick={() => { setViewMode("detail"); setGroupExpanded(new Set(PERF_RULE_GROUPS.map((g) => g.id))); }}
+                onClick={() => {
+                  setViewMode("detail");
+                  setGroupExpanded(new Set(displayGroups.map((g) => g.id)));
+                  if (groupBy === "rule") setExpanded(new Set(rows.map((r) => `all|${r.ruleName}`)));
+                }}
                 disabled={rows.length === 0}
               >
                 <LayoutList className="h-3.5 w-3.5" />Detail
@@ -465,7 +536,9 @@ export function RulePerformanceTable({
               <table className="w-full border-collapse">
                 <thead className="sticky top-0 z-10">
                   <tr>
-                    <th className={thCls} style={{ minWidth: 260 }}>Strategy / Rule</th>
+                    <th className={thCls} style={{ minWidth: 260 }}>
+                      {groupBy === "strategy" ? "Strategy / Rule" : groupBy === "rule" ? "Rule" : groupBy === "serviceLine" ? "Service Line / Rule" : "Campus / Rule"}
+                    </th>
                     <th className={thCls}>Date Applied</th>
                     <th className={`${thCls} text-right`}>Units Impacted</th>
                     <th className={`${thCls} text-right`}>New Move-ins</th>
@@ -476,11 +549,9 @@ export function RulePerformanceTable({
                 </thead>
                 <tbody>
                   {buildTableRows({
-                    groups: PERF_RULE_GROUPS,
-                    groupedRows,
-                    groupTotals,
+                    groups: displayGroups,
+                    showGroupHeaders: groupBy !== "rule",
                     groupExpanded,
-                    viewMode,
                     expanded,
                     tdCls,
                     onToggleGroup: toggleGroup,
@@ -492,7 +563,9 @@ export function RulePerformanceTable({
             </div>
 
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Click any strategy row to expand and see individual rules. Click a rule row to see the breakdown by location, service line, and room type.{" "}
+              {groupBy === "rule"
+                ? "Click a rule row to see the breakdown by location, service line, and room type."
+                : "Click any group row to expand and see individual rules. Click a rule row to see the breakdown by location, service line, and room type."}{" "}
               Switch to <span className="font-medium">Detail</span> to expand all groups at once.{" "}
               <span className="font-medium">Revenue impact</span>: historical pricing changes compare actual occupied-room revenue for the 3 months before vs. after the change; active rules sum the rate adjustment across impacted units. Click any impact value for the full calculation.
             </p>
