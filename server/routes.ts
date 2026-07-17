@@ -14851,10 +14851,29 @@ Respond in JSON format:
     try {
       const clientId = req.clientId || 'demo';
       const { locationId, serviceLine, includeHistorical } = req.query;
+      const toArr = (v: any): string[] => Array.isArray(v) ? v : (v ? [v] : []);
+      const fLocations = toArr(req.query.locations);
+      const fRegions   = toArr(req.query.regions);
+      const fDivisions = toArr(req.query.divisions);
+
+      // Resolve page location/region/division filters to location IDs (client-scoped)
+      let scopeLocationIds: string[] | null = null;
+      if (fLocations.length || fRegions.length || fDivisions.length) {
+        const locRes = await pool.query(
+          `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
+          [clientId]
+        );
+        scopeLocationIds = locRes.rows
+          .filter((l: any) =>
+            (!fLocations.length || fLocations.includes(l.name)) &&
+            (!fRegions.length   || (l.region   && fRegions.includes(l.region))) &&
+            (!fDivisions.length || (l.division && fDivisions.includes(l.division))))
+          .map((l: any) => l.id);
+      }
 
       // Short-lived cache (2 min) so repeat page loads are instant.
       // Key includes all filter dimensions so scoped views are cached separately.
-      const adjRulesCacheKey = `adj-rules:${clientId}:${locationId || ''}:${serviceLine || ''}:${includeHistorical || ''}`;
+      const adjRulesCacheKey = `adj-rules:${clientId}:${locationId || ''}:${serviceLine || ''}:${includeHistorical || ''}:loc=${[...fLocations].sort().join('|')};reg=${[...fRegions].sort().join('|')};div=${[...fDivisions].sort().join('|')}`;
       const adjRulesCached = getCachedAnalytics(adjRulesCacheKey);
       if (adjRulesCached) return res.json(adjRulesCached);
       
@@ -14891,8 +14910,12 @@ Respond in JSON format:
       const rules = await query;
 
       // Scope impact numbers to the page filter when set
-      const scope = (locationId || serviceLine)
-        ? { locationId: locationId as string | undefined, serviceLine: serviceLine as string | undefined }
+      const scope = (locationId || serviceLine || scopeLocationIds)
+        ? {
+            locationId: locationId as string | undefined,
+            serviceLine: serviceLine as string | undefined,
+            locationIds: scopeLocationIds ?? undefined,
+          }
         : undefined;
 
       // ── Qualified impact: trigger conditions + action filters, move-ins × Δrate ──
@@ -14953,8 +14976,16 @@ Respond in JSON format:
         };
       });
 
-      setCachedAnalytics(adjRulesCacheKey, enrichedRules);
-      res.json(enrichedRules);
+      // When a location/region/division scope is active, hide active rules with
+      // no qualifying units in that scope — the rules list and coverage map
+      // should only show rules that actually touch the filtered campuses.
+      const scopedRules = scopeLocationIds
+        ? enrichedRules.filter((r: any) =>
+            !r.isActive || r.isHistorical === true || (r.affectedUnits ?? 0) > 0)
+        : enrichedRules;
+
+      setCachedAnalytics(adjRulesCacheKey, scopedRules);
+      res.json(scopedRules);
     } catch (error) {
       console.error('Error fetching adjustment rules:', error);
       res.status(500).json({ error: "Failed to fetch adjustment rules" });

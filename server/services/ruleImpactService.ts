@@ -350,7 +350,7 @@ export function effectiveServiceLines(rule: any): string[] {
 export function computeQualifiedRuleImpact(
   ctx: RuleImpactContext,
   rule: any,
-  scope?: { locationId?: string | null; serviceLine?: string | null },
+  scope?: { locationId?: string | null; serviceLine?: string | null; locationIds?: string[] | null },
   excludeUnitIds?: Set<string>,
 ): RuleImpactResult {
   const action = rule.action || {};
@@ -373,6 +373,7 @@ export function computeQualifiedRuleImpact(
     if (slScope.length && !slScope.includes(sl)) continue;
     if (scope?.serviceLine && sl !== scope.serviceLine) continue;
     if ((scope?.locationId || rule.locationId) && locId !== (scope?.locationId || rule.locationId)) continue;
+    if (scope?.locationIds && !scope.locationIds.includes(locId)) continue; // empty list = match nothing
     if (!groupPassesTrigger(ctx, rule, locId, sl, rt)) continue;
 
     const passing = groupUnits.filter(u => unitPasses(rule, u));

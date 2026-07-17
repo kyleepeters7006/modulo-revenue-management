@@ -517,12 +517,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     const p = new URLSearchParams();
     if (selectedLocationId) p.set('locationId', selectedLocationId);
     if (selectedServiceLine && selectedServiceLine !== 'All') p.set('serviceLine', selectedServiceLine);
+    selectedLocations.forEach(l => p.append('locations', l));
+    selectedRegions.forEach(r => p.append('regions', r));
+    selectedDivisions.forEach(d => p.append('divisions', d));
     const s = p.toString();
     return s ? '?' + s : '';
   })();
 
   const { data: rulesData } = useQuery<any[]>({
-    queryKey: ['/api/adjustment-rules', selectedLocationId ?? '', selectedServiceLine ?? ''],
+    queryKey: ['/api/adjustment-rules', selectedLocationId ?? '', selectedServiceLine ?? '', selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
     queryFn: () => fetch(`/api/adjustment-rules${rulesQs}`).then(r => r.json()),
     staleTime: 2 * 60 * 1000,
   });
