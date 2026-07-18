@@ -54,6 +54,26 @@ export function usePrefetch() {
           queryFn: () => apiFetch("/api/adjustment-rules"),
           staleTime: 5 * 60 * 1000,
         }),
+        queryClient.prefetchQuery({
+          queryKey: ["/api/adjustment-rules/combined-stats"],
+          queryFn: () => apiFetch("/api/adjustment-rules/combined-stats"),
+          staleTime: 5 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ["/api/pricing-controls/competitive-position"],
+          queryFn: () => apiFetch("/api/pricing-controls/competitive-position"),
+          staleTime: 10 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ["/api/guardrails"],
+          queryFn: () => apiFetch("/api/guardrails"),
+          staleTime: 5 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
+          queryKey: ["/api/locations/service-lines"],
+          queryFn: () => apiFetch("/api/locations/service-lines"),
+          staleTime: 5 * 60 * 1000,
+        }),
       ]);
     };
 

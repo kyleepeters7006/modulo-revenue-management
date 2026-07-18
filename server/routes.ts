@@ -3939,6 +3939,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/locations", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
+      const cacheKey = `locations:${clientId}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) return res.json(cached);
+
       const allLocations = await storage.getLocations(clientId);
       
       // Get distinct locations that have rent roll data for this client
@@ -3962,11 +3966,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const divisions = [...new Set(filteredLocations.map(loc => loc.division).filter(Boolean))].sort((a, b) => (a as string).localeCompare(b as string));
       const sortedLocations = [...filteredLocations].sort((a, b) => a.name.localeCompare(b.name));
 
-      res.json({
-        locations: sortedLocations,
-        regions,
-        divisions
-      });
+      const result = { locations: sortedLocations, regions, divisions };
+      setCachedAnalytics(cacheKey, result);
+      res.json(result);
     } catch (error) {
       console.error("Error fetching location filter data:", error);
       res.status(500).json({ error: "Failed to fetch location data" });
@@ -4308,7 +4310,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/guardrails", async (req, res) => {
     try {
       const { locationId, serviceLine } = req.query;
-      
+      const cacheKey = `guardrails:${locationId || ''}:${serviceLine || ''}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached !== null) return res.json(cached);
+
       // 3-tier fallback: specific → location-only → global
       let guardrail;
       
@@ -4341,8 +4346,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ))
           .limit(1);
       }
-      
-      res.json(guardrail || {});
+
+      const result = guardrail || {};
+      setCachedAnalytics(cacheKey, result);
+      res.json(result);
     } catch (error) {
       console.error('Error fetching guardrails:', error);
       res.status(500).json({ error: "Failed to get guardrails" });
@@ -4394,7 +4401,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serviceLine: serviceLine || null,
         ...guardrailData
       }).returning();
-      
+
+      // Bust all guardrails cache entries that could be affected by this scope
+      // (specific, location-only fallback, and global default).
+      [`guardrails:${locationId || ''}:${serviceLine || ''}`,
+       `guardrails:${locationId || ''}:`,
+       'guardrails::'].forEach(k => setCachedAnalytics(k, null, 0));
+
       res.json({ ok: true, guardrails: newGuardrail });
     } catch (error) {
       console.error('Error saving guardrails:', error);
@@ -4406,6 +4419,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/locations/service-lines", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
+      const cacheKey = `loc-service-lines:${clientId}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) return res.json(cached);
+
       const rows = await db
         .selectDistinct({ locationId: rentRollData.locationId, serviceLine: rentRollData.serviceLine })
         .from(rentRollData)
@@ -4423,6 +4440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           map[r.locationId].push(r.serviceLine);
         }
       }
+      setCachedAnalytics(cacheKey, map);
       res.json(map);
     } catch (error) {
       console.error('Error fetching location service lines:', error);
@@ -14828,6 +14846,10 @@ Respond in JSON format:
     try {
       const { from, to, locationId } = req.query;
       const clientId = req.clientId || 'demo';
+      const cacheKey = `adj-rules-history:${clientId}:${from || ''}:${to || ''}:${locationId || ''}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) return res.json(cached);
+
       const conditions: any[] = [
         sql`${adjustmentRules.isHistorical} IS TRUE`,
         // Historical pricing records are tied to a specific client's locations.
@@ -14846,6 +14868,7 @@ Respond in JSON format:
       const rules = await db.select().from(adjustmentRules)
         .where(and(...conditions))
         .orderBy(sql`${adjustmentRules.effectiveDate} DESC NULLS LAST`, adjustmentRules.name);
+      setCachedAnalytics(cacheKey, rules);
       res.json(rules);
     } catch (error) {
       console.error('Error fetching adjustment rule history:', error);
@@ -15187,6 +15210,11 @@ Return ONLY valid JSON with no markdown fences:
       const divisions: string[] = req.query.divisions ? (Array.isArray(req.query.divisions) ? req.query.divisions : [req.query.divisions]) : [];
       const slFilter: string = (req.query.serviceLine as string) || 'All';
 
+      const filterKey = [[...locations].sort().join(','), [...regions].sort().join(','), [...divisions].sort().join(','), slFilter].join('|');
+      const compPosCacheKey = `comp-position:${clientId}:${filterKey}`;
+      const compPosCached = getCachedAnalytics(compPosCacheKey);
+      if (compPosCached) return res.json(compPosCached);
+
       const SL_TO_COMP: Record<string, string[]> = {
         AL: ['AL'], 'AL/MC': ['AL/MC'], HC: ['HC'], 'HC/MC': ['HC/MC', 'SMC'], SL: ['IL_IL'], VIL: ['IL_Villa'],
       };
@@ -15409,6 +15437,7 @@ Return ONLY valid JSON with no markdown fences:
         };
       }).filter((p): p is NonNullable<typeof p> => !!p && (p.occupancy ?? 0) > 0);
 
+      setCachedAnalytics(compPosCacheKey, points, 10 * 60 * 1000); // 10-min TTL
       res.json(points);
     } catch (err) {
       console.error('competitive-position error', err);
