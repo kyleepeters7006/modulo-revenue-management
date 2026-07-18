@@ -782,7 +782,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm mb-6 overflow-hidden">
 
       {/* ══ MASTHEAD ══ */}
-      <div className="px-6 pt-5 pb-4 border-b border-slate-100">
+      <div className="px-6 pt-3 pb-2 border-b border-slate-100">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             {/* rubric label */}
@@ -1178,7 +1178,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ══ TREND BAND ══ */}
       {data?.pricingTrend && !isLoading && (
-        <div className="px-6 py-3.5 border-b border-slate-100 bg-slate-50/60">
+        <div className="px-6 py-2 border-b border-slate-100 bg-slate-50/60">
           <span className="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600 mr-2">6-Mo Trend</span>
           <span className="text-sm leading-relaxed text-slate-600">{parseBold(data.pricingTrend)}</span>
         </div>
@@ -1186,7 +1186,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ══ RECOMMENDATION BAND ══ */}
       {data?.recommendation && !isLoading && (
-        <div className="px-6 py-3.5 border-b border-slate-100 bg-amber-50/50" data-testid="text-recommendation">
+        <div className="px-6 py-2 border-b border-slate-100 bg-amber-50/50" data-testid="text-recommendation">
           <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mr-2">Recommendation</span>
           <span className="text-sm leading-relaxed text-slate-600 whitespace-pre-line">{parseBold(data.recommendation)}</span>
         </div>
