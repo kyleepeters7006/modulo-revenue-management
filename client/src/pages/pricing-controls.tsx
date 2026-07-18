@@ -535,7 +535,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     queryFn: () => fetch(`/api/pricing-controls/competitive-position${qs ? '?' + qs : ''}`).then(r => r.json()),
     staleTime: 0,
   });
-  const compPositionData = compPositionRaw.filter((d: any) => (d.occupancy ?? 0) > 0);
+  // Hide sub-50% occupancy points when no specific campuses are selected —
+  // these are bad data (beds flipping between AL and IL skew occupancy) and
+  // compress the chart. Explicitly filtering to a campus still shows everything.
+  const compPositionData = compPositionRaw.filter((d: any) => {
+    const occ = d.occupancy ?? 0;
+    if (occ <= 0) return false;
+    if (selectedLocations.length === 0 && occ < 50) return false;
+    return true;
+  });
 
   const { data: coverageData, isLoading: coverageLoading } = useQuery<any>({
     queryKey: ['/api/adjustment-rules', coverageRuleId, 'coverage'],
