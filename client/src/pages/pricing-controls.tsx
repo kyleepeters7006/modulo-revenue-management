@@ -705,7 +705,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
   const hasData = data && (data.summary || data.rules?.length > 0);
 
-  const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#0369a1', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#0891b2' };
+  const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#1e3a5f', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#0891b2' };
 
   const scatterTooltipContent = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
