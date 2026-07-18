@@ -15198,33 +15198,35 @@ Return ONLY valid JSON with no markdown fences:
       const latestMonth = latestResult.rows[0]?.m;
       if (!latestMonth) return res.json([]);
 
-      // Our rates + occupancy per location+SL
-      let whereClause = `client_id=$1 AND upload_month=$2 AND street_rate>0`;
+      // Our rates + occupancy per location+SL. Region/division live on the
+      // locations table, so filter via a join (rent_roll_data has no such columns).
+      let whereClause = `rr.client_id=$1 AND rr.upload_month=$2 AND rr.street_rate>0`;
       const params: any[] = [clientId, latestMonth];
       let p = 3;
-      if (locations.length) { whereClause += ` AND location = ANY($${p++})`; params.push(locations); }
-      if (regions.length) { whereClause += ` AND region = ANY($${p++})`; params.push(regions); }
-      if (divisions.length) { whereClause += ` AND division = ANY($${p++})`; params.push(divisions); }
-      if (slFilter !== 'All') { whereClause += ` AND service_line=$${p++}`; params.push(slFilter); }
+      if (locations.length) { whereClause += ` AND rr.location = ANY($${p++})`; params.push(locations); }
+      if (regions.length) { whereClause += ` AND loc.region = ANY($${p++})`; params.push(regions); }
+      if (divisions.length) { whereClause += ` AND loc.division = ANY($${p++})`; params.push(divisions); }
+      if (slFilter !== 'All') { whereClause += ` AND rr.service_line=$${p++}`; params.push(slFilter); }
 
       // Distribution weights for combined-SL history rows must NOT depend on the
       // serviceLine filter (or street_rate>0), otherwise occupancy for the same
       // location+SL point would change when the filter is applied.
-      let weightWhere = `client_id=$1 AND upload_month=$2`;
+      let weightWhere = `rr.client_id=$1 AND rr.upload_month=$2`;
       const weightParams: any[] = [clientId, latestMonth];
       let wp = 3;
-      if (locations.length) { weightWhere += ` AND location = ANY($${wp++})`; weightParams.push(locations); }
-      if (regions.length) { weightWhere += ` AND region = ANY($${wp++})`; weightParams.push(regions); }
-      if (divisions.length) { weightWhere += ` AND division = ANY($${wp++})`; weightParams.push(divisions); }
+      if (locations.length) { weightWhere += ` AND rr.location = ANY($${wp++})`; weightParams.push(locations); }
+      if (regions.length) { weightWhere += ` AND loc.region = ANY($${wp++})`; weightParams.push(regions); }
+      if (divisions.length) { weightWhere += ` AND loc.division = ANY($${wp++})`; weightParams.push(divisions); }
 
       const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
-          SELECT location, service_line,
-            ROUND(AVG(street_rate)::numeric, 0) AS our_rate,
-            ROUND(COUNT(*) FILTER (WHERE occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
-          FROM rent_roll_data
+          SELECT rr.location, rr.service_line,
+            ROUND(AVG(rr.street_rate)::numeric, 0) AS our_rate,
+            ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
           WHERE ${whereClause}
-          GROUP BY location, service_line
+          GROUP BY rr.location, rr.service_line
         `, params),
         // Authoritative occupancy per location + (possibly combined) service line grouping
         // (physical rooms, no B-bed inflation). Combined SL strings like "AL, AL/MC, HC"
@@ -15245,11 +15247,12 @@ Return ONLY valid JSON with no markdown fences:
         // B beds (room numbers ending in "B") are excluded for senior-housing SLs so
         // weights reflect physical rooms — keeps occupancy identical to the rate card.
         pool.query(`
-          SELECT location, service_line, COUNT(*) AS total_cnt
-          FROM rent_roll_data
+          SELECT rr.location, rr.service_line, COUNT(*) AS total_cnt
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
           WHERE ${weightWhere}
-            AND NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number LIKE '%B')
-          GROUP BY location, service_line
+            AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL') AND rr.room_number LIKE '%B')
+          GROUP BY rr.location, rr.service_line
         `, weightParams),
       ]);
 
