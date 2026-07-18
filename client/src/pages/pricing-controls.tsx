@@ -788,9 +788,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             {/* rubric label */}
             <div className="flex items-center gap-2 mb-2">
               <span className="inline-block w-[3px] h-4 rounded-full bg-teal-500" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Strategy Overview</span>
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Strategy Overview</span>
               {activeRulesWithImpact.length > 0 && (
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-teal-500 border border-teal-200 rounded px-1.5 py-0.5">
+                <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-teal-500 border border-teal-200 rounded px-1.5 py-0.5">
                   {activeRulesWithImpact.length} Active Rule{activeRulesWithImpact.length !== 1 ? 's' : ''}
                 </span>
               )}
@@ -817,7 +817,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               title="Click to see how this is calculated"
             >
               <div className="flex items-center gap-1 mb-0.5">
-                <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Active Rule Annual Impact</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400">Active Rule Annual Impact</p>
                 <Info className="h-2.5 w-2.5 text-slate-300 group-hover:text-teal-400 transition-colors" />
               </div>
               <p className={`text-3xl font-black leading-none tracking-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -826,11 +826,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               {positiveImpact > 0 && negativeImpact < 0 && (
                 <div className="flex gap-3 mt-2">
                   <div className="text-right">
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Lift</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Lift</p>
                     <p className="text-sm font-black text-emerald-500">{fmtImpact(positiveImpact)}</p>
                   </div>
                   <div className="text-right border-l border-slate-100 pl-3">
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Concessions</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Concessions</p>
                     <p className="text-sm font-black text-red-500">{fmtImpact(negativeImpact)}</p>
                   </div>
                 </div>
@@ -851,15 +851,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               {/* Summary KPIs */}
               <div className="grid grid-cols-3 gap-3 p-4 bg-slate-50 rounded-lg">
                 <div className="text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Net Annual Impact</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Net Annual Impact</p>
                   <p className={`text-2xl font-black ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
                 </div>
                 <div className="text-center border-l border-slate-200">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Revenue Lift</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Revenue Lift</p>
                   <p className="text-2xl font-black text-emerald-500">{positiveImpact > 0 ? fmtImpact(positiveImpact) : '—'}</p>
                 </div>
                 <div className="text-center border-l border-slate-200">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Concessions</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Concessions</p>
                   <p className="text-2xl font-black text-red-500">{negativeImpact < 0 ? fmtImpact(negativeImpact) : '—'}</p>
                 </div>
               </div>
@@ -871,7 +871,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 const duplicateIds = overlapRuleIds;
                 return (
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Rule-by-Rule Breakdown</p>
                     {supersededIds.size > 0 && (
                       <div className="mb-2 flex items-start gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[12px] text-slate-600">
                         <span className="text-slate-400 mt-0.5 shrink-0">↻</span>
@@ -900,10 +900,10 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                               <div className="flex items-center gap-2">
                                 <GroupIcon className="h-3.5 w-3.5 shrink-0" style={{ color: group.accent }} />
                                 <span className="text-xs font-bold text-slate-700">{group.label}</span>
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${group.badge}`}>{groupRules.length}</span>
+                                <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${group.badge}`}>{groupRules.length}</span>
                               </div>
                               <span className={`text-sm font-bold tabular-nums ${groupAnnual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                {fmtImpact(groupAnnual)}<span className="text-[10px] font-normal text-slate-400">/yr</span>
+                                {fmtImpact(groupAnnual)}<span className="text-[11px] font-normal text-slate-400">/yr</span>
                               </span>
                             </div>
                             {/* Rule rows */}
@@ -957,9 +957,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className={`text-[13px] font-medium leading-tight ${isSuperseded ? 'line-through text-slate-400' : 'text-slate-800'}`}>{rule.name || 'Unnamed rule'}</span>
-                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
-                                          {isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">superseded</span>}
-                                          {isDupe && !isSuperseded && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
+                                          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
+                                          {isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">superseded</span>}
+                                          {isDupe && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>
                                       </div>
@@ -971,14 +971,14 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                     {/* Expanded calculation detail */}
                                     {isExpanded && (
                                       <div className="mx-3 mb-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[12px] space-y-2">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Calculation Detail</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Calculation Detail</p>
                                         {/* Trigger conditions */}
                                         {condLabels.length > 0 && (
                                           <div className="space-y-0.5">
-                                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Conditions (all must be true)</p>
+                                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Conditions (all must be true)</p>
                                             {condLabels.map((cl: string, ci: number) => (
                                               <div key={ci} className="flex items-center gap-1.5">
-                                                <span className="text-teal-400 text-[10px]">✓</span>
+                                                <span className="text-teal-400 text-[11px]">✓</span>
                                                 <span className="text-slate-600">{cl}</span>
                                               </div>
                                             ))}
@@ -1016,7 +1016,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className="text-slate-500">Annual impact</span>
                                           <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 12 = {fmtImpact(annual)}</span>
                                         </div>
-                                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                                        <p className="text-[11px] text-slate-400 leading-relaxed">
                                           Only new move-ins pay the adjusted rate, so impact = qualifying units × the service line's move-in rate (trailing-3-month move-ins ÷ active units) × the rate change.
                                         </p>
                                         {/* Overlap warning for this specific rule */}
@@ -1084,15 +1084,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   {/* Summary row */}
                   <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-lg text-center">
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Campuses</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Campuses</p>
                       <p className="text-xl font-black text-slate-700">{coverageData.campuses.length}</p>
                     </div>
                     <div className="border-l border-slate-200">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Total Units</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Total Units</p>
                       <p className="text-xl font-black text-slate-700">{(coverageData.totalUnits || 0).toLocaleString()}</p>
                     </div>
                     <div className="border-l border-slate-200">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Monthly Impact</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Monthly Impact</p>
                       <p className={`text-xl font-black ${coverageData.totalMonthlyImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                         {fmtImpact(coverageData.totalMonthlyImpact)}
                       </p>
@@ -1104,12 +1104,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
-                          <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Campus</th>
-                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Units</th>
-                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Move-ins/mo</th>
-                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Avg Rate</th>
-                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Mo. Impact</th>
-                          <th className="text-right px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Ann. Impact</th>
+                          <th className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Campus</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Units</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Move-ins/mo</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Avg Rate</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Mo. Impact</th>
+                          <th className="text-right px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Ann. Impact</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1152,7 +1152,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           <button
             onClick={() => refetch()}
             disabled={isFetching}
-            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-teal-600 transition-colors disabled:opacity-40 shrink-0 mt-1"
+            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-teal-600 transition-colors disabled:opacity-40 shrink-0 mt-1"
             title="Refresh overview"
           >
             <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
@@ -1163,12 +1163,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         {activeRules.length > 0 && !isLoading && (
           <div className="flex sm:hidden gap-6 mt-3 pt-3 border-t border-slate-100">
             <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Net Annual Impact</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Net Annual Impact</p>
               <p className={`text-2xl font-black leading-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
             </div>
             {positiveImpact > 0 && (
               <div className="border-l border-slate-100 pl-6">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Revenue Lift</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Revenue Lift</p>
                 <p className="text-2xl font-black leading-tight text-emerald-500">{fmtImpact(positiveImpact)}</p>
               </div>
             )}
@@ -1248,7 +1248,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               )}
             </div>
             <button
-              className="hidden sm:flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 hover:text-teal-600 transition-colors border border-slate-200 rounded-md px-2 py-1"
+              className="hidden sm:flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 hover:text-teal-600 transition-colors border border-slate-200 rounded-md px-2 py-1"
               onClick={() => setFullMapOpen(true)}
             >
               <Maximize2 className="h-3 w-3" />
@@ -1397,7 +1397,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ── Footer ── */}
       {data?.generatedAt && !isLoading && (
-        <div className="px-6 pb-3 text-[10px] text-slate-300 border-t border-slate-100 pt-2.5">
+        <div className="px-6 pb-3 text-[11px] text-slate-300 border-t border-slate-100 pt-2.5">
           AI overview · {new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       )}
@@ -1431,15 +1431,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   {/* KPI row */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Annual Impact</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Annual Impact</p>
                       <p className={`text-lg font-bold ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Monthly</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Monthly</p>
                       <p className={`text-lg font-bold ${monthly >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Units Affected</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Units Affected</p>
                       <p className="text-lg font-bold text-slate-700">{units.toLocaleString()}</p>
                     </div>
                   </div>
@@ -1447,22 +1447,22 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   {/* Rule details */}
                   <div className="space-y-2 text-sm">
                     <div className="flex items-start gap-2">
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Trigger</span>
+                      <span className="text-[11px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Trigger</span>
                       <span className="text-slate-700 font-medium">{trigger}</span>
                     </div>
                     {sls.length > 0 && (
                       <div className="flex items-start gap-2">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Service Lines</span>
+                        <span className="text-[11px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Service Lines</span>
                         <div className="flex gap-1 flex-wrap">
                           {sls.map(sl => (
-                            <span key={sl} className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
+                            <span key={sl} className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
                           ))}
                         </div>
                       </div>
                     )}
                     {eff && (
                       <div className="flex items-start gap-2">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Effective</span>
+                        <span className="text-[11px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Effective</span>
                         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${isFuture ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                           {isFuture ? 'Starts' : 'Active since'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                         </span>
@@ -1473,7 +1473,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   {/* AI strategy description from commentary */}
                   {commentaryRule?.strategy && (
                     <div className="rounded-lg bg-teal-50 border border-teal-100 px-4 py-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-teal-600 mb-1.5 flex items-center gap-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-600 mb-1.5 flex items-center gap-1">
                         <Sparkles className="h-3 w-3" /> AI Analysis
                       </p>
                       <p className="text-[13px] leading-relaxed text-slate-700">{parseBold(commentaryRule.strategy)}</p>
@@ -1514,10 +1514,10 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     </text>
                   </svg>
                   <div className="text-center w-full">
-                    <p className="text-[10px] font-semibold text-slate-700 leading-tight text-center line-clamp-2">{rule.name}</p>
-                    <p className="text-[9px] text-slate-400">{units.toLocaleString()} units</p>
+                    <p className="text-[11px] font-semibold text-slate-700 leading-tight text-center line-clamp-2">{rule.name}</p>
+                    <p className="text-[11px] text-slate-400">{units.toLocaleString()} units</p>
                     {rule.effectiveDate && (
-                      <p className="text-[9px] text-slate-400">
+                      <p className="text-[11px] text-slate-400">
                         Start: {new Date(rule.effectiveDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
                     )}
