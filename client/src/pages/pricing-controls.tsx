@@ -541,7 +541,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const compPositionData = compPositionRaw.filter((d: any) => {
     const occ = d.occupancy ?? 0;
     if (occ <= 0) return false;
-    if (selectedLocations.length === 0 && occ < 50) return false;
+    if (selectedLocations.length === 0 && occ < 65) return false;
     return true;
   });
 
