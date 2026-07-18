@@ -95,6 +95,7 @@ interface DetailRow extends PerfMetrics {
 interface SummaryRow extends PerfMetrics {
   ruleName: string;
   category: string;
+  isHistorical?: boolean;
   detail: DetailRow[];
 }
 
@@ -406,6 +407,14 @@ export function RulePerformanceTable({
     return t;
   }, [rows]);
 
+  // Win Rate — % of historical applied rules with measured revenue growth
+  const winRate = useMemo(() => {
+    const hist = rows.filter((r) => r.isHistorical && r.monthlyRevenueImpact != null);
+    if (hist.length === 0) return null;
+    const wins = hist.filter((r) => (r.monthlyRevenueImpact ?? 0) > 0).length;
+    return { pct: Math.round((wins / hist.length) * 100), wins, total: hist.length };
+  }, [rows]);
+
   const handleExport = () => {
     const groupHeader = groupBy === "strategy" ? "Strategy" : groupBy === "rule" ? "Group" : groupBy === "serviceLine" ? "Service Line" : "Campus";
     const header = [groupHeader, "Rule", "Location", "Service Line", "Room Type", "Date Applied",
@@ -513,7 +522,7 @@ export function RulePerformanceTable({
         ) : (
           <>
             {/* Summary strip */}
-            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Rules Applied</div>
                 <div className="text-lg font-semibold">{rows.length}</div>
@@ -526,6 +535,15 @@ export function RulePerformanceTable({
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">New Move-ins</div>
                 <div className="text-lg font-semibold">{totals.unitsSold.toLocaleString()}</div>
                 <div className="text-[10px] text-muted-foreground">admitted after rule applied</div>
+              </div>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2" data-testid="stat-perf-win-rate">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Win Rate</div>
+                <div className={`text-lg font-semibold ${winRate == null ? "" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
+                  {winRate == null ? "–" : `${winRate.pct}%`}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {winRate == null ? "no historical rules in range" : `${winRate.wins} of ${winRate.total} historical rules grew revenue`}
+                </div>
               </div>
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Est. Annual Rate Impact</div>

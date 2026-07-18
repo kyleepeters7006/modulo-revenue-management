@@ -174,6 +174,9 @@ function setCachedAnalytics(key: string, data: any, ttl?: number): void {
   analyticsCache.set(key, { data, timestamp: Date.now(), ...(ttl !== undefined ? { ttl } : {}) });
 }
 
+// Deduplicates concurrent commentary regenerations per cache key
+const commentaryInflight = new Map<string, Promise<any>>();
+
 // Purge all adjustment-rule-related cache entries for a client so that any
 // filter combination (location, service line, or "all") sees the fresh DB state.
 function purgeRuleCaches(clientId: string): void {
@@ -189,6 +192,9 @@ function purgeRuleCaches(clientId: string): void {
   for (const key of Array.from(analyticsCache.keys())) {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
   }
+  // Also purge the persistent commentary cache so post-rule-change commentary regenerates
+  pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
+    .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
 }
 
 // Function to process image and detect room numbers using OCR
@@ -15428,6 +15434,10 @@ Return ONLY valid JSON with no markdown fences:
       const cached = getCachedAnalytics(cacheKey);
       if (cached) return res.json(cached);
 
+      // Persistent cache lookup — survives server restarts. Fresh rows serve
+      // immediately; stale rows serve immediately too (stale-while-revalidate)
+      // and a background regeneration updates both caches.
+      const generateCommentary = async (): Promise<any> => {
       // Build dynamic WHERE clauses for rent_roll_data
       const rrParams: any[] = [clientId];
       const rrFilters: string[] = [];
@@ -15789,7 +15799,7 @@ Return ONLY valid JSON, no markdown fences:
         effectiveDate: ruleEffDates[r.name] ?? null,
       }));
 
-      const result = {
+      return {
         summary: parsed.summary || '',
         pricingTrend: parsed.pricingTrend || '',
         rulesSummary: parsed.rulesSummary || '',
@@ -15797,8 +15807,38 @@ Return ONLY valid JSON, no markdown fences:
         recommendation: (await recommendationPromise).trim(),
         generatedAt: new Date().toISOString(),
       };
-      setCachedAnalytics(cacheKey, result, COMMENTARY_CACHE_TTL);
-      res.json(result);
+      }; // end generateCommentary
+
+      const regenerate = (): Promise<any> => {
+        const inflight = commentaryInflight.get(cacheKey);
+        if (inflight) return inflight;
+        const p = generateCommentary()
+          .then(async (result) => {
+            setCachedAnalytics(cacheKey, result, COMMENTARY_CACHE_TTL);
+            await pool.query(
+              `INSERT INTO ai_commentary_cache (cache_key, data, updated_at) VALUES ($1, $2, NOW())
+               ON CONFLICT (cache_key) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+              [cacheKey, JSON.stringify(result)]
+            ).catch((err: any) => console.error('[pc-commentary] persist error:', err));
+            return result;
+          })
+          .finally(() => commentaryInflight.delete(cacheKey));
+        commentaryInflight.set(cacheKey, p);
+        return p;
+      };
+
+      const dbRes = await pool.query(
+        `SELECT data, updated_at FROM ai_commentary_cache WHERE cache_key = $1`, [cacheKey]
+      );
+      const dbHit = dbRes.rows[0];
+      if (dbHit) {
+        const fresh = Date.now() - new Date(dbHit.updated_at).getTime() < COMMENTARY_CACHE_TTL;
+        setCachedAnalytics(cacheKey, dbHit.data, COMMENTARY_CACHE_TTL);
+        if (!fresh) regenerate().catch((err) => console.error('[pc-commentary] background refresh error:', err));
+        return res.json(dbHit.data);
+      }
+
+      res.json(await regenerate());
     } catch (error) {
       console.error('[pc-commentary] error:', error);
       res.status(500).json({ error: 'Failed to generate commentary' });
@@ -17351,6 +17391,7 @@ Return ONLY valid JSON, no markdown fences:
       const rows = Array.from(summary.entries()).map(([ruleName, agg]) => ({
         ruleName,
         category: categoryMap.get(ruleName) ?? 'hold',
+        isHistorical: histRuleNames.has(ruleName),
         ...finish(agg, summaryCalc.get(ruleName), histRuleNames.has(ruleName)),
         detail: Array.from(details.get(ruleName)?.entries() || [])
           .map(([gKey, d]) => ({

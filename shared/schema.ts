@@ -1222,6 +1222,15 @@ export const geocodeCache = pgTable("geocode_cache", {
 });
 export type GeocodeCache = typeof geocodeCache.$inferSelect;
 
+// Persistent AI commentary cache — survives server restarts so the Strategy
+// Overview loads instantly (stale-while-revalidate refresh in the background)
+export const aiCommentaryCache = pgTable("ai_commentary_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  data: jsonb("data").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type AiCommentaryCache = typeof aiCommentaryCache.$inferSelect;
+
 // Geocoding job progress tracker — survives server restarts
 export const aiInsights = pgTable("ai_insights", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
