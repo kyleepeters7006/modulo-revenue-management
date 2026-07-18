@@ -1187,8 +1187,23 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       {/* ══ RECOMMENDATION BAND ══ */}
       {data?.recommendation && !isLoading && (
         <div className="px-6 py-2 border-b border-slate-100 bg-amber-50/50" data-testid="text-recommendation">
-          <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mr-2">Recommendation</span>
-          <span className="text-sm leading-relaxed text-slate-600 whitespace-pre-line">{parseBold(data.recommendation)}</span>
+          {(() => {
+            const lines = data.recommendation.split('\n').map((l: string) => l.trim()).filter(Boolean);
+            const isBullets = lines.length > 1;
+            return isBullets ? (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mb-0.5">Recommendation</span>
+                {lines.map((line: string, i: number) => (
+                  <p key={i} className="text-[13px] leading-snug text-slate-600">{parseBold(line)}</p>
+                ))}
+              </div>
+            ) : (
+              <>
+                <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mr-2">Recommendation</span>
+                <span className="text-sm leading-snug text-slate-600">{parseBold(data.recommendation)}</span>
+              </>
+            );
+          })()}
         </div>
       )}
 
