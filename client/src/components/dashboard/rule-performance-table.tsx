@@ -103,8 +103,12 @@ interface PerfResponse {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const fmtDate = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "–";
+const fmtDate = (d: string | null) => {
+  if (!d) return "–";
+  // Parse as local date to avoid UTC-to-local timezone shift (e.g. 2026-07-01 UTC → Jun 30 local)
+  const [y, m, day] = d.slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
 
 const fmtMoney = (n: number | null | undefined) =>
   n == null ? "–" : `${n < 0 ? "-" : ""}$${Math.abs(Math.round(n)).toLocaleString()}`;
