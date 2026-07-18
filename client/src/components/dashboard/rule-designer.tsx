@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
-  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart
+  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart, PowerOff
 } from 'lucide-react';
 import { HistoryReportModal } from '@/components/dashboard/pricing-reports';
 import {
@@ -644,6 +644,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
     } catch {
       toast({ title: 'Failed to update rule', variant: 'destructive' });
+    }
+  };
+
+  const disableAllRules = async () => {
+    const activeIds = rules.filter(r => r.isActive).map(r => r.id);
+    if (activeIds.length === 0) return;
+    try {
+      await Promise.all(activeIds.map(id => fetch(`/api/adjustment-rules/${id}/toggle`, { method: 'PATCH' })));
+      setRules(prev => prev.map(r => ({ ...r, isActive: false })));
+      toast({ title: 'All rules disabled', description: `${activeIds.length} rule${activeIds.length !== 1 ? 's' : ''} turned off.` });
+    } catch {
+      toast({ title: 'Failed to disable all rules', variant: 'destructive' });
     }
   };
 
@@ -1452,6 +1464,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                         )}
                       </div>
                       <div className="flex items-center gap-1.5">
+                        {activeRules.length > 0 && (
+                          <Button
+                            variant="outline" size="sm"
+                            className="h-7 text-xs gap-1.5 text-red-600 border-red-200 bg-red-50 hover:bg-red-100"
+                            onClick={e => { e.stopPropagation(); disableAllRules(); }}
+                            title="Turn off all active rules"
+                          >
+                            <PowerOff className="h-3 w-3" />
+                            All Off
+                          </Button>
+                        )}
                         {activeCount > 0 && (
                           <Button
                             variant="outline" size="sm"
