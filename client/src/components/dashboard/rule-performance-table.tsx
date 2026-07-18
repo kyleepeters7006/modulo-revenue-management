@@ -24,6 +24,10 @@ import {
   Info,
   LayoutList,
   Rows3,
+  Trophy,
+  CheckCircle2,
+  XCircle,
+  MinusCircle,
 } from "lucide-react";
 
 // ── Strategy groups ─────────────────────────────────────────────────────────
@@ -415,6 +419,21 @@ export function RulePerformanceTable({
     return { pct: Math.round((wins / hist.length) * 100), wins, total: hist.length };
   }, [rows]);
 
+  const [winRateOpen, setWinRateOpen] = useState(false);
+
+  // Historical rules sorted by date for the drill-down dialog
+  const historicalRules = useMemo(() => {
+    return rows
+      .filter((r) => r.isHistorical)
+      .slice()
+      .sort((a, b) => {
+        if (!a.dateApplied && !b.dateApplied) return 0;
+        if (!a.dateApplied) return 1;
+        if (!b.dateApplied) return -1;
+        return b.dateApplied.localeCompare(a.dateApplied);
+      });
+  }, [rows]);
+
   const handleExport = () => {
     const groupHeader = groupBy === "strategy" ? "Strategy" : groupBy === "rule" ? "Group" : groupBy === "serviceLine" ? "Service Line" : "Campus";
     const header = [groupHeader, "Rule", "Location", "Service Line", "Room Type", "Date Applied",
@@ -536,15 +555,24 @@ export function RulePerformanceTable({
                 <div className="text-lg font-semibold">{totals.unitsSold.toLocaleString()}</div>
                 <div className="text-[10px] text-muted-foreground">admitted after rule applied</div>
               </div>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2" data-testid="stat-perf-win-rate">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Win Rate</div>
-                <div className={`text-lg font-semibold ${winRate == null ? "" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
+              <button
+                className="rounded-md border border-border bg-muted/30 px-3 py-2 text-left w-full hover:bg-muted/60 hover:border-primary/40 transition-colors cursor-pointer disabled:cursor-default disabled:hover:bg-muted/30 disabled:hover:border-border"
+                data-testid="stat-perf-win-rate"
+                onClick={() => winRate != null && historicalRules.length > 0 && setWinRateOpen(true)}
+                disabled={winRate == null || historicalRules.length === 0}
+                title={winRate != null ? "Click to see rule-by-rule breakdown" : undefined}
+              >
+                <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                  <Trophy className="h-3 w-3" />Win Rate
+                </div>
+                <div className={`text-4xl font-black leading-none tabular-nums ${winRate == null ? "text-muted-foreground" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
                   {winRate == null ? "–" : `${winRate.pct}%`}
                 </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {winRate == null ? "no historical rules in range" : `${winRate.wins} of ${winRate.total} historical rules grew revenue`}
+                <div className="text-[11px] text-muted-foreground mt-1">
+                  {winRate == null ? "no historical rules in range" : `${winRate.wins} of ${winRate.total} rules grew revenue`}
+                  {winRate != null && <span className="ml-1 text-primary/60">↗ see detail</span>}
                 </div>
-              </div>
+              </button>
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Est. Annual Rate Impact</div>
                 <div className={`text-lg font-semibold ${totals.annual >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -678,6 +706,84 @@ export function RulePerformanceTable({
               No rate adjustment data available for this rule in the selected date range.
             </p>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Win Rate drill-down dialog ─────────────────────────────────── */}
+      <Dialog open={winRateOpen} onOpenChange={setWinRateOpen}>
+        <DialogContent className="max-w-2xl w-full max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-5 pb-3 border-b border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-5 w-5 text-amber-500" />
+              <DialogTitle className="text-base font-semibold">Win Rate Detail</DialogTitle>
+            </div>
+            <DialogDescription className="mt-0.5">
+              Historical rules ordered by date — whether each one grew or reduced revenue after being applied.
+            </DialogDescription>
+            {winRate != null && (
+              <div className="flex items-center gap-4 mt-3 p-3 rounded-md bg-muted/40 border border-border">
+                <div className="text-center">
+                  <div className={`text-3xl font-black tabular-nums ${winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>{winRate.pct}%</div>
+                  <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Win Rate</div>
+                </div>
+                <div className="h-10 w-px bg-border" />
+                <div className="flex gap-4 text-sm">
+                  <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                    <CheckCircle2 className="h-4 w-4" />{winRate.wins} wins
+                  </div>
+                  <div className="flex items-center gap-1.5 text-red-500 font-semibold">
+                    <XCircle className="h-4 w-4" />{winRate.total - winRate.wins} losses
+                  </div>
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <MinusCircle className="h-4 w-4" />{historicalRules.filter(r => r.monthlyRevenueImpact == null).length} no data
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Rule</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Date Applied</th>
+                  <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Monthly Impact</th>
+                  <th className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historicalRules.map((r, i) => {
+                  const impact = r.monthlyRevenueImpact;
+                  const isWin = impact != null && impact > 0;
+                  const isLoss = impact != null && impact <= 0;
+                  return (
+                    <tr key={i} className="hover:bg-muted/30 transition-colors border-b border-border/50 last:border-0">
+                      <td className="px-4 py-2.5 text-sm text-foreground max-w-[280px]">
+                        <span className="line-clamp-2 leading-snug">{r.ruleName.replace(/^Historical:\s*/i, '')}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{r.dateApplied ? fmtDate(r.dateApplied) : '—'}</td>
+                      <td className={`px-4 py-2.5 text-sm font-semibold tabular-nums text-right whitespace-nowrap ${isWin ? 'text-emerald-600' : isLoss ? 'text-red-500' : 'text-muted-foreground'}`}>
+                        {impact != null ? fmtMoney(impact) + '/mo' : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        {impact == null ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><MinusCircle className="h-3.5 w-3.5" />No data</span>
+                        ) : isWin ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            <CheckCircle2 className="h-3.5 w-3.5" />Win
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-500 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded-full border border-red-200 dark:border-red-800">
+                            <XCircle className="h-3.5 w-3.5" />Loss
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </DialogContent>
       </Dialog>
     </Card>
