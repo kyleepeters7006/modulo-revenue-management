@@ -637,15 +637,15 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   };
 
   const SL_COLORS: Record<string, string> = {
-    AL: 'bg-teal-100 text-teal-800', 'AL/MC': 'bg-purple-100 text-purple-800',
-    HC: 'bg-orange-100 text-orange-800', 'HC/MC': 'bg-blue-100 text-blue-800',
-    SL: 'bg-emerald-100 text-emerald-800', VIL: 'bg-violet-100 text-violet-800',
+    AL: 'bg-teal-100 text-teal-800', 'AL/MC': 'bg-blue-100 text-blue-800',
+    HC: 'bg-orange-100 text-orange-800', 'HC/MC': 'bg-sky-100 text-sky-800',
+    SL: 'bg-emerald-100 text-emerald-800', VIL: 'bg-slate-100 text-slate-700',
   };
 
   // Sales-friendly display names for service line codes inside commentary
   const SL_DISPLAY: Record<string, string> = { VIL: 'Patio Homes' };
 
-  const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c','#0891b2','#b45309'];
+  const PALETTE = ['#0d9488','#0369a1','#d97706','#0284c7','#16a34a','#dc2626','#0891b2','#ea580c','#0e7490','#b45309'];
 
   const SL_FULL: Record<string, string> = {
     AL: 'Assisted Living', 'AL/MC': 'AL — Mem Care',
@@ -705,7 +705,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
   const hasData = data && (data.summary || data.rules?.length > 0);
 
-  const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#7c3aed', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#9333ea' };
+  const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#0369a1', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#0891b2' };
 
   const scatterTooltipContent = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;

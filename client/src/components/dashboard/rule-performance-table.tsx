@@ -372,9 +372,9 @@ export function RulePerformanceTable({
     const palette = [
       { accent: "#0d9488", rowBg: "bg-teal-500/5 border-l-2 border-teal-500/40" },
       { accent: "#0284c7", rowBg: "bg-blue-500/5 border-l-2 border-blue-500/40" },
-      { accent: "#7c3aed", rowBg: "bg-violet-500/5 border-l-2 border-violet-500/40" },
+      { accent: "#0369a1", rowBg: "bg-blue-700/5 border-l-2 border-blue-700/40" },
       { accent: "#d97706", rowBg: "bg-amber-500/5 border-l-2 border-amber-500/40" },
-      { accent: "#db2777", rowBg: "bg-pink-500/5 border-l-2 border-pink-500/40" },
+      { accent: "#475569", rowBg: "bg-slate-500/5 border-l-2 border-slate-500/40" },
       { accent: "#059669", rowBg: "bg-emerald-500/5 border-l-2 border-emerald-500/40" },
     ];
     return Array.from(byKey.keys()).sort((a, b) => a.localeCompare(b)).map((key, i) => {
