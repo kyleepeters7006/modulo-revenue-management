@@ -52,7 +52,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <img 
-              src="/attached_assets/Modulo M Logo_1756828313102.png" 
+              src="/attached_assets/modulo_glass_v2_1784404625887.png" 
               alt="Modulo" 
               className="h-20 w-20 object-contain rounded-xl"
             />

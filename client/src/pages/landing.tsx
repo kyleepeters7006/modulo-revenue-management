@@ -7,7 +7,7 @@ export default function Landing() {
         {/* Main Logo */}
         <div className="mb-12">
           <img 
-            src="/attached_assets/image_1756172904290.png" 
+            src="/attached_assets/modulo_glass_v2_1784404625887.png" 
             alt="Modulo" 
             className="mx-auto h-32 object-contain"
           />

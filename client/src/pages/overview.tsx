@@ -13,7 +13,7 @@ export default function Overview() {
         {/* Main Logo Header */}
         <div className="w-full mb-3 sm:mb-6 py-2 sm:py-4 text-center">
           <img 
-            src="/attached_assets/image_1756172904290.png" 
+            src="/attached_assets/modulo_glass_v2_1784404625887.png" 
             alt="Modulo Revenue Management" 
             className="mx-auto h-60 sm:h-68 md:h-80 object-contain rounded-2xl"
             style={{ 

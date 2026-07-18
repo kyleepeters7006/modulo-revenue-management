@@ -18,7 +18,7 @@ export default function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-center px-4 py-6 border-b border-[var(--dashboard-border)]">
         <img 
-          src="/attached_assets/Modulo M Logo_1756828313102.png" 
+          src="/attached_assets/modulo_glass_v2_1784404625887.png" 
           alt="Modulo" 
           className="h-16 w-16 object-contain"
         />
