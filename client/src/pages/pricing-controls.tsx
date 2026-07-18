@@ -1188,7 +1188,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       {data?.recommendation && !isLoading && (
         <div className="px-6 py-3.5 border-b border-slate-100 bg-amber-50/50" data-testid="text-recommendation">
           <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mr-2">Recommendation</span>
-          <span className="text-sm leading-relaxed text-slate-600">{parseBold(data.recommendation)}</span>
+          <span className="text-sm leading-relaxed text-slate-600 whitespace-pre-line">{parseBold(data.recommendation)}</span>
         </div>
       )}
 

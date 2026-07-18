@@ -15703,6 +15703,72 @@ Return ONLY valid JSON with no markdown fences:
         ? `${totalCompCount.toLocaleString()} competitors tracked${surveyCompCount > 0 ? ' (incl. competitive survey data)' : ''}, avg market rate $${compAvgRate.toLocaleString()}/mo`
         : 'no competitors configured';
 
+      // ── Portfolio-wide breakdowns (unfiltered view only) ──────────────────
+      // When no filters are applied, enrich the recommendation with same-store
+      // vs development/acquisition class trends, region/division trends, and
+      // room-type observations so the AI can craft specific action items.
+      const isUnfiltered = locations.length === 0 && regions.length === 0 && divisions.length === 0 && serviceLine === 'All';
+      let classSummary = '', regionSummary = '', divisionSummary = '', roomTypeSummary = '';
+      if (isUnfiltered) {
+        const trendGroupQuery = (groupExpr: string) => pool.query(`
+          SELECT ${groupExpr} AS grp, rrd.upload_month,
+            ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
+            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+            COUNT(*) AS units
+          FROM rent_roll_data rrd
+          LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
+          WHERE rrd.client_id = $1
+            AND rrd.upload_month >= to_char(NOW() - INTERVAL '6 months', 'YYYY-MM')
+          GROUP BY 1, 2
+          ORDER BY 1, 2
+        `, [clientId]);
+
+        const [classRes, regionRes, divisionRes, roomTypeRes] = await Promise.all([
+          trendGroupQuery(`COALESCE(NULLIF(TRIM(l.location_class), ''), 'Unclassified')`),
+          trendGroupQuery(`COALESCE(NULLIF(TRIM(l.region), ''), 'No Region')`),
+          trendGroupQuery(`COALESCE(NULLIF(TRIM(l.division), ''), 'No Division')`),
+          pool.query(`
+            SELECT COALESCE(NULLIF(TRIM(rrd.room_type), ''), 'Unknown') AS room_type,
+              ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
+              COUNT(*) FILTER (WHERE NOT rrd.occupied_yn) AS vacant,
+              COUNT(*) AS total,
+              ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+              ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
+            FROM rent_roll_data rrd
+            WHERE rrd.client_id = $1
+              AND rrd.upload_month = ${maxMonthSubquery}
+            GROUP BY 1
+            HAVING COUNT(*) >= 10
+            ORDER BY COUNT(*) DESC
+            LIMIT 15
+          `, [clientId]),
+        ]);
+
+        const summarizeGroupTrend = (rows: any[]): string => {
+          const byGrp: Record<string, any[]> = {};
+          for (const r of rows) (byGrp[r.grp] ||= []).push(r);
+          return Object.entries(byGrp)
+            .filter(([, ms]) => parseInt(ms[ms.length - 1]?.units || '0') >= 5)
+            .map(([g, ms]) => {
+              ms.sort((a, b) => String(a.upload_month).localeCompare(String(b.upload_month)));
+              const first = ms[0], last = ms[ms.length - 1];
+              const occNow = parseFloat(last.occ_pct || '0');
+              const occDelta = occNow - parseFloat(first.occ_pct || '0');
+              const rateNow = parseInt(last.avg_street_rate || '0');
+              const rateDelta = rateNow - parseInt(first.avg_street_rate || '0');
+              const dSign = (n: number) => (n >= 0 ? '+' : '');
+              return `${g}: ${occNow}% occ (${dSign(occDelta)}${occDelta.toFixed(1)}pt over 6mo), avg street $${rateNow.toLocaleString()}/mo (${dSign(rateDelta)}$${rateDelta}), ${parseInt(last.units || '0').toLocaleString()} units`;
+            }).join(' | ');
+        };
+
+        classSummary = summarizeGroupTrend(classRes.rows);
+        regionSummary = summarizeGroupTrend(regionRes.rows);
+        divisionSummary = summarizeGroupTrend(divisionRes.rows);
+        roomTypeSummary = roomTypeRes.rows.map((r: any) =>
+          `${r.room_type}: ${r.occ_pct}% occ (${r.vacant}/${r.total} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo, avg vacant ${r.avg_days_vacant || 0} days)`
+        ).join(' | ');
+      }
+
       // Replace the internal code "VIL" with the sales term "Patio Homes" in all data
       // strings before they reach the AI, so the commentary uses correct sales language.
       const vilToPatioHomes = (s: string) => s.replace(/\bVIL\b/g, 'Patio Homes');
@@ -15715,8 +15781,28 @@ Return ONLY valid JSON with no markdown fences:
       const openai = new openaiModule.default();
 
       // Claude-driven strategy recommendation (runs in parallel with the GPT commentary).
+      // Unfiltered portfolio view gets a richer, multi-dimensional recommendation with
+      // action items across location class, region/division, service line, and room type.
+      const portfolioBreakdownBlock = isUnfiltered ? `
+LOCATION CLASS BREAKDOWN (Same Store vs Development/Acquisition — latest month + 6mo change):
+${vilToPatioHomes(classSummary) || 'No class data'}
+
+REGION BREAKDOWN (latest month + 6mo change):
+${vilToPatioHomes(regionSummary) || 'No region data'}
+
+DIVISION BREAKDOWN (latest month + 6mo change):
+${vilToPatioHomes(divisionSummary) || 'No division data'}
+
+ROOM TYPE SNAPSHOT (latest month):
+${vilToPatioHomes(roomTypeSummary) || 'No room type data'}
+` : '';
+
+      const recommendationSystem = isUnfiltered
+        ? `You are a senior revenue management strategist for senior living portfolios. Write a portfolio-level strategy recommendation as 3-5 short bullet action items (each on its own line, starting with "• "). Cover, where the data supports it: (1) same-store vs development/acquisition class performance, (2) regional or division trends, (3) service-line trends, and (4) specific room-type observations. Every bullet must be a concrete action grounded in a specific number from the data. Use **double asterisks** around the key action and the most important number in each bullet. No preamble, no closing sentence — bullets only. IMPORTANT: Always refer to the VIL service line as "Patio Homes" — never use "VIL".`
+        : `You are a senior revenue management strategist for senior living portfolios. Respond with exactly ONE concise sentence — a concrete, actionable pricing strategy recommendation grounded in the data provided. Use **double asterisks** around the key action and the most important number. IMPORTANT: Always refer to the VIL service line as "Patio Homes" — never use "VIL".`;
+
       const recommendationPromise = callClaude(
-        `You are a senior revenue management strategist for senior living portfolios. Respond with exactly ONE concise sentence — a concrete, actionable pricing strategy recommendation grounded in the data provided. Use **double asterisks** around the key action and the most important number. IMPORTANT: Always refer to the VIL service line as "Patio Homes" — never use "VIL".`,
+        recommendationSystem,
         `Filter scope: ${filterContextDisplay}
 
 SERVICE-LINE SNAPSHOT (latest month):
@@ -15724,7 +15810,7 @@ ${slSummaryPartsDisplay || 'No data for selected filters'}
 
 6-MONTH PRICING TREND (by service line):
 ${trendSummaryDisplay || 'Insufficient history'}
-
+${portfolioBreakdownBlock}
 ACTIVE PRICING RULES (${ruleRows.length} total):
 ${ruleDetailsDisplay || 'No active rules'}
 
@@ -15732,8 +15818,10 @@ COMPETITOR INFO: ${compInfo}
 
 OVERALL: ${overallOcc}% occupancy, ${totalVacant} of ${totalUnits} units vacant
 
-What single pricing strategy move should management prioritize next? One sentence only.`,
-        { maxTokens: 200, temperature: 0.3, label: 'pc-recommendation' }
+${isUnfiltered
+  ? 'What should management prioritize next across the portfolio? Provide 3-5 bullet action items covering class, region/division, service-line, and room-type dimensions.'
+  : 'What single pricing strategy move should management prioritize next? One sentence only.'}`,
+        { maxTokens: isUnfiltered ? 600 : 200, temperature: 0.3, label: 'pc-recommendation' }
       ).catch((err) => {
         console.error('[pc-commentary] recommendation error:', err);
         return '';
