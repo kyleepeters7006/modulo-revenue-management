@@ -734,9 +734,6 @@ export function RulePerformanceTable({
                   <div className="flex items-center gap-1.5 text-red-500 font-semibold">
                     <XCircle className="h-4 w-4" />{winRate.total - winRate.wins} losses
                   </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <MinusCircle className="h-4 w-4" />{historicalRules.filter(r => r.monthlyRevenueImpact == null).length} no data
-                  </div>
                 </div>
               </div>
             )}
@@ -756,26 +753,31 @@ export function RulePerformanceTable({
                   const impact = r.monthlyRevenueImpact;
                   const isWin = impact != null && impact > 0;
                   const isLoss = impact != null && impact <= 0;
+                  const cleanName = r.ruleName.replace(/^Historical:\s*/i, '');
                   return (
-                    <tr key={i} className="hover:bg-muted/30 transition-colors border-b border-border/50 last:border-0">
+                    <tr
+                      key={i}
+                      className="hover:bg-muted/40 transition-colors border-b border-border/50 last:border-0 cursor-pointer"
+                      onClick={() => { setCalcOpen({ title: cleanName, metrics: r }); }}
+                    >
                       <td className="px-4 py-2.5 text-sm text-foreground max-w-[280px]">
-                        <span className="line-clamp-2 leading-snug">{r.ruleName.replace(/^Historical:\s*/i, '')}</span>
+                        <span className="line-clamp-2 leading-snug">{cleanName}</span>
                       </td>
                       <td className="px-4 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{r.dateApplied ? fmtDate(r.dateApplied) : '—'}</td>
                       <td className={`px-4 py-2.5 text-sm font-semibold tabular-nums text-right whitespace-nowrap ${isWin ? 'text-emerald-600' : isLoss ? 'text-red-500' : 'text-muted-foreground'}`}>
                         {impact != null ? fmtMoney(impact) + '/mo' : '—'}
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        {impact == null ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><MinusCircle className="h-3.5 w-3.5" />No data</span>
-                        ) : isWin ? (
+                        {isWin ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
                             <CheckCircle2 className="h-3.5 w-3.5" />Win
                           </span>
-                        ) : (
+                        ) : isLoss ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-500 bg-red-50 dark:bg-red-950/30 px-2 py-0.5 rounded-full border border-red-200 dark:border-red-800">
                             <XCircle className="h-3.5 w-3.5" />Loss
                           </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">—</span>
                         )}
                       </td>
                     </tr>
