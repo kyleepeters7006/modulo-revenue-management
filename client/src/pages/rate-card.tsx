@@ -46,7 +46,7 @@ export default function RateCard() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
-    urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"])
+    urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : [])
   );
   const [selectedUnit, setSelectedUnit] = useState<string | null>(urlUnit); // Track selected unit
   const [isExporting, setIsExporting] = useState(false);
