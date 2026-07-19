@@ -31,7 +31,6 @@ export default function PricingAlgorithmDocs() {
     <div className="min-h-screen bg-[var(--dashboard-bg)] p-8">
       <div className="max-w-5xl mx-auto">
 
-        {/* Back button */}
         <div className="mb-8">
           <Button
             variant="outline"
@@ -44,41 +43,40 @@ export default function PricingAlgorithmDocs() {
           </Button>
         </div>
 
-        {/* Title */}
         <div className="text-center mb-10">
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-4">
             Pricing Algorithm Documentation
           </h1>
           <p className="text-xl text-[var(--trilogy-grey)]">
-            Understanding How Modulo Calculates Optimal Rates
+            How Modulo calculates, tracks, and improves rates over time
           </p>
         </div>
 
         {/* Jump links */}
         <div className="text-center -mt-4 mb-10 text-sm text-[var(--trilogy-grey)]/70 flex flex-wrap justify-center gap-x-2 gap-y-1">
           <span>Jump to:</span>
-          <a href="#overview" className="text-[var(--trilogy-teal)] hover:underline">Overview</a>
-          <span>·</span>
-          <a href="#workflow" className="text-[var(--trilogy-teal)] hover:underline">Workflow</a>
-          <span>·</span>
-          <a href="#rules-rate" className="text-[var(--trilogy-teal)] hover:underline">Rules Rate</a>
-          <span>·</span>
-          <a href="#rule-designer" className="text-[var(--trilogy-teal)] hover:underline">Rule Designer</a>
-          <span>·</span>
-          <a href="#rule-exclusivity" className="text-[var(--trilogy-teal)] hover:underline">Exclusivity</a>
-          <span>·</span>
-          <a href="#ai-suggestions" className="text-[var(--trilogy-teal)] hover:underline">AI Rule Suggestions</a>
-          <span>·</span>
-          <a href="#elasticity" className="text-[var(--trilogy-teal)] hover:underline">Elasticity &amp; Revenue Impact</a>
-          <span>·</span>
-          <a href="#guardrails" className="text-[var(--trilogy-teal)] hover:underline">Guardrails</a>
-          <span>·</span>
-          <a href="#summary" className="text-[var(--trilogy-teal)] hover:underline">Summary</a>
+          {[
+            ["#overview", "Overview"],
+            ["#workflow", "Workflow"],
+            ["#rules-rate", "Rules Rate"],
+            ["#rule-designer", "Rule Designer"],
+            ["#rule-exclusivity", "Exclusivity"],
+            ["#ai-suggestions", "AI Suggestions"],
+            ["#revenue-measurement", "Revenue Measurement"],
+            ["#elasticity", "Elasticity"],
+            ["#guardrails", "Guardrails"],
+            ["#summary", "Summary"],
+          ].map(([href, label], i, arr) => (
+            <span key={href} className="flex items-center gap-x-2">
+              <a href={href} className="text-[var(--trilogy-teal)] hover:underline">{label}</a>
+              {i < arr.length - 1 && <span>·</span>}
+            </span>
+          ))}
         </div>
 
         <div className="space-y-8">
 
-          {/* ── 1. OVERVIEW ──────────────────────────────────────────────────── */}
+          {/* ── 1. OVERVIEW ─────────────────────────────────────────────── */}
           <Card id="overview" className="bg-gradient-to-r from-[var(--trilogy-teal)]/10 to-[var(--trilogy-dark-blue)]/10 border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -88,43 +86,43 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-4 text-[var(--trilogy-grey)]">
               <p>
-                Modulo produces a single proposed rate for each unit — the <strong className="text-[var(--trilogy-dark-blue)]">Rules Rate</strong>. It is fully rules-driven and completely auditable. Starting from the unit's base street rate, Modulo applies the adjustment rules you author in the <strong>Rule Designer</strong>, then clamps the result with <strong>Guardrails</strong>. The rate you see is always traceable to a specific rule.
+                Modulo produces one proposed rate per unit — the <strong className="text-[var(--trilogy-dark-blue)]">Rules Rate</strong>. It starts from the unit's current street rate, applies the adjustment rules you author in the <strong>Rule Designer</strong>, then clamps the result with <strong>Guardrails</strong>. Every rate traces back to a specific rule.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white rounded-lg border border-[var(--trilogy-teal)]/30 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Calculator className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">How the Rules Rate is built</h4>
+                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">How the rate is built</h4>
                   </div>
                   <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Begins with the unit's base / street rate</li>
-                    <li>Adjustment rules from the Rule Designer apply in priority order</li>
-                    <li>Guardrails (min/max, care-level rates) clamp the result</li>
-                    <li>Deterministic and fully auditable — the same inputs always produce the same rate</li>
+                    <li>Starts with the unit's street rate</li>
+                    <li>Adjustment rules apply in priority order</li>
+                    <li>Guardrails clamp the result</li>
+                    <li>Deterministic — same inputs, same rate, always auditable</li>
                   </ul>
                 </div>
                 <div className="bg-white rounded-lg border border-[var(--trilogy-dark-blue)]/30 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Sparkles className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Where the rules come from</h4>
+                    <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">How performance is tracked</h4>
                   </div>
                   <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Author rules directly in natural language ("Ask AI") or structured IF / THEN logic</li>
-                    <li>Accept AI rule suggestions generated from revenue growth targets</li>
-                    <li>Every proposed change is evaluated with price elasticity</li>
-                    <li>Revenue impact and days-to-sell are shown before you commit</li>
+                    <li>T3 (trailing 3-month) revenue measured before and after each rule</li>
+                    <li>Elasticity predictions compared to actual days-to-sell</li>
+                    <li>Rule Performance table shows impact by strategy group</li>
+                    <li>Active rules without history appear as projected rows</li>
                   </ul>
                 </div>
               </div>
 
-              <div className="bg-white/70 rounded-lg border border-[var(--trilogy-grey)]/20 p-4 text-sm">
-                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> If no adjustment rule applies to a unit, there is <strong>no proposed rate</strong> for that unit — Modulo leaves it blank rather than inventing one. A unit only receives a Rules Rate when at least one rule matches it.
+              <div className="bg-white/70 rounded-lg border border-[var(--trilogy-grey)]/20 p-3 text-sm">
+                <strong className="text-[var(--trilogy-dark-blue)]">Key rule:</strong> If no adjustment rule matches a unit, Modulo leaves the proposed rate blank — it never invents one. A unit is only priced when a rule applies to it.
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 2. COMPLETE PRICING WORKFLOW ─────────────────────────────────── */}
+          {/* ── 2. WORKFLOW ─────────────────────────────────────────────── */}
           <Card id="workflow" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -132,23 +130,18 @@ export default function PricingAlgorithmDocs() {
                 Complete Pricing Workflow
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <p className="text-sm">
-                Every unit follows one straightforward path. The base rate flows through your adjustment rules, then through guardrails, and arrives at a final Rules Rate. Units with no matching rule simply exit the pipeline without a proposed rate.
+                Every unit follows one path. The base rate flows through adjustment rules, then guardrails, arriving at a final Rules Rate. Units with no matching rule exit the pipeline without a proposed rate.
               </p>
 
               <div className="max-w-md mx-auto">
-                <div className="text-center mb-3">
-                  <span className="inline-flex items-center gap-1.5 bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)] font-semibold text-sm px-3 py-1 rounded-full border border-[var(--trilogy-teal)]/30">
-                    <Calculator className="h-4 w-4" /> Rules Rate Path
-                  </span>
-                </div>
                 <div className="flex flex-col items-center gap-1">
                   {[
-                    { label: "Base / Street Rate", sub: "the unit's current published rate" },
-                    { label: "Rule Matching", sub: "find adjustment rules whose conditions match this unit" },
+                    { label: "Base / Street Rate", sub: "unit's current published rate" },
+                    { label: "Rule Matching", sub: "find rules whose conditions match this unit" },
                     { label: "Apply Adjustments", sub: "exclusive (priority winner) or additive (stack)" },
-                    { label: "Guardrails", sub: "min / max constraints, care-level rates" },
+                    { label: "Guardrails", sub: "min / max, competitor variance, care-level rates" },
                     { label: "Rules Rate", sub: "final proposed rate — or none if no rule matched", highlight: true },
                   ].map((step, i) => (
                     <div key={i} className="flex flex-col items-center w-full">
@@ -165,13 +158,13 @@ export default function PricingAlgorithmDocs() {
               <div className="bg-gray-50 rounded-lg p-3 text-sm text-[var(--trilogy-grey)] flex items-start gap-2">
                 <Zap className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <span>
-                  There is no separate weighted-signal engine and no separate AI rate. <strong className="text-[var(--trilogy-dark-blue)]">Rules are the only mechanism</strong> that moves a rate away from its base. This keeps every recommendation transparent: each unit's rate traces back to the exact rules that fired.
+                  <strong className="text-[var(--trilogy-dark-blue)]">Rules are the only mechanism</strong> that moves a rate. There is no separate weighted-signal engine. Each unit's rate traces back to the exact rules that fired.
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 3. RULES RATE CALCULATION ────────────────────────────────────── */}
+          {/* ── 3. RULES RATE ───────────────────────────────────────────── */}
           <Card id="rules-rate" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -179,50 +172,43 @@ export default function PricingAlgorithmDocs() {
                 Rules Rate Calculation
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
-              <p>
-                The Rules Rate is deterministic. It is the base rate after the matching adjustment rules have been applied and guardrails have clamped the result. Because every step is an explicit rule, the same inputs always produce the same output — and every rate is fully auditable.
-              </p>
-
-              {/* Formula */}
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">How it's computed</h4>
                 <div className="font-mono text-sm bg-white p-3 rounded border border-gray-200">
                   Rules Rate = Guardrails( Base Rate + matching rule adjustments )
                 </div>
                 <p className="text-sm mt-2">
-                  Adjustments can be a percentage change, a fixed-dollar change, an absolute set-to value, or a discount applied / removed. Each matching rule modifies the running rate in priority order.
+                  Adjustments can be a percentage change, fixed-dollar change, absolute set-to, or a discount applied / removed. Each matching rule modifies the running rate in priority order.
                 </p>
                 <p className="text-sm mt-1 text-[var(--trilogy-grey)]/80">
-                  The <strong>Base Rate</strong> is the unit's current street rate, which already incorporates any room attribute premiums or discounts for that specific unit. Room attributes are part of the starting base, not a separate step.
+                  The <strong>Base Rate</strong> is the unit's current street rate, which already includes any room attribute premiums or discounts — room attributes are part of the starting base, not a separate step.
                 </p>
               </div>
 
-              {/* No-rule behavior */}
-              <div className="bg-amber-50 rounded-lg p-4 border border-amber-200/60">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
-                  <Lock className="h-4 w-4 text-amber-500" />
-                  When no rule applies
-                </h4>
-                <p className="text-sm">
-                  If no adjustment rule matches a unit, Modulo does <strong>not</strong> propose a rate for it — the proposed rate is left empty (null). Modulo never falls back to an automatic or weighted calculation. To price a unit, author or accept a rule that covers it.
-                </p>
-              </div>
-
-              {/* Room attributes note */}
-              <div className="bg-gray-50 rounded-lg p-3 text-sm text-[var(--trilogy-grey)] flex items-start gap-2">
-                <Home className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
-                <span>
-                  <strong className="text-[var(--trilogy-dark-blue)]">Room attributes</strong> (location within building, unit size, view quality, renovation status, amenity level)
-                  are reflected in the base rate the calculation starts from — the unit's current street rate, which already incorporates premiums or discounts for that room's specific features.
-                  You can update a unit's attribute ratings directly from the <strong className="text-[var(--trilogy-dark-blue)]">Room Attributes</strong> page.
-                  When a rating changes (for example, upgrading a unit from B to A view quality), the recalculated attributed rate flows into the next calculation cycle automatically.
-                </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-amber-50 rounded-lg p-4 border border-amber-200/60">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
+                    <Lock className="h-4 w-4 text-amber-500" />
+                    When no rule applies
+                  </h4>
+                  <p className="text-sm">
+                    Modulo does <strong>not</strong> propose a rate — the field is left blank. To price a unit, author or accept a rule that covers it.
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
+                    <Home className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                    Room attributes
+                  </h4>
+                  <p className="text-sm">
+                    Attribute ratings (view, size, floor, renovation) are reflected in the street rate already. Changing a rating on the <strong>Room Attributes</strong> page flows into the next calculation cycle automatically.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 4. RULE DESIGNER ─────────────────────────────────────────────── */}
+          {/* ── 4. RULE DESIGNER ────────────────────────────────────────── */}
           <Card id="rule-designer" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -230,93 +216,75 @@ export default function PricingAlgorithmDocs() {
                 Rule Designer
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
-                The single place where pricing adjustments are authored
+                Where all pricing adjustments are authored
               </p>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
-              <p>
-                The Rule Designer lets operators create pricing rules two ways: in plain English using <strong className="text-[var(--trilogy-dark-blue)]">Ask AI</strong>, or with the <strong className="text-[var(--trilogy-dark-blue)]">Structured Builder</strong> using IF / THEN logic. For example, <em>"Reduce vacant AL rates by $100 after 30 days vacant."</em> Natural-language rules are parsed by AI into structured conditions, so both methods produce the same auditable rule format.
-              </p>
-
-              {/* Two authoring modes */}
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-[var(--trilogy-teal)]/5 p-5">
-                  <div className="flex items-center gap-2 mb-3">
+                <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-[var(--trilogy-teal)]/5 p-4">
+                  <div className="flex items-center gap-2 mb-2">
                     <Sparkles className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Ask AI (natural language)</h5>
+                    <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Ask AI</h5>
                   </div>
-                  <p className="text-sm">
-                    Type a rule the way you'd say it out loud. AI translates the sentence into structured conditions and an action, shows you the parsed result for review, and lets you adjust before saving. Ideal for quick, expressive rules.
-                  </p>
+                  <p className="text-sm">Type a rule in plain English — <em>"Reduce vacant AL rates by $100 after 30 days."</em> AI parses it into structured conditions for review before saving.</p>
                 </div>
-                <div className="rounded-lg border border-[var(--trilogy-dark-blue)]/30 bg-[var(--trilogy-dark-blue)]/5 p-5">
-                  <div className="flex items-center gap-2 mb-3">
+                <div className="rounded-lg border border-[var(--trilogy-dark-blue)]/30 bg-[var(--trilogy-dark-blue)]/5 p-4">
+                  <div className="flex items-center gap-2 mb-2">
                     <SlidersHorizontal className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                    <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Structured Builder (IF / THEN)</h5>
+                    <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Structured Builder</h5>
                   </div>
-                  <p className="text-sm">
-                    Compose conditions explicitly — pick a metric, an operator, a value, and an optional time period — then choose the action. Precise control for complex or compound rules, with the same outcome as a parsed natural-language rule.
-                  </p>
+                  <p className="text-sm">Build conditions explicitly — metric, operator, value, time period — then choose the action. Same result as a parsed natural-language rule.</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Conditions */}
                 <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4">
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
                     <Zap className="h-4 w-4 text-[var(--trilogy-teal)]" />
                     Conditions (the IF)
                   </h4>
-                  <p className="text-sm mb-2">A condition combines a metric, an operator (=, ≠, &gt;, &lt;, ≥, ≤, between), a value, and an optional time period. Available metrics include:</p>
                   <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Campus, service-line, or room-type occupancy</li>
+                    <li>Campus / service-line / room-type occupancy</li>
                     <li>Vacant units and days vacant</li>
                     <li>Competitor rates and street-to-comp variance</li>
                     <li>Season / time of year</li>
                     <li>Inquiry and tour volume</li>
-                    <li><strong className="text-[var(--trilogy-dark-blue)]">Revenue growth target</strong> (new)</li>
-                    <li><strong className="text-[var(--trilogy-dark-blue)]">Price elasticity</strong> (new)</li>
-                    <li><strong className="text-[var(--trilogy-dark-blue)]">Days-to-sell</strong> — before / after / change (new)</li>
+                    <li>Revenue growth target</li>
+                    <li>Price elasticity</li>
+                    <li>Days-to-sell before / after / change</li>
                   </ul>
                 </div>
-
-                {/* Actions */}
                 <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-4">
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 flex items-center gap-2">
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
                     <SlidersHorizontal className="h-4 w-4 text-[var(--trilogy-dark-blue)]" />
                     Actions (the THEN)
                   </h4>
-                  <div className="space-y-2 text-sm">
-                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Increase / Decrease rate</p><p>Adjust by a percentage or a fixed dollar amount.</p></div>
-                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Set rate</p><p>Set the unit to a specific absolute rate.</p></div>
-                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Apply / Remove discount</p><p>Add or clear a discount on the running rate.</p></div>
-                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Caps &amp; min / max</p><p>Constrain the adjustment so the result stays within a floor or ceiling.</p></div>
-                    <div><p className="font-medium text-[var(--trilogy-dark-blue)]">Scope</p><ul className="list-disc list-inside mt-1 space-y-0.5"><li>Portfolio-wide</li><li>Location-specific</li><li>Service-line-specific</li><li>Location + service line</li></ul></div>
-                  </div>
+                  <ul className="text-sm space-y-1 list-disc list-inside">
+                    <li>Increase / Decrease by % or fixed $</li>
+                    <li>Set to an absolute rate</li>
+                    <li>Apply / Remove a discount</li>
+                    <li>Min / max caps on the adjustment</li>
+                    <li>Scope: portfolio, location, service line, or both</li>
+                  </ul>
                 </div>
               </div>
 
-              {/* Stacking example */}
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">Rule Application Example</h4>
-                <p className="text-sm mb-3">
-                  When rules stack, each additive rule receives the rate produced by the previous step — adjustments compound rather than conflict. Guardrails clamp the final result.
-                </p>
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Stacking example</h4>
                 <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
                   <p>Base Rate: $4,500</p>
-                  <p>Rule 1 (priority 10) — +5% AL all vacant → $4,500 × 1.05 = <strong>$4,725</strong></p>
+                  <p>Rule 1 (exclusive, priority #1) — +5% vacant AL → $4,500 × 1.05 = <strong>$4,725</strong></p>
                   <p>Rule 2 (additive) — −$100 after 30 days vacant → $4,725 − $100 = <strong>$4,625</strong></p>
-                  <p className="text-[var(--trilogy-teal)] mt-1">Final Rules Rate (after guardrails): $4,625</p>
+                  <p className="text-[var(--trilogy-teal)] mt-1">Rules Rate (after guardrails): $4,625</p>
                 </div>
                 <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
-                  The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records each rule that fired so operators can audit exactly which rules affected each unit.
-                  To configure rules, navigate to <strong>Pricing Controls → Rule Designer</strong>, type a rule with Ask AI or use the Structured Builder, preview its impact, then save. Rules can be toggled on/off without deletion.
+                  The <code className="bg-white rounded px-1 border border-gray-200">applied_rule_name</code> column records every rule that fired so you can audit exactly what affected each unit.
                 </p>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 4b. RULE EXCLUSIVITY ─────────────────────────────────────────── */}
+          {/* ── 5. RULE EXCLUSIVITY ─────────────────────────────────────── */}
           <Card id="rule-exclusivity" className="bg-white/95 backdrop-blur border-amber-200/60">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -324,114 +292,72 @@ export default function PricingAlgorithmDocs() {
                 Rule Exclusivity &amp; Priority
               </CardTitle>
               <p className="text-sm text-amber-600 font-medium mt-1">
-                One rule per unit by default — stacking is opt-in per rule
+                One rule per unit by default — stacking is opt-in
               </p>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
-              <p>
-                By default every Rule Designer rule is <strong className="text-[var(--trilogy-dark-blue)]">exclusive</strong>: it claims a unit and no other exclusive rule will also apply to that same unit. Active exclusive rules are ordered by priority — the highest-priority matching rule wins. Subsequent exclusive rules skip any unit already claimed by a higher-priority rule.
-              </p>
-              <p>
-                Any rule can be switched to <strong className="text-[var(--trilogy-dark-blue)]">additive</strong> mode ("<em>Apply in addition to other rules</em>" checkbox in the Rule Designer). An additive rule always runs on top of whatever an exclusive rule already set — it stacks, regardless of priority order. Guardrails clamp the result no matter how many rules stacked.
-              </p>
-
-              {/* Visual comparison */}
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-2">
                     <Lock className="h-5 w-5 text-amber-600" />
                     <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Exclusive (default)</h5>
-                    <span className="text-xs font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">#1, #2… priority badge</span>
                   </div>
-                  <ul className="text-sm space-y-1.5 list-disc list-inside">
-                    <li>Claims matching units on first run</li>
-                    <li>Later exclusive rules skip claimed units</li>
-                    <li>Priority order = amber number badge in the Rule card</li>
-                    <li>Use for mutually-exclusive pricing tiers (e.g. "Vacant AL standard" vs "Vacant AL long-stay")</li>
-                  </ul>
-                  <div className="mt-3 font-mono text-xs bg-white rounded border border-amber-200 p-2 space-y-1">
-                    <p className="text-amber-700 font-semibold">Example — unit vacant 45 days, AL:</p>
-                    <p>Rule #1 (exclusive): vacant AL &gt; 30 days → −$150 → <strong>$4,350</strong></p>
-                    <p className="text-gray-400">Rule #2 (exclusive): vacant AL → +5% <span className="italic">skipped — unit already claimed</span></p>
+                  <p className="text-sm mb-3">Claims matching units. Later exclusive rules skip any unit already claimed by a higher-priority rule. Priority = creation order (oldest = #1).</p>
+                  <div className="font-mono text-xs bg-white rounded border border-amber-200 p-2 space-y-1">
+                    <p className="text-amber-700 font-semibold">Unit: vacant AL, 45 days</p>
+                    <p>Rule #1 (exclusive): &gt;30d → −$150 → <strong>$4,350</strong></p>
+                    <p className="text-gray-400">Rule #2 (exclusive): +5% <span className="italic">skipped</span></p>
                   </div>
                 </div>
 
                 <div className="rounded-lg border-2 border-teal-300 bg-teal-50 p-4">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-2">
                     <Plus className="h-5 w-5 text-teal-600" />
                     <h5 className="font-semibold text-[var(--trilogy-dark-blue)]">Additive (stacks)</h5>
-                    <span className="text-xs font-bold bg-teal-200 text-teal-900 px-2 py-0.5 rounded-full">teal "stacks" badge</span>
                   </div>
-                  <ul className="text-sm space-y-1.5 list-disc list-inside">
-                    <li>Always applies on top of any exclusive result</li>
-                    <li>Never skipped due to exclusivity</li>
-                    <li>Multiple additive rules all run on the same unit</li>
-                    <li>Use for cross-cutting adjustments (e.g. "Summer premium: +$50 all vacant units")</li>
-                  </ul>
-                  <div className="mt-3 font-mono text-xs bg-white rounded border border-teal-200 p-2 space-y-1">
-                    <p className="text-teal-700 font-semibold">Example — same unit as above:</p>
+                  <p className="text-sm mb-3">Always runs on top of the exclusive result — never skipped. Multiple additive rules all apply to the same unit.</p>
+                  <div className="font-mono text-xs bg-white rounded border border-teal-200 p-2 space-y-1">
+                    <p className="text-teal-700 font-semibold">Same unit:</p>
                     <p>Rule #1 (exclusive): → $4,350</p>
                     <p>Summer bonus (additive): +$50 → <strong className="text-teal-700">$4,400</strong></p>
                   </div>
                 </div>
               </div>
 
-              {/* Priority table */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3">How Priority Is Assigned</h4>
-                <p className="text-sm mb-3">
-                  Active exclusive rules are numbered in the order they were created (oldest = highest priority = #1). You can change the effective priority by toggling rules off and on — a rule that was toggled off and back on moves to the end of the priority list.
-                </p>
-                <div className="font-mono text-xs bg-white p-3 rounded border border-gray-200 space-y-1">
-                  <p className="text-[var(--trilogy-teal)] font-semibold">Priority execution order (oldest-first):</p>
-                  <p>#1 — "Long-stay AL vacant" (exclusive) → applies to units vacant ≥ 30 days</p>
-                  <p>#2 — "Standard AL vacant" (exclusive) → applies to any remaining AL vacant not claimed by #1</p>
-                  <p className="text-teal-600">+ "Summer seasonal" (additive, stacks) → applies to ALL matched units regardless</p>
-                </div>
-                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-2">
-                  The <strong>Rate Card explanation dialog</strong> shows each rule's exclusivity mode inline (amber badge for exclusive, teal badge for stacks) so operators can see exactly why a rule was applied or skipped for a given unit.
-                </p>
-              </div>
-
-              {/* Bubble Map */}
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 border border-[var(--trilogy-teal)]/20 flex items-start gap-3">
                 <PieChart className="h-5 w-5 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <div>
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1">Bubble Map — Visual Portfolio Impact</h4>
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1">Bubble Map</h4>
                   <p className="text-sm">
-                    The <strong>Bubble Map</strong> button (teal, in the Rules card header on Pricing Controls) opens a visual overview of every active rule as a circle. Circle size scales with the number of affected units. Dots inside each circle represent individual units. Exclusive rules show a dashed ring and a priority number; additive rules show a solid ring. Hover any circle for name, affected campuses, and monthly / annual impact.
+                    The <strong>Bubble Map</strong> (Pricing Controls → Rules card header) shows every active rule as a circle scaled by affected units. Exclusive rules show a dashed ring and priority number; additive rules show a solid ring. Hover for campus count and monthly / annual impact.
                   </p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 5. AI RULE SUGGESTIONS FROM REVENUE GROWTH TARGETS ───────────── */}
+          {/* ── 6. AI RULE SUGGESTIONS ──────────────────────────────────── */}
           <Card id="ai-suggestions" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
                 <Target className="h-6 w-6 text-[var(--trilogy-dark-blue)]" />
-                AI Rule Suggestions from Revenue Growth Targets
+                AI Rule Suggestions
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-dark-blue)] font-medium mt-1">
                 Turn a revenue goal into reviewable adjustment rules
               </p>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <p>
-                On <strong>Pricing Controls</strong>, set a <strong className="text-[var(--trilogy-dark-blue)]">target annual revenue growth %</strong> for a campus + service line. Modulo analyzes the portfolio and generates a set of <strong>suggested rules</strong> designed to move toward that target. You review each one and <strong>Accept</strong> or <strong>Deny</strong> it. Accepted suggestions become ordinary adjustment rules in the Rule Designer — the same rules that drive the Rules Rate. This replaces any previous automatically-computed AI rate.
+                Set a <strong className="text-[var(--trilogy-dark-blue)]">target annual revenue growth %</strong> per campus + service line on Pricing Controls. Modulo analyzes the portfolio and generates suggested rules designed to reach that target. You review each one and <strong>Accept</strong> or <strong>Deny</strong>. Accepted suggestions become ordinary adjustment rules in the Rule Designer — identical to hand-authored rules.
               </p>
 
-              {/* Pipeline */}
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 border border-[var(--trilogy-teal)]/20">
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-3 text-sm uppercase tracking-wide">
-                  From Target to Rule
-                </h4>
                 <div className="flex flex-col md:flex-row gap-2 items-center text-sm flex-wrap">
                   {[
-                    { label: "Set Growth Target", sub: "annual % per campus + service line" },
-                    { label: "Generate Suggestions", sub: "candidate rules with impact" },
-                    { label: "Review Each", sub: "intent, detail, units, revenue" },
+                    { label: "Set Growth Target", sub: "% per campus + service line" },
+                    { label: "Generate Suggestions", sub: "AI proposes candidate rules" },
+                    { label: "Review Each", sub: "intent, units, revenue, elasticity" },
                     { label: "Accept / Deny", sub: "your decision" },
                     { label: "Becomes a Rule", sub: "added to Rule Designer" },
                   ].map((step, i, arr) => (
@@ -440,106 +366,170 @@ export default function PricingAlgorithmDocs() {
                         <div className="font-medium text-[var(--trilogy-dark-blue)] whitespace-nowrap">{step.label}</div>
                         <div className="text-[var(--trilogy-grey)]/70 text-xs mt-0.5 whitespace-nowrap">{step.sub}</div>
                       </div>
-                      {i < arr.length - 1 && (
-                        <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] hidden md:block flex-shrink-0" />
-                      )}
+                      {i < arr.length - 1 && <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] hidden md:block flex-shrink-0" />}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* What each suggestion shows */}
-              <div>
-                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] text-lg mb-3">What each suggestion shows</h4>
-                <p className="text-sm mb-3">Every suggested rule is presented with the context you need to make a confident decision:</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="bg-white rounded border border-gray-200 p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Sparkles className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                      <h6 className="font-medium text-[var(--trilogy-dark-blue)]">Intent &amp; detail</h6>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                {[
+                  { icon: Sparkles, label: "Intent & detail", desc: "What the rule does and why it helps reach the target" },
+                  { icon: Users, label: "Units impacted", desc: "Count, campuses, and service lines affected" },
+                  { icon: TrendingUp, label: "Revenue impact", desc: "Monthly and annual projection if accepted" },
+                  { icon: Activity, label: "Elasticity", desc: "Price-sensitivity assumption behind the projection" },
+                ].map(({ icon: Icon, label, desc }) => (
+                  <div key={label} className="bg-white rounded border border-gray-200 p-3">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Icon className="h-4 w-4 text-[var(--trilogy-teal)]" />
+                      <h6 className="font-medium text-[var(--trilogy-dark-blue)] text-xs">{label}</h6>
                     </div>
-                    <p className="text-xs text-[var(--trilogy-grey)]">A plain-language statement of what the rule does and why it helps reach the target.</p>
+                    <p className="text-xs text-[var(--trilogy-grey)]">{desc}</p>
                   </div>
-                  <div className="bg-white rounded border border-gray-200 p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Users className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                      <h6 className="font-medium text-[var(--trilogy-dark-blue)]">Units impacted</h6>
-                    </div>
-                    <p className="text-xs text-[var(--trilogy-grey)]">How many units the rule would touch and which campuses / service lines they belong to.</p>
-                  </div>
-                  <div className="bg-white rounded border border-gray-200 p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <TrendingUp className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                      <h6 className="font-medium text-[var(--trilogy-dark-blue)]">Monthly / annual revenue impact</h6>
-                    </div>
-                    <p className="text-xs text-[var(--trilogy-grey)]">The projected change in revenue if the rule is accepted, both monthly and annualized.</p>
-                  </div>
-                  <div className="bg-white rounded border border-gray-200 p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Activity className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                      <h6 className="font-medium text-[var(--trilogy-dark-blue)]">Elasticity</h6>
-                    </div>
-                    <p className="text-xs text-[var(--trilogy-grey)]">The price-elasticity assumption behind the projection, so you can see how sensitive demand is to the change.</p>
-                  </div>
-                </div>
+                ))}
               </div>
 
               <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-3 border border-[var(--trilogy-dark-blue)]/20 text-sm flex items-start gap-2">
                 <Target className="h-4 w-4 text-[var(--trilogy-dark-blue)] mt-0.5 flex-shrink-0" />
+                <span>Nothing changes until you Accept. Accepted suggestions participate in exclusivity, priority, and guardrails exactly like any other rule — and can be edited or toggled any time.</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── 7. REVENUE MEASUREMENT (T3) ─────────────────────────────── */}
+          <Card id="revenue-measurement" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/30">
+            <CardHeader>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <BarChart3 className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                Revenue Growth Measurement
+              </CardTitle>
+              <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
+                T3 trailing 3-month before-and-after tracking
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
+              <p>
+                Modulo measures the real-world impact of each pricing rule using a <strong className="text-[var(--trilogy-dark-blue)]">trailing 3-month (T3) window</strong> — the three months of move-in data immediately before and after a rule is applied. This anchors performance measurement to actual leasing outcomes rather than projected rates alone.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="h-8 w-8 rounded-full bg-[var(--trilogy-grey)]/10 flex items-center justify-center text-sm font-bold text-[var(--trilogy-dark-blue)]">T−</div>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Before</h5>
+                  </div>
+                  <p className="text-sm">The T3 average move-in rate and monthly revenue for the three months <em>before</em> the rule's effective date. This is the baseline.</p>
+                </div>
+                <div className="bg-[var(--trilogy-teal)]/5 rounded-lg border border-[var(--trilogy-teal)]/30 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="h-8 w-8 rounded-full bg-[var(--trilogy-teal)]/20 flex items-center justify-center text-sm font-bold text-[var(--trilogy-teal)]">T+</div>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">After</h5>
+                  </div>
+                  <p className="text-sm">The T3 average move-in rate and monthly revenue for the three months <em>after</em> the rule began applying to units. Updated as new move-ins occur.</p>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <TrendingUp className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Delta</h5>
+                  </div>
+                  <p className="text-sm">T+ minus T− gives the observed revenue growth (or contraction) attributable to the rule, in both monthly and annualized terms.</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Rule Performance table</h4>
+                <p className="text-sm mb-3">
+                  The <strong>Rule Performance</strong> section on Pricing Analytics groups rules into four strategy categories and shows T3-based outcomes for each:
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  {[
+                    { label: "Above Market / Hold", color: "bg-blue-50 border-blue-200 text-blue-800" },
+                    { label: "Below Market / Push", color: "bg-teal-50 border-teal-200 text-teal-800" },
+                    { label: "Concession (AL)", color: "bg-amber-50 border-amber-200 text-amber-800" },
+                    { label: "Concession (SL)", color: "bg-purple-50 border-purple-200 text-purple-800" },
+                  ].map(({ label, color }) => (
+                    <div key={label} className={`rounded border p-2 text-center font-medium ${color}`}>{label}</div>
+                  ))}
+                </div>
+                <p className="text-xs text-[var(--trilogy-grey)]/70 mt-3">
+                  Each row shows units impacted, units sold, average days-to-sell vs. expected, and monthly / annual revenue impact. Rules with no applied history yet appear as <strong>projected</strong> rows — impact is estimated from current qualifying units so every active strategy is always visible.
+                </p>
+              </div>
+
+              <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-3 border border-[var(--trilogy-teal)]/20 text-sm flex items-start gap-2">
+                <Activity className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
                 <span>
-                  Suggestions are <strong className="text-[var(--trilogy-dark-blue)]">recommendations, not actions</strong>. Nothing changes until you Accept. Once accepted, a suggestion behaves exactly like a hand-authored rule — it participates in exclusivity, priority, and guardrails, and you can edit or toggle it any time.
+                  <strong className="text-[var(--trilogy-dark-blue)]">Win Rate</strong> tracks how often a unit that received a Rules Rate was subsequently leased at or above that rate — closing the loop between recommended rate and actual outcome.
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 6. ELASTICITY & REVENUE IMPACT ──────────────────────────────── */}
+          {/* ── 8. ELASTICITY ───────────────────────────────────────────── */}
           <Card id="elasticity" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
                 <TrendingUp className="h-6 w-6 text-[var(--trilogy-teal)]" />
-                Elasticity-Based Revenue Impact
+                Elasticity &amp; Revenue Impact
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
-                How proposed changes are scored before you commit
+                How proposed changes are scored — and how predictions improve over time
               </p>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
+            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <p>
-                Whenever a rule proposes a rate change, Modulo evaluates it with <strong className="text-[var(--trilogy-dark-blue)]">price elasticity</strong> — a measure of how sensitive demand is to price. A lower rate typically sells faster; a higher rate typically sells slower. Elasticity translates a price change into an estimated change in how long the unit takes to lease, and from there into a revenue projection.
+                Whenever a rule proposes a rate change, Modulo scores it with <strong className="text-[var(--trilogy-dark-blue)]">price elasticity</strong> — how sensitive demand is to price. A lower rate typically sells faster; a higher rate typically sells slower. Elasticity translates a price change into an estimated change in days-to-sell, then into a revenue projection.
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="border border-gray-200 rounded-lg p-4 bg-white">
                   <div className="flex items-center gap-2 mb-2">
                     <Clock className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Days-to-sell: before / after / change</h5>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Days-to-sell</h5>
                   </div>
-                  <p className="text-sm">
-                    For each proposed change, Modulo estimates the unit's days-to-sell at the current rate and at the proposed rate, then reports the difference. A discount that meaningfully shortens days-to-sell can collect more months of rent over the year.
-                  </p>
+                  <p className="text-sm">Estimated at the current rate and at the proposed rate. The <em>change</em> determines whether a discount pays back through faster leasing.</p>
                 </div>
                 <div className="border border-gray-200 rounded-lg p-4 bg-white">
                   <div className="flex items-center gap-2 mb-2">
                     <BarChart3 className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Monthly &amp; annual revenue impact</h5>
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Revenue impact</h5>
                   </div>
-                  <p className="text-sm">
-                    The estimated days-to-sell change is combined with the new rate to project the monthly and annual revenue impact of the change — so a lower rate that leases faster can still come out ahead of holding a higher, slower-leasing rate.
-                  </p>
+                  <p className="text-sm">The days-to-sell change combined with the new rate projects monthly and annual revenue — a lower rate that leases faster can still come out ahead.</p>
+                </div>
+                <div className="border border-gray-200 rounded-lg p-4 bg-white">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Activity className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)]">Elasticity tracking</h5>
+                  </div>
+                  <p className="text-sm">Predicted days-to-sell is compared to actual days-to-sell after move-in. Over time this feedback tightens the elasticity model for each service line and location.</p>
                 </div>
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-3 text-sm text-[var(--trilogy-grey)] flex items-start gap-2">
-                <Activity className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
-                <span>
-                  These elasticity outputs — days-to-sell before/after/change and the monthly / annual revenue impact — are surfaced in <strong className="text-[var(--trilogy-dark-blue)]">Reference Data</strong>, alongside the rules and rates, so operators can verify the trade-off behind every proposed change. Elasticity, days-to-sell, and revenue growth target are also available as <strong>conditions</strong> in the Rule Designer.
-                </span>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2">Where elasticity data appears</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                    <span><strong className="text-[var(--trilogy-dark-blue)]">Reference Data</strong> — elasticity coefficient, expected and actual days-to-sell per service line</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                    <span><strong className="text-[var(--trilogy-dark-blue)]">Rule Performance</strong> — days faster / slower than expected column tracks prediction accuracy</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                    <span><strong className="text-[var(--trilogy-dark-blue)]">AI Suggestions</strong> — elasticity assumption shown per suggestion so you can weigh sensitivity</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <ChevronRight className="h-4 w-4 text-[var(--trilogy-teal)] mt-0.5 flex-shrink-0" />
+                    <span><strong className="text-[var(--trilogy-dark-blue)]">Rule Designer</strong> — price elasticity available as a trigger condition in rule authoring</span>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 7. GUARDRAILS ────────────────────────────────────────────────── */}
+          {/* ── 9. GUARDRAILS ───────────────────────────────────────────── */}
           <Card id="guardrails" className="bg-white/95 backdrop-blur border-[var(--trilogy-teal)]/40">
             <CardHeader className="pb-2">
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
@@ -547,51 +537,41 @@ export default function PricingAlgorithmDocs() {
                 Guardrails &amp; Care-Level Rates
               </CardTitle>
               <p className="text-sm text-[var(--trilogy-teal)] font-medium mt-1">
-                Final safety layer — clamps the Rules Rate after every rule has been applied
+                Final safety layer — clamps the Rules Rate after all adjustments
               </p>
             </CardHeader>
-            <CardContent className="space-y-6 text-[var(--trilogy-grey)]">
-              <p>
-                Guardrails are the last step in the pricing path. They enforce hard business boundaries regardless of what the adjustment rules produced. No Rules Rate ever leaves these boundaries.
-              </p>
-
+            <CardContent className="text-[var(--trilogy-grey)]">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Min / Max Rate Constraints</h5>
-                  <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Hard floor and ceiling on the final rate</li>
-                    <li>Maximum single increase / decrease limits</li>
-                    <li>Prevents excessive price swings between calculation cycles</li>
-                  </ul>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Care-Level Rates</h5>
-                  <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Level 2 care rates and similar care-level pricing remain in effect</li>
-                    <li>Applied alongside the min / max constraints</li>
-                    <li>Ensures care-driven pricing is honored regardless of rules</li>
-                  </ul>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Competitor Variance Limit</h5>
-                  <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Caps how far a rate can deviate from competitor median</li>
-                    <li>Applies independently of the percentage change limits</li>
-                  </ul>
-                </div>
-                <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                  <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">Configuration Scope</h5>
-                  <ul className="text-sm space-y-1 list-disc list-inside">
-                    <li>Configurable at portfolio, location, or service line level</li>
-                    <li>Seasonal adjustment overrides available</li>
-                    <li>Granular control across different segments</li>
-                  </ul>
-                </div>
+                {[
+                  {
+                    title: "Min / Max Constraints",
+                    items: ["Hard floor and ceiling on the final rate", "Maximum single increase / decrease limits", "Prevents large swings between calculation cycles"],
+                  },
+                  {
+                    title: "Care-Level Rates",
+                    items: ["Level 2 care rates remain in effect", "Applied alongside min / max constraints", "Care-driven pricing is always honored"],
+                  },
+                  {
+                    title: "Competitor Variance Limit",
+                    items: ["Caps deviation from competitor median", "Applies independently of % change limits"],
+                  },
+                  {
+                    title: "Configuration Scope",
+                    items: ["Portfolio, location, or service-line level", "Seasonal adjustment overrides available"],
+                  },
+                ].map(({ title, items }) => (
+                  <div key={title} className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <h5 className="font-medium text-[var(--trilogy-dark-blue)] mb-2">{title}</h5>
+                    <ul className="text-sm space-y-1 list-disc list-inside">
+                      {items.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* ── 8. FINAL SUMMARY ─────────────────────────────────────────────── */}
+          {/* ── 10. SUMMARY ─────────────────────────────────────────────── */}
           <Card id="summary" className="bg-gradient-to-r from-[var(--trilogy-dark-blue)]/10 to-[var(--trilogy-teal)]/10 border-[var(--trilogy-grey)]/20">
             <CardHeader>
               <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)]">
@@ -599,35 +579,25 @@ export default function PricingAlgorithmDocs() {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-[var(--trilogy-grey)]">
-              <ol className="space-y-3 list-decimal list-inside">
-                <li className="pl-2">
-                  <strong>Rules Rate:</strong> Modulo produces one proposed rate per unit. It is the base / street rate after the matching Rule Designer adjustments and guardrails. There is no weighted-signal engine and no separate AI rate — rules are the only thing that moves a rate.
-                </li>
-                <li className="pl-2">
-                  <strong>No rule, no rate:</strong> If no adjustment rule matches a unit, there is no proposed rate (null). Modulo never falls back to an automatic calculation.
-                </li>
-                <li className="pl-2">
-                  <strong>Rule Designer:</strong> Author rules in natural language with Ask AI or with the Structured Builder using IF / THEN conditions (occupancy, vacant units, days vacant, competitor rates, street-to-comp variance, season, inquiry/tour volume, revenue growth target, price elasticity, days-to-sell) and actions (increase / decrease / set rate, apply / remove discount, caps, min / max).
-                </li>
-                <li className="pl-2">
-                  <strong>Exclusivity &amp; priority:</strong> By default each rule is <em>exclusive</em> — the highest-priority matching rule wins and claims the unit. Any rule can be switched to <em>additive</em> to stack on top of the exclusive result.
-                </li>
-                <li className="pl-2">
-                  <strong>AI rule suggestions:</strong> Set a target annual revenue growth % per campus + service line on Pricing Controls, and Modulo generates suggested rules (intent, detail, units impacted, monthly / annual revenue impact, elasticity). Accept or Deny each one; accepted suggestions become adjustment rules.
-                </li>
-                <li className="pl-2">
-                  <strong>Elasticity-based impact:</strong> Proposed changes are scored with price elasticity to estimate days-to-sell before / after / change and the monthly / annual revenue impact, all shown in Reference Data.
-                </li>
-                <li className="pl-2">
-                  <strong>Guardrails &amp; care-level rates:</strong> The final Rules Rate is clamped by min / max constraints, competitor variance limits, and care-level rates (e.g. Level 2) before it is stored or displayed.
-                </li>
+              <ol className="space-y-2.5 list-decimal list-inside text-sm">
+                {[
+                  <><strong>Rules Rate:</strong> One proposed rate per unit — base / street rate after matching Rule Designer adjustments and guardrails. Rules are the only mechanism that moves a rate.</>,
+                  <><strong>No rule, no rate:</strong> Modulo never proposes a rate for an unmatched unit. The field stays blank until a rule covers it.</>,
+                  <><strong>Rule Designer:</strong> Author rules with Ask AI (natural language) or the Structured Builder (IF conditions → THEN action). Conditions include occupancy, vacancy, competitor variance, season, inquiries, elasticity, days-to-sell, and revenue growth targets.</>,
+                  <><strong>Exclusivity &amp; priority:</strong> Exclusive rules claim units in priority order; additive rules stack on top regardless of priority. Guardrails clamp the result.</>,
+                  <><strong>AI suggestions:</strong> Set a target revenue growth % per campus + service line; Modulo generates candidate rules with intent, units, revenue impact, and elasticity. Accept → becomes a rule.</>,
+                  <><strong>T3 revenue measurement:</strong> Rule performance is tracked with trailing 3-month move-in data — T3 before vs T3 after — giving an observed delta attributable to each rule. Active rules with no history yet appear as projected rows.</>,
+                  <><strong>Elasticity tracking:</strong> Predicted days-to-sell is compared to actual post-move-in outcomes, tightening the model over time. Elasticity data surfaces in Reference Data, Rule Performance, AI Suggestions, and as a rule condition.</>,
+                  <><strong>Guardrails:</strong> Min / max, competitor variance limits, and care-level rates clamp the final Rules Rate before it is stored or displayed.</>,
+                ].map((item, i) => (
+                  <li key={i} className="pl-2">{item}</li>
+                ))}
               </ol>
             </CardContent>
           </Card>
 
         </div>
 
-        {/* Footer button */}
         <div className="mt-8 text-center">
           <Button
             variant="outline"
