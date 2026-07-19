@@ -17170,6 +17170,7 @@ Return ONLY valid JSON, no markdown fences:
                rr.location, rr.service_line, rr.room_type, rr.room_number,
                rr.occupied_yn, rr.street_rate, rr.in_house_rate, rr.rule_adjusted_rate,
                rr.applied_rule_name, rr.move_in_date, rr.days_vacant, rr.upload_month,
+               rr.payor_type,
                COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) AS applied_at
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
@@ -17325,6 +17326,11 @@ Return ONLY valid JSON, no markdown fences:
       // ruleName -> summary agg; ruleName -> detailKey -> agg
       const summary = new Map<string, Agg>();
       const details = new Map<string, Map<string, Agg & { location: string; serviceLine: string; roomType: string }>>();
+      // HC / HC/MC pricing only affects Private Pay residents — Medicare, Medicaid,
+      // and Insurance payers are reimbursed at fixed rates set outside our control.
+      const isHcSl = (sl: string | null) => sl === 'HC' || sl === 'HC/MC';
+      const isPrivatePay = (p: string | null | undefined) => !!p && /private|pvt/i.test(p);
+
       // Stacking weights: when rules stack on a unit ("A + B"), each rule gets a
       // 1/n proportional share of that unit. Group T3 impact is then distributed
       // across the rules that touched the group by their share of impacted units.
@@ -17358,8 +17364,12 @@ Return ONLY valid JSON, no markdown fences:
             a.unitsImpacted += 1;
             if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
             // Projected rate delta: only new admissions pay the adjusted rate.
-            // Impact = expectedMoveIns × Δrate where expectedMoveIns = units × slMoveInRate.
-            const mir = slMoveInRate.get(u.service_line) ?? 0;
+            // For HC/HC/MC: occupied non-private-pay units (Medicare, Medicaid, Insurance)
+            // are on fixed reimbursement — their rates are unaffected. Only private pay
+            // occupied units and all vacant units (future payer unknown, move-in rate
+            // already reflects private pay fraction) contribute to the impact.
+            const payerOkForRate = !isHcSl(u.service_line) || !u.occupied_yn || isPrivatePay(u.payor_type);
+            const mir = payerOkForRate ? (slMoveInRate.get(u.service_line) ?? 0) : 0;
             a.projRateSum      += projRateDelta * share * mir;
             a.streetRateMirSum += streetRate * rateMultiplier * share * mir;
             a.moveInsTotal     += share * mir;
@@ -17486,11 +17496,8 @@ Return ONLY valid JSON, no markdown fences:
           const appliedAt = new Date(hr.effective_date);
           const rn = hr.name as string;
           const cohort = cohortByMonth.get(monthOf(appliedAt))?.get(hr.location_name) || [];
-          // HC / HC/MC pricing only affects Private Pay residents — other payer
-          // types (Medicaid, Medicare, Insurance) are reimbursed at fixed rates,
-          // so occupied non-private units are excluded from the impacted set.
-          const isHcSl = (sl: string | null) => sl === 'HC' || sl === 'HC/MC';
-          const isPrivatePay = (p: string | null | undefined) => !!p && /private|pvt/i.test(p);
+          // HC / HC/MC pricing only affects Private Pay residents (isHcSl / isPrivatePay
+          // defined above). Occupied non-private-pay units are excluded from the impacted set.
           const candidates = cohort.filter((u: any) =>
             (!ruleSLs.length || ruleSLs.includes(u.service_line)) &&
             (!ruleRTs.length || ruleRTs.includes(u.room_type)) &&
