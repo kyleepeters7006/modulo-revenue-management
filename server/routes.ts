@@ -17275,13 +17275,15 @@ Return ONLY valid JSON, no markdown fences:
       }
 
       const monthOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      type T3 = { before: number; after: number; occBefore: number; occAfter: number; monthsBefore: number; monthsAfter: number; delta: number; extrapolated: boolean };
+      type T3 = { before: number; after: number; occBefore: number; occAfter: number; occAdjusted: boolean; monthsBefore: number; monthsAfter: number; delta: number; extrapolated: boolean };
       // T3 delta for a group: avg monthly revenue over the last 3 snapshot months
       // strictly BEFORE the applied month vs. avg over the (up to) first 3 snapshot
       // months FROM the applied month onward. If fewer than 3 post-change months
       // exist yet, the average of the elapsed months stands in for the 3-month
       // average (i.e. extrapolated to a monthly run-rate).
       // Also tracks avg occupied unit count before/after to distinguish rate vs occupancy changes.
+      // When occupancy declined, adds 1 unit's revenue back to the "after" figure as a
+      // conservative recovery assumption (occupancy loss may be unrelated to the rate change).
       const t3For = (groupKey: string, appliedMonth: string): T3 | null => {
         const series = revSeries.get(groupKey);
         if (!series || series.length === 0) return null;
@@ -17290,8 +17292,14 @@ Return ONLY valid JSON, no markdown fences:
         if (before.length === 0 || after.length === 0) return null;
         const avg = (a: { revenue: number }[]) => a.reduce((s, p) => s + p.revenue, 0) / a.length;
         const avgOcc = (a: { occ: number }[]) => a.reduce((s, p) => s + p.occ, 0) / a.length;
-        const b = avg(before), aft = avg(after);
-        return { before: b, after: aft, occBefore: avgOcc(before), occAfter: avgOcc(after), monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
+        const b = avg(before), rawAft = avg(after);
+        const occB = avgOcc(before), occA = avgOcc(after);
+        // +1 unit buffer: when occupancy declined, assume 1 unit recovers.
+        // Uses the after-period avg per-unit rate to estimate that unit's revenue.
+        const occAdjusted = occA < occB && occA > 0;
+        const unitRate = occA > 0 ? rawAft / occA : 0;
+        const aft = occAdjusted ? rawAft + unitRate : rawAft;
+        return { before: b, after: aft, occBefore: occB, occAfter: occA, occAdjusted, monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
       };
 
       // Build service-line move-in rates: only new admissions pay the adjusted rate,
