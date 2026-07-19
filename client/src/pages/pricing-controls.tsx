@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
@@ -471,6 +471,38 @@ function parseBold(text: string): React.ReactNode {
   );
 }
 
+// ── Static lookup tables (defined once, outside all components) ──────────────
+const SL_COLORS: Record<string, string> = {
+  AL: 'bg-teal-100 text-teal-800', 'AL/MC': 'bg-blue-100 text-blue-800',
+  HC: 'bg-orange-100 text-orange-800', 'HC/MC': 'bg-sky-100 text-sky-800',
+  SL: 'bg-emerald-100 text-emerald-800', VIL: 'bg-slate-100 text-slate-700',
+};
+const SL_DISPLAY: Record<string, string> = { VIL: 'Patio Homes' };
+const SL_FULL: Record<string, string> = {
+  AL: 'Assisted Living', 'AL/MC': 'AL — Mem Care',
+  HC: 'Health Care', 'HC/MC': 'HC — Mem Care',
+  SL: 'Senior Living', VIL: 'Villas',
+};
+const PALETTE = ['#0d9488','#0369a1','#d97706','#0284c7','#16a34a','#dc2626','#0891b2','#ea580c','#0e7490','#b45309'];
+const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#1e3a5f', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#67e8f9' };
+const RULE_GROUPS: Array<{
+  id: string; label: string; description: string;
+  icon: any; accent: string; badge: string;
+}> = [
+  { id: 'push', label: 'High Occ — Below Market', description: 'Street rate trails top comps → push aggressively to close the gap', icon: TrendingUp, accent: '#0d9488', badge: 'bg-teal-100 text-teal-800' },
+  { id: 'hold', label: 'High Occ — Above Market', description: 'Already leading comps with strong occupancy → hold and protect the premium', icon: ArrowUpRight, accent: '#0284c7', badge: 'bg-blue-100 text-blue-800' },
+  { id: 'concession-al', label: 'Low AL/MC Occ — Rate Concession', description: 'Low occupancy with excess vacancy → reduce rates to drive AL/MC move-ins', icon: TrendingDown, accent: '#dc2626', badge: 'bg-red-100 text-red-800' },
+  { id: 'concession-sl', label: 'Low SL/VIL Occ — Market Align', description: 'Senior Living and Villas soft on occupancy, rates well above market → align down', icon: ArrowDownRight, accent: '#d97706', badge: 'bg-amber-100 text-amber-800' },
+];
+const genMiniDots = (count: number, r: number) => {
+  const n = Math.min(count, 32);
+  return Array.from({ length: n }, (_, i) => {
+    const theta = i * 2.39996;
+    const rad = Math.sqrt((i + 0.5) / n) * (r - 4);
+    return { x: Math.cos(theta) * rad, y: Math.sin(theta) * rad };
+  });
+};
+
 // ── Strategy Overview strip ───────────────────────────────────────────────────
 interface StrategyOverviewData {
   summary: string;
@@ -497,12 +529,25 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [scatterExpanded, setScatterExpanded] = useState(false);
   const [coverageRuleId, setCoverageRuleId] = useState<string | null>(null);
 
-  const params = new URLSearchParams();
-  if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
-  selectedLocations.forEach(l => params.append('locations', l));
-  selectedRegions.forEach(r => params.append('regions', r));
-  selectedDivisions.forEach(d => params.append('divisions', d));
-  const qs = params.toString();
+  const qs = useMemo(() => {
+    const params = new URLSearchParams();
+    if (selectedServiceLine && selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
+    selectedLocations.forEach(l => params.append('locations', l));
+    selectedRegions.forEach(r => params.append('regions', r));
+    selectedDivisions.forEach(d => params.append('divisions', d));
+    return params.toString();
+  }, [selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions]);
+
+  const rulesQs = useMemo(() => {
+    const p = new URLSearchParams();
+    if (selectedLocationId) p.set('locationId', selectedLocationId);
+    if (selectedServiceLine && selectedServiceLine !== 'All') p.set('serviceLine', selectedServiceLine);
+    selectedLocations.forEach(l => p.append('locations', l));
+    selectedRegions.forEach(r => p.append('regions', r));
+    selectedDivisions.forEach(d => p.append('divisions', d));
+    const s = p.toString();
+    return s ? '?' + s : '';
+  }, [selectedLocationId, selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions]);
 
   const { data, isLoading, refetch, isFetching } = useQuery<StrategyOverviewData>({
     queryKey: ["/api/pricing-controls/commentary", selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
@@ -513,27 +558,19 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     retry: 1,
   });
 
-  const rulesQs = (() => {
-    const p = new URLSearchParams();
-    if (selectedLocationId) p.set('locationId', selectedLocationId);
-    if (selectedServiceLine && selectedServiceLine !== 'All') p.set('serviceLine', selectedServiceLine);
-    selectedLocations.forEach(l => p.append('locations', l));
-    selectedRegions.forEach(r => p.append('regions', r));
-    selectedDivisions.forEach(d => p.append('divisions', d));
-    const s = p.toString();
-    return s ? '?' + s : '';
-  })();
-
   const { data: rulesData } = useQuery<any[]>({
     queryKey: ['/api/adjustment-rules', selectedLocationId ?? '', selectedServiceLine ?? '', selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
     queryFn: () => fetch(`/api/adjustment-rules${rulesQs}`).then(r => r.json()),
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const { data: compPositionRaw = [] } = useQuery<any[]>({
     queryKey: ['/api/pricing-controls/competitive-position', selectedServiceLine, selectedLocations.join(','), selectedRegions.join(','), selectedDivisions.join(',')],
     queryFn: () => fetch(`/api/pricing-controls/competitive-position${qs ? '?' + qs : ''}`).then(r => r.json()),
-    staleTime: 0,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
   // Hide sub-50% occupancy points when no specific campuses are selected —
   // these are bad data (beds flipping between AL and IL skew occupancy) and
@@ -552,20 +589,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     staleTime: 5 * 60 * 1000,
   });
 
-  const activeRules = (rulesData || []).filter((r: any) => r.isActive);
-  const activeRulesWithImpact = activeRules.filter((r: any) => (r.affectedUnits ?? 0) > 0);
+  const activeRules = useMemo(() => (rulesData || []).filter((r: any) => r.isActive), [rulesData]);
+  const activeRulesWithImpact = useMemo(() => activeRules.filter((r: any) => (r.affectedUnits ?? 0) > 0), [activeRules]);
 
   // ── Latest-cycle-wins: detect rules superseded by a newer cycle for the same SL ──
-  // For display purposes — the rate engine already applies this logic.
-  const supersededIds = (() => {
+  const supersededIds = useMemo(() => {
     const latestCyclePerSL: Record<string, string> = {};
     activeRules.forEach((r: any) => {
       if (!r.effectiveDate) return;
       const sl = r.serviceLine || '*';
       const month = String(r.effectiveDate).slice(0, 7);
-      if (!latestCyclePerSL[sl] || month > latestCyclePerSL[sl]) {
-        latestCyclePerSL[sl] = month;
-      }
+      if (!latestCyclePerSL[sl] || month > latestCyclePerSL[sl]) latestCyclePerSL[sl] = month;
     });
     const ids = new Set<string>();
     activeRules.forEach((r: any) => {
@@ -576,24 +610,21 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       if (latest && month < latest) ids.add(r.id);
     });
     return ids;
-  })();
+  }, [activeRules]);
 
-  // ── Overlap handling: the backend deduplicates at the unit level — when
-  // multiple active rules qualify the same units, each unit is attributed to
-  // the newest rule only, so per-rule impacts already sum without any
-  // double-counting. Rules whose numbers were reduced by this carry
-  // `overlapExcludedUnits > 0` and get an informational badge.
-  const overlapRuleIds = new Set<string>(
+  const overlapRuleIds = useMemo(() => new Set<string>(
     activeRules
       .filter((r: any) => (r.overlapExcludedUnits || 0) > 0 && !supersededIds.has(r.id))
       .map((r: any) => r.id)
-  );
+  ), [activeRules, supersededIds]);
 
-  const effectiveRules = activeRules.filter((r: any) => !supersededIds.has(r.id));
+  const effectiveRules = useMemo(() => activeRules.filter((r: any) => !supersededIds.has(r.id)), [activeRules, supersededIds]);
 
-  const totalAnnualImpact = effectiveRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
-  const positiveImpact = effectiveRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
-  const negativeImpact = effectiveRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
+  const { totalAnnualImpact, positiveImpact, negativeImpact } = useMemo(() => ({
+    totalAnnualImpact: effectiveRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0),
+    positiveImpact:    effectiveRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
+    negativeImpact:    effectiveRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
+  }), [effectiveRules]);
 
   const fmtImpact = (v: number, sign = true) => {
     const abs = Math.abs(v);
@@ -636,23 +667,6 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     return (f.serviceLine || []).slice(0, 3);
   };
 
-  const SL_COLORS: Record<string, string> = {
-    AL: 'bg-teal-100 text-teal-800', 'AL/MC': 'bg-blue-100 text-blue-800',
-    HC: 'bg-orange-100 text-orange-800', 'HC/MC': 'bg-sky-100 text-sky-800',
-    SL: 'bg-emerald-100 text-emerald-800', VIL: 'bg-slate-100 text-slate-700',
-  };
-
-  // Sales-friendly display names for service line codes inside commentary
-  const SL_DISPLAY: Record<string, string> = { VIL: 'Patio Homes' };
-
-  const PALETTE = ['#0d9488','#0369a1','#d97706','#0284c7','#16a34a','#dc2626','#0891b2','#ea580c','#0e7490','#b45309'];
-
-  const SL_FULL: Record<string, string> = {
-    AL: 'Assisted Living', 'AL/MC': 'AL — Mem Care',
-    HC: 'Health Care', 'HC/MC': 'HC — Mem Care',
-    SL: 'Senior Living', VIL: 'Villas',
-  };
-
   const getRuleCategory = (rule: any): string => {
     const val = Number(rule.action?.adjustmentValue ?? 0);
     if (val > 0) {
@@ -664,48 +678,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     return (sl === 'SL' || sl === 'VIL') ? 'concession-sl' : 'concession-al';
   };
 
-  const RULE_GROUPS: Array<{
-    id: string; label: string; description: string;
-    icon: any; accent: string; badge: string;
-  }> = [
-    {
-      id: 'push',
-      label: 'High Occ — Below Market',
-      description: 'Street rate trails top comps → push aggressively to close the gap',
-      icon: TrendingUp, accent: '#0d9488', badge: 'bg-teal-100 text-teal-800',
-    },
-    {
-      id: 'hold',
-      label: 'High Occ — Above Market',
-      description: 'Already leading comps with strong occupancy → hold and protect the premium',
-      icon: ArrowUpRight, accent: '#0284c7', badge: 'bg-blue-100 text-blue-800',
-    },
-    {
-      id: 'concession-al',
-      label: 'Low AL/MC Occ — Rate Concession',
-      description: 'Low occupancy with excess vacancy → reduce rates to drive AL/MC move-ins',
-      icon: TrendingDown, accent: '#dc2626', badge: 'bg-red-100 text-red-800',
-    },
-    {
-      id: 'concession-sl',
-      label: 'Low SL/VIL Occ — Market Align',
-      description: 'Senior Living and Villas soft on occupancy, rates well above market → align down',
-      icon: ArrowDownRight, accent: '#d97706', badge: 'bg-amber-100 text-amber-800',
-    },
-  ];
-
-  const genMiniDots = (count: number, r: number) => {
-    const n = Math.min(count, 32);
-    return Array.from({ length: n }, (_, i) => {
-      const theta = i * 2.39996;
-      const rad = Math.sqrt((i + 0.5) / n) * (r - 4);
-      return { x: Math.cos(theta) * rad, y: Math.sin(theta) * rad };
-    });
-  };
-
   const hasData = data && (data.summary || data.rules?.length > 0);
-
-  const SCATTER_SL_COLORS: Record<string,string> = { AL:'#0d9488', 'AL/MC':'#1e3a5f', HC:'#d97706', 'HC/MC':'#0284c7', SL:'#16a34a', VIL:'#67e8f9' };
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const scatterTooltipContent = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
@@ -1314,7 +1288,6 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   {/* ── Date sub-groups ── */}
                   <div className="divide-y divide-slate-100">
                     {Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([dateKey, dateRules]) => {
-                      const today = new Date().toISOString().slice(0, 10);
                       const isFuture = dateKey !== 'ongoing' && `${dateKey}-28` > today;
                       const dateLabel = dateKey === 'ongoing'
                         ? 'Always'
@@ -1428,7 +1401,6 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             const monthly = selectedRule.monthlyImpact || 0;
             const units = selectedRule.affectedUnits || 0;
             const eff = selectedRule.effectiveDate ? String(selectedRule.effectiveDate).slice(0, 10) : null;
-            const today = new Date().toISOString().slice(0, 10);
             const isFuture = eff && eff > today;
             const commentaryRule = data?.rules?.find(r => r.name === selectedRule.name);
 
