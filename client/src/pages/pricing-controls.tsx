@@ -1394,15 +1394,33 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       <Dialog open={!!selectedRule} onOpenChange={(o) => !o && setSelectedRule(null)}>
         <DialogContent className="max-w-lg">
           {selectedRule && (() => {
+            const cleanName = (selectedRule.name || '').replace(/\s*\+\s*\d+\s*more\s*$/i, '').trim();
             const { positive, display } = getActionInfo(selectedRule);
-            const trigger = getTriggerLabel(selectedRule);
             const sls = getSLs(selectedRule);
             const annual = selectedRule.annualImpact || 0;
             const monthly = selectedRule.monthlyImpact || 0;
             const units = selectedRule.affectedUnits || 0;
             const eff = selectedRule.effectiveDate ? String(selectedRule.effectiveDate).slice(0, 10) : null;
             const isFuture = eff && eff > today;
-            const commentaryRule = data?.rules?.find(r => r.name === selectedRule.name);
+            const commentaryRule = data?.rules?.find((r: any) => r.name === selectedRule.name || r.name === cleanName);
+
+            const triggerObj = selectedRule.trigger || {};
+            const isImmediate = triggerObj.type === 'immediate';
+            const allConditions: any[] = triggerObj.conditions || (triggerObj.condition ? [triggerObj.condition] : []);
+            const condFieldMap: Record<string, string> = {
+              service_line_occupancy: 'SL occupancy',
+              room_type_occupancy: 'Room type occupancy',
+              campus_occupancy: 'Campus occupancy',
+              days_vacant: 'Days vacant',
+              street_to_comp_var: 'Street vs top comp',
+              vacant_units: 'Vacant units',
+            };
+            const condLabels = allConditions.map((c: any) => {
+              const fn = condFieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
+              const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
+              const val = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.field === 'street_to_comp_var' ? `${c.value}%` : String(c.value);
+              return `${fn} ${op} ${val}`;
+            });
 
             return (
               <>
@@ -1411,7 +1429,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     <span className={`text-sm font-bold px-2 py-1 rounded ${positive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                       {display}
                     </span>
-                    {selectedRule.name}
+                    {cleanName}
                   </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-1">
@@ -1430,12 +1448,31 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                       <p className="text-lg font-bold text-slate-700">{units.toLocaleString()}</p>
                     </div>
                   </div>
+                  {units === 0 && !isImmediate && condLabels.length > 0 && (
+                    <p className="text-[11px] text-slate-400 -mt-1">
+                      No units currently meet all trigger conditions — impact will update when conditions are met.
+                    </p>
+                  )}
 
                   {/* Rule details */}
                   <div className="space-y-2 text-sm">
                     <div className="flex items-start gap-2">
                       <span className="text-[11px] uppercase tracking-wider text-slate-400 w-20 shrink-0 pt-0.5">Trigger</span>
-                      <span className="text-slate-700 font-medium">{trigger}</span>
+                      {isImmediate || condLabels.length === 0 ? (
+                        <span className="text-slate-700 font-medium">Always active</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {condLabels.map((label, ci) => (
+                            <div key={ci} className="flex items-center gap-1.5">
+                              <span className="text-teal-500 text-[11px]">✓</span>
+                              <span className="text-slate-700 font-medium">{label}</span>
+                            </div>
+                          ))}
+                          {condLabels.length > 1 && (
+                            <p className="text-[10px] text-slate-400 mt-0.5">All conditions must be true</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {sls.length > 0 && (
                       <div className="flex items-start gap-2">
