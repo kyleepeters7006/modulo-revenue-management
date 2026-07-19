@@ -17312,6 +17312,7 @@ Return ONLY valid JSON, no markdown fences:
         allExpSum: number; allExpN: number;    // expected baseline for ALL impacted units (fallback)
         earliestApplied: Date | null;
         projRateSum: number;                   // fallback: expected move-ins × Δrate (new admissions only)
+        streetRateMirSum: number;              // expected move-ins × street rate (the "before" figure)
         moveInsTotal: number;                  // expected move-ins/mo for qualifying units
         projDtsSum: number;                    // fallback: sum of days_vacant for occupied units
         projDtsN: number;                      // fallback: count of occupied units with days_vacant
@@ -17319,7 +17320,7 @@ Return ONLY valid JSON, no markdown fences:
       const newAgg = (): Agg => ({
         unitsImpacted: 0, unitsSold: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0,
         allExpSum: 0, allExpN: 0,
-        earliestApplied: null, projRateSum: 0, moveInsTotal: 0, projDtsSum: 0, projDtsN: 0,
+        earliestApplied: null, projRateSum: 0, streetRateMirSum: 0, moveInsTotal: 0, projDtsSum: 0, projDtsN: 0,
       });
       // ruleName -> summary agg; ruleName -> detailKey -> agg
       const summary = new Map<string, Agg>();
@@ -17359,8 +17360,9 @@ Return ONLY valid JSON, no markdown fences:
             // Projected rate delta: only new admissions pay the adjusted rate.
             // Impact = expectedMoveIns × Δrate where expectedMoveIns = units × slMoveInRate.
             const mir = slMoveInRate.get(u.service_line) ?? 0;
-            a.projRateSum  += projRateDelta * share * mir;
-            a.moveInsTotal += share * mir;
+            a.projRateSum      += projRateDelta * share * mir;
+            a.streetRateMirSum += streetRate * rateMultiplier * share * mir;
+            a.moveInsTotal     += share * mir;
             // Projected DTS: use days_vacant for currently-occupied units (their actual sell time)
             if (u.occupied_yn && daysVacant != null && daysVacant > 0 && daysVacant < 730) {
               a.projDtsSum += daysVacant;
@@ -17536,8 +17538,9 @@ Return ONLY valid JSON, no markdown fences:
               if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
               // Projected rate delta: only new admissions pay the adjusted rate.
               const mirH = slMoveInRate.get(u.service_line) ?? 0;
-              a.projRateSum  += histProjRate * mirH;
-              a.moveInsTotal += mirH;
+              a.projRateSum      += histProjRate * mirH;
+              a.streetRateMirSum += baseMonthlyRate * mirH;
+              a.moveInsTotal     += mirH;
               if (latest?.occupied_yn && histDaysVacant != null && histDaysVacant > 0 && histDaysVacant < 730) {
                 a.projDtsSum += histDaysVacant;
                 a.projDtsN += 1;
@@ -17628,6 +17631,8 @@ Return ONLY valid JSON, no markdown fences:
           monthlyRevenueImpact: monthlyImpact,
           annualRevenueImpact: annualImpact,
           moveInsPerMonth: Math.round(a.moveInsTotal * 10) / 10,
+          rateDeltaBefore: hasProjectedRate ? Math.round(a.streetRateMirSum) : null,
+          rateDeltaAfter: hasProjectedRate ? Math.round(a.streetRateMirSum + a.projRateSum) : null,
           projected,
           dateApplied: a.earliestApplied,
           method: usedT3 ? 't3' : 'rate-delta',

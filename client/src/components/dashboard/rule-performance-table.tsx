@@ -79,6 +79,8 @@ interface PerfMetrics {
   monthlyRevenueImpact: number | null;
   annualRevenueImpact: number | null;
   moveInsPerMonth?: number;
+  rateDeltaBefore?: number | null;
+  rateDeltaAfter?: number | null;
   projected?: boolean;
   dateApplied: string | null;
   method?: "t3" | "rate-delta";
@@ -684,7 +686,7 @@ export function RulePerformanceTable({
                   <span className="font-medium tabular-nums">{calcOpen.metrics.unitsImpacted.toLocaleString()}</span>
                 </div>
                 {calcOpen.metrics.moveInsPerMonth != null && (
-                  <div className="flex items-center justify-between border-t border-border pt-2">
+                  <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">
                       Expected new move-ins / mo
                       <span className="block text-[10px]">units × service-line T3 move-in rate</span>
@@ -692,21 +694,35 @@ export function RulePerformanceTable({
                     <span className="font-medium tabular-nums">{calcOpen.metrics.moveInsPerMonth.toFixed(1)}</span>
                   </div>
                 )}
-                <div className={`flex items-center justify-between ${calcOpen.metrics.moveInsPerMonth != null ? "" : "border-t border-border pt-2"}`}>
-                  <span className="font-medium">Monthly impact (new admissions)</span>
+                <div className="flex items-center justify-between border-t border-border pt-2">
+                  <span className="text-muted-foreground">
+                    Projected monthly revenue before
+                    <span className="block text-[10px]">new move-ins × street rate</span>
+                  </span>
+                  <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.rateDeltaBefore ?? null)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Projected monthly revenue after
+                    <span className="block text-[10px]">new move-ins × rule-adjusted rate</span>
+                  </span>
+                  <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.rateDeltaAfter ?? null)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-border pt-2">
+                  <span className="font-medium">Monthly revenue impact (after − before)</span>
                   <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">Annual impact (monthly × 12)</span>
+                  <span className="font-medium">Annual revenue impact (monthly × 12)</span>
                   <span className={`font-semibold tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(calcOpen.metrics.annualRevenueImpact)}
                   </span>
                 </div>
               </div>
               <div className="text-xs text-muted-foreground space-y-1.5">
-                <p>Only new admissions pay the adjusted rate — existing residents' rates are not changed. Impact = expected move-ins/mo × avg rate adjustment (rule-adjusted rate − street rate). HC and HC/MC daily rates are converted to monthly (× 30.4).</p>
+                <p>Only new admissions pay the adjusted rate — existing residents' rates are not changed. Projected revenue = expected move-ins/mo × rate. HC and HC/MC daily rates are converted to monthly (× 30.4).</p>
                 <p>When multiple rules stack on a unit, each rule is credited with its proportional share of the combined adjustment so nothing is double-counted.</p>
               </div>
             </div>
