@@ -15766,6 +15766,7 @@ Return ONLY valid JSON with no markdown fences:
             FROM rent_roll_data rrd
             WHERE rrd.client_id = $1
               AND rrd.upload_month = ${maxMonthSubquery}
+              AND NOT (rrd.room_number LIKE '%B' AND rrd.service_line IN ('AL','AL/MC','SL','VIL'))
             GROUP BY 1
             HAVING COUNT(*) >= 10
             ORDER BY COUNT(*) DESC
