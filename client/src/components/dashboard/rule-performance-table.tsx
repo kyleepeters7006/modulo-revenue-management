@@ -87,6 +87,8 @@ interface PerfMetrics {
   calc?: {
     t3Before: number;
     t3After: number;
+    occBefore: number;
+    occAfter: number;
     monthsBefore: number;
     monthsAfter: number;
     extrapolated: boolean;
@@ -647,17 +649,25 @@ export function RulePerformanceTable({
                   <div className="flex items-center justify-between border-t border-border pt-2">
                     <span className="text-muted-foreground">
                       Avg monthly revenue before
-                      <span className="block text-[10px]">occupied rooms, {calcOpen.metrics.calc.monthsBefore} month{calcOpen.metrics.calc.monthsBefore === 1 ? "" : "s"} before the change</span>
+                      <span className="block text-[10px]">{calcOpen.metrics.calc.monthsBefore} month{calcOpen.metrics.calc.monthsBefore === 1 ? "" : "s"} before · avg {calcOpen.metrics.calc.occBefore.toFixed(1)} occupied units</span>
                     </span>
                     <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3Before)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">
                       Avg monthly revenue after
-                      <span className="block text-[10px]">occupied rooms, {calcOpen.metrics.calc.monthsAfter} month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} after the change{calcOpen.metrics.calc.extrapolated ? " (all available so far)" : ""}</span>
+                      <span className="block text-[10px]">{calcOpen.metrics.calc.monthsAfter} month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} after{calcOpen.metrics.calc.extrapolated ? " (all available so far)" : ""} · avg {calcOpen.metrics.calc.occAfter.toFixed(1)} occupied units</span>
                     </span>
                     <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3After)}</span>
                   </div>
+                  {calcOpen.metrics.calc.occBefore !== calcOpen.metrics.calc.occAfter && (
+                    <div className="flex items-start gap-1.5 rounded bg-sky-50 border border-sky-200 px-2 py-1.5 text-[11px] text-sky-800">
+                      <span className="shrink-0">ℹ</span>
+                      <span>
+                        Occupied units changed from <span className="font-semibold">{calcOpen.metrics.calc.occBefore.toFixed(1)}</span> → <span className="font-semibold">{calcOpen.metrics.calc.occAfter.toFixed(1)}</span> ({calcOpen.metrics.calc.occAfter > calcOpen.metrics.calc.occBefore ? "+" : ""}{(calcOpen.metrics.calc.occAfter - calcOpen.metrics.calc.occBefore).toFixed(1)} units). {calcOpen.metrics.calc.occAfter < calcOpen.metrics.calc.occBefore ? "The revenue decline is likely driven by occupancy loss, not the rate change." : "Occupancy improved alongside the pricing change."}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between border-t border-border pt-2">
                     <span className="font-medium">Monthly revenue impact (after − before)</span>
                     <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
