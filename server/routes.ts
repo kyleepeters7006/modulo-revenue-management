@@ -17288,20 +17288,38 @@ Return ONLY valid JSON, no markdown fences:
         return { before: b, after: aft, monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
       };
 
+      // Build service-line move-in rates: only new admissions pay the adjusted rate,
+      // so rate-delta impact = affectedUnits × moveInRate × Δrate (not sum of all units).
+      const slMoveInRate = new Map<string, number>();
+      {
+        const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+        let impCtx = getCachedAnalytics(ctxCacheKey);
+        if (!impCtx) {
+          impCtx = await buildRuleImpactContext(clientId);
+          if (impCtx) setCachedAnalytics(ctxCacheKey, impCtx);
+        }
+        if (impCtx?.slMoveInRate) {
+          for (const [sl, rate] of Array.from((impCtx.slMoveInRate as Map<string,number>).entries())) {
+            slMoveInRate.set(sl, rate);
+          }
+        }
+      }
+
       type Agg = {
         unitsImpacted: number; unitsSold: number;
         dtsSum: number; dtsN: number;          // actual days-to-sell (sold units, post-rule)
         expSum: number; expN: number;          // expected baseline for sold units
         allExpSum: number; allExpN: number;    // expected baseline for ALL impacted units (fallback)
         earliestApplied: Date | null;
-        projRateSum: number;                   // fallback: sum of (rule_rate - in_house_rate) * multiplier
+        projRateSum: number;                   // fallback: expected move-ins × Δrate (new admissions only)
+        moveInsTotal: number;                  // expected move-ins/mo for qualifying units
         projDtsSum: number;                    // fallback: sum of days_vacant for occupied units
         projDtsN: number;                      // fallback: count of occupied units with days_vacant
       };
       const newAgg = (): Agg => ({
         unitsImpacted: 0, unitsSold: 0, dtsSum: 0, dtsN: 0, expSum: 0, expN: 0,
         allExpSum: 0, allExpN: 0,
-        earliestApplied: null, projRateSum: 0, projDtsSum: 0, projDtsN: 0,
+        earliestApplied: null, projRateSum: 0, moveInsTotal: 0, projDtsSum: 0, projDtsN: 0,
       });
       // ruleName -> summary agg; ruleName -> detailKey -> agg
       const summary = new Map<string, Agg>();
@@ -17338,8 +17356,11 @@ Return ONLY valid JSON, no markdown fences:
           const bump = (a: Agg) => {
             a.unitsImpacted += 1;
             if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
-            // Projected rate delta — each rule gets its proportional share
-            a.projRateSum += projRateDelta * share;
+            // Projected rate delta: only new admissions pay the adjusted rate.
+            // Impact = expectedMoveIns × Δrate where expectedMoveIns = units × slMoveInRate.
+            const mir = slMoveInRate.get(u.service_line) ?? 0;
+            a.projRateSum  += projRateDelta * share * mir;
+            a.moveInsTotal += share * mir;
             // Projected DTS: use days_vacant for currently-occupied units (their actual sell time)
             if (u.occupied_yn && daysVacant != null && daysVacant > 0 && daysVacant < 730) {
               a.projDtsSum += daysVacant;
@@ -17513,8 +17534,10 @@ Return ONLY valid JSON, no markdown fences:
             const bump = (a: Agg) => {
               a.unitsImpacted += 1;
               if (!a.earliestApplied || appliedAt < a.earliestApplied) a.earliestApplied = appliedAt;
-              // Projected rate delta — actual increase/decrease per unit from the rule
-              a.projRateSum += histProjRate;
+              // Projected rate delta: only new admissions pay the adjusted rate.
+              const mirH = slMoveInRate.get(u.service_line) ?? 0;
+              a.projRateSum  += histProjRate * mirH;
+              a.moveInsTotal += mirH;
               if (latest?.occupied_yn && histDaysVacant != null && histDaysVacant > 0 && histDaysVacant < 730) {
                 a.projDtsSum += histDaysVacant;
                 a.projDtsN += 1;
@@ -17604,6 +17627,7 @@ Return ONLY valid JSON, no markdown fences:
           daysFasterThanExpected: avgDts != null && avgExp != null ? Math.round(avgExp - avgDts) : null,
           monthlyRevenueImpact: monthlyImpact,
           annualRevenueImpact: annualImpact,
+          moveInsPerMonth: Math.round(a.moveInsTotal * 10) / 10,
           projected,
           dateApplied: a.earliestApplied,
           method: usedT3 ? 't3' : 'rate-delta',

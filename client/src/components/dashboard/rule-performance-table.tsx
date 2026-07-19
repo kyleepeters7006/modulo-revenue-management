@@ -78,6 +78,7 @@ interface PerfMetrics {
   daysFasterThanExpected: number | null;
   monthlyRevenueImpact: number | null;
   annualRevenueImpact: number | null;
+  moveInsPerMonth?: number;
   projected?: boolean;
   dateApplied: string | null;
   method?: "t3" | "rate-delta";
@@ -617,7 +618,7 @@ export function RulePerformanceTable({
                 ? "Click a rule row to see the breakdown by location, service line, and room type."
                 : "Click any group row to expand and see individual rules. Click a rule row to see the breakdown by location, service line, and room type."}{" "}
               Switch to <span className="font-medium">Detail</span> to expand all groups at once.{" "}
-              <span className="font-medium">Revenue impact</span>: historical pricing changes compare actual occupied-room revenue for the 3 months before vs. after the change; active rules sum the rate adjustment across impacted units. Click any impact value for the full calculation.
+              <span className="font-medium">Revenue impact</span>: historical pricing changes compare actual occupied-room revenue for the 3 months before vs. after the change; active rules project impact based on expected new move-ins only (existing residents keep their current rates). Click any impact value for the full calculation.
             </p>
           </>
         )}
@@ -682,21 +683,30 @@ export function RulePerformanceTable({
                   <span className="text-muted-foreground">Units impacted</span>
                   <span className="font-medium tabular-nums">{calcOpen.metrics.unitsImpacted.toLocaleString()}</span>
                 </div>
-                <div className="flex items-center justify-between border-t border-border pt-2">
-                  <span className="font-medium">Monthly rate impact</span>
+                {calcOpen.metrics.moveInsPerMonth != null && (
+                  <div className="flex items-center justify-between border-t border-border pt-2">
+                    <span className="text-muted-foreground">
+                      Expected new move-ins / mo
+                      <span className="block text-[10px]">units × service-line T3 move-in rate</span>
+                    </span>
+                    <span className="font-medium tabular-nums">{calcOpen.metrics.moveInsPerMonth.toFixed(1)}</span>
+                  </div>
+                )}
+                <div className={`flex items-center justify-between ${calcOpen.metrics.moveInsPerMonth != null ? "" : "border-t border-border pt-2"}`}>
+                  <span className="font-medium">Monthly impact (new admissions)</span>
                   <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">Annual rate impact (monthly × 12)</span>
+                  <span className="font-medium">Annual impact (monthly × 12)</span>
                   <span className={`font-semibold tabular-nums ${(calcOpen.metrics.annualRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {fmtMoney(calcOpen.metrics.annualRevenueImpact)}
                   </span>
                 </div>
               </div>
               <div className="text-xs text-muted-foreground space-y-1.5">
-                <p>Impact = sum of the rate adjustment applied to each impacted unit (rule-adjusted rate − street rate). HC and HC/MC daily rates are converted to monthly (× 30.4) before summing.</p>
+                <p>Only new admissions pay the adjusted rate — existing residents' rates are not changed. Impact = expected move-ins/mo × avg rate adjustment (rule-adjusted rate − street rate). HC and HC/MC daily rates are converted to monthly (× 30.4).</p>
                 <p>When multiple rules stack on a unit, each rule is credited with its proportional share of the combined adjustment so nothing is double-counted.</p>
               </div>
             </div>
