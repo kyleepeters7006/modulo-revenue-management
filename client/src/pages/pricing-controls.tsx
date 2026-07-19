@@ -940,6 +940,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                       <div className="text-right shrink-0 pl-2">
                                         <div className={`text-sm font-bold tabular-nums ${isSuperseded ? 'text-slate-400 line-through' : isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</div>
                                         <div className="text-[11px] text-slate-400">{units.toLocaleString()} units</div>
+                                        {!isPos && !isSuperseded && (
+                                          <div className="text-[10px] text-amber-600 font-medium mt-0.5 leading-tight">Risked amt · upside w/ occ growth</div>
+                                        )}
                                       </div>
                                     </button>
                                     {/* Expanded calculation detail */}
@@ -990,6 +993,12 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className="text-slate-500">Annual impact</span>
                                           <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 12 = {fmtImpact(annual)}</span>
                                         </div>
+                                        {!isPos && (
+                                          <div className="flex items-start gap-1.5 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
+                                            <span className="shrink-0">⚠</span>
+                                            <span><span className="font-semibold">Risked amount — assumes no occupancy growth.</span> If the rate concession drives additional move-ins, the realized impact will be smaller (or positive). This figure represents the worst-case revenue at-risk with flat occupancy.</span>
+                                          </div>
+                                        )}
                                         <p className="text-[11px] text-slate-400 leading-relaxed">
                                           Only new move-ins pay the adjusted rate, so impact = qualifying units × the service line's move-in rate (trailing-3-month move-ins ÷ active units) × the rate change.
                                         </p>
