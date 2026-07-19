@@ -1453,6 +1453,30 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                       No units currently meet all trigger conditions — impact will update when conditions are met.
                     </p>
                   )}
+                  {units > 0 && (() => {
+                    const moveIns  = selectedRule.moveInsPerMonth ?? null;
+                    const rateChg  = selectedRule.avgRateChange   ?? null;
+                    return (
+                      <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 space-y-1.5 -mt-1">
+                        {moveIns !== null && rateChg !== null && rateChg !== 0 && (
+                          <p className="text-[12px] font-mono text-slate-600">
+                            {Number(moveIns).toLocaleString(undefined, { maximumFractionDigits: 1 })} new move-ins/mo
+                            {' × '}{rateChg > 0 ? '+' : '−'}${Math.abs(Math.round(rateChg)).toLocaleString()}/unit
+                            {' = '}<span className={monthly >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-red-600'}>{fmtImpact(monthly)}/mo</span>
+                          </p>
+                        )}
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          <span className="font-semibold text-slate-600">Only new admissions pay the adjusted rate</span> — in-house residents keep their existing rate. Impact = qualifying units × T3 move-in rate (trailing 3-month move-ins ÷ active units for this service line) × rate change.
+                        </p>
+                        <button
+                          className="text-[11px] text-teal-600 hover:underline flex items-center gap-1"
+                          onClick={() => setLocation('/pricing-algorithm#revenue-measurement')}
+                        >
+                          <Info className="h-3 w-3" /> How impact is measured →
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Rule details */}
                   <div className="space-y-2 text-sm">
