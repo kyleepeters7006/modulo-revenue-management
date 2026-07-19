@@ -199,7 +199,7 @@ function buildTableRows({
           {agg.units.toLocaleString()}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-sm border-b border-border/70">
-          {agg.sold.toLocaleString()}
+          {g.id === "push" ? <span className="text-muted-foreground">—</span> : agg.sold.toLocaleString()}
         </td>
         <td className="px-3 py-2.5 border-b border-border/70" />
         <td className={`px-3 py-2.5 text-right tabular-nums font-medium text-sm border-b border-border/70 ${agg.monthly >= 0 ? "text-emerald-600" : "text-red-600"}`}>

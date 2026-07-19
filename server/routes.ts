@@ -17484,7 +17484,7 @@ Return ONLY valid JSON, no markdown fences:
             WHERE rr.client_id = $1 AND rr.location = ANY($2)
               AND rr.upload_month = (
                 SELECT MAX(upload_month) FROM rent_roll_data
-                WHERE client_id = $1 AND location = ANY($2) AND upload_month <= $3
+                WHERE client_id = $1 AND location = ANY($2) AND upload_month < $3
               )
           `, [clientId, histLocs, em]);
           const byLoc = new Map<string, any[]>();
