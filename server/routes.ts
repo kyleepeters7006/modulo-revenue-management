@@ -17193,7 +17193,7 @@ Return ONLY valid JSON, no markdown fences:
           GROUP BY rr.service_line, rr.room_type
         `, baseParams),
         pool.query(`
-          SELECT DISTINCT ON (name) name, action, trigger, service_line
+          SELECT DISTINCT ON (name) name, action, trigger, service_line, service_lines, location_id, effective_date, is_active
           FROM adjustment_rules
           WHERE is_historical IS NOT TRUE
           ORDER BY name
@@ -17628,7 +17628,67 @@ Return ONLY valid JSON, no markdown fences:
             ...finish(d, detailCalc.get(`${ruleName}|${gKey}`), histRuleNames.has(ruleName)),
           }))
           .sort((x, y) => x.location.localeCompare(y.location) || x.serviceLine.localeCompare(y.serviceLine) || x.roomType.localeCompare(y.roomType)),
-      })).sort((x, y) => (y.annualRevenueImpact || 0) - (x.annualRevenueImpact || 0));
+      }));
+
+      // ---- Inject projected rows for active rules not yet applied to any unit ----
+      // Active rules that have never been stamped into rent_roll_data (e.g. newly
+      // created rules the daily engine hasn't run yet) are invisible to the history
+      // query above. Pull their projected impact so every strategy group is visible.
+      const appliedNames = new Set(rows.map(r => r.ruleName));
+      const unapplied = activeRuleMetaRes.rows.filter(
+        (ar: any) => ar.is_active && !appliedNames.has(ar.name)
+      );
+      if (unapplied.length > 0) {
+        const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+        let impactCtx = getCachedAnalytics(ctxCacheKey);
+        if (!impactCtx) {
+          impactCtx = await buildRuleImpactContext(clientId);
+          if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
+        }
+        if (impactCtx) {
+          // Deduplicate: newest rule claims units first (mirrors /api/adjustment-rules logic)
+          const claimedIds = new Set<string>();
+          const sorted = [...unapplied].sort((a: any, b: any) => {
+            const da = a.effective_date ? new Date(a.effective_date).toISOString() : '';
+            const db = b.effective_date ? new Date(b.effective_date).toISOString() : '';
+            return db.localeCompare(da);
+          });
+          for (const ar of sorted) {
+            // Build a minimal rule object matching what computeQualifiedRuleImpact expects
+            const ruleObj = {
+              action: ar.action,
+              trigger: ar.trigger,
+              serviceLine: ar.service_line || null,
+              serviceLines: ar.service_lines || null,
+              locationId: ar.location_id || null,
+            };
+            const impact = computeQualifiedRuleImpact(impactCtx, ruleObj, undefined, claimedIds);
+            for (const id of Array.from(impact.qualifiedUnitIds ?? [])) claimedIds.add(id as string);
+            if (impact.affectedUnits === 0) continue;
+
+            const effDate = ar.effective_date ? new Date(ar.effective_date) : null;
+            rows.push({
+              ruleName: ar.name,
+              category: categoryMap.get(ar.name) ?? 'hold',
+              isHistorical: false,
+              unitsImpacted: impact.affectedUnits,
+              unitsSold: 0,
+              avgDaysToSell: null,
+              expectedDaysToSell: null,
+              daysFasterThanExpected: null,
+              monthlyRevenueImpact: impact.monthlyImpact,
+              annualRevenueImpact: impact.annualImpact,
+              projected: true,
+              dateApplied: effDate,
+              method: 'rate-delta' as const,
+              calc: null,
+              detail: [],
+            });
+          }
+        }
+      }
+
+      rows.sort((x, y) => (y.annualRevenueImpact || 0) - (x.annualRevenueImpact || 0));
 
       res.json({ rows, start: startDate, end: endDate });
     } catch (err) {
