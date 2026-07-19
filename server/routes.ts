@@ -17284,7 +17284,7 @@ Return ONLY valid JSON, no markdown fences:
       // Also tracks avg occupied unit count before/after to distinguish rate vs occupancy changes.
       // When occupancy declined, adds 1 unit's revenue back to the "after" figure as a
       // conservative recovery assumption (occupancy loss may be unrelated to the rate change).
-      const t3For = (groupKey: string, appliedMonth: string): T3 | null => {
+      const t3For = (groupKey: string, appliedMonth: string, isHistorical: boolean): T3 | null => {
         const series = revSeries.get(groupKey);
         if (!series || series.length === 0) return null;
         const before = series.filter(p => p.month < appliedMonth).slice(-3);
@@ -17294,9 +17294,9 @@ Return ONLY valid JSON, no markdown fences:
         const avgOcc = (a: { occ: number }[]) => a.reduce((s, p) => s + p.occ, 0) / a.length;
         const b = avg(before), rawAft = avg(after);
         const occB = avgOcc(before), occA = avgOcc(after);
-        // +1 unit buffer: when occupancy declined, assume 1 unit recovers.
-        // Uses the after-period avg per-unit rate to estimate that unit's revenue.
-        const occAdjusted = occA < occB && occA > 0;
+        // +1 unit buffer: only for active (forward-looking) rules where occupancy declined.
+        // Historical rules show raw actuals — no adjustments to what already happened.
+        const occAdjusted = !isHistorical && occA < occB && occA > 0;
         const unitRate = occA > 0 ? rawAft / occA : 0;
         const aft = occAdjusted ? rawAft + unitRate : rawAft;
         return { before: b, after: aft, occBefore: occB, occAfter: occA, occAdjusted, monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
@@ -17601,7 +17601,7 @@ Return ONLY valid JSON, no markdown fences:
         const sep = rgKey.indexOf('|');
         const rn = rgKey.slice(0, sep);
         const gKey = rgKey.slice(sep + 1);
-        const t3 = t3For(gKey, monthOf(rg.earliestApplied));
+        const t3 = t3For(gKey, monthOf(rg.earliestApplied), histRuleNames.has(rn));
         if (!t3) { if (!detailCalc.has(rgKey)) detailCalc.set(rgKey, newCalc()); continue; }
         const total = (histRuleNames.has(rn) ? groupTotalWeightHist.get(gKey) : groupTotalWeight.get(gKey)) || 1;
         const frac = rg.weight / total;
