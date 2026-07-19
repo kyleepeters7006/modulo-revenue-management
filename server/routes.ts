@@ -15525,11 +15525,10 @@ Return ONLY valid JSON with no markdown fences:
         ? `AND (service_line = '${serviceLine.replace(/'/g, "''")}' OR service_line IS NULL OR (service_lines IS NOT NULL AND '${serviceLine.replace(/'/g, "''")}' = ANY(service_lines)))`
         : '';
 
-      const [snapshotBySLRes, trendRes, rulesRes, rohRes, competitorRes] = await Promise.all([
-        // Per-service-line occupancy snapshot (latest month)
+      const [snapshotBySLRes, trendRes, rulesRes, rohRes, competitorRes, rohTrendRes] = await Promise.all([
+        // Per-service-line rate snapshot (latest month) — occupancy comes from rohRes below
         pool.query(`
           SELECT rrd.service_line,
-            ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
             COUNT(*) FILTER (WHERE NOT rrd.occupied_yn) AS vacant,
             COUNT(*) AS total,
             COUNT(*) FILTER (WHERE NOT (rrd.service_line IN ('AL','AL/MC','SL','VIL') AND rrd.room_number LIKE '%B')) AS weight_cnt,
@@ -15545,12 +15544,11 @@ Return ONLY valid JSON with no markdown fences:
           ORDER BY rrd.service_line
         `, rrParams),
 
-        // 6-month street rate trend per service line
+        // 6-month street rate trend per service line (rates only — occ comes from rohTrendRes)
         pool.query(`
           SELECT rrd.upload_month, rrd.service_line,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
-            ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
-            ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct
+            ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate
           FROM rent_roll_data rrd
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
           WHERE rrd.client_id = $1
@@ -15602,6 +15600,23 @@ Return ONLY valid JSON with no markdown fences:
             (SELECT ROUND(AVG(NULLIF(monthly_rate_avg,0))::numeric)
                FROM competitive_survey_data WHERE client_id = $1) AS survey_avg_rate
         `, [clientId]),
+
+        // 6-month occupancy trend from Room Type Occupancy History (authoritative)
+        pool.query(`
+          SELECT roh.year, roh.month, roh.service_line,
+            SUM(roh.occ_units) AS occ_units,
+            SUM(roh.available_units) AS avail_units
+          FROM room_type_occupancy_history roh
+          LEFT JOIN locations l ON l.id = roh.location_id
+          WHERE roh.client_id = $1
+            AND (roh.year * 100 + roh.month) >= (
+              EXTRACT(YEAR FROM NOW() - INTERVAL '6 months')::int * 100 +
+              EXTRACT(MONTH FROM NOW() - INTERVAL '6 months')::int
+            )
+            ${rohWhere}
+          GROUP BY roh.year, roh.month, roh.service_line
+          ORDER BY roh.year, roh.month, roh.service_line
+        `, rohParams),
       ]);
 
       const slRows = snapshotBySLRes.rows;
@@ -15671,39 +15686,148 @@ Return ONLY valid JSON with no markdown fences:
         }
       }
 
+      // ── Build per-month ROH occupancy lookup for 6-month trend ───────────────
+      // Key: "YYYY-MM|canonicalSL" → {occ, avail}
+      // Combined SL strings (e.g. "AL, AL/MC") are distributed to each token using
+      // the same rent-roll unit-count weights used by the snapshot distribution.
+      const rlUnitsBySL: Record<string, number> = {};
+      for (const r of slRows) rlUnitsBySL[r.service_line] = parseInt(r.weight_cnt ?? r.total ?? '0');
+
+      const rohTrendRows = rohTrendRes.rows;
+      // Map: "YYYY-MM|rawSL" → {occ, avail}
+      const rohTrendRaw: Record<string, { occ: number; avail: number }> = {};
+      for (const r of rohTrendRows) {
+        const ym = `${r.year}-${String(r.month).padStart(2, '0')}`;
+        const key = `${ym}|${r.service_line}`;
+        const prev = rohTrendRaw[key] || { occ: 0, avail: 0 };
+        prev.occ   += parseFloat(r.occ_units   || '0');
+        prev.avail += parseFloat(r.avail_units  || '0');
+        rohTrendRaw[key] = prev;
+      }
+      // Expand combined SL strings into per-canonical-SL entries
+      const rohTrendBySLMonth: Record<string, { occ: number; avail: number }> = {};
+      for (const [rawKey, data] of Object.entries(rohTrendRaw)) {
+        const [ym, rawSL] = rawKey.split('|');
+        const tokens = rawSL.split(',').map((t: string) => t.trim()).filter(Boolean);
+        if (tokens.length === 1) {
+          const k = `${ym}|${tokens[0]}`;
+          const prev = rohTrendBySLMonth[k] || { occ: 0, avail: 0 };
+          prev.occ += data.occ; prev.avail += data.avail;
+          rohTrendBySLMonth[k] = prev;
+        } else {
+          const groupTotal = tokens.reduce((s: number, sl: string) => s + (rlUnitsBySL[sl] || 0), 0);
+          for (const sl of tokens) {
+            const share = groupTotal > 0 ? (rlUnitsBySL[sl] || 0) / groupTotal : 1 / tokens.length;
+            const k = `${ym}|${sl}`;
+            const prev = rohTrendBySLMonth[k] || { occ: 0, avail: 0 };
+            prev.occ += data.occ * share; prev.avail += data.avail * share;
+            rohTrendBySLMonth[k] = prev;
+          }
+        }
+      }
+      const hasRohTrend = Object.keys(rohTrendBySLMonth).length > 0;
+
+      // ── Authoritative occupancy from Room Type Occupancy History ──────────────
+      // History rows group service lines per room type (e.g. "AL, AL/MC, HC"), so
+      // per-service-line occupancy is derived by matching the SL token within the
+      // comma-separated grouping. Overall occupancy is an exact sum of all rows.
+      const rohRows = rohRes.rows;
+      let rohTotalOcc = 0, rohTotalAvail = 0;
+      const rohByToken: Record<string, { occ: number; avail: number }> = {};
+      for (const r of rohRows) {
+        const occ = parseFloat(r.occ || '0');
+        const avail = parseFloat(r.avail || '0');
+        rohTotalOcc += occ;
+        rohTotalAvail += avail;
+        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        for (const tok of tokens) {
+          const e = rohByToken[tok] || { occ: 0, avail: 0 };
+          e.occ += occ; e.avail += avail; rohByToken[tok] = e;
+        }
+      }
+      const hasHistoryOcc = rohTotalAvail > 0;
+
+      // Aggregate totals — prefer history overall sum when available (exact),
+      // fall back to rent-roll snapshot totals when history is absent (e.g. demo).
+      const totalUnits = hasHistoryOcc
+        ? Math.round(rohTotalAvail)
+        : slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
+      const totalVacant = hasHistoryOcc
+        ? Math.round(rohTotalAvail - rohTotalOcc)
+        : slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
+      const overallOcc = totalUnits > 0 ? Math.round((totalUnits - totalVacant) / totalUnits * 1000) / 10 : 0;
+
+      // Proportional distribution of combined-SL snapshot rows to individual service lines.
+      const rohBySLDist: Record<string, { occ: number; avail: number }> = {};
+      for (const r of rohRows) {
+        const occ   = parseFloat(r.occ   || '0');
+        const avail = parseFloat(r.avail || '0');
+        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        if (tokens.length === 1) {
+          const e = rohBySLDist[tokens[0]] || { occ: 0, avail: 0 };
+          e.occ += occ; e.avail += avail;
+          rohBySLDist[tokens[0]] = e;
+        } else {
+          const groupTotal = tokens.reduce((s: number, sl: string) => s + (rlUnitsBySL[sl] || 0), 0);
+          const denom = groupTotal > 0 ? groupTotal : tokens.length;
+          for (const sl of tokens) {
+            const share = groupTotal > 0 ? (rlUnitsBySL[sl] || 0) / denom : 1 / tokens.length;
+            const e = rohBySLDist[sl] || { occ: 0, avail: 0 };
+            e.occ += occ * share; e.avail += avail * share;
+            rohBySLDist[sl] = e;
+          }
+        }
+      }
+
       // Service-line snapshot summary string.
-      // Per-SL occupancy: prefer proportionally-distributed history when available,
-      // fall back to rent-roll for any SL not covered by history (e.g. demo mode).
+      // Per-SL occupancy: proportionally-distributed history when available,
+      // fall back to rent-roll vacant/total counts when history is absent (e.g. demo mode).
       const slSummaryParts = slRows.map((r: any) => {
         const sl = r.service_line;
         const hist = rohBySLDist[sl];
         const occPct = hist && hist.avail > 0
           ? Math.round(hist.occ / hist.avail * 1000) / 10
-          : parseFloat(r.occ_pct || '0');
+          : null;
         const histVacant = hist && hist.avail > 0
           ? Math.max(0, Math.round(hist.avail - hist.occ))
           : parseInt(r.vacant || '0');
         const histTotal = hist && hist.avail > 0
           ? Math.round(hist.avail)
           : parseInt(r.total || '0');
-        return `${sl}: ${occPct}% occ (${histVacant}/${histTotal} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo${r.avg_rule_rate > 0 ? `, rule-adj $${parseInt(r.avg_rule_rate).toLocaleString()}/mo` : ''}, avg vacant ${r.avg_days_vacant || 0} days)`;
+        const occStr = occPct !== null ? `${occPct}%` : '—';
+        return `${sl}: ${occStr} occ (${histVacant}/${histTotal} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo${r.avg_rule_rate > 0 ? `, rule-adj $${parseInt(r.avg_rule_rate).toLocaleString()}/mo` : ''}, avg vacant ${r.avg_days_vacant || 0} days)`;
       }).join(' | ');
 
-      // 6-month trend summary per service line
+      // 6-month trend summary — rates from rent_roll_data, occupancy from history
       const trendBySL: Record<string, any[]> = {};
       for (const row of trendRows) {
         if (!trendBySL[row.service_line]) trendBySL[row.service_line] = [];
         trendBySL[row.service_line].push(row);
       }
       const trendSummary = Object.entries(trendBySL).map(([sl, months]) => {
-        const sorted = months.sort((a, b) => a.upload_month.localeCompare(b.upload_month));
+        const sorted = months.sort((a: any, b: any) => a.upload_month.localeCompare(b.upload_month));
         if (sorted.length < 2) return `${sl}: insufficient history`;
         const first = sorted[0];
-        const last = sorted[sorted.length - 1];
+        const last  = sorted[sorted.length - 1];
         const rateChange = (parseInt(last.avg_street_rate || '0') - parseInt(first.avg_street_rate || '0'));
-        const occChange = (parseFloat(last.occ_pct || '0') - parseFloat(first.occ_pct || '0')).toFixed(1);
         const sign = rateChange >= 0 ? '+' : '';
-        return `${sl}: street rate ${sign}$${rateChange}/mo over 6mo, occ ${occChange > '0' ? '+' : ''}${occChange}% (${first.upload_month}→${last.upload_month})`;
+
+        // Derive occ change from history; fall back to "N/A" when history is absent
+        let occStr = '';
+        if (hasRohTrend) {
+          const firstYM = String(first.upload_month);
+          const lastYM  = String(last.upload_month);
+          const hFirst = rohTrendBySLMonth[`${firstYM}|${sl}`];
+          const hLast  = rohTrendBySLMonth[`${lastYM}|${sl}`];
+          if (hFirst && hFirst.avail > 0 && hLast && hLast.avail > 0) {
+            const occFirst = hFirst.occ / hFirst.avail * 100;
+            const occLast  = hLast.occ  / hLast.avail  * 100;
+            const delta = occLast - occFirst;
+            const dSign = delta >= 0 ? '+' : '';
+            occStr = `, occ ${dSign}${delta.toFixed(1)}% (${firstYM}→${lastYM})`;
+          }
+        }
+        return `${sl}: street rate ${sign}$${rateChange}/mo over 6mo${occStr}`;
       }).join(' | ');
 
       // Rule detail for GPT
@@ -15733,15 +15857,29 @@ Return ONLY valid JSON with no markdown fences:
         : 'no competitors configured';
 
       // ── Portfolio-wide breakdowns (unfiltered view only) ──────────────────
-      // When no filters are applied, enrich the recommendation with same-store
-      // vs development/acquisition class trends, region/division trends, and
-      // room-type observations so the AI can craft specific action items.
+      // All occupancy stats come from room_type_occupancy_history (authoritative).
+      // Street rates come from rent_roll_data (not stored in history).
       const isUnfiltered = locations.length === 0 && regions.length === 0 && divisions.length === 0 && serviceLine === 'All';
+      const sixMonthCutoff = `EXTRACT(YEAR FROM NOW() - INTERVAL '6 months')::int * 100 + EXTRACT(MONTH FROM NOW() - INTERVAL '6 months')::int`;
       let classSummary = '', regionSummary = '', divisionSummary = '', roomTypeSummary = '';
       if (isUnfiltered) {
-        const trendGroupQuery = (groupExpr: string) => pool.query(`
+        // History-based occ trend queries (region, division, class)
+        const rohGroupQuery = (groupExpr: string) => pool.query(`
+          SELECT ${groupExpr} AS grp,
+            roh.year, roh.month,
+            SUM(roh.occ_units) AS occ_units,
+            SUM(roh.available_units) AS avail_units
+          FROM room_type_occupancy_history roh
+          LEFT JOIN locations l ON l.id = roh.location_id
+          WHERE roh.client_id = $1
+            AND (roh.year * 100 + roh.month) >= (${sixMonthCutoff})
+          GROUP BY 1, 2, 3
+          ORDER BY 1, 2, 3
+        `, [clientId]);
+
+        // Street rate trend (rent_roll_data) for region/division/class
+        const rrdRateGroupQuery = (groupExpr: string) => pool.query(`
           SELECT ${groupExpr} AS grp, rrd.upload_month,
-            ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
             COUNT(*) AS units
           FROM rent_roll_data rrd
@@ -15752,51 +15890,83 @@ Return ONLY valid JSON with no markdown fences:
           ORDER BY 1, 2
         `, [clientId]);
 
-        const [classRes, regionRes, divisionRes, roomTypeRes] = await Promise.all([
-          trendGroupQuery(`COALESCE(NULLIF(TRIM(l.location_class), ''), 'Unclassified')`),
-          trendGroupQuery(`COALESCE(NULLIF(TRIM(l.region), ''), 'No Region')`),
-          trendGroupQuery(`COALESCE(NULLIF(TRIM(l.division), ''), 'No Division')`),
+        const [
+          rohClassRes, rohRegionRes, rohDivisionRes,
+          rrdClassRes, rrdRegionRes, rrdDivisionRes,
+          roomTypeRes,
+        ] = await Promise.all([
+          rohGroupQuery(`COALESCE(NULLIF(TRIM(l.location_class), ''), 'Unclassified')`),
+          rohGroupQuery(`COALESCE(NULLIF(TRIM(l.region), ''), 'No Region')`),
+          rohGroupQuery(`COALESCE(NULLIF(TRIM(COALESCE(roh.division, l.division)), ''), 'No Division')`),
+          rrdRateGroupQuery(`COALESCE(NULLIF(TRIM(l.location_class), ''), 'Unclassified')`),
+          rrdRateGroupQuery(`COALESCE(NULLIF(TRIM(l.region), ''), 'No Region')`),
+          rrdRateGroupQuery(`COALESCE(NULLIF(TRIM(l.division), ''), 'No Division')`),
+          // Room type snapshot — occ from history (latest month)
           pool.query(`
-            SELECT COALESCE(NULLIF(TRIM(rrd.room_type), ''), 'Unknown') AS room_type,
-              ROUND(AVG(CASE WHEN rrd.occupied_yn THEN 1.0 ELSE 0.0 END) * 100, 1) AS occ_pct,
-              COUNT(*) FILTER (WHERE NOT rrd.occupied_yn) AS vacant,
-              COUNT(*) AS total,
-              ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
-              ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
-            FROM rent_roll_data rrd
-            WHERE rrd.client_id = $1
-              AND rrd.upload_month = ${maxMonthSubquery}
-              AND NOT (rrd.room_number LIKE '%B' AND rrd.service_line IN ('AL','AL/MC','SL','VIL'))
+            SELECT roh.normalized_room_type AS room_type,
+              SUM(roh.occ_units) AS occ_units,
+              SUM(roh.available_units) AS avail_units
+            FROM room_type_occupancy_history roh
+            WHERE roh.client_id = $1
+              AND (roh.year * 100 + roh.month) = (
+                SELECT MAX(roh2.year * 100 + roh2.month)
+                FROM room_type_occupancy_history roh2
+                WHERE roh2.client_id = $1
+              )
             GROUP BY 1
-            HAVING COUNT(*) >= 10
-            ORDER BY COUNT(*) DESC
+            HAVING SUM(roh.available_units) >= 10
+            ORDER BY SUM(roh.available_units) DESC
             LIMIT 15
           `, [clientId]),
         ]);
 
-        const summarizeGroupTrend = (rows: any[]): string => {
-          const byGrp: Record<string, any[]> = {};
-          for (const r of rows) (byGrp[r.grp] ||= []).push(r);
+        // Street rate lookup by grp+month for merging with history occ
+        const buildRateMap = (rows: any[]): Record<string, { rate: number; units: number }> => {
+          const m: Record<string, { rate: number; units: number }> = {};
+          for (const r of rows) m[`${r.grp}|${r.upload_month}`] = { rate: parseInt(r.avg_street_rate || '0'), units: parseInt(r.units || '0') };
+          return m;
+        };
+        const classRateMap    = buildRateMap(rrdClassRes.rows);
+        const regionRateMap   = buildRateMap(rrdRegionRes.rows);
+        const divisionRateMap = buildRateMap(rrdDivisionRes.rows);
+
+        // Summarize history-based occ trend merged with rent-roll street rates
+        const summarizeRohGroupTrend = (rohRows: any[], rateMap: Record<string, { rate: number; units: number }>): string => {
+          const byGrp: Record<string, { year: number; month: number; occ: number; avail: number }[]> = {};
+          for (const r of rohRows) {
+            const grp = r.grp || 'Unknown';
+            (byGrp[grp] ||= []).push({ year: parseInt(r.year), month: parseInt(r.month), occ: parseFloat(r.occ_units || '0'), avail: parseFloat(r.avail_units || '0') });
+          }
           return Object.entries(byGrp)
-            .filter(([, ms]) => parseInt(ms[ms.length - 1]?.units || '0') >= 5)
+            .filter(([, ms]) => ms.reduce((s, m) => s + m.avail, 0) >= 5)
             .map(([g, ms]) => {
-              ms.sort((a, b) => String(a.upload_month).localeCompare(String(b.upload_month)));
+              ms.sort((a, b) => a.year * 100 + a.month - (b.year * 100 + b.month));
               const first = ms[0], last = ms[ms.length - 1];
-              const occNow = parseFloat(last.occ_pct || '0');
-              const occDelta = occNow - parseFloat(first.occ_pct || '0');
-              const rateNow = parseInt(last.avg_street_rate || '0');
-              const rateDelta = rateNow - parseInt(first.avg_street_rate || '0');
-              const dSign = (n: number) => (n >= 0 ? '+' : '');
-              return `${g}: ${occNow}% occ (${dSign(occDelta)}${occDelta.toFixed(1)}pt over 6mo), avg street $${rateNow.toLocaleString()}/mo (${dSign(rateDelta)}$${rateDelta}), ${parseInt(last.units || '0').toLocaleString()} units`;
+              const occFirst = first.avail > 0 ? first.occ / first.avail * 100 : 0;
+              const occLast  = last.avail  > 0 ? last.occ  / last.avail  * 100 : 0;
+              const occDelta = occLast - occFirst;
+              const dSign = (n: number) => n >= 0 ? '+' : '';
+              const firstYM = `${first.year}-${String(first.month).padStart(2, '0')}`;
+              const lastYM  = `${last.year}-${String(last.month).padStart(2, '0')}`;
+              const rateEntry = rateMap[`${g}|${lastYM}`] || rateMap[`${g}|${firstYM}`];
+              const rateStr = rateEntry ? `, avg street $${rateEntry.rate.toLocaleString()}/mo` : '';
+              const totalUnits = last.avail > 0 ? Math.round(last.avail) : (rateEntry?.units || 0);
+              return `${g}: ${occLast.toFixed(1)}% occ (${dSign(occDelta)}${occDelta.toFixed(1)}pt over 6mo)${rateStr}, ${totalUnits.toLocaleString()} units`;
             }).join(' | ');
         };
 
-        classSummary = summarizeGroupTrend(classRes.rows);
-        regionSummary = summarizeGroupTrend(regionRes.rows);
-        divisionSummary = summarizeGroupTrend(divisionRes.rows);
-        roomTypeSummary = roomTypeRes.rows.map((r: any) =>
-          `${r.room_type}: ${r.occ_pct}% occ (${r.vacant}/${r.total} vacant, avg street $${parseInt(r.avg_street_rate || '0').toLocaleString()}/mo, avg vacant ${r.avg_days_vacant || 0} days)`
-        ).join(' | ');
+        classSummary    = summarizeRohGroupTrend(rohClassRes.rows,    classRateMap);
+        regionSummary   = summarizeRohGroupTrend(rohRegionRes.rows,   regionRateMap);
+        divisionSummary = summarizeRohGroupTrend(rohDivisionRes.rows, divisionRateMap);
+
+        roomTypeSummary = roomTypeRes.rows.map((r: any) => {
+          const occ   = parseFloat(r.occ_units   || '0');
+          const avail = parseFloat(r.avail_units  || '0');
+          const occPct = avail > 0 ? (occ / avail * 100).toFixed(1) : '0.0';
+          const vacant = avail > 0 ? Math.max(0, Math.round(avail - occ)) : 0;
+          const total  = Math.round(avail);
+          return `${r.room_type}: ${occPct}% occ (${vacant}/${total} vacant)`;
+        }).join(' | ');
       }
 
       // Replace the internal code "VIL" with the sales term "Patio Homes" in all data
