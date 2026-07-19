@@ -15624,68 +15624,6 @@ Return ONLY valid JSON with no markdown fences:
       const ruleRows = rulesRes.rows;
       const c = competitorRes.rows[0];
 
-      // ── Authoritative occupancy from Room Type Occupancy History ──────────────
-      // History rows group service lines per room type (e.g. "AL, AL/MC, HC"), so
-      // per-service-line occupancy is derived by matching the SL token within the
-      // comma-separated grouping. Overall occupancy is an exact sum of all rows.
-      const rohRows = rohRes.rows;
-      let rohTotalOcc = 0, rohTotalAvail = 0;
-      const rohByToken: Record<string, { occ: number; avail: number }> = {};
-      for (const r of rohRows) {
-        const occ = parseFloat(r.occ || '0');
-        const avail = parseFloat(r.avail || '0');
-        rohTotalOcc += occ;
-        rohTotalAvail += avail;
-        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
-        for (const tok of tokens) {
-          const e = rohByToken[tok] || { occ: 0, avail: 0 };
-          e.occ += occ; e.avail += avail; rohByToken[tok] = e;
-        }
-      }
-      const hasHistoryOcc = rohTotalAvail > 0;
-
-      // Aggregate totals — prefer history overall sum when available (exact),
-      // fall back to rent-roll snapshot totals when history is absent (e.g. demo).
-      const totalUnits = hasHistoryOcc
-        ? Math.round(rohTotalAvail)
-        : slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
-      const totalVacant = hasHistoryOcc
-        ? Math.round(rohTotalAvail - rohTotalOcc)
-        : slRows.reduce((s: number, r: any) => s + parseInt(r.vacant || '0'), 0);
-      const overallOcc = totalUnits > 0 ? Math.round((totalUnits - totalVacant) / totalUnits * 1000) / 10 : 0;
-
-      // Proportional distribution of combined-SL history rows to individual service lines.
-      // History rows can contain combined service_line strings like "AL, AL/MC, HC" —
-      // the same approach used in the Rate Card Summary and Reference Data endpoints.
-      // Rent-roll unit counts per SL serve as distribution weights.
-      // B beds are excluded (weight_cnt) so weights reflect physical rooms —
-      // keeps per-SL occupancy identical to the rate card page.
-      const rlUnitsBySL: Record<string, number> = {};
-      for (const r of slRows) rlUnitsBySL[r.service_line] = parseInt(r.weight_cnt ?? r.total ?? '0');
-
-      const rohBySLDist: Record<string, { occ: number; avail: number }> = {};
-      for (const r of rohRows) {
-        const occ   = parseFloat(r.occ   || '0');
-        const avail = parseFloat(r.avail || '0');
-        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
-        if (tokens.length === 1) {
-          // Single SL — assign directly, no distribution needed
-          const e = rohBySLDist[tokens[0]] || { occ: 0, avail: 0 };
-          e.occ += occ; e.avail += avail;
-          rohBySLDist[tokens[0]] = e;
-        } else {
-          // Combined SL string — distribute proportionally by rent-roll unit counts
-          const groupTotal = tokens.reduce((s, sl) => s + (rlUnitsBySL[sl] || 0), 0);
-          const denom = groupTotal > 0 ? groupTotal : tokens.length; // even split as fallback
-          for (const sl of tokens) {
-            const share = groupTotal > 0 ? (rlUnitsBySL[sl] || 0) / denom : 1 / tokens.length;
-            const e = rohBySLDist[sl] || { occ: 0, avail: 0 };
-            e.occ += occ * share; e.avail += avail * share;
-            rohBySLDist[sl] = e;
-          }
-        }
-      }
-
       // ── Build per-month ROH occupancy lookup for 6-month trend ───────────────
       // Key: "YYYY-MM|canonicalSL" → {occ, avail}
       // Combined SL strings (e.g. "AL, AL/MC") are distributed to each token using
