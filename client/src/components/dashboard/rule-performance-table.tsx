@@ -682,11 +682,16 @@ export function RulePerformanceTable({
     const aoa: (string | number | null)[][] = [header];
     for (const g of displayGroups) {
       for (const r of g.rules) {
-        aoa.push([g.label, r.ruleName, "All", "All", "All", fmtDate(r.dateApplied),
-          r.unitsImpacted, r.unitsSold, r.monthlyRevenueImpact, r.annualRevenueImpact]);
-        for (const d of r.detail) {
-          aoa.push([g.label, r.ruleName, d.location, d.serviceLine, d.roomType, fmtDate(d.dateApplied),
-            d.unitsImpacted, d.unitsSold, d.monthlyRevenueImpact, d.annualRevenueImpact]);
+        if (r.detail.length === 0) {
+          // No breakdown rows — emit the rule-level summary so it isn't lost
+          aoa.push([g.label, r.ruleName, "All", "All", "All", fmtDate(r.dateApplied),
+            r.unitsImpacted, r.unitsSold, r.monthlyRevenueImpact, r.annualRevenueImpact]);
+        } else {
+          // Detail rows only: an "All" summary row would double-count totals
+          for (const d of r.detail) {
+            aoa.push([g.label, r.ruleName, d.location, d.serviceLine, d.roomType, fmtDate(d.dateApplied),
+              d.unitsImpacted, d.unitsSold, d.monthlyRevenueImpact, d.annualRevenueImpact]);
+          }
         }
       }
     }
