@@ -645,7 +645,7 @@ export function RulePerformanceTable({
     XLSX.writeFile(wb, `Rule_Performance_${start}_to_${end}.xlsx`);
   };
 
-  const thCls = "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap bg-muted/60 border-b border-border";
+  const thCls = "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap bg-muted border-b border-border";
   const tdCls = "px-3 py-2 text-sm whitespace-nowrap border-b border-border/50";
 
   return (
@@ -763,13 +763,6 @@ export function RulePerformanceTable({
                   {winRate != null && <span className="ml-1 text-primary/60">↗ see detail</span>}
                 </div>
               </button>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Est. Annual Rate Impact</div>
-                <div className={`text-lg font-semibold ${totals.annual >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                  {fmtMoney(totals.annual)}
-                </div>
-                <div className="text-[10px] text-muted-foreground">rate adj. to all impacted units</div>
-              </div>
             </div>
 
             <div className="overflow-auto rounded-md border border-border" style={{ maxHeight: 560 }}>
@@ -970,10 +963,10 @@ export function RulePerformanceTable({
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Rule</th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Date Applied</th>
-                  <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Monthly Impact</th>
-                  <th className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/60 border-b border-border whitespace-nowrap">Result</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Rule</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Date Applied</th>
+                  <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Monthly Impact</th>
+                  <th className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Result</th>
                 </tr>
               </thead>
               <tbody>
