@@ -8476,12 +8476,13 @@ ${campusOccLines.join('\n')}
         .orderBy(sql`${rentRollData.uploadMonth} DESC`)
         .limit(12);
       
-      const months = availableMonths.map(m => m.month).sort();
-      const mostRecentMonth = months[months.length - 1] || '';
+      let months = availableMonths.map(m => m.month).sort();
+      let mostRecentMonth = months[months.length - 1] || '';
       
       // Determine YTD start month (January of current year or first available month)
-      const currentYear = mostRecentMonth ? mostRecentMonth.substring(0, 4) : new Date().getFullYear().toString();
-      const ytdStartMonth = `${currentYear}-01`;
+      // NOTE: recomputed after RTO month trimming for occupancy (see below).
+      let currentYear = mostRecentMonth ? mostRecentMonth.substring(0, 4) : new Date().getFullYear().toString();
+      let ytdStartMonth = `${currentYear}-01`;
       
       // Senior housing service lines for B-bed exclusion
       const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'IL', 'AL/MC'];
@@ -8717,6 +8718,34 @@ ${campusOccLines.join('\n')}
           `, rtoParams);
 
           if (rtoRes.rows.length > 0) {
+            // RTO is the authoritative occupancy source. Restrict the occupancy
+            // series to months that actually have RTO uploads — otherwise a
+            // rent-roll month without an RTO upload yet (e.g. the newest month)
+            // renders as 0% and poisons the current value and all growth stats.
+            const rtoYMSet = new Set<string>(
+              (rtoRes.rows as any[]).map(r => `${r.year}-${String(r.month).padStart(2, '0')}`)
+            );
+            const rtoMonths = months.filter(m => rtoYMSet.has(m));
+            if (rtoMonths.length > 0 && rtoMonths.length < months.length) {
+              months = rtoMonths;
+              mostRecentMonth = months[months.length - 1];
+              // Re-anchor YTD baseline in case trimming crossed a year boundary
+              currentYear = mostRecentMonth.substring(0, 4);
+              ytdStartMonth = `${currentYear}-01`;
+              // Rebuild current-month location/room-type stats for the new
+              // most-recent month (they were accumulated for the dropped month).
+              for (const k of Object.keys(locationStats)) delete locationStats[k];
+              for (const k of Object.keys(roomTypeStats)) delete roomTypeStats[k];
+              for (const row of aggregatedData) {
+                if (row.month !== mostRecentMonth) continue;
+                const occVal = (row as any).occupied || 0;
+                roomTypeStats[row.roomType] = (roomTypeStats[row.roomType] || 0) + occVal;
+              }
+            } else {
+              // RTO covers the most recent month: RTO occ counts replace the
+              // rent-roll-based location stats accumulated above.
+              for (const k of Object.keys(locationStats)) delete locationStats[k];
+            }
             // Build per-location SL unit counts from rent-roll (most recent month).
             // These are the proportional weights for splitting combined-SL history rows
             // (e.g. "AL, SL, VIL") into individual standard service lines.
