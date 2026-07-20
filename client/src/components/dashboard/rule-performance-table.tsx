@@ -77,6 +77,52 @@ const PERF_RULE_GROUPS = [
     rowBg: "bg-amber-500/5 border-l-2 border-amber-500/40",
     amtCls: "text-red-600",
   },
+  // April 2026 cycle — different strategy taxonomy (April workbook Logic tab)
+  {
+    id: "apr-push",
+    label: "Apr: 95%+ Occ — $500+ Below Competitor",
+    description: "Senior Housing at 95%+ occupancy since Jan 1 (5+ units), priced $500 or more below comps → +5%",
+    Icon: TrendingUp,
+    accent: "#0d9488",
+    rowBg: "bg-teal-500/5 border-l-2 border-teal-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
+    id: "apr-hold",
+    label: "Apr: 95%+ Occ — Near/Above Competitor",
+    description: "Senior Housing at 95%+ occupancy since Jan 1 (5+ units), within $500 of or above comps → +2.5%",
+    Icon: ArrowUpRight,
+    accent: "#0284c7",
+    rowBg: "bg-blue-500/5 border-l-2 border-blue-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
+    id: "apr-qmix",
+    label: "Apr: Health Center — Strong Q-Mix",
+    description: "Q-Mix above 40%, at/above Q-Mix ADC budget, HC occupancy above 92%, room type avg above 90% → +2.5%",
+    Icon: ArrowUpRight,
+    accent: "#7c3aed",
+    rowBg: "bg-violet-500/5 border-l-2 border-violet-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
+    id: "apr-decrease",
+    label: "Apr: Low / Falling Occupancy — Decrease",
+    description: "Below 80% occupancy since Jan 1, or lost 10% occupancy in March vs Jan/Feb average → −5%",
+    Icon: TrendingDown,
+    accent: "#dc2626",
+    rowBg: "bg-red-500/5 border-l-2 border-red-500/40",
+    amtCls: "text-red-600",
+  },
+  {
+    id: "apr-custom",
+    label: "Apr: Targeted Adjustments",
+    description: "Campus-specific rate tuning outside the standard April strategy tiers",
+    Icon: ArrowUpRight,
+    accent: "#64748b",
+    rowBg: "bg-slate-500/5 border-l-2 border-slate-500/40",
+    amtCls: "text-emerald-600",
+  },
 ] as const;
 
 interface PerfMetrics {

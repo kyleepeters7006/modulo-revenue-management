@@ -17207,12 +17207,24 @@ Return ONLY valid JSON, no markdown fences:
 
       // ---- Rule category map (push / hold / concession-al / concession-sl) ----
       // Mirrors the getRuleCategory logic in pricing-controls.tsx.
-      const getRuleCategoryFn = (action: any, trigger: any, sl: string): string => {
+      const getRuleCategoryFn = (action: any, trigger: any, sl: string, cycle?: string): string => {
         const val = Number(action?.adjustmentValue ?? action?.value ?? 0);
         const condsRaw = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
         const conds: any[] = Array.isArray(condsRaw) ? condsRaw : [];
         // "Ensure Street ≥ In-House" strategy: triggered by street rate below in-house rate
         if (conds.find((c: any) => c.field === 'street_to_ih_var')) return 'ensure';
+        // April 2026 cycle used a different strategy taxonomy than July (per the
+        // client's April Dynamic Pricing workbook Logic tab):
+        //   SH 95%+ occ since Jan 1, ≥5 units: $500+ below competitor → +5%,
+        //   otherwise → +2.5%. HC: Q-Mix >40% & occupancy above budget → +2.5%.
+        //   Decreases: below 80% occ since Jan 1, or lost 10% occ in March → −5%.
+        //   Any other % = campus-specific targeted adjustment.
+        if (trigger?.type === 'always' && cycle === '2026-04') {
+          if (val < 0) return 'apr-decrease';
+          if (val === 5) return 'apr-push';
+          if (val === 2.5) return (sl === 'HC' || sl === 'HC/MC') ? 'apr-qmix' : 'apr-hold';
+          return 'apr-custom';
+        }
         if (val > 0) {
           const comp = conds.find((c: any) => c.field === 'street_to_comp_var');
           if (comp) return comp.operator === '<' ? 'push' : 'hold';
@@ -17464,7 +17476,12 @@ Return ONLY valid JSON, no markdown fences:
             ? hr.rule_service_lines
             : (hr.rule_service_line ? [hr.rule_service_line] : []);
           const sl = sls[0] || '';
-          categoryMap.set(hr.name, getRuleCategoryFn(hr.action, hr.trigger, sl));
+          // Timezone-safe cycle month: pg returns DATE as a local-midnight Date
+          // object (monthOf reads local components); string fallback slices YYYY-MM.
+          const cycle = hr.effective_date instanceof Date
+            ? monthOf(hr.effective_date)
+            : String(hr.effective_date).slice(0, 7);
+          categoryMap.set(hr.name, getRuleCategoryFn(hr.action, hr.trigger, sl, cycle));
         }
       }
 
