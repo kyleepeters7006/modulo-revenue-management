@@ -239,6 +239,48 @@ app.use((req, res, next) => {
     log(`[migration] rule_rate_calculated_at column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: ensure room_type_groupings table exists. Maps each
+  // client's raw source_room_type (per location + service line) to the client's
+  // official Room Type Grouping (from their pricing spreadsheets) so reference
+  // data can display groupings that match the client's own reporting.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS room_type_groupings (
+        client_id text NOT NULL,
+        location text NOT NULL,
+        service_line text NOT NULL,
+        source_room_type text NOT NULL,
+        group_name text NOT NULL,
+        PRIMARY KEY (client_id, location, service_line, source_room_type)
+      )
+    `);
+    log("[migration] room_type_groupings table ensured");
+  } catch (migErr) {
+    log(`[migration] room_type_groupings migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
+  // Idempotent migration: ensure client_id column exists on adjustment_rules.
+  // Active rules remain global across clients by design (client_id NULL), but
+  // portfolio-wide historical strategy records (no location link) must be scoped
+  // to the client whose pricing files they were derived from, to prevent
+  // cross-tenant visibility in Pricing History.
+  try {
+    await db.execute(sql`
+      ALTER TABLE adjustment_rules
+        ADD COLUMN IF NOT EXISTS client_id text
+    `);
+    // Backfill: all existing location-less historical strategy records were
+    // derived from Trilogy pricing spreadsheets (Apr 26 / Jul 26 imports).
+    await db.execute(sql`
+      UPDATE adjustment_rules
+      SET client_id = 'trilogy'
+      WHERE client_id IS NULL AND is_historical IS TRUE AND location_id IS NULL
+    `);
+    log("[migration] adjustment_rules.client_id ensured");
+  } catch (migErr) {
+    log(`[migration] adjustment_rules.client_id migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure is_historical column exists on adjustment_rules.
   // Historical rules record past pricing changes (e.g. imported spreadsheets) and are
   // never applied to current rate calculations.

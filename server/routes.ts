@@ -14852,9 +14852,11 @@ Respond in JSON format:
 
       const conditions: any[] = [
         sql`${adjustmentRules.isHistorical} IS TRUE`,
-        // Historical pricing records are tied to a specific client's locations.
-        // Rules with no location can't be attributed to any client — exclude them.
-        sql`${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId})`,
+        // Location-linked historical records are tied to a specific client's locations.
+        // Strategy-level historical records (no location) are portfolio-wide but are
+        // scoped to the owning client via adjustment_rules.client_id to prevent
+        // cross-tenant visibility.
+        sql`(${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId}) OR (${adjustmentRules.locationId} IS NULL AND adjustment_rules.client_id = ${clientId}))`,
       ];
       if (from && /^\d{4}-\d{2}-\d{2}$/.test(String(from))) {
         conditions.push(sql`${adjustmentRules.effectiveDate} >= ${String(from)}`);
@@ -14863,7 +14865,9 @@ Respond in JSON format:
         conditions.push(sql`${adjustmentRules.effectiveDate} <= ${String(to)}`);
       }
       if (locationId) {
-        conditions.push(eq(adjustmentRules.locationId, locationId as string));
+        // Location-scoped view still includes the client's portfolio-wide strategy
+        // records, since those strategies apply to every location.
+        conditions.push(sql`(${adjustmentRules.locationId} = ${String(locationId)} OR (${adjustmentRules.locationId} IS NULL AND adjustment_rules.client_id = ${clientId}))`);
       }
       const rules = await db.select().from(adjustmentRules)
         .where(and(...conditions))
@@ -17840,7 +17844,7 @@ Return ONLY valid JSON, no markdown fences:
             rr.location                                      AS campus,
             COALESCE(loc.division, '—')                      AS division,
             rr.service_line                                  AS service_line,
-            rr.room_type                                     AS room_type,
+            COALESCE(rtg.group_name, rr.room_type)           AS room_type,
             rr.upload_month                                  AS month,
             COUNT(*)                                         AS total,
             COUNT(*) FILTER (WHERE rr.occupied_yn)           AS occupied,
@@ -17860,8 +17864,11 @@ Return ONLY valid JSON, no markdown fences:
             COUNT(*) FILTER (WHERE rr.occupied_yn AND (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS hc_private_pay
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          LEFT JOIN room_type_groupings rtg
+            ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+           AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
           WHERE ${where}
-          GROUP BY loc.id, rr.location, loc.division, rr.service_line, rr.room_type, rr.upload_month
+          GROUP BY loc.id, rr.location, loc.division, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.upload_month
         `, params),
         // 4) Inquiry / tour by location+serviceLine+month
         pool.query(`
@@ -17874,13 +17881,17 @@ Return ONLY valid JSON, no markdown fences:
         pool.query(`
           WITH ev AS (
             SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
-              rr.location, rr.service_line, rr.room_type, rr.payor_type,
+              rr.location, rr.service_line,
+              COALESCE(rtg.group_name, rr.room_type) AS room_type, rr.payor_type,
               CASE
                 WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
                 WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
                 ELSE NULL END AS dt
             FROM rent_roll_data rr
             LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+            LEFT JOIN room_type_groupings rtg
+              ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+             AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
             WHERE ${moveWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
             ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
                      (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
