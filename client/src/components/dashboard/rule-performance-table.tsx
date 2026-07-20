@@ -162,6 +162,169 @@ interface DisplayGroup {
   agg: { units: number; sold: number; monthly: number; annual: number };
 }
 
+// ── RoomVerification: occupied-room drill-down for the T3 calc dialog ────────
+interface RoomDetailMonth {
+  month: string;
+  units: { roomNumber: string; roomType: string; monthlyRate: number }[];
+  occupiedCount: number;
+  totalRevenue: number;
+  excludedNonPrivatePay: number;
+}
+interface RoomDetailResponse {
+  before: RoomDetailMonth[];
+  after: RoomDetailMonth[];
+}
+type CalcGroup = { location: string; serviceLine: string; roomTypes: string[] };
+
+// Derive verification groups from a calc-dialog metrics object: a detail row
+// carries its own location/serviceLine/roomType; a summary row carries a
+// detail[] breakdown — merge room types per (location, serviceLine).
+const calcGroupsOf = (m: PerfMetrics): CalcGroup[] => {
+  const anyM = m as any;
+  if (anyM.location && anyM.serviceLine) {
+    return [{ location: anyM.location, serviceLine: anyM.serviceLine, roomTypes: anyM.roomType ? [anyM.roomType] : [] }];
+  }
+  if (Array.isArray(anyM.detail) && anyM.detail.length) {
+    const map = new Map<string, CalcGroup>();
+    for (const d of anyM.detail) {
+      const k = `${d.location}|${d.serviceLine}`;
+      if (!map.has(k)) map.set(k, { location: d.location, serviceLine: d.serviceLine, roomTypes: [] });
+      if (d.roomType && !map.get(k)!.roomTypes.includes(d.roomType)) map.get(k)!.roomTypes.push(d.roomType);
+    }
+    return Array.from(map.values());
+  }
+  return [];
+};
+
+const fmtMonthLabel = (m: string) => {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+};
+
+function RoomVerification({ groups, month, calcT3Before }: { groups: CalcGroup[]; month: string; calcT3Before?: number | null }) {
+  const [open, setOpen] = useState(false);
+  const [groupIdx, setGroupIdx] = useState(0);
+  const g = groups[Math.min(groupIdx, groups.length - 1)];
+
+  const { data, isLoading } = useQuery<RoomDetailResponse>({
+    queryKey: ["/api/rule-performance/room-detail", g?.location, g?.serviceLine, g?.roomTypes.join(","), month],
+    queryFn: async () => {
+      const p = new URLSearchParams({ location: g.location, serviceLine: g.serviceLine, month });
+      if (g.roomTypes.length) p.set("roomTypes", g.roomTypes.join(","));
+      const r = await fetch(`/api/rule-performance/room-detail?${p.toString()}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load room detail");
+      return r.json();
+    },
+    enabled: open && !!g,
+  });
+
+  if (!groups.length || !month) return null;
+
+  const monthBlock = (m: RoomDetailMonth) => (
+    <div key={m.month} className="rounded border border-border bg-background">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border bg-muted/40 text-[11px]">
+        <span className="font-semibold">{fmtMonthLabel(m.month)}</span>
+        <span className="text-muted-foreground tabular-nums">{m.occupiedCount} occ · {fmtMoney(m.totalRevenue)}</span>
+      </div>
+      <div className="max-h-40 overflow-y-auto">
+        <table className="w-full text-[11px]">
+          <tbody>
+            {m.units.map((u, i) => (
+              <tr key={i} className="border-b border-border/40 last:border-0">
+                <td className="px-2 py-0.5">{u.roomNumber}</td>
+                <td className="px-2 py-0.5 text-muted-foreground">{u.roomType}</td>
+                <td className="px-2 py-0.5 text-right tabular-nums">{fmtMoney(u.monthlyRate)}</td>
+              </tr>
+            ))}
+            {m.units.length === 0 && (
+              <tr><td className="px-2 py-1 text-muted-foreground" colSpan={3}>No occupied rooms</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {m.excludedNonPrivatePay > 0 && (
+        <div className="px-2 py-1 text-[10px] text-muted-foreground border-t border-border/40">
+          {m.excludedNonPrivatePay} occupied non-private-pay room{m.excludedNonPrivatePay === 1 ? "" : "s"} excluded
+        </div>
+      )}
+    </div>
+  );
+
+  const avgOf = (arr: RoomDetailMonth[] | undefined, f: (m: RoomDetailMonth) => number) =>
+    arr && arr.length ? arr.reduce((s, m) => s + f(m), 0) / arr.length : null;
+
+  return (
+    <div className="rounded-md border border-border">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted/40 transition-colors"
+        onClick={() => setOpen(o => !o)}
+        data-testid="button-room-verification"
+      >
+        <span className="font-medium">Occupied rooms behind these numbers</span>
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {groups.length > 1 && (
+            <select
+              className="w-full text-xs border border-border rounded px-2 py-1 bg-background"
+              value={groupIdx}
+              onChange={(e) => setGroupIdx(Number(e.target.value))}
+              data-testid="select-room-group"
+            >
+              {groups.map((gr, i) => (
+                <option key={i} value={i}>{gr.location} · {gr.serviceLine}{gr.roomTypes.length ? ` · ${gr.roomTypes.join(", ")}` : ""}</option>
+              ))}
+            </select>
+          )}
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading rooms…</div>
+          ) : data ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Before</div>
+                  {data.before.map(monthBlock)}
+                  {data.before.length > 0 && (
+                    <div className="text-[10px] text-muted-foreground tabular-nums">
+                      Avg: {avgOf(data.before, m => m.occupiedCount)!.toFixed(1)} occ · {fmtMoney(avgOf(data.before, m => m.totalRevenue)!)}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">After</div>
+                  {data.after.map(monthBlock)}
+                  {data.after.length > 0 && (
+                    <div className="text-[10px] text-muted-foreground tabular-nums">
+                      Avg: {avgOf(data.after, m => m.occupiedCount)!.toFixed(1)} occ · {fmtMoney(avgOf(data.after, m => m.totalRevenue)!)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {(() => {
+                const avgB = avgOf(data.before, m => m.totalRevenue);
+                const shared = groups.length === 1 && calcT3Before != null && avgB != null && avgB > 0 && Math.abs(calcT3Before - avgB) / avgB > 0.02;
+                const sharePct = shared ? Math.round((calcT3Before! / avgB!) * 100) : null;
+                return (
+                  <p className="text-[10px] text-muted-foreground">
+                    Each month lists the occupied rooms counted in the revenue average (HC / HC-MC: private-pay only, daily rate × 30.4).{" "}
+                    {shared
+                      ? `Multiple pricing changes share these rooms, so the calculation credits this change with its proportional share (~${sharePct}% of the totals shown here).`
+                      : "The before/after averages above match the figures in the calculation."}
+                  </p>
+                );
+              })()}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground py-1">Could not load room detail.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── buildTableRows: flat <tr> array to avoid Fragment injection issues ───────
 function buildTableRows({
   groups, showGroupHeaders, groupExpanded,
@@ -652,7 +815,7 @@ export function RulePerformanceTable({
 
       {/* Calculation explanation dialog */}
       <Dialog open={!!calcOpen} onOpenChange={(o) => !o && setCalcOpen(null)}>
-        <DialogContent className="max-w-md" data-testid="dialog-perf-calc">
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto" data-testid="dialog-perf-calc">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Info className="h-4 w-4 text-emerald-600" />
@@ -709,6 +872,13 @@ export function RulePerformanceTable({
                     <p>Fewer than 3 months have passed since this change, so the average of the months available so far is used as the monthly run-rate and extrapolated to annual.</p>
                   )}
                 </div>
+                {calcOpen.metrics.dateApplied && (
+                  <RoomVerification
+                    groups={calcGroupsOf(calcOpen.metrics)}
+                    month={String(calcOpen.metrics.dateApplied).slice(0, 7)}
+                    calcT3Before={calcOpen.metrics.calc.t3Before}
+                  />
+                )}
               </div>
             ) : (
             <div className="space-y-3 text-sm">

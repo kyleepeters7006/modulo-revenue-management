@@ -17774,6 +17774,73 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
+  // GET /api/rule-performance/room-detail
+  // Occupied-room verification list for the T3 impact calculation: for one
+  // (location, service line[, room types]) group and an applied month, returns
+  // the occupied rooms counted in each of the 3 snapshot months before and
+  // (up to) 3 months after the change, with the same revenue semantics as the
+  // T3 series (HC/HC-MC private-pay only, daily rates × 30.4).
+  app.get("/api/rule-performance/room-detail", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const q = req.query as Record<string, string | undefined>;
+      const location = q.location;
+      const serviceLine = q.serviceLine;
+      const month = q.month; // applied month, YYYY-MM
+      if (!location || !serviceLine || !month || !/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ error: 'location, serviceLine and month (YYYY-MM) are required' });
+      }
+      const roomTypes = q.roomTypes ? q.roomTypes.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+      const params: any[] = [clientId, location, serviceLine];
+      let where = `rr.client_id = $1 AND rr.location = $2 AND rr.service_line = $3`;
+      if (roomTypes.length) { params.push(roomTypes); where += ` AND rr.room_type = ANY($${params.length})`; }
+      const rowsRes = await pool.query(`
+        SELECT rr.upload_month, rr.room_number, rr.room_type, rr.occupied_yn,
+               rr.payor_type, rr.in_house_rate
+        FROM rent_roll_data rr
+        WHERE ${where}
+        ORDER BY rr.upload_month, rr.room_number
+      `, params);
+
+      const isHc = serviceLine === 'HC' || serviceLine === 'HC/MC';
+      const isPrivate = (p: string | null) => !!p && /private|pvt/i.test(p);
+
+      const months = Array.from(new Set(rowsRes.rows.map((r: any) => r.upload_month))).sort();
+      const beforeMonths = months.filter(m => m < month).slice(-3);
+      const afterMonths = months.filter(m => m >= month).slice(0, 3);
+
+      const buildMonth = (m: string) => {
+        const units = rowsRes.rows
+          .filter((r: any) => r.upload_month === m && r.occupied_yn && (!isHc || isPrivate(r.payor_type)))
+          .map((r: any) => ({
+            roomNumber: r.room_number,
+            roomType: r.room_type,
+            monthlyRate: Math.round(isHc ? Number(r.in_house_rate) * 30.4 : Number(r.in_house_rate)),
+          }));
+        const excluded = isHc
+          ? rowsRes.rows.filter((r: any) => r.upload_month === m && r.occupied_yn && !isPrivate(r.payor_type)).length
+          : 0;
+        return {
+          month: m,
+          units,
+          occupiedCount: units.length,
+          totalRevenue: units.reduce((s: number, u: any) => s + u.monthlyRate, 0),
+          excludedNonPrivatePay: excluded,
+        };
+      };
+
+      res.json({
+        location, serviceLine, roomTypes, appliedMonth: month,
+        before: beforeMonths.map(buildMonth),
+        after: afterMonths.map(buildMonth),
+      });
+    } catch (err) {
+      console.error('[rule-performance/room-detail] error:', err);
+      res.status(500).json({ error: 'Failed to load room detail' });
+    }
+  });
+
   // REFERENCE DATA — wide Excel-like metric grid
   // Warm the cache for ALL client tenants shortly after startup so the first
   // page visit for any logged-in user is served instantly.
