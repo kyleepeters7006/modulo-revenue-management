@@ -9,3 +9,4 @@
 - [Rule History debugging lessons](rule-history-debug.md) — three root causes fixed for 0 move-ins / 0 speed vs expected in Rule History section.
 - [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative; combined-SL rows split by identical B-bed-excluded weights everywhere; compute % before rounding counts.
 - [Pricing cycle superseding](pricing-cycle-superseding.md) — latest-cycle-wins logic in applyAdjustmentRulesToUnit prevents Apr/Jul cycle stacking; supersededIds in UI marks older-cycle rules crossed-out.
+- [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.

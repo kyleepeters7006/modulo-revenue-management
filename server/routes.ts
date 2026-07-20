@@ -17209,10 +17209,23 @@ Return ONLY valid JSON, no markdown fences:
       // Mirrors the getRuleCategory logic in pricing-controls.tsx.
       const getRuleCategoryFn = (action: any, trigger: any, sl: string): string => {
         const val = Number(action?.adjustmentValue ?? action?.value ?? 0);
+        const condsRaw = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
+        const conds: any[] = Array.isArray(condsRaw) ? condsRaw : [];
+        // "Ensure Street ≥ In-House" strategy: triggered by street rate below in-house rate
+        if (conds.find((c: any) => c.field === 'street_to_ih_var')) return 'ensure';
         if (val > 0) {
-          const conds = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
-          const comp = Array.isArray(conds) ? conds.find((c: any) => c.field === 'street_to_comp_var') : null;
-          return (comp && comp.operator === '<') ? 'push' : 'hold';
+          const comp = conds.find((c: any) => c.field === 'street_to_comp_var');
+          if (comp) return comp.operator === '<' ? 'push' : 'hold';
+          // Historical imports carry a trigger of "always" (the client's pricing file
+          // records outcomes, not conditions). Infer the strategy from the file's own
+          // convention (see the Logic tab of the Dynamic Pricing workbooks):
+          //   +5%  = push highly occupied room types priced at/below comps
+          //   +2.5% = push highly occupied room types priced above comps
+          //   any other positive % (variable 1–10%) = raise street rate to match
+          //   in-house rates in highly occupied service lines ("ensure" catch-up)
+          if (val === 5) return 'push';
+          if (val === 2.5) return 'hold';
+          return 'ensure';
         }
         return (sl === 'SL' || sl === 'VIL') ? 'concession-sl' : 'concession-al';
       };

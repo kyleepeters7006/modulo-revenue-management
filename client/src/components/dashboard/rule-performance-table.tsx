@@ -51,6 +51,15 @@ const PERF_RULE_GROUPS = [
     amtCls: "text-emerald-600",
   },
   {
+    id: "ensure",
+    label: "Street Rate Catch-Up — Below In-House",
+    description: "High occupancy but street rates below in-house rates → raise street 1–10% to close the gap",
+    Icon: ArrowUpRight,
+    accent: "#7c3aed",
+    rowBg: "bg-violet-500/5 border-l-2 border-violet-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
     id: "concession-al",
     label: "Low AL/MC Occ — Rate Concession",
     description: "Low occupancy → reduce rates to drive AL/MC move-ins",
