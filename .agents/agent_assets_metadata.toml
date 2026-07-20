@@ -18,3 +18,9 @@ id = "cag9HKpCtjv9c5MnRktLi"
 uri = "file://inquiry_tours_2026_05.csv"
 type = "table"
 title = "Inquiry & Tours Export — May 2026 (most recent with real data)"
+
+[[outputs]]
+id = "l5w0r1EFZq0HoLnl7oYHk"
+uri = "file://exports/April_2026_Pricing_Reconciliation.xlsx"
+type = "table"
+title = "April 2026 Pricing Reconciliation (Tie-Out)"
