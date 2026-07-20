@@ -205,8 +205,15 @@ function computeRuleCategory(action: any, trigger: any, sl: string, cycle?: stri
   const val = Number(action?.adjustmentValue ?? action?.value ?? 0);
   const condsRaw = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
   const conds: any[] = Array.isArray(condsRaw) ? condsRaw : [];
-  // "Ensure Street ≥ In-House" strategy: triggered by street rate below in-house rate
-  if (conds.find((c: any) => c.field === 'street_to_ih_var' || c.field === 'ih_street_variance')) return 'ensure';
+  // In-house vs street rate strategies — direction matters:
+  //   variance = (in-house − street) / street.
+  //   Condition "< 0" (or <=) → in-house BELOW street → 'ih-below-street'
+  //   Condition "> 0" (or >=) → street below in-house → 'ensure' (catch-up)
+  const ihCond = conds.find((c: any) => c.field === 'street_to_ih_var' || c.field === 'ih_street_variance');
+  if (ihCond) {
+    const op = String(ihCond.operator || '');
+    return (op === '<' || op === '<=') ? 'ih-below-street' : 'ensure';
+  }
   // April 2026 cycle used a different strategy taxonomy than July (per the
   // client's April Dynamic Pricing workbook Logic tab).
   if (trigger?.type === 'always' && cycle === '2026-04') {

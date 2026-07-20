@@ -51,6 +51,15 @@ const PERF_RULE_GROUPS = [
     amtCls: "text-emerald-600",
   },
   {
+    id: "ih-below-street",
+    label: "High Occ — In-House Below Street",
+    description: "High occupancy with in-house rates below street rates → raise street to grow the spread",
+    Icon: ArrowUpRight,
+    accent: "#16a34a",
+    rowBg: "bg-green-500/5 border-l-2 border-green-500/40",
+    amtCls: "text-emerald-600",
+  },
+  {
     id: "ensure",
     label: "Street Rate Catch-Up — Below In-House",
     description: "High occupancy but street rates below in-house rates → raise street 1–10% to close the gap",

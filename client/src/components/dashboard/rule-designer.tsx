@@ -132,6 +132,7 @@ interface AdjustmentRule {
 const ADMIN_CATEGORY_LABELS: Record<string, string> = {
   'push': 'High Occ — Below Market',
   'hold': 'High Occ — Above Market',
+  'ih-below-street': 'High Occ — In-House Below Street',
   'ensure': 'Street Rate Catch-Up — Below In-House',
   'concession-al': 'Low AL/MC Occ — Rate Concession',
   'concession-sl': 'Low SL/VIL Occ — Market Align',

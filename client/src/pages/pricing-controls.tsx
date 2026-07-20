@@ -491,6 +491,8 @@ const RULE_GROUPS: Array<{
 }> = [
   { id: 'push', label: 'High Occ — Below Market', description: 'Street rate trails top comps → push aggressively to close the gap', icon: TrendingUp, accent: '#0d9488', badge: 'bg-teal-100 text-teal-800' },
   { id: 'hold', label: 'High Occ — Above Market', description: 'Already leading comps with strong occupancy → hold and protect the premium', icon: ArrowUpRight, accent: '#0284c7', badge: 'bg-blue-100 text-blue-800' },
+  { id: 'ih-below-street', label: 'High Occ — In-House Below Street', description: 'High occupancy with in-house rates below street rates → raise street to grow the spread', icon: ArrowUpRight, accent: '#16a34a', badge: 'bg-green-100 text-green-800' },
+  { id: 'ensure', label: 'Street Rate Catch-Up — Below In-House', description: 'Street rates below in-house rates → raise street to close the gap', icon: ArrowUpRight, accent: '#0891b2', badge: 'bg-cyan-100 text-cyan-800' },
   { id: 'concession-al', label: 'Low AL/MC Occ — Rate Concession', description: 'Low occupancy with excess vacancy → reduce rates to drive AL/MC move-ins', icon: TrendingDown, accent: '#dc2626', badge: 'bg-red-100 text-red-800' },
   { id: 'concession-sl', label: 'Low SL/VIL Occ — Market Align', description: 'Senior Living and Villas soft on occupancy, rates well above market → align down', icon: ArrowDownRight, accent: '#d97706', badge: 'bg-amber-100 text-amber-800' },
 ];
@@ -668,6 +670,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   };
 
   const getRuleCategory = (rule: any): string => {
+    // Prefer the server-computed category so every surface (Rule Admin, Rule
+    // Performance, Active Rules) summarizes each rule's strategy identically.
+    if (rule.category && RULE_GROUPS.some(g => g.id === rule.category)) return rule.category;
     const val = Number(rule.action?.adjustmentValue ?? 0);
     if (val > 0) {
       const conditions = rule.trigger?.conditions || (rule.trigger?.condition ? [rule.trigger.condition] : []);
