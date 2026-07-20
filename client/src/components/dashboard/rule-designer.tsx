@@ -125,7 +125,22 @@ interface AdjustmentRule {
   isHistorical?: boolean;
   locationId?: string | null;
   serviceLine?: string | null;
+  category?: string;
 }
+
+// Strategy group labels — kept in lockstep with the Rule Performance section
+const ADMIN_CATEGORY_LABELS: Record<string, string> = {
+  'push': 'High Occ — Below Market',
+  'hold': 'High Occ — Above Market',
+  'ensure': 'Street Rate Catch-Up — Below In-House',
+  'concession-al': 'Low AL/MC Occ — Rate Concession',
+  'concession-sl': 'Low SL/VIL Occ — Market Align',
+  'apr-push': 'Apr 2026 — Push (Below Comps)',
+  'apr-hold': 'Apr 2026 — Hold (Above Comps)',
+  'apr-qmix': 'Apr 2026 — HC Q-Mix',
+  'apr-decrease': 'Apr 2026 — Decrease',
+  'apr-custom': 'Apr 2026 — Campus-Specific',
+};
 
 interface ImpactData {
   affectedUnits: number;
@@ -229,6 +244,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const newSlPickerRef = useRef<HTMLDivElement>(null);
   const newSlPickerAiRef = useRef<HTMLDivElement>(null);
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
+
+  // Rule Administration filters (mirrors the Rule Performance section)
+  const [adminFrom, setAdminFrom] = useState<string>('');
+  const [adminTo, setAdminTo] = useState<string>('');
+  const [adminGroupBy, setAdminGroupBy] = useState<'none' | 'strategy' | 'rule' | 'serviceLine' | 'campus'>('none');
+  const [showHistoryRules, setShowHistoryRules] = useState(false);
+  const [reselectingId, setReselectingId] = useState<string | null>(null);
+  const [locNames, setLocNames] = useState<Record<string, string>>({});
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(true);
   const [rulesExpanded, setRulesExpanded] = useState(false);
@@ -299,12 +322,44 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       const params = new URLSearchParams();
       if (locationId) params.set('locationId', locationId);
       if (serviceLine) params.set('serviceLine', serviceLine);
+      if (showHistoryRules) params.set('includeHistorical', 'true');
       const res = await fetch(`/api/adjustment-rules${params.toString() ? `?${params}` : ''}`);
       if (res.ok) setRules(await res.json());
     } catch { /* silent */ }
-  }, [locationId, serviceLine]);
+  }, [locationId, serviceLine, showHistoryRules]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  // Location id → name map for the Campus grouping in Rule Administration
+  useEffect(() => {
+    fetch('/api/locations')
+      .then(r => r.ok ? r.json() : [])
+      .then((locs: any[]) => {
+        const m: Record<string, string> = {};
+        for (const l of locs || []) if (l?.id && l?.name) m[l.id] = l.name;
+        setLocNames(m);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Reselect a historical rule — creates a fresh active copy effective today
+  const reselectRule = useCallback(async (ruleId: string, name: string) => {
+    setReselectingId(ruleId);
+    try {
+      const res = await fetch(`/api/adjustment-rules/${ruleId}/reselect`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Reselect failed');
+      }
+      const created = await res.json();
+      toast({ title: 'Rule reselected', description: `"${created.name}" is now active, effective today.` });
+      fetchRules();
+    } catch (e: any) {
+      toast({ title: 'Reselect failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setReselectingId(null);
+    }
+  }, [fetchRules, toast]);
 
   // Pricing History — historical records of past pricing changes (never applied to current rates)
   const fetchHistory = useCallback(async () => {
@@ -1379,14 +1434,61 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
 
       {/* ── Rules Panel ── */}
       {rules.length > 0 && (() => {
-        const activeRules   = rules.filter(r => r.isActive);
-        const disabledRules = rules.filter(r => !r.isActive);
+        const liveRules     = rules.filter(r => !r.isHistorical);
+        const histRules     = rules.filter(r => r.isHistorical);
+        const activeRules   = liveRules.filter(r => r.isActive);
+        const disabledRules = liveRules.filter(r => !r.isActive);
         const activeCount   = activeRules.filter(r => (r.affectedUnits ?? 0) > 0).length;
 
         // Priority-ordered active rules: exclusive rules compete for units; additive always stack
         const sortedActive   = [...activeRules].reverse(); // oldest first → priority 1, 2, 3...
         const sortedDisabled = [...disabledRules].reverse();
-        const sortedRules    = [...sortedActive, ...sortedDisabled];
+        const sortedHist     = [...histRules].sort((a, b) =>
+          String(b.effectiveDate || b.createdAt || '').localeCompare(String(a.effectiveDate || a.createdAt || '')));
+        const sortedRules    = [...sortedActive, ...sortedDisabled, ...(showHistoryRules ? sortedHist : [])];
+
+        // ── Date-range filter (effective date, falling back to created date) ──
+        const inRange = (r: AdjustmentRule) => {
+          if (!adminFrom && !adminTo) return true;
+          const raw = r.effectiveDate || r.createdAt;
+          const d = raw ? new Date(raw).toISOString().slice(0, 10) : null;
+          if (adminFrom && (!d || d < adminFrom)) return false;
+          if (adminTo && (!d || d > adminTo)) return false;
+          return true;
+        };
+        const filteredRules = sortedRules.filter(inRange);
+
+        // ── Grouping (strategy / service line / campus), mirroring Rule Performance ──
+        const groupKeyOf = (r: AdjustmentRule): string => {
+          if (adminGroupBy === 'strategy') return ADMIN_CATEGORY_LABELS[r.category || ''] || 'Other';
+          if (adminGroupBy === 'serviceLine') {
+            const sls: string[] = (r as any).serviceLines?.length ? (r as any).serviceLines : ((r.action as any)?.filters?.serviceLine || []);
+            return sls.length ? sls.join(', ') : (r.serviceLine || 'All Service Lines');
+          }
+          return r.locationId ? (locNames[r.locationId] || 'Unknown campus') : 'All Campuses';
+        };
+        type DisplayRow = { type: 'header'; label: string; count: number } | { type: 'rule'; rule: AdjustmentRule };
+        let displayRows: DisplayRow[];
+        if (adminGroupBy === 'none') {
+          displayRows = (rulesExpanded ? filteredRules : filteredRules.slice(0, 5)).map(rule => ({ type: 'rule' as const, rule }));
+        } else if (adminGroupBy === 'rule') {
+          displayRows = [
+            { type: 'header', label: 'All Rules', count: filteredRules.length },
+            ...filteredRules.map(rule => ({ type: 'rule' as const, rule })),
+          ];
+        } else {
+          const groupsMap = new Map<string, AdjustmentRule[]>();
+          for (const r of filteredRules) {
+            const k = groupKeyOf(r);
+            if (!groupsMap.has(k)) groupsMap.set(k, []);
+            groupsMap.get(k)!.push(r);
+          }
+          displayRows = [];
+          for (const [label, rs] of Array.from(groupsMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+            displayRows.push({ type: 'header', label, count: rs.length });
+            for (const r of rs) displayRows.push({ type: 'rule', rule: r });
+          }
+        }
 
         const exclusiveActive = sortedActive.filter(r => isRuleExclusive(r.action as any));
         const hasOverlap      = exclusiveActive.length > 1;
@@ -1509,6 +1611,64 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                 <CollapsibleContent>
                   <CardContent className="pt-0 pb-4 px-4">
 
+                    {/* ── Filter bar (mirrors Rule Performance Over Time) ── */}
+                    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-[11px] font-medium text-gray-500">From</label>
+                        <input
+                          type="date" value={adminFrom} onChange={e => setAdminFrom(e.target.value)}
+                          className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
+                          data-testid="input-admin-from"
+                        />
+                        <label className="text-[11px] font-medium text-gray-500">To</label>
+                        <input
+                          type="date" value={adminTo} onChange={e => setAdminTo(e.target.value)}
+                          className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
+                          data-testid="input-admin-to"
+                        />
+                        {(adminFrom || adminTo) && (
+                          <button
+                            type="button"
+                            className="text-[11px] text-teal-700 hover:underline"
+                            onClick={() => { setAdminFrom(''); setAdminTo(''); }}
+                          >Clear</button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-[11px] font-medium text-gray-500">Group by</label>
+                        <select
+                          value={adminGroupBy}
+                          onChange={e => setAdminGroupBy(e.target.value as any)}
+                          className="h-7 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700"
+                          data-testid="select-admin-groupby"
+                        >
+                          <option value="none">None</option>
+                          <option value="strategy">Strategy</option>
+                          <option value="rule">Rule</option>
+                          <option value="serviceLine">Service Line</option>
+                          <option value="campus">Campus</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowHistoryRules(v => !v)}
+                        className={`h-7 px-2.5 rounded border text-xs font-medium transition-colors ${
+                          showHistoryRules
+                            ? 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        }`}
+                        title="Show past pricing-cycle rules so they can be reselected"
+                        data-testid="button-toggle-history-rules"
+                      >
+                        {showHistoryRules ? `Pricing history shown (${histRules.length})` : 'Show pricing history'}
+                      </button>
+                      {(adminFrom || adminTo) && (
+                        <span className="text-[11px] text-gray-400">
+                          {filteredRules.length} of {sortedRules.length} rules in range
+                        </span>
+                      )}
+                    </div>
+
                     {/* ── Combined active rules summary ── */}
                     {activeCount > 0 && (
                       <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
@@ -1581,7 +1741,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                           </tr>
                         </thead>
                         <tbody>
-                          {(rulesExpanded ? sortedRules : sortedRules.slice(0, 5)).map((rule) => {
+                          {displayRows.map((item) => {
+                            if (item.type === 'header') {
+                              return (
+                                <tr key={`grp-${item.label}`} className="bg-gray-100/80 border-b border-gray-200">
+                                  <td colSpan={7} className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wide text-gray-600" data-testid={`group-header-${item.label}`}>
+                                    {item.label} <span className="font-normal text-gray-400 normal-case">({item.count} rule{item.count !== 1 ? 's' : ''})</span>
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            const rule = item.rule;
                             const annual        = rule.annualImpact  ?? 0;
                             const monthly       = rule.monthlyImpact ?? 0;
                             const isPos         = monthly >= 0;
@@ -1690,7 +1860,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                               {isFuture ? '▷ Starts' : 'Since'} {new Date(`${eff}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                             </span>
                                           )}
-                                          {rule.isActive && (
+                                          {rule.isHistorical && (
+                                            <span data-testid={`badge-historical-${rule.id}`} className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-violet-50 text-violet-600 border-violet-200">
+                                              Historical
+                                            </span>
+                                          )}
+                                          {rule.isActive && !rule.isHistorical && (
                                             <span data-testid={`badge-stacking-${rule.id}`} className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${isAdditive ? 'bg-teal-50 text-teal-600 border-teal-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
                                               {isAdditive ? 'Stacks' : 'Exclusive'}
                                             </span>
@@ -1777,6 +1952,26 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
 
                                 {/* Actions */}
                                 <td className="py-2.5 px-2 align-top">
+                                  {rule.isHistorical ? (
+                                    <div className="flex items-center justify-end gap-0.5">
+                                      <Button
+                                        variant="outline" size="sm"
+                                        className="h-7 text-xs gap-1 text-teal-700 border-teal-200 bg-teal-50 hover:bg-teal-100"
+                                        disabled={reselectingId === rule.id}
+                                        onClick={() => reselectRule(rule.id, rule.name.replace(/^Historical:\s*/i, ''))}
+                                        title="Create a fresh active copy of this rule, effective today"
+                                        data-testid={`button-reselect-${rule.id}`}
+                                      >
+                                        {reselectingId === rule.id ? 'Reselecting…' : 'Reselect'}
+                                      </Button>
+                                      <Button variant="ghost" size="icon"
+                                        className="h-7 w-7 text-gray-400 hover:text-teal-600 hover:bg-teal-50"
+                                        onClick={() => setInfoRule(rule)} title="Rule details">
+                                        <Info className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                  <>
                                   <div className="flex items-center justify-end gap-0.5">
                                     <Switch
                                       checked={rule.isActive}
@@ -1819,6 +2014,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                       stacks
                                     </label>
                                   </div>
+                                  </>
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -1876,7 +2073,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                     </div>
 
                     {/* Show more / less toggle */}
-                    {sortedRules.length > 5 && (
+                    {adminGroupBy === 'none' && filteredRules.length > 5 && (
                       <button
                         type="button"
                         onClick={() => setRulesExpanded(e => !e)}
@@ -1886,7 +2083,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                         <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${rulesExpanded ? 'rotate-180' : ''}`} />
                         {rulesExpanded
                           ? 'Show fewer rules'
-                          : `Show all ${sortedRules.length} rules (${sortedRules.length - 5} more)`}
+                          : `Show all ${filteredRules.length} rules (${filteredRules.length - 5} more)`}
                       </button>
                     )}
 

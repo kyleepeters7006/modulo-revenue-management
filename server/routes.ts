@@ -198,6 +198,35 @@ function purgeRuleCaches(clientId: string): void {
     .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
 }
 
+// Strategy category for an adjustment rule (push / hold / ensure / concession-*).
+// Shared by the rule-performance endpoint and the adjustment-rules list so the
+// Rule Administration and Rule Performance sections group rules identically.
+function computeRuleCategory(action: any, trigger: any, sl: string, cycle?: string): string {
+  const val = Number(action?.adjustmentValue ?? action?.value ?? 0);
+  const condsRaw = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
+  const conds: any[] = Array.isArray(condsRaw) ? condsRaw : [];
+  // "Ensure Street ≥ In-House" strategy: triggered by street rate below in-house rate
+  if (conds.find((c: any) => c.field === 'street_to_ih_var')) return 'ensure';
+  // April 2026 cycle used a different strategy taxonomy than July (per the
+  // client's April Dynamic Pricing workbook Logic tab).
+  if (trigger?.type === 'always' && cycle === '2026-04') {
+    if (val < 0) return 'apr-decrease';
+    if (val === 5) return 'apr-push';
+    if (val === 2.5) return (sl === 'HC' || sl === 'HC/MC') ? 'apr-qmix' : 'apr-hold';
+    return 'apr-custom';
+  }
+  if (val > 0) {
+    const comp = conds.find((c: any) => c.field === 'street_to_comp_var');
+    if (comp) return comp.operator === '<' ? 'push' : 'hold';
+    // Historical imports carry a trigger of "always"; infer from the file convention:
+    // +5% = push, +2.5% = hold, other positive % = street-rate catch-up ("ensure").
+    if (val === 5) return 'push';
+    if (val === 2.5) return 'hold';
+    return 'ensure';
+  }
+  return (sl === 'SL' || sl === 'VIL') ? 'concession-sl' : 'concession-al';
+}
+
 // Function to process image and detect room numbers using OCR
 async function processImageForRooms(imageBuffer: Buffer): Promise<any[]> {
   try {
@@ -15049,8 +15078,18 @@ Respond in JSON format:
             !r.isActive || r.isHistorical === true || (r.affectedUnits ?? 0) > 0)
         : enrichedRules;
 
-      setCachedAnalytics(adjRulesCacheKey, scopedRules);
-      res.json(scopedRules);
+      // Attach the strategy category so the Rule Administration UI can group
+      // rules the same way the Rule Performance section does.
+      const withCategory = scopedRules.map((r: any) => ({
+        ...r,
+        category: computeRuleCategory(
+          r.action, r.trigger, r.serviceLine || '',
+          r.effectiveDate ? new Date(r.effectiveDate).toISOString().slice(0, 7) : undefined
+        ),
+      }));
+
+      setCachedAnalytics(adjRulesCacheKey, withCategory);
+      res.json(withCategory);
     } catch (error) {
       console.error('Error fetching adjustment rules:', error);
       res.status(500).json({ error: "Failed to fetch adjustment rules" });
@@ -16367,6 +16406,65 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
   
+  // Reselect a historical (pricing-history) rule: create a fresh active copy
+  // effective today, leaving the historical record untouched.
+  app.post("/api/adjustment-rules/:id/reselect", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = req.clientId || 'demo';
+      const rules = await storage.getAdjustmentRules();
+      const rule = rules.find(r => r.id === id);
+      if (!rule) return res.status(404).json({ error: "Rule not found" });
+      if (!rule.isHistorical) return res.status(400).json({ error: "Only historical rules can be reselected" });
+
+      // Tenant scoping: historical rules belong to a client via their location.
+      // Mirror the GET /api/adjustment-rules includeHistorical scoping so one
+      // tenant cannot reselect another tenant's historical rule by UUID.
+      if (rule.locationId) {
+        const ownRes = await pool.query(
+          `SELECT 1 FROM locations WHERE id = $1 AND client_id = $2 LIMIT 1`,
+          [rule.locationId, clientId]
+        );
+        if (ownRes.rows.length === 0) return res.status(404).json({ error: "Rule not found" });
+      } else if ((rule as any).clientId && (rule as any).clientId !== clientId) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      // Strip the "Historical:" prefix and any "(Apr 2026)"-style cycle suffix
+      const cleanName = rule.name
+        .replace(/^Historical:\s*/i, '')
+        .replace(/\s*\([A-Za-z]{3,9}\s+\d{4}\)\s*$/, '')
+        .trim();
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Avoid unique (name, location, service line) collisions if the same
+      // historical rule is reselected more than once.
+      const dupe = rules.find(r => !r.isHistorical && r.name === cleanName &&
+        (r.locationId ?? null) === (rule.locationId ?? null) &&
+        (r.serviceLine ?? null) === (rule.serviceLine ?? null));
+      const created = await storage.createAdjustmentRule({
+        name: dupe ? `${cleanName} (reselected ${today})` : cleanName,
+        description: rule.description || cleanName,
+        trigger: rule.trigger as any,
+        action: rule.action as any,
+        priority: rule.priority ?? 0,
+        isActive: true,
+        isHistorical: false,
+        serviceLine: rule.serviceLine ?? null,
+        serviceLines: (rule as any).serviceLines ?? null,
+        effectiveDate: today,
+        locationId: rule.locationId ?? null,
+        createdBy: 'reselect',
+      } as any);
+
+      purgeRuleCaches(clientId);
+      res.json(created);
+    } catch (error) {
+      console.error('Error reselecting adjustment rule:', error);
+      res.status(500).json({ error: "Failed to reselect rule" });
+    }
+  });
+
   app.patch("/api/adjustment-rules/:id/additive", async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -17254,41 +17352,8 @@ Return ONLY valid JSON, no markdown fences:
       ]);
 
       // ---- Rule category map (push / hold / concession-al / concession-sl) ----
-      // Mirrors the getRuleCategory logic in pricing-controls.tsx.
-      const getRuleCategoryFn = (action: any, trigger: any, sl: string, cycle?: string): string => {
-        const val = Number(action?.adjustmentValue ?? action?.value ?? 0);
-        const condsRaw = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
-        const conds: any[] = Array.isArray(condsRaw) ? condsRaw : [];
-        // "Ensure Street ≥ In-House" strategy: triggered by street rate below in-house rate
-        if (conds.find((c: any) => c.field === 'street_to_ih_var')) return 'ensure';
-        // April 2026 cycle used a different strategy taxonomy than July (per the
-        // client's April Dynamic Pricing workbook Logic tab):
-        //   SH 95%+ occ since Jan 1, ≥5 units: $500+ below competitor → +5%,
-        //   otherwise → +2.5%. HC: Q-Mix >40% & occupancy above budget → +2.5%.
-        //   Decreases: below 80% occ since Jan 1, or lost 10% occ in March → −5%.
-        //   Any other % = campus-specific targeted adjustment.
-        if (trigger?.type === 'always' && cycle === '2026-04') {
-          if (val < 0) return 'apr-decrease';
-          if (val === 5) return 'apr-push';
-          if (val === 2.5) return (sl === 'HC' || sl === 'HC/MC') ? 'apr-qmix' : 'apr-hold';
-          return 'apr-custom';
-        }
-        if (val > 0) {
-          const comp = conds.find((c: any) => c.field === 'street_to_comp_var');
-          if (comp) return comp.operator === '<' ? 'push' : 'hold';
-          // Historical imports carry a trigger of "always" (the client's pricing file
-          // records outcomes, not conditions). Infer the strategy from the file's own
-          // convention (see the Logic tab of the Dynamic Pricing workbooks):
-          //   +5%  = push highly occupied room types priced at/below comps
-          //   +2.5% = push highly occupied room types priced above comps
-          //   any other positive % (variable 1–10%) = raise street rate to match
-          //   in-house rates in highly occupied service lines ("ensure" catch-up)
-          if (val === 5) return 'push';
-          if (val === 2.5) return 'hold';
-          return 'ensure';
-        }
-        return (sl === 'SL' || sl === 'VIL') ? 'concession-sl' : 'concession-al';
-      };
+      // Shared module-level implementation (see computeRuleCategory above).
+      const getRuleCategoryFn = computeRuleCategory;
       const categoryMap = new Map<string, string>();
       for (const ar of activeRuleMetaRes.rows) {
         categoryMap.set(ar.name, getRuleCategoryFn(ar.action, ar.trigger, ar.service_line || ''));
