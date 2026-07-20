@@ -17707,9 +17707,14 @@ Return ONLY valid JSON, no markdown fences:
       // created rules the daily engine hasn't run yet) are invisible to the history
       // query above. Pull their projected impact so every strategy group is visible.
       const appliedNames = new Set(rows.map(r => r.ruleName));
-      const unapplied = activeRuleMetaRes.rows.filter(
-        (ar: any) => ar.is_active && !appliedNames.has(ar.name)
-      );
+      const unapplied = activeRuleMetaRes.rows.filter((ar: any) => {
+        if (!ar.is_active || appliedNames.has(ar.name)) return false;
+        // Respect the selected date window: a rule whose effective date falls
+        // after the window's end had not taken effect during that period, so
+        // its (projected) impact must not appear for that range.
+        if (ar.effective_date && new Date(ar.effective_date) > endDate) return false;
+        return true;
+      });
       if (unapplied.length > 0) {
         const ctxCacheKey = `ruleImpactCtx:${clientId}`;
         let impactCtx = getCachedAnalytics(ctxCacheKey);

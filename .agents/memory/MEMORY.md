@@ -1,5 +1,5 @@
 - [Claude via Replit AI Integrations](claude-ai-integrations.md) — Claude billed to enterprise account via AI_INTEGRATIONS_ANTHROPIC_*; never request a personal Anthropic key; no temperature param.
-- [Adjustment rules tenant scoping](adjustment-rules-tenant-scoping.md) — adjustment_rules has NO client_id; rules are global across all clients by design. Don't assume tenant isolation here.
+- [Adjustment rules tenant scoping](adjustment-rules-tenant-scoping.md) — client_id exists but only historical location-less strategies are scoped; active rules remain global. Don't assume isolation.
 - [Rules-only pricing pivot](rules-only-pricing-pivot.md) — proposed/served rate = ruleAdjustedRate only; Modulo & Revenue-Target AI rates retired as the served proposed rate.
 - [Reference-data + active-rules perf](ref-data-active-rules-perf.md) — both endpoints had N-query anti-patterns; fixed with batch in-memory approach and parallel Promise.all.
 - [Rule impact methodology](rule-impact-methodology.md) — affected units must pass trigger conditions; impact = T3 move-ins/mo × Δrate via shared service; occupancy triggers stored as fractions.
