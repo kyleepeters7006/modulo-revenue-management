@@ -446,7 +446,9 @@ function buildTableRows({
                 {open
                   ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-                <span className="whitespace-normal text-sm">{r.ruleName}</span>
+                <span className="whitespace-normal text-sm">
+                  {r.isHistorical && !/^Historical:/i.test(r.ruleName) ? `Historical: ${r.ruleName}` : r.ruleName}
+                </span>
               </span>
             </td>
             <td className={tdCls}>{fmtDate(r.dateApplied)}</td>
@@ -582,8 +584,10 @@ export function RulePerformanceTable({
     // serviceLine / campus — regroup detail rows by key, then re-aggregate per rule within each key
     const byKey = new Map<string, Map<string, DetailRow[]>>();
     const ruleDate = new Map<string, string | null>();
+    const ruleHist = new Map<string, boolean>();
     for (const r of rows) {
       ruleDate.set(r.ruleName, r.dateApplied);
+      ruleHist.set(r.ruleName, !!r.isHistorical);
       for (const d of r.detail) {
         const key = groupBy === "serviceLine" ? d.serviceLine : d.location;
         if (!byKey.has(key)) byKey.set(key, new Map());
@@ -616,6 +620,7 @@ export function RulePerformanceTable({
           monthlyRevenueImpact: a.monthly,
           annualRevenueImpact: a.annual,
           dateApplied: ruleDate.get(ruleName) ?? null,
+          isHistorical: ruleHist.get(ruleName) ?? false,
         };
       });
       const c = palette[i % palette.length];
