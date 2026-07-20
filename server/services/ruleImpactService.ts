@@ -25,9 +25,11 @@ export interface UnitRow {
   room_type: string | null;
   street_rate: number;
   care_rate: number;
+  in_house_rate: number;
   occupied_yn: boolean | null;
   days_vacant: number | null;
   competitor_final_rate: number;
+  payor_type: string | null;
 }
 
 interface GroupAgg {
@@ -35,6 +37,7 @@ interface GroupAgg {
   occupied: number;
   stSum: number; stN: number;        // street rates (raw) where > 100
   compStSum: number; compCSum: number; compN: number; // paired street/comp where both > 100
+  ihStSum: number; ihISum: number; ihN: number; // paired street/in-house (monthly) for occupied single-occupant units
 }
 
 export interface RuleImpactContext {
@@ -134,7 +137,9 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   const { rows } = await pool.query(
     `SELECT id, location_id, location, service_line, room_type,
             street_rate::float AS street_rate, care_rate::float AS care_rate,
-            occupied_yn, days_vacant, competitor_final_rate::float AS competitor_final_rate
+            in_house_rate::float AS in_house_rate,
+            occupied_yn, days_vacant, competitor_final_rate::float AS competitor_final_rate,
+            payor_type
      FROM rent_roll_data
      WHERE client_id = $1 AND upload_month = $2`,
     [clientId, latestMonth],
@@ -145,13 +150,30 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   const metrics = new Map<string, GroupAgg>();
   const bump = (key: string, u: UnitRow) => {
     let g = metrics.get(key);
-    if (!g) { g = { total: 0, occupied: 0, stSum: 0, stN: 0, compStSum: 0, compCSum: 0, compN: 0 }; metrics.set(key, g); }
+    if (!g) { g = { total: 0, occupied: 0, stSum: 0, stN: 0, compStSum: 0, compCSum: 0, compN: 0, ihStSum: 0, ihISum: 0, ihN: 0 }; metrics.set(key, g); }
     g.total++;
     if (u.occupied_yn) g.occupied++;
     const st = Number(u.street_rate) || 0;
     const comp = Number(u.competitor_final_rate) || 0;
     if (st > 100) { g.stSum += st; g.stN++; }
     if (st > 100 && comp > 100) { g.compStSum += st; g.compCSum += comp; g.compN++; }
+    // IH-to-street variance inputs: occupied single-occupant units with both
+    // rates present (mirrors the ih-street-variance recalculate endpoint:
+    // SH excludes Companion rooms; HC counts private-pay only). HC daily
+    // rates are converted to monthly so campus-level blending is consistent.
+    const ih = Number(u.in_house_rate) || 0;
+    const sl = u.service_line || "";
+    const isDaily = DAILY_SLS.has(sl);
+    const rateOk = isDaily ? (st > 0 && ih > 0) : (st > 100 && ih > 100);
+    const singleOcc = isDaily
+      ? ((u.payor_type || "").toUpperCase().includes("PRIVATE"))
+      : (u.room_type !== "Companion");
+    if (u.occupied_yn && rateOk && singleOcc) {
+      const mult = isDaily ? DAYS_PER_MONTH : 1;
+      g.ihStSum += st * mult;
+      g.ihISum += ih * mult;
+      g.ihN++;
+    }
   };
 
   for (const u of units) {
@@ -214,7 +236,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
 function lookupMetric(
   ctx: RuleImpactContext,
   locId: string, sl: string, rt: string,
-  metric: "occupancy_pct" | "vacant_units" | "street_to_comp_var_pct",
+  metric: "occupancy_pct" | "vacant_units" | "street_to_comp_var_pct" | "ih_street_var_pct",
 ): number | null {
   const keys = [`${locId}|${sl}|${rt}`, `${locId}|${sl}`, locId];
   for (const k of keys) {
@@ -228,6 +250,15 @@ function lookupMetric(
       const avgC = g.compCSum / g.compN;
       if (avgC <= 0) continue;
       return ((avgSt - avgC) / avgC) * 100;
+    }
+    if (metric === "ih_street_var_pct") {
+      if (g.ihN === 0) continue; // fall back to broader scope
+      const avgSt = g.ihStSum / g.ihN;
+      const avgIH = g.ihISum / g.ihN;
+      if (avgSt <= 0) continue;
+      // Same formula as the ih-street-variance recalculate endpoint:
+      // (avg in-house − avg street) / avg street × 100
+      return ((avgIH - avgSt) / avgSt) * 100;
     }
   }
   return null;
@@ -277,7 +308,12 @@ function evalGroupCondition(
   if (field === "competitor_rate" || field === "competitor_variance" || field === "street_to_comp_var") {
     return cmp(lookupMetric(ctx, locId, sl, rt, "street_to_comp_var_pct"), operator, value);
   }
-  // Metrics we can't compute here (inquiry volume, IH variance, …) — treat as
+  // In-house-to-street rate variance % (single occupant), computed from the
+  // same rent roll snapshot: (avg IH − avg street) / avg street × 100.
+  if (field === "ih_street_variance" || field === "street_to_ih_var") {
+    return cmp(lookupMetric(ctx, locId, sl, rt, "ih_street_var_pct"), operator, value);
+  }
+  // Metrics we can't compute here (inquiry volume, …) — treat as
   // not passing, same as the rate engine does when the metric is missing.
   return false;
 }

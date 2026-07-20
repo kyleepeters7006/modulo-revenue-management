@@ -100,10 +100,11 @@ async function recalculateAndPreloadCampusMetrics(
     // Fetch all units for the latest month
     const unitsRes = await pool.query<{
       service_line: string; room_type: string; occupied_yn: boolean;
-      days_vacant: number; street_rate: number; competitor_final_rate: number; payor_type: string;
+      days_vacant: number; street_rate: number; in_house_rate: number;
+      competitor_final_rate: number; payor_type: string;
     }>(
       `SELECT service_line, room_type, occupied_yn, days_vacant,
-              street_rate, competitor_final_rate, payor_type
+              street_rate, in_house_rate, competitor_final_rate, payor_type
        FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
       [locationId, clientId, latestMonth]
     );
@@ -133,6 +134,28 @@ async function recalculateAndPreloadCampusMetrics(
 
       const vacDays = group.filter(u => !u.occupied_yn && (u.days_vacant || 0) > 0).map(u => u.days_vacant);
       if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
+
+      // IH-to-street variance % for single-occupant occupied units (mirrors
+      // the ih-street-variance recalculate endpoint: SH excludes Companion,
+      // HC counts private-pay only; HC daily rates converted to monthly).
+      const HC_DAILY = new Set(['HC', 'HC/MC']);
+      const ihUnits = group.filter(u => {
+        if (!u.occupied_yn) return false;
+        const daily = HC_DAILY.has(u.service_line || '');
+        const st = u.street_rate || 0, ih = (u as any).in_house_rate || 0;
+        if (daily) {
+          return st > 0 && ih > 0 && (u.payor_type || '').toUpperCase().includes('PRIVATE');
+        }
+        return st > 100 && ih > 100 && u.room_type !== 'Companion';
+      });
+      if (ihUnits.length) {
+        const mult = (u: any) => HC_DAILY.has(u.service_line || '') ? 30.44 : 1;
+        const avgSt = avgArr(ihUnits.map(u => (u.street_rate || 0) * mult(u)));
+        const avgIH = avgArr(ihUnits.map(u => ((u as any).in_house_rate || 0) * mult(u)));
+        if (avgSt > 0) {
+          metrics.push({ sl, rt, name: 'ih_street_var_pct', val: (avgIH - avgSt) / avgSt * 100 });
+        }
+      }
 
       const compUnits = group.filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100);
       if (compUnits.length) {
@@ -252,9 +275,12 @@ function evaluateSingleCondition(
     }
   }
 
-  // IH-to-street variance (separate cache)
-  if (field === "ih_street_variance") {
-    return cmpMetric(_lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL'));
+  // IH-to-street variance: prefer the recalculated table cache, then fall back
+  // to the campus-metrics value computed fresh from rent roll before each run.
+  if (field === "ih_street_variance" || field === "street_to_ih_var") {
+    const cached = _lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL');
+    if (cached !== null) return cmpMetric(cached);
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'ih_street_var_pct'));
   }
 
   // Campus / service-line / room-type occupancy

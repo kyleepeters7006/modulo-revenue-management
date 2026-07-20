@@ -206,7 +206,7 @@ function computeRuleCategory(action: any, trigger: any, sl: string, cycle?: stri
   const condsRaw = trigger?.conditions || (trigger?.condition ? [trigger.condition] : []);
   const conds: any[] = Array.isArray(condsRaw) ? condsRaw : [];
   // "Ensure Street ≥ In-House" strategy: triggered by street rate below in-house rate
-  if (conds.find((c: any) => c.field === 'street_to_ih_var')) return 'ensure';
+  if (conds.find((c: any) => c.field === 'street_to_ih_var' || c.field === 'ih_street_variance')) return 'ensure';
   // April 2026 cycle used a different strategy taxonomy than July (per the
   // client's April Dynamic Pricing workbook Logic tab).
   if (trigger?.type === 'always' && cycle === '2026-04') {
