@@ -218,6 +218,16 @@ function computeRuleCategory(action: any, trigger: any, sl: string, cycle?: stri
   if (val > 0) {
     const comp = conds.find((c: any) => c.field === 'street_to_comp_var');
     if (comp) return comp.operator === '<' ? 'push' : 'hold';
+    // Newly designed rules (condition triggers): classify from what the rule
+    // actually reacts to, so they summarize into the same strategy groups.
+    if (trigger?.type === 'condition') {
+      const occ = conds.find((c: any) =>
+        ['occupancy', 'service_line_occupancy', 'room_type_occupancy', 'room_type_occupancy_trailing3'].includes(c.field));
+      // Raising rates on strong occupancy = pushing; raising without an
+      // occupancy floor (or on soft occupancy) = street-rate catch-up.
+      if (occ && (occ.operator === '>' || occ.operator === '>=')) return 'push';
+      return 'ensure';
+    }
     // Historical imports carry a trigger of "always"; infer from the file convention:
     // +5% = push, +2.5% = hold, other positive % = street-rate catch-up ("ensure").
     if (val === 5) return 'push';
