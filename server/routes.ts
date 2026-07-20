@@ -188,6 +188,7 @@ function purgeRuleCaches(clientId: string): void {
     `batchUnits:${clientId}:`,
     `latestMonth:${clientId}`,
     `ruleImpactCtx:${clientId}`,
+    `rule-perf:${clientId}:`,
   ];
   for (const key of Array.from(analyticsCache.keys())) {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
@@ -685,6 +686,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         upserted++;
       }
       console.log(`[sync-rules] Upserted ${upserted} rules`);
+      // Purge rule caches for all tenants — synced rules may belong to any client
+      for (const cid of ['demo', 'trilogy', 'glm', 'ssmg']) purgeRuleCaches(cid);
       res.json({ success: true, upserted });
     } catch (e: any) {
       console.error('[sync-rules] error:', e);
@@ -17161,7 +17164,12 @@ Return ONLY valid JSON, no markdown fences:
   // detail rows at the (location, service line, room type) level.
   app.get("/api/rule-performance", async (req, res) => {
     try {
-      const clientId: string = (req.session as any)?.clientId || 'demo';
+      // Allow internal warm-up requests to specify the client directly — but only
+      // when authenticated with the server-side seed secret (never trust hostname).
+      const warmupClient = req.headers['x-warmup-client'] as string | undefined;
+      const warmupSecret = req.headers['x-seed-secret'] as string | undefined;
+      const warmupOk = !!warmupClient && !!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET;
+      const clientId: string = warmupOk ? warmupClient! : ((req.session as any)?.clientId || 'demo');
       const q = req.query as Record<string, string | undefined>;
       const dateRe = /^\d{4}-\d{2}-\d{2}$/;
       if ((q.start && !dateRe.test(q.start)) || (q.end && !dateRe.test(q.end))) {
@@ -17181,6 +17189,17 @@ Return ONLY valid JSON, no markdown fences:
       const regions     = csv(q.regions);
       const divisions   = csv(q.divisions);
       const locations   = csv(q.locations);
+
+      // ── Cache check (purged by purgeRuleCaches on any rule mutation) ──
+      const perfCacheKey = `rule-perf:${clientId}:${JSON.stringify({
+        s: startDate.toISOString().slice(0, 10), e: endDate.toISOString().slice(0, 10),
+        sl: serviceLine, r: regions, d: divisions, l: locations,
+      })}`;
+      const cachedPerf = getCachedAnalytics(perfCacheKey);
+      if (cachedPerf) {
+        res.setHeader('X-Cache', 'HIT');
+        return res.json(cachedPerf);
+      }
 
       const params: any[] = [clientId, startDate, endDate];
       let where = `rr.client_id = $1
@@ -17813,7 +17832,9 @@ Return ONLY valid JSON, no markdown fences:
 
       rows.sort((x, y) => (y.annualRevenueImpact || 0) - (x.annualRevenueImpact || 0));
 
-      res.json({ rows, start: startDate, end: endDate });
+      const payload = { rows, start: startDate, end: endDate };
+      setCachedAnalytics(perfCacheKey, payload, 10 * 60 * 1000);
+      res.json(payload);
     } catch (err) {
       console.error('[rule-performance] error:', err);
       res.status(500).json({ error: 'Failed to compute rule performance' });
@@ -17902,6 +17923,17 @@ Return ONLY valid JSON, no markdown fences:
         headers: { 'x-warmup-client': clientId },
       })
         .then(r => { if (r.ok) console.log(`[commentary] cache warmed for ${clientId}`); })
+        .catch(() => {});
+    }
+    // Warm rule-performance for every client tenant using the frontend's default
+    // date window (180 days back through today) so the first page visit is instant.
+    const warmEnd = new Date().toISOString().slice(0, 10);
+    const warmStart = new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    for (const clientId of KNOWN_CLIENTS) {
+      fetch(`http://localhost:5000/api/rule-performance?start=${warmStart}&end=${warmEnd}`, {
+        headers: { 'x-warmup-client': clientId, 'x-seed-secret': process.env.SEED_SECRET || '' },
+      })
+        .then(r => { if (r.ok) console.log(`[rule-perf] cache warmed for ${clientId}`); })
         .catch(() => {});
     }
   }, 8000);
