@@ -1537,12 +1537,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
         };
 
         // Assign a unique hue per rule for the bubble map
-        const PALETTE = ['#0d9488','#7c3aed','#d97706','#0284c7','#16a34a','#dc2626','#9333ea','#ea580c'];
+        const PALETTE = ['#0d9488','#0891b2','#d97706','#0284c7','#16a34a','#dc2626','#0e7490','#ea580c'];
 
         const STRATEGY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
           'Revenue Growth':       { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-200'  },
           'Occupancy Recovery':   { bg: 'bg-blue-100',   text: 'text-blue-800',   border: 'border-blue-200'   },
-          'Service Line Premium': { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+          'Service Line Premium': { bg: 'bg-cyan-100', text: 'text-cyan-800', border: 'border-cyan-200' },
           'Market Positioning':   { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-200' },
           'Portfolio-Wide':       { bg: 'bg-teal-100',   text: 'text-teal-800',   border: 'border-teal-200'   },
         };
@@ -1654,7 +1654,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                         onClick={() => setShowHistoryRules(v => !v)}
                         className={`h-7 px-2.5 rounded border text-xs font-medium transition-colors ${
                           showHistoryRules
-                            ? 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100'
+                            ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
                             : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                         }`}
                         title="Show past pricing-cycle rules so they can be reselected"
@@ -1861,7 +1861,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                             </span>
                                           )}
                                           {rule.isHistorical && (
-                                            <span data-testid={`badge-historical-${rule.id}`} className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-violet-50 text-violet-600 border-violet-200">
+                                            <span data-testid={`badge-historical-${rule.id}`} className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-cyan-50 text-cyan-600 border-cyan-200">
                                               Historical
                                             </span>
                                           )}
@@ -2386,7 +2386,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                   )}
                                 </div>
                                 {bubbleSI && (
-                                  <p className="text-[10px] text-purple-600 italic mb-1.5 leading-snug">{bubbleSI.aiSummary}</p>
+                                  <p className="text-[10px] text-sky-700 italic mb-1.5 leading-snug">{bubbleSI.aiSummary}</p>
                                 )}
                                 <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-2 leading-snug">{rule.description}</p>
                                 <div className="space-y-0.5 text-[11px]">
@@ -2509,19 +2509,19 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                         const si = strategyAnalysis?.rules.find(r => r.id === infoRule.id);
                         if (strategyLoading && !si) {
                           return (
-                            <div className="rounded-lg bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 p-3 flex items-center gap-2.5">
-                              <Sparkles className="h-4 w-4 text-purple-400 animate-pulse shrink-0" />
-                              <span className="text-xs text-purple-600">Generating AI strategy analysis…</span>
+                            <div className="rounded-lg bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-100 p-3 flex items-center gap-2.5">
+                              <Sparkles className="h-4 w-4 text-sky-400 animate-pulse shrink-0" />
+                              <span className="text-xs text-sky-700">Generating AI strategy analysis…</span>
                             </div>
                           );
                         }
                         if (!si) return null;
                         const sc = STRATEGY_COLORS[si.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' };
                         return (
-                          <div className="rounded-lg bg-gradient-to-br from-purple-50/90 to-indigo-50/60 border border-purple-100 p-4 space-y-3">
+                          <div className="rounded-lg bg-gradient-to-br from-sky-50/90 to-blue-50/60 border border-sky-100 p-4 space-y-3">
                             <div className="flex items-center gap-2">
-                              <Sparkles className="h-3.5 w-3.5 text-purple-500 shrink-0" />
-                              <span className="text-[11px] font-semibold uppercase tracking-wide text-purple-600">AI Strategy Analysis</span>
+                              <Sparkles className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                              <span className="text-[11px] font-semibold uppercase tracking-wide text-sky-700">AI Strategy Analysis</span>
                               <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border ${sc.bg} ${sc.text} ${sc.border}`}>
                                 {si.strategyGroup}
                               </span>

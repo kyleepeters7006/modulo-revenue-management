@@ -55,8 +55,8 @@ const PERF_RULE_GROUPS = [
     label: "Street Rate Catch-Up — Below In-House",
     description: "High occupancy but street rates below in-house rates → raise street 1–10% to close the gap",
     Icon: ArrowUpRight,
-    accent: "#7c3aed",
-    rowBg: "bg-violet-500/5 border-l-2 border-violet-500/40",
+    accent: "#0891b2",
+    rowBg: "bg-cyan-500/5 border-l-2 border-cyan-500/40",
     amtCls: "text-emerald-600",
   },
   {
@@ -101,8 +101,8 @@ const PERF_RULE_GROUPS = [
     label: "Apr: Health Center — Strong Q-Mix",
     description: "Q-Mix above 40%, at/above Q-Mix ADC budget, HC occupancy above 92%, room type avg above 90% → +2.5%",
     Icon: ArrowUpRight,
-    accent: "#7c3aed",
-    rowBg: "bg-violet-500/5 border-l-2 border-violet-500/40",
+    accent: "#0891b2",
+    rowBg: "bg-cyan-500/5 border-l-2 border-cyan-500/40",
     amtCls: "text-emerald-600",
   },
   {
