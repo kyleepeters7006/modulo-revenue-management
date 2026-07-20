@@ -710,10 +710,20 @@ export function RulePerformanceTable({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <Input type="date" value={start} max={end} onChange={(e) => setStart(e.target.value)}
+              <Input type="date" value={start}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setStart(v);
+                  if (v && end && v > end) setEnd(v);
+                }}
                 className="h-8 w-[140px] text-xs" data-testid="input-perf-start" />
               <span className="text-xs text-muted-foreground">to</span>
-              <Input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)}
+              <Input type="date" value={end}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEnd(v);
+                  if (v && start && v < start) setStart(v);
+                }}
                 className="h-8 w-[140px] text-xs" data-testid="input-perf-end" />
             </div>
             {/* Group-by selector */}
