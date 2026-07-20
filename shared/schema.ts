@@ -83,7 +83,7 @@ export const targetsAndTrends = pgTable("targets_and_trends", {
 // Portfolio locations table with KeyStats/MatrixCare name mapping
 export const locations = pgTable("locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull().unique(), // KeyStats name (display name)
+  name: text("name").notNull(), // KeyStats name (display name)
   matrixCareNameHC: text("matrixcare_name_hc"), // MatrixCare facility name for HC
   matrixCareNameAL: text("matrixcare_name_al"), // MatrixCare facility name for AL  
   matrixCareNameIL: text("matrixcare_name_il"), // MatrixCare facility name for IL
@@ -105,7 +105,11 @@ export const locations = pgTable("locations", {
   clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this location
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  // Location names only need to be unique within a client — two tenants may
+  // legitimately operate campuses with the same name.
+  uniqueClientName: uniqueIndex("locations_client_name_unique").on(table.clientId, table.name),
+}));
 
 // Updated rent roll data table with complete field structure
 export const rentRollData = pgTable("rent_roll_data", {

@@ -281,6 +281,26 @@ app.use((req, res, next) => {
     log(`[migration] adjustment_rules.client_id migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: location names are unique per client, not globally.
+  // Two tenants may legitimately operate campuses with the same name, so the
+  // old global unique constraint on locations.name must be replaced with a
+  // composite (client_id, name) unique index.
+  try {
+    await db.execute(sql`
+      ALTER TABLE locations DROP CONSTRAINT IF EXISTS locations_name_unique
+    `);
+    await db.execute(sql`
+      ALTER TABLE locations DROP CONSTRAINT IF EXISTS locations_name_key
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS locations_client_name_unique
+        ON locations (client_id, name)
+    `);
+    log("[migration] locations (client_id, name) unique index ensured");
+  } catch (migErr) {
+    log(`[migration] locations unique index migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure is_historical column exists on adjustment_rules.
   // Historical rules record past pricing changes (e.g. imported spreadsheets) and are
   // never applied to current rate calculations.
