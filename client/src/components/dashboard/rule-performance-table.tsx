@@ -425,11 +425,24 @@ export function RulePerformanceTable({
     return t;
   }, [rows]);
 
-  // Win Rate — % of historical applied rules with measured revenue growth
+  // Occupancy-adjusted pricing result: holds occupancy constant at the
+  // pre-change level (revenue-per-occupied-unit after × occupied units before)
+  // so a rule isn't blamed or credited for occupancy swings unrelated to the
+  // pricing change itself. Falls back to raw monthly impact when the T3
+  // occupancy breakdown isn't available.
+  const occAdjustedDelta = (r: PerfMetrics): number | null => {
+    const c = r.calc;
+    if (c && c.occBefore > 0 && c.occAfter > 0) {
+      return (c.t3After / c.occAfter) * c.occBefore - c.t3Before;
+    }
+    return r.monthlyRevenueImpact;
+  };
+
+  // Win Rate — % of historical applied rules whose occupancy-adjusted revenue grew
   const winRate = useMemo(() => {
     const hist = rows.filter((r) => r.isHistorical && r.monthlyRevenueImpact != null);
     if (hist.length === 0) return null;
-    const wins = hist.filter((r) => (r.monthlyRevenueImpact ?? 0) > 0).length;
+    const wins = hist.filter((r) => (occAdjustedDelta(r) ?? 0) > 0).length;
     return { pct: Math.round((wins / hist.length) * 100), wins, total: hist.length };
   }, [rows]);
 
@@ -583,7 +596,7 @@ export function RulePerformanceTable({
                   {winRate == null ? "–" : `${winRate.pct}%`}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1">
-                  {winRate == null ? "no historical rules in range" : `${winRate.wins} of ${winRate.total} rules grew revenue`}
+                  {winRate == null ? "no historical rules in range" : `${winRate.wins} of ${winRate.total} rules grew revenue (occupancy-adjusted)`}
                   {winRate != null && <span className="ml-1 text-primary/60">↗ see detail</span>}
                 </div>
               </button>
@@ -763,7 +776,7 @@ export function RulePerformanceTable({
               <DialogTitle className="text-base font-semibold">Win Rate Detail</DialogTitle>
             </div>
             <DialogDescription className="mt-0.5">
-              Historical rules ordered by date — whether each one grew or reduced revenue after being applied.
+              Historical rules ordered by date — whether each one grew or reduced revenue after being applied, holding occupancy constant so the result reflects the pricing change itself.
             </DialogDescription>
             {winRate != null && (
               <div className="flex items-center gap-4 mt-3 p-3 rounded-md bg-muted/40 border border-border">
@@ -796,8 +809,9 @@ export function RulePerformanceTable({
               <tbody>
                 {historicalRules.map((r, i) => {
                   const impact = r.monthlyRevenueImpact;
-                  const isWin = impact != null && impact > 0;
-                  const isLoss = impact != null && impact <= 0;
+                  const adj = impact != null ? occAdjustedDelta(r) : null;
+                  const isWin = adj != null && adj > 0;
+                  const isLoss = adj != null && adj <= 0;
                   const cleanName = r.ruleName.replace(/^Historical:\s*/i, '');
                   return (
                     <tr
