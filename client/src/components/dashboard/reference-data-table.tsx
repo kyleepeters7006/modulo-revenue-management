@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -606,36 +605,98 @@ export default function ReferenceDataTable({
 
   const activeFilterCount = Object.values(filters).filter((v) => v.trim() !== "").length;
 
-  // ── export ──
-  const handleExport = useCallback(() => {
-    const headerRow1: string[] = [];
-    const headerRow2: string[] = [];
-    const merges: XLSX.Range[] = [];
-    let colIdx = 0;
-    for (const g of dynGroups) {
+  // ── export (ExcelJS — preserves table formatting: colored group headers,
+  // number formats with % / $ / +− colors, banded rows, frozen headers) ──
+  const handleExport = useCallback(async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Reference Data", {
+      views: [{ state: "frozen", ySplit: 2 }],
+    });
+
+    const numFmtFor = (t: ColType): string | null => {
+      switch (t) {
+        case "int": return "#,##0";
+        case "num1": return "0.0";
+        case "num1signed": return '[Color 17]+0.0;[Red]-0.0;0.0';
+        case "pct": return '0.0"%"';
+        case "pctfrac": return "0.0%";
+        case "pctfracsigned": return '[Color 17]+0.0%;[Red]-0.0%;0.0%';
+        case "money": return '"$"#,##0';
+        case "moneysigned": return '[Color 17]+"$"#,##0;[Red]-"$"#,##0;"$"0';
+        default: return null;
+      }
+    };
+
+    const thin = { style: "thin" as const, color: { argb: "FFD1D5DB" } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+    // Alternate group header colors like the UI (dark blue / brighter blue)
+    const groupFills = ["FF1E3A8A", "FF2563EB"];
+
+    // Row 1: merged group headers; Row 2: column labels
+    const row1 = ws.getRow(1);
+    const row2 = ws.getRow(2);
+    let col = 1;
+    dynGroups.forEach((g, gi) => {
       const groupLabel = g.ruleInfo ? `${g.label} – ${g.ruleInfo.name}` : g.label;
-      headerRow1.push(groupLabel);
-      headerRow2.push(g.cols[0].label);
-      for (let i = 1; i < g.cols.length; i++) {
-        headerRow1.push("");
-        headerRow2.push(g.cols[i].label);
+      const start = col;
+      const end = col + g.cols.length - 1;
+      if (end > start) ws.mergeCells(1, start, 1, end);
+      const gc = row1.getCell(start);
+      gc.value = groupLabel;
+      gc.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+      gc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: groupFills[gi % groupFills.length] } };
+      gc.alignment = { horizontal: "center", vertical: "middle" };
+      for (let c = start; c <= end; c++) {
+        row1.getCell(c).border = border;
+        const hc = row2.getCell(c);
+        hc.value = g.cols[c - start].label;
+        hc.font = { bold: true, size: 9, color: { argb: "FF1E293B" } };
+        hc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+        hc.alignment = { horizontal: c - start === 0 && g.cols[0].type === "text" ? "left" : "center", vertical: "middle" };
+        hc.border = border;
       }
-      if (g.cols.length > 1) {
-        merges.push({ s: { r: 0, c: colIdx }, e: { r: 0, c: colIdx + g.cols.length - 1 } });
-      }
-      colIdx += g.cols.length;
-    }
-    const dataRows = processedRows.map((row) =>
-      dynAllCols.map((c) => rawForExport(row[c.key], c.type))
-    );
-    const aoa = [headerRow1, headerRow2, ...dataRows];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!merges"] = merges;
-    ws["!cols"] = dynAllCols.map((c) => ({ wpx: c.w }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Reference Data");
+      col = end + 1;
+    });
+    row1.height = 20;
+    row2.height = 18;
+
+    // Column widths (px → approx char width) and number formats
+    dynAllCols.forEach((c, i) => {
+      const column = ws.getColumn(i + 1);
+      column.width = Math.max(8, Math.round(c.w / 7));
+      const fmt = numFmtFor(c.type);
+      if (fmt) column.numFmt = fmt;
+      column.alignment = c.type === "text" ? { horizontal: "left" } : { horizontal: "right" };
+    });
+
+    // Data rows with light banding
+    processedRows.forEach((row, ri) => {
+      const r = ws.getRow(ri + 3);
+      dynAllCols.forEach((c, ci) => {
+        const cell = r.getCell(ci + 1);
+        cell.value = rawForExport(row[c.key], c.type);
+        cell.border = border;
+        if (ri % 2 === 1) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
+        }
+      });
+    });
+
+    ws.autoFilter = {
+      from: { row: 2, column: 1 },
+      to: { row: 2, column: dynAllCols.length },
+    };
+
     const stamp = data?.spotMonth ?? new Date().toISOString().slice(0, 7);
-    XLSX.writeFile(wb, `Reference_Data_${stamp}.xlsx`);
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Reference_Data_${stamp}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
   }, [processedRows, data?.spotMonth, dynGroups, dynAllCols]);
 
   // ── shared cell styling ──
