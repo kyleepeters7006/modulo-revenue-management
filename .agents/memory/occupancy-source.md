@@ -11,7 +11,5 @@ Always read occupancy from `room_type_occupancy_history` (SUM occ_units / SUM av
 **How to apply:**
 - Before adding any new endpoint that shows occupancy, check whether it queries RTO first.
 - Pattern: query RTO grouped appropriately, set `hasRTO = avail > 0`, use RTO when true.
-- For combined service_line strings (e.g. "AL, AL/MC"): distribute occ/avail proportionally using rent-roll unit counts per location+SL as weights — and ALWAYS exclude B beds (room numbers ending "B" for AL, AL/MC, SL, VIL) from the weight counts so the split reflects physical rooms. All endpoints must use identical weights or pages disagree. Weights must not depend on the active serviceLine filter.
+- For combined service_line strings (e.g. "AL, AL/MC"): split via the shared `splitCombinedSl` helper in `server/services/slSplit.ts` — avail distributed by rent-roll UNIT counts, occ by rent-roll OCCUPIED counts (so fuller lines like AL/MC aren't flattened to the building blend), with occ clamped ≤ avail and excess redistributed. Weights ALWAYS exclude B beds via the shared predicate (`slWeightSqlPredicate` / `isSlWeightUnit`) so all endpoints use identical weights; weights must not depend on the active serviceLine filter.
 - Compute displayed percentages BEFORE rounding numerator/denominator (rounded-count division causes 0.1–0.4pt drift between pages).
-- Endpoints confirmed already using RTO: /api/overview, /api/analytics/campus-metrics, /api/pricing-controls/commentary, rule-performance endpoint.
-- Endpoints fixed to use RTO: /api/ai/suggest, /api/ai/chat, /api/pricing-controls/competitive-position, single-unit AI pricing.

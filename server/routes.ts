@@ -84,6 +84,7 @@ import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adj
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
+import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
 import { z } from "zod";
 import multer from "multer";
 import Papa from "papaparse";
@@ -8799,34 +8800,37 @@ ${campusOccLines.join('\n')}
             // These are the proportional weights for splitting combined-SL history rows
             // (e.g. "AL, SL, VIL") into individual standard service lines.
             const rlLocSlRes = await pool.query(`
-              SELECT location, service_line, COUNT(*) AS cnt
+              SELECT location, service_line, COUNT(*) AS cnt,
+                     COUNT(*) FILTER (WHERE occupied_yn) AS occ_cnt
               FROM rent_roll_data
               WHERE client_id = $1 AND upload_month = $2
-                AND NOT (service_line IN ('AL','SL','VIL','IL','AL/MC') AND room_number LIKE '%/B')
+                AND ${slWeightSqlPredicate()}
               GROUP BY location, service_line
             `, [clientId, mostRecentMonth]);
-            // rlUnitsByLocSL[location][serviceLine] = unit count
-            const rlUnitsByLocSL: Record<string, Record<string, number>> = {};
+            // rlUnitsByLocSL[location][serviceLine] = { units, occupied }
+            const rlUnitsByLocSL: Record<string, Record<string, SlWeight>> = {};
             for (const row of rlLocSlRes.rows as any[]) {
               if (!rlUnitsByLocSL[row.location]) rlUnitsByLocSL[row.location] = {};
-              rlUnitsByLocSL[row.location][row.service_line] = parseInt(row.cnt || '0');
+              rlUnitsByLocSL[row.location][row.service_line] = {
+                units: parseInt(row.cnt || '0'),
+                occupied: parseInt(row.occ_cnt || '0'),
+              };
             }
             // Global fallback weights (sum across all locations)
-            const rlUnitsGlobal: Record<string, number> = {};
+            const rlUnitsGlobal: Record<string, SlWeight> = {};
             for (const locMap of Object.values(rlUnitsByLocSL)) {
-              for (const [sl, cnt] of Object.entries(locMap)) {
-                rlUnitsGlobal[sl] = (rlUnitsGlobal[sl] || 0) + cnt;
+              for (const [sl, wt] of Object.entries(locMap)) {
+                const g = rlUnitsGlobal[sl] || { units: 0, occupied: 0 };
+                g.units += wt.units; g.occupied += wt.occupied;
+                rlUnitsGlobal[sl] = g;
               }
             }
 
-            // Helper: distribute occ/avail proportionally across a list of SL tokens
+            // Distribute occ/avail across SL tokens: avail by unit counts,
+            // occ by occupied counts (shared methodology — see slSplit.ts)
             const distribute = (tokens: string[], locName: string, occ: number, avail: number) => {
               const locWeights = rlUnitsByLocSL[locName] || rlUnitsGlobal;
-              const groupTotal = tokens.reduce((s, t) => s + (locWeights[t] || 0), 0);
-              return tokens.map(t => {
-                const share = groupTotal > 0 ? (locWeights[t] || 0) / groupTotal : 1 / tokens.length;
-                return { sl: t, occ: occ * share, avail: avail * share };
-              });
+              return splitCombinedSl(tokens, occ, avail, (sl) => locWeights[sl] || rlUnitsGlobal[sl] || { units: 0, occupied: 0 });
             };
 
             // Reset monthlyData and sameStoreData for occupancy with RTO totals
@@ -9965,12 +9969,16 @@ ${campusOccLines.join('\n')}
           ) as any;
         }
 
-        // Rent-roll unit count per (campus, sl) for proportional distribution when
-        // history uses combined SL strings like "AL, AL/MC, HC".
-        const rlCampusSL = new Map<string, number>();
+        // Rent-roll unit + occupied counts per (campus, sl) for proportional
+        // distribution when history uses combined SL strings like "AL, AL/MC, HC".
+        const rlCampusSL = new Map<string, SlWeight>();
         for (const u of unitLevelData) {
+          if (!isSlWeightUnit(u.serviceLine, u.roomNumber)) continue;
           const key = `${u.location}||${u.serviceLine}`;
-          rlCampusSL.set(key, (rlCampusSL.get(key) ?? 0) + 1);
+          const e = rlCampusSL.get(key) ?? { units: 0, occupied: 0 };
+          e.units += 1;
+          if (u.occupiedYN) e.occupied += 1;
+          rlCampusSL.set(key, e);
         }
 
         for (const r of histRes.rows) {
@@ -9981,15 +9989,12 @@ ${campusOccLines.join('\n')}
 
           // service_line may be a combined string like "AL, AL/MC, HC"
           const sls = r.service_line.split(',').map((s: string) => s.trim()).filter(Boolean);
-          const groupTotal = sls.reduce((s: number, sl: string) =>
-            s + (rlCampusSL.get(`${r.location_name}||${sl}`) ?? 0), 0);
-          for (const sl of sls) {
-            if (!summaryByServiceLine[sl]) continue;
-            const share = groupTotal > 0
-              ? (rlCampusSL.get(`${r.location_name}||${sl}`) ?? 0) / groupTotal
-              : 1 / sls.length;
-            summaryByServiceLine[sl].totalUnits    += avail * share;
-            summaryByServiceLine[sl].occupancyCount += occ  * share;
+          const parts = splitCombinedSl(sls, occ, avail, (sl) =>
+            rlCampusSL.get(`${r.location_name}||${sl}`) ?? { units: 0, occupied: 0 });
+          for (const p of parts) {
+            if (!summaryByServiceLine[p.sl]) continue;
+            summaryByServiceLine[p.sl].totalUnits     += p.avail;
+            summaryByServiceLine[p.sl].occupancyCount += p.occ;
           }
         }
       } catch (_e: any) {
@@ -15367,20 +15372,24 @@ Return ONLY valid JSON with no markdown fences:
         // B beds (room numbers ending in "B") are excluded for senior-housing SLs so
         // weights reflect physical rooms — keeps occupancy identical to the rate card.
         pool.query(`
-          SELECT rr.location, rr.service_line, COUNT(*) AS total_cnt
+          SELECT rr.location, rr.service_line, COUNT(*) AS total_cnt,
+                 COUNT(*) FILTER (WHERE rr.occupied_yn) AS occ_cnt
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
           WHERE ${weightWhere}
-            AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL') AND rr.room_number LIKE '%B')
+            AND ${slWeightSqlPredicate('rr.')}
           GROUP BY rr.location, rr.service_line
         `, weightParams),
       ]);
 
       if (!ourRates.rows.length) return res.json([]);
 
-      const rlUnitsByLocSL = new Map<string, number>();
+      const rlUnitsByLocSL = new Map<string, SlWeight>();
       for (const row of weightRes.rows) {
-        rlUnitsByLocSL.set(`${row.location}|||${row.service_line}`, Number(row.total_cnt) || 0);
+        rlUnitsByLocSL.set(`${row.location}|||${row.service_line}`, {
+          units: Number(row.total_cnt) || 0,
+          occupied: Number(row.occ_cnt) || 0,
+        });
       }
 
       // Build per-location+SL RTO occupancy map: "location|||SL" -> occ% (0-100).
@@ -15393,23 +15402,14 @@ Return ONLY valid JSON with no markdown fences:
         const av  = parseFloat(r.avail || '0');
         if (av <= 0) continue;
         const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
-        if (tokens.length === 1) {
-          const key = `${loc}|||${tokens[0]}`;
+        const parts = splitCombinedSl(tokens, o, av, (sl) =>
+          rlUnitsByLocSL.get(`${loc}|||${sl}`) || { units: 0, occupied: 0 });
+        for (const p of parts) {
+          if (p.avail <= 0 && p.occ <= 0) continue;
+          const key = `${loc}|||${p.sl}`;
           const e = rtoDist.get(key) || { occ: 0, avail: 0 };
-          e.occ += o; e.avail += av;
+          e.occ += p.occ; e.avail += p.avail;
           rtoDist.set(key, e);
-        } else {
-          const groupTotal = tokens.reduce((s, sl) => s + (rlUnitsByLocSL.get(`${loc}|||${sl}`) || 0), 0);
-          for (const sl of tokens) {
-            const share = groupTotal > 0
-              ? (rlUnitsByLocSL.get(`${loc}|||${sl}`) || 0) / groupTotal
-              : 1 / tokens.length;
-            if (share <= 0) continue;
-            const key = `${loc}|||${sl}`;
-            const e = rtoDist.get(key) || { occ: 0, avail: 0 };
-            e.occ += o * share; e.avail += av * share;
-            rtoDist.set(key, e);
-          }
         }
       }
       const rtoOccMap = new Map<string, number>();
@@ -15623,7 +15623,8 @@ Return ONLY valid JSON with no markdown fences:
           SELECT rrd.service_line,
             COUNT(*) FILTER (WHERE NOT rrd.occupied_yn) AS vacant,
             COUNT(*) AS total,
-            COUNT(*) FILTER (WHERE NOT (rrd.service_line IN ('AL','AL/MC','SL','VIL') AND rrd.room_number LIKE '%B')) AS weight_cnt,
+            COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rrd.')}) AS weight_cnt,
+            COUNT(*) FILTER (WHERE rrd.occupied_yn AND ${slWeightSqlPredicate('rrd.')}) AS weight_occ_cnt,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
             ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
             ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
@@ -15720,8 +15721,13 @@ Return ONLY valid JSON with no markdown fences:
       // Key: "YYYY-MM|canonicalSL" → {occ, avail}
       // Combined SL strings (e.g. "AL, AL/MC") are distributed to each token using
       // the same rent-roll unit-count weights used by the snapshot distribution.
-      const rlUnitsBySL: Record<string, number> = {};
-      for (const r of slRows) rlUnitsBySL[r.service_line] = parseInt(r.weight_cnt ?? r.total ?? '0');
+      const rlUnitsBySL: Record<string, SlWeight> = {};
+      for (const r of slRows) {
+        rlUnitsBySL[r.service_line] = {
+          units: parseInt(r.weight_cnt ?? r.total ?? '0'),
+          occupied: parseInt(r.weight_occ_cnt ?? '0'),
+        };
+      }
 
       const rohTrendRows = rohTrendRes.rows;
       // Map: "YYYY-MM|rawSL" → {occ, avail}
@@ -15739,20 +15745,13 @@ Return ONLY valid JSON with no markdown fences:
       for (const [rawKey, data] of Object.entries(rohTrendRaw)) {
         const [ym, rawSL] = rawKey.split('|');
         const tokens = rawSL.split(',').map((t: string) => t.trim()).filter(Boolean);
-        if (tokens.length === 1) {
-          const k = `${ym}|${tokens[0]}`;
+        const parts = splitCombinedSl(tokens, data.occ, data.avail, (sl) =>
+          rlUnitsBySL[sl] || { units: 0, occupied: 0 });
+        for (const p of parts) {
+          const k = `${ym}|${p.sl}`;
           const prev = rohTrendBySLMonth[k] || { occ: 0, avail: 0 };
-          prev.occ += data.occ; prev.avail += data.avail;
+          prev.occ += p.occ; prev.avail += p.avail;
           rohTrendBySLMonth[k] = prev;
-        } else {
-          const groupTotal = tokens.reduce((s: number, sl: string) => s + (rlUnitsBySL[sl] || 0), 0);
-          for (const sl of tokens) {
-            const share = groupTotal > 0 ? (rlUnitsBySL[sl] || 0) / groupTotal : 1 / tokens.length;
-            const k = `${ym}|${sl}`;
-            const prev = rohTrendBySLMonth[k] || { occ: 0, avail: 0 };
-            prev.occ += data.occ * share; prev.avail += data.avail * share;
-            rohTrendBySLMonth[k] = prev;
-          }
         }
       }
       const hasRohTrend = Object.keys(rohTrendBySLMonth).length > 0;
@@ -15793,19 +15792,12 @@ Return ONLY valid JSON with no markdown fences:
         const occ   = parseFloat(r.occ   || '0');
         const avail = parseFloat(r.avail || '0');
         const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
-        if (tokens.length === 1) {
-          const e = rohBySLDist[tokens[0]] || { occ: 0, avail: 0 };
-          e.occ += occ; e.avail += avail;
-          rohBySLDist[tokens[0]] = e;
-        } else {
-          const groupTotal = tokens.reduce((s: number, sl: string) => s + (rlUnitsBySL[sl] || 0), 0);
-          const denom = groupTotal > 0 ? groupTotal : tokens.length;
-          for (const sl of tokens) {
-            const share = groupTotal > 0 ? (rlUnitsBySL[sl] || 0) / denom : 1 / tokens.length;
-            const e = rohBySLDist[sl] || { occ: 0, avail: 0 };
-            e.occ += occ * share; e.avail += avail * share;
-            rohBySLDist[sl] = e;
-          }
+        const parts = splitCombinedSl(tokens, occ, avail, (sl) =>
+          rlUnitsBySL[sl] || { units: 0, occupied: 0 });
+        for (const p of parts) {
+          const e = rohBySLDist[p.sl] || { occ: 0, avail: 0 };
+          e.occ += p.occ; e.avail += p.avail;
+          rohBySLDist[p.sl] = e;
         }
       }
 
