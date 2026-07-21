@@ -867,6 +867,25 @@ export function RulePerformanceTable({
                     onCalcClick: (title, metrics) => setCalcOpen({ title, metrics }),
                   })}
                 </tbody>
+                <tfoot className="sticky bottom-0 z-10">
+                  <tr className="bg-muted font-semibold border-t-2 border-border">
+                    <td className="px-3 py-2.5 text-sm">Total</td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground">—</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-sm" data-testid="text-total-units-impacted">
+                      {totals.unitsImpacted.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-sm">
+                      {totals.unitsSold.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2.5" />
+                    <td className={`px-3 py-2.5 text-right tabular-nums text-sm ${totals.monthly >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {fmtMoney(totals.monthly)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums text-sm ${totals.annual >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {fmtMoney(totals.annual)}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
