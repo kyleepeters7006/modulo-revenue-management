@@ -194,7 +194,6 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           {/* KPI strip */}
           <div className="flex flex-wrap gap-3">
             <KpiCard label="Net Annual Impact" value={fmt(totalNet)} color={totalNet >= 0 ? "text-emerald-600" : "text-red-600"} />
-            <KpiCard label="Revenue Lift" value={fmt(lift)} color="text-emerald-600" />
             <KpiCard label="Concessions" value={fmt(conc)} color="text-red-600" />
             {statsData?.uniqueCampuses != null && (
               <KpiCard label="Campuses" value={String(statsData.uniqueCampuses)} color="text-slate-800" />

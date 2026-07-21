@@ -828,14 +828,10 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               </DialogHeader>
 
               {/* Summary KPIs */}
-              <div className="grid grid-cols-3 gap-3 p-4 bg-slate-50 rounded-lg">
+              <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-lg">
                 <div className="text-center">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Net Annual Impact</p>
                   <p className={`text-2xl font-black ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
-                </div>
-                <div className="text-center border-l border-slate-200">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Revenue Lift</p>
-                  <p className="text-2xl font-black text-emerald-500">{positiveImpact > 0 ? fmtImpact(positiveImpact) : '—'}</p>
                 </div>
                 <div className="text-center border-l border-slate-200">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Concessions</p>
@@ -1154,12 +1150,6 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Net Annual Impact</p>
               <p className={`text-2xl font-black leading-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
             </div>
-            {positiveImpact > 0 && (
-              <div className="border-l border-slate-100 pl-6">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Revenue Lift</p>
-                <p className="text-2xl font-black leading-tight text-emerald-500">{fmtImpact(positiveImpact)}</p>
-              </div>
-            )}
           </div>
         )}
       </div>
