@@ -21,9 +21,11 @@ postgres_sku        = "B_Standard_B2ms"        # GP_Standard_D2ds_v5 for prod
 postgres_storage_mb = 65536
 postgres_version    = "16"
 
-redis_sku      = "Basic"
-redis_family   = "C"
-redis_capacity = 0
+# Optional private-link subnet for future endpoints.
+subnet_privatelink_cidr = "10.40.3.0/24"
+
+# Reserved for future Redis deployment if you decide to add it.
+redis_managed_sku_name = "Balanced_B1"
 
 # Object IDs (GUIDs from Entra ID) that get Key Vault Administrator.
 # Use `az ad signed-in-user show --query id -o tsv` to find your own.
