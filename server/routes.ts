@@ -18291,6 +18291,27 @@ Return ONLY valid JSON, no markdown fences:
       // street_rate is the mode per (campus, SL, RT) — uniform per room type — so computing
       // the adjusted rate from the aggregated avg_street is equivalent to the per-unit query.
       const ruleRatesMap = new Map<string, number>();
+
+      // IH-to-street variance % per (campus, SL) from spot-month rows, occupied-weighted.
+      // Mirrors the rule engine's methodology: Companion units excluded, occupied in-house
+      // rates vs street rates. Used to evaluate ih_street_variance trigger conditions.
+      const refIhVar = new Map<string, number>();
+      {
+        const _ihAcc = new Map<string, { ih: number; st: number }>();
+        for (const r of aggRes.rows as any[]) {
+          if (r.month !== spotMonth) continue;
+          if (r.room_type === 'Companion') continue;
+          const st = Number(r.avg_street) || 0, ih = Number(r.avg_ih) || 0;
+          const occ = Number(r.occupied) || 0;
+          if (st <= 0 || ih <= 0 || occ <= 0) continue;
+          const k = `${r.campus}||${r.service_line}`;
+          const e = _ihAcc.get(k) || { ih: 0, st: 0 };
+          e.ih += ih * occ; e.st += st * occ;
+          _ihAcc.set(k, e);
+        }
+        _ihAcc.forEach((e, k) => { if (e.st > 0) refIhVar.set(k, (e.ih - e.st) / e.st * 100); });
+      }
+
       for (const rule of activeRules) {
         const action = (rule.action as any) || {};
         const filters = action.filters || {};
@@ -18332,23 +18353,38 @@ Return ONLY valid JSON, no markdown fences:
           const [campus, sl, rt] = gKey.split('||');
           const avgAdjRate = sum / count;
 
-          // Evaluate the rule's trigger condition against spot-month occupancy
+          // Evaluate the rule's trigger conditions against spot-month metrics.
+          // Supports both the legacy single `condition` object and the current
+          // `conditions` array with AND/OR conditionOperator (matches the rule engine).
           const trig = rule.trigger as any;
-          if (trig?.type === 'condition' && trig.condition?.field) {
-            const { field, operator, value } = trig.condition as { field: string; operator: string; value: number };
-            let metricVal: number | null = null;
-            if (field === 'service_line_occupancy') {
-              metricVal = refSlOcc.get(`${campus}||${sl}`) ?? null;
-            } else if (field === 'occupancy' || field === 'campus_occupancy') {
-              metricVal = refCampusOcc.get(campus) ?? null;
-            }
-            if (metricVal !== null) {
-              const passes =
-                operator === '>='  ? metricVal >= value :
-                operator === '>'   ? metricVal >  value :
-                operator === '<='  ? metricVal <= value :
-                operator === '<'   ? metricVal <  value :
-                Math.abs(metricVal - value) < 0.001;
+          if (trig?.type === 'condition') {
+            const conds: Array<{ field: string; operator: string; value: number }> =
+              Array.isArray(trig.conditions) && trig.conditions.length
+                ? trig.conditions
+                : (trig.condition?.field ? [trig.condition] : []);
+            if (conds.length) {
+              const evalCond = (c: { field: string; operator: string; value: number }): boolean => {
+                let metricVal: number | null = null;
+                if (c.field === 'service_line_occupancy') {
+                  metricVal = refSlOcc.get(`${campus}||${sl}`) ?? null;
+                } else if (c.field === 'occupancy' || c.field === 'campus_occupancy') {
+                  metricVal = refCampusOcc.get(campus) ?? null;
+                } else if (c.field === 'ih_street_variance' || c.field === 'street_to_ih_var') {
+                  metricVal = refIhVar.get(`${campus}||${sl}`) ?? null;
+                } else {
+                  // Metric not computable from aggregated data — don't block display on it
+                  return true;
+                }
+                // Mirror the rule engine: missing metric data means the condition fails
+                if (metricVal === null) return false;
+                return c.operator === '>='  ? metricVal >= c.value :
+                       c.operator === '>'   ? metricVal >  c.value :
+                       c.operator === '<='  ? metricVal <= c.value :
+                       c.operator === '<'   ? metricVal <  c.value :
+                       Math.abs(metricVal - c.value) < 0.001;
+              };
+              const op = String(trig.conditionOperator || 'AND').toUpperCase();
+              const passes = op === 'OR' ? conds.some(evalCond) : conds.every(evalCond);
               if (!passes) continue;
             }
           }

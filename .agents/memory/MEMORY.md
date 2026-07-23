@@ -10,4 +10,5 @@
 - [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative; combined-SL rows split by identical B-bed-excluded weights everywhere; compute % before rounding counts.
 - [Pricing cycle superseding](pricing-cycle-superseding.md) — latest-cycle-wins logic in applyAdjustmentRulesToUnit prevents Apr/Jul cycle stacking; supersededIds in UI marks older-cycle rules crossed-out.
 - [IH-to-street variance metric](ih-street-variance-metric.md) — field aliases ih_street_variance/street_to_ih_var; compute from rent roll, never trust the sparse table cache alone.
+- [Rule preview / engine trigger parity](rule-preview-parity.md) — triggers are a conditions[] array (AND/OR); preview code must evaluate both shapes and match engine metric scales.
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
