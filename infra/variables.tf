@@ -9,6 +9,12 @@ variable "name_prefix" {
   }
 }
 
+variable "app_instance_count" {
+  description = "Number of workers for the App Service plan."
+  type        = number
+  default     = 1
+}
+
 variable "environment" {
   description = "Deployment environment. Used in resource names and tags."
   type        = string
@@ -21,7 +27,7 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Azure region. Use a region that supports all required services (App Service, Postgres Flexible Server, Redis, Private DNS)."
+  description = "Azure region. Use a region that supports all required services (App Service, Postgres Flexible Server, Private DNS)."
   type        = string
   default     = "eastus2"
 }
@@ -57,7 +63,7 @@ variable "subnet_postgres_cidr" {
 }
 
 variable "subnet_privatelink_cidr" {
-  description = "Subnet for private endpoints (Redis, Key Vault if desired)."
+  description = "Subnet used for private link services and private endpoints."
   type        = string
   default     = "10.40.3.0/24"
 }
@@ -90,11 +96,7 @@ variable "app_always_on" {
   default     = true
 }
 
-variable "app_instance_count" {
-  description = "Number of App Service instances. >1 requires the Redis-backed session store and a Redis-lock around the daily cron."
-  type        = number
-  default     = 1
-}
+
 
 # -----------------------------------------------------------------------------
 # PostgreSQL Flexible Server
@@ -143,31 +145,14 @@ variable "postgres_geo_redundant_backup" {
 }
 
 # -----------------------------------------------------------------------------
-# Redis
+# Redis (Azure Managed Redis)
 # -----------------------------------------------------------------------------
 
-variable "redis_sku" {
-  description = "Redis SKU: Basic, Standard, or Premium."
-  type        = string
-  default     = "Basic"
-
-  validation {
-    condition     = contains(["Basic", "Standard", "Premium"], var.redis_sku)
-    error_message = "redis_sku must be Basic, Standard, or Premium."
-  }
-}
-
-variable "redis_family" {
-  description = "Redis family: C (Basic/Standard) or P (Premium)."
-  type        = string
-  default     = "C"
-}
-
-variable "redis_capacity" {
-  description = "Redis capacity. For Basic/Standard C: 0-6. For Premium P: 1-5."
-  type        = number
-  default     = 0
-}
+#variable "redis_managed_sku_name" {
+#  description = "Azure Managed Redis SKU. Example values: Balanced_B1, Balanced_B3, MemoryOptimized_M1, ComputeOptimized_C1."
+#  type        = string
+#  default     = "Balanced_B1"
+#}
 
 # -----------------------------------------------------------------------------
 # Secrets (populate with `-var` or via Key Vault references after apply)
@@ -211,34 +196,6 @@ variable "session_secret" {
   sensitive   = true
 }
 
-variable "seed_secret" {
-  description = "Shared secret for the x-seed-secret header on /api/admin/seed-* endpoints (SEED_SECRET)."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "trilogy_password" {
-  description = "Initial password for the trilogy_admin account, consumed once by the seed-clients endpoint (TRILOGY_PASSWORD)."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "glm_password" {
-  description = "Initial password for the glm_admin account, consumed once by the seed-clients endpoint (GLM_PASSWORD)."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "ssmg_password" {
-  description = "Initial password for the ssmg_admin account, consumed once by the seed-clients endpoint (SSMG_PASSWORD)."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
 # -----------------------------------------------------------------------------
 # Access control
 # -----------------------------------------------------------------------------
@@ -247,4 +204,32 @@ variable "kv_admin_object_ids" {
   description = "Azure AD object IDs (users, groups, service principals) that get Key Vault Administrator at deploy time. Usually your own object ID + the CI service principal."
   type        = list(string)
   default     = []
+}
+
+variable "seed_secret" {
+  description = "Seed secret used by admin seeding endpoints. Leave blank to create a placeholder."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "trilogy_password" {
+  description = "Password used by the Trilogy integration. Leave blank to create a placeholder."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "glm_password" {
+  description = "Password used by the GLM integration. Leave blank to create a placeholder."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "ssmg_password" {
+  description = "Password used by the SSMG integration. Leave blank to create a placeholder."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
