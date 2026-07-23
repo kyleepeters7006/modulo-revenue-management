@@ -14500,7 +14500,114 @@ Respond in JSON format:
       res.status(500).json({ error: "Failed to create adjustment rule" });
     }
   });
-  
+
+  // POST /api/adjustment-rules/from-filters
+  // Structured rule creation from the Reference Data table's current filter scope.
+  // Body: { adjustmentType: 'percentage'|'absolute', adjustmentValue, effectiveDate?,
+  //         scope: { serviceLines?: string[], locations?: string[], roomTypes?: string[] } }
+  app.post("/api/adjustment-rules/from-filters", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { adjustmentType, adjustmentValue, effectiveDate, scope } = req.body || {};
+
+      if (!['percentage', 'absolute'].includes(adjustmentType)) {
+        return res.status(400).json({ error: "adjustmentType must be 'percentage' or 'absolute'" });
+      }
+      const adjVal = Number(adjustmentValue);
+      if (!Number.isFinite(adjVal) || adjVal === 0) {
+        return res.status(400).json({ error: "adjustmentValue must be a non-zero number" });
+      }
+      if (adjustmentType === 'percentage' && Math.abs(adjVal) > 50) {
+        return res.status(400).json({ error: "Percentage adjustment must be between -50 and 50" });
+      }
+      if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
+        return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
+      }
+
+      const serviceLines: string[] = Array.isArray(scope?.serviceLines) ? scope.serviceLines.filter(Boolean) : [];
+      const locationNames: string[] = Array.isArray(scope?.locations) ? scope.locations.filter(Boolean) : [];
+      const roomTypes: string[] = Array.isArray(scope?.roomTypes) ? scope.roomTypes.filter(Boolean) : [];
+
+      // Room types in the Reference Data table are display groups (room_type_groupings.group_name).
+      // Rule filters match raw unit.roomType, so expand any group names to their source room types.
+      let expandedRoomTypes: string[] | undefined;
+      if (roomTypes.length) {
+        const set = new Set<string>(roomTypes);
+        const rtgRes = await pool.query<{ source_room_type: string }>(
+          `SELECT DISTINCT source_room_type FROM room_type_groupings
+           WHERE client_id = $1 AND group_name = ANY($2)`,
+          [clientId, roomTypes]
+        );
+        for (const r of rtgRes.rows) if (r.source_room_type) set.add(r.source_room_type);
+        expandedRoomTypes = Array.from(set);
+      }
+
+      const action: any = {
+        type: 'adjust_rate',
+        target: 'street_rate',
+        adjustmentType,
+        adjustmentValue: adjVal,
+        isAdditive: false,
+        filters: {
+          ...(serviceLines.length ? { serviceLine: serviceLines } : {}),
+          ...(locationNames.length ? { location: locationNames } : {}),
+          ...(expandedRoomTypes?.length ? { roomType: expandedRoomTypes } : {}),
+        },
+      };
+      const trigger: any = { type: 'immediate' };
+
+      const dir = adjVal > 0 ? 'Increase' : 'Decrease';
+      const amount = adjustmentType === 'percentage' ? `${Math.abs(adjVal)}%` : `$${Math.abs(adjVal)}`;
+      // Compact name from the pre-expansion (group-level) scope
+      const listOrCount = (arr: string[], noun: string, max = 3) =>
+        arr.length === 0 ? null : arr.length <= max ? arr.join(', ') : `${arr.length} ${noun}`;
+      const nameBits = [
+        listOrCount(roomTypes, 'room types'),
+        listOrCount(serviceLines, 'service lines'),
+        listOrCount(locationNames, 'locations', 2),
+      ].filter(Boolean);
+      const name = `${dir} ${amount}${nameBits.length ? ` — ${nameBits.join(' · ')}` : ' — Portfolio'}`;
+      const scopeBits = [
+        roomTypes.length ? `room types: ${roomTypes.join(', ')}` : null,
+        serviceLines.length ? `service lines: ${serviceLines.join(', ')}` : null,
+        locationNames.length ? `locations: ${locationNames.join(', ')}` : null,
+      ].filter(Boolean);
+      const description = `${dir} street rate by ${amount}${scopeBits.length ? ` for ${scopeBits.join('; ')}` : ' portfolio-wide'} (created from Reference Data filters)`;
+
+      // Impact using the shared latest-month model
+      const impact = await computeRuleImpact({ action }, clientId);
+
+      const rule = await storage.createAdjustmentRule({
+        locationId: null,
+        serviceLine: serviceLines.length === 1 ? serviceLines[0] : null,
+        serviceLines: serviceLines.length > 1 ? serviceLines : null,
+        name,
+        description,
+        trigger,
+        action,
+        isActive: true,
+        isHistorical: false,
+        effectiveDate: effectiveDate || null,
+        createdBy: 'user',
+        monthlyImpact: Math.round(impact.monthlyImpact),
+        annualImpact: Math.round(impact.annualImpact),
+        volumeAdjustedAnnualImpact: Math.round(impact.volumeAdjustedAnnualImpact),
+      } as any);
+
+      purgeRuleCaches(clientId);
+      res.json({
+        rule,
+        affectedUnits: impact.affectedUnits,
+        affectedCampuses: impact.affectedCampuses,
+        monthlyImpact: Math.round(impact.monthlyImpact),
+        annualImpact: Math.round(impact.annualImpact),
+      });
+    } catch (error) {
+      console.error('Error creating rule from filters:', error);
+      res.status(500).json({ error: "Failed to create rule" });
+    }
+  });
+
   // Helper: compute revenue impact for an adjustment rule using the latest month's data
   async function computeRuleImpact(
     rule: any,
@@ -14523,7 +14630,7 @@ Respond in JSON format:
         [clientId]
       );
       const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
-      if (!latestMonth) return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0 };
+      if (!latestMonth) return { monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnualImpact: 0, affectedUnits: 0, affectedCampuses: 0 };
 
       const whereParts: string[] = ['client_id = $1', 'upload_month = $2'];
       const params: any[] = [clientId, latestMonth];
@@ -14538,6 +14645,10 @@ Respond in JSON format:
       if (filters.roomType?.length) {
         whereParts.push(`room_type = ANY($${idx}::text[])`);
         params.push(filters.roomType); idx++;
+      }
+      if (filters.location?.length) {
+        whereParts.push(`location = ANY($${idx}::text[])`);
+        params.push(filters.location); idx++;
       }
       // rule.serviceLine is authoritative — override stale action.filters.serviceLine
       // so pre-#336 rules (saved with ['AL'] instead of ['AL/MC']) count the right units.
@@ -18080,6 +18191,7 @@ Return ONLY valid JSON, no markdown fences:
             loc.id                                           AS location_id,
             rr.location                                      AS campus,
             COALESCE(loc.division, '—')                      AS division,
+            COALESCE(loc.region, '—')                        AS region,
             rr.service_line                                  AS service_line,
             COALESCE(rtg.group_name, rr.room_type)           AS room_type,
             rr.upload_month                                  AS month,
@@ -18105,7 +18217,7 @@ Return ONLY valid JSON, no markdown fences:
             ON rtg.client_id = rr.client_id AND rtg.location = rr.location
            AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
           WHERE ${where}
-          GROUP BY loc.id, rr.location, loc.division, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.upload_month
+          GROUP BY loc.id, rr.location, loc.division, loc.region, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.upload_month
         `, params),
         // 4) Inquiry / tour by location+serviceLine+month
         pool.query(`
@@ -18399,7 +18511,7 @@ Return ONLY valid JSON, no markdown fences:
 
       type Agg = { month: string; total: number; occupied: number; avgDaysVacant: number|null; avgStreet: number|null; avgIh: number|null; avgCompBase: number|null; avgCompAdj: number|null; avgProposed: number|null; hcPrivatePay: number|null };
       // combo key
-      const comboMap = new Map<string, { division: string; campus: string; serviceLine: string; roomType: string; locationId: string|null; campusKey: string; byMonth: Map<string, Agg> }>();
+      const comboMap = new Map<string, { division: string; region: string; campus: string; serviceLine: string; roomType: string; locationId: string|null; campusKey: string; byMonth: Map<string, Agg> }>();
       // campus & service-line monthly occupancy: key -> month -> {total, occupied}
       const campusOcc = new Map<string, Map<string, { total: number; occupied: number }>>();
       const slOcc     = new Map<string, Map<string, { total: number; occupied: number }>>();
@@ -18412,7 +18524,7 @@ Return ONLY valid JSON, no markdown fences:
         // Stable campus identity: location_id disambiguates same-named campuses across divisions/imports
         const campusKey = `${r.location_id ?? ''}||${division}||${campus}`;
         const key = `${campusKey}||${sl}||${rt}`;
-        if (!comboMap.has(key)) comboMap.set(key, { division, campus, serviceLine: sl, roomType: rt, locationId: r.location_id ?? null, campusKey, byMonth: new Map() });
+        if (!comboMap.has(key)) comboMap.set(key, { division, region: r.region || '—', campus, serviceLine: sl, roomType: rt, locationId: r.location_id ?? null, campusKey, byMonth: new Map() });
         comboMap.get(key)!.byMonth.set(r.month, {
           month: r.month,
           total: Number(r.total) || 0,
@@ -18574,11 +18686,39 @@ Return ONLY valid JSON, no markdown fences:
         const totalUnits = spot?.total ?? rateWindow(bm, t3Months, 'total') ?? 0;
 
         const manualRate = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
-        const effectiveProposed = manualRate ?? proposed;
+        // Rule preview fallback: when no rate is stored in rent_roll_data (engine not
+        // yet run), use the preview rate of the first matching active rule so the
+        // Proposed Rates + Revenue Impact columns populate as soon as a rule matches.
+        let rulePreviewRate: number | null = null;
+        for (const rule of activeRules) {
+          const rr = ruleRatesMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}||${rule.id}`);
+          if (rr !== null && rr !== undefined) { rulePreviewRate = rr; break; }
+        }
+        const effectiveProposed = manualRate ?? proposed ?? rulePreviewRate;
         const monthlyImpact = (effectiveProposed !== null && ihSpot !== null) ? (effectiveProposed - ihSpot) * (totalUnits || 0) : null;
+
+        // YTD in-house revenue growth: revenue = avg in-house rate × occupied units.
+        // Baseline = earliest available month in the spot year; growth = (spot − base) / base.
+        const spotYear = spotMonth.slice(0, 4);
+        const yearMonths = months.filter(mm => mm.startsWith(spotYear)).sort();
+        let revYtdGrowth: number | null = null;
+        let ytdRevSpot: number | null = null;
+        let ytdRevBase: number | null = null;
+        if (yearMonths.length >= 2 && spot) {
+          const baseMonth = yearMonths[0];
+          const base = bm.get(baseMonth);
+          const spotRev = (spot.avgIh !== null) ? spot.avgIh * spot.occupied : null;
+          const baseRev = (base && base.avgIh !== null) ? base.avgIh * base.occupied : null;
+          if (spotRev !== null && baseRev !== null && baseRev > 0 && baseMonth !== spotMonth) {
+            revYtdGrowth = (spotRev - baseRev) / baseRev;
+            ytdRevSpot = spotRev;
+            ytdRevBase = baseRev;
+          }
+        }
 
         return {
           division: c.division,
+          region: c.region,
           campus: c.campus,
           serviceLine: c.serviceLine,
           roomType: c.roomType,
@@ -18701,6 +18841,10 @@ Return ONLY valid JSON, no markdown fences:
           revenueGrowthTarget:
             (c.locationId ? growthTargetMap.get(`${c.locationId}||${c.serviceLine}`) : undefined)
             ?? null,
+          // YTD in-house revenue growth (fraction, e.g. 0.023 = +2.3%)
+          revYtdGrowth,
+          ytdRevSpot,
+          ytdRevBase,
           // Monthly history for expandable column drill-down (up to 24 months)
           campusOccHistory: Object.fromEntries(
             months.map(mm => [mm, rtoOccWindow(rtoCampusMap.get(c.campus), [mm])])
@@ -18741,6 +18885,97 @@ Return ONLY valid JSON, no markdown fences:
     } catch (error) {
       console.error("Error building reference data:", error);
       res.status(500).json({ error: "Failed to build reference data" });
+    }
+  });
+
+  // GET /api/reference-data/units — Room Detail grouping level for the
+  // Reference Data table: one row per unit at the spot (latest) month.
+  app.get("/api/reference-data/units", async (req, res) => {
+    try {
+      const clientId: string = (req.session as any)?.clientId || 'demo';
+      const q = req.query as Record<string, string | undefined>;
+      const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
+      const regions     = csv(q.regions);
+      const divisions   = csv(q.divisions);
+      const locations   = csv(q.locations);
+      const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
+
+      const spotRes = await pool.query<{ m: string }>(
+        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id=$1`,
+        [clientId]
+      );
+      const spotMonth = spotRes.rows[0]?.m ?? null;
+      if (!spotMonth) return res.json({ rows: [], spotMonth: null });
+
+      const params: any[] = [clientId, spotMonth];
+      let where = `rr.client_id = $1 AND rr.upload_month = $2`;
+      if (serviceLine) { params.push(serviceLine); where += ` AND rr.service_line = $${params.length}`; }
+      if (locations.length)  { params.push(locations);  where += ` AND rr.location = ANY($${params.length})`; }
+      if (regions.length)    { params.push(regions);    where += ` AND loc.region = ANY($${params.length})`; }
+      if (divisions.length)  { params.push(divisions);  where += ` AND loc.division = ANY($${params.length})`; }
+
+      const unitsRes = await pool.query(`
+        SELECT
+          loc.id AS location_id,
+          COALESCE(loc.division, '—') AS division,
+          COALESCE(loc.region, '—')   AS region,
+          rr.location                 AS campus,
+          rr.service_line,
+          COALESCE(rtg.group_name, rr.room_type) AS room_type,
+          rr.room_number,
+          rr.occupied_yn,
+          rr.days_vacant,
+          NULLIF(rr.street_rate, 0)          AS street_rate,
+          NULLIF(rr.in_house_rate, 0)        AS in_house_rate,
+          NULLIF(rr.competitor_base_rate, 0) AS comp_base,
+          CASE WHEN rr.competitor_final_rate > 100 THEN rr.competitor_final_rate END AS comp_adj,
+          NULLIF(rr.rule_adjusted_rate, 0)   AS proposed_rate
+        FROM rent_roll_data rr
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+        LEFT JOIN room_type_groupings rtg
+          ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+         AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+        WHERE ${where}
+        ORDER BY loc.division, rr.location, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.room_number
+      `, params);
+
+      const num = (v: any) => (v === null || v === undefined ? null : Number(v));
+      const rows = unitsRes.rows.map((r: any) => {
+        const ihSpot = num(r.in_house_rate);
+        const streetSpot = num(r.street_rate);
+        const compBase = num(r.comp_base);
+        const compAdj = num(r.comp_adj);
+        const proposed = num(r.proposed_rate);
+        return {
+          division: r.division,
+          region: r.region,
+          campus: r.campus,
+          serviceLine: r.service_line || 'Other',
+          roomType: r.room_type || 'Other',
+          roomNumber: r.room_number,
+          occupiedStatus: r.occupied_yn ? 'Occupied' : 'Vacant',
+          locationId: r.location_id ?? null,
+          totalUnits: 1,
+          vacantSpot: r.occupied_yn ? 0 : 1,
+          daysVacantSpot: !r.occupied_yn ? num(r.days_vacant) : null,
+          streetSpot,
+          compBase,
+          compAdjusted: compAdj,
+          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0) ? (compAdj - compBase) / compBase : null,
+          ihSpot,
+          ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
+          proposedRule: proposed,
+          proposedVarDollar: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
+          proposedVarPct: (proposed !== null && ihSpot !== null && ihSpot !== 0) ? (proposed - ihSpot) / ihSpot : null,
+          revMonthlyImpact: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
+          revAnnualImpact: (proposed !== null && ihSpot !== null) ? (proposed - ihSpot) * 12 : null,
+        };
+      });
+
+      res.json({ rows, spotMonth });
+    } catch (error) {
+      console.error("Error building unit detail reference data:", error);
+      res.status(500).json({ error: "Failed to build unit detail data" });
     }
   });
 

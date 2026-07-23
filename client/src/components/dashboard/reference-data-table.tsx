@@ -32,8 +32,26 @@ import {
   ChevronDown,
   Pencil,
   Trash2,
+  Plus,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 
 // ── Column metadata ────────────────────────────────────────────────
 type ColType =
@@ -223,6 +241,7 @@ const GROUPS: GroupDef[] = [
     label: "Growth Target",
     cols: [
       { key: "revenueGrowthTarget", label: "Target", type: "pct", w: 70, tip: "Target annual revenue growth % set for this campus / service line on the Pricing Controls page." },
+      { key: "revYtdGrowth", label: "YTD", type: "pctfracsigned", w: 70, tip: "Year-to-date in-house revenue growth: latest month in-house revenue (rate × occupied units) vs the first month of this year." },
     ],
   },
   {
@@ -245,33 +264,137 @@ const GROUPS: GroupDef[] = [
   },
 ];
 
-const ALL_COLS: ColDef[] = GROUPS.flatMap((g) => g.cols);
-const FROZEN_COLS = ALL_COLS.filter((c) => c.frozen);
-const MOBILE_FROZEN_COLS = ALL_COLS.filter((c) => c.mobileFreeze);
 const NUMERIC_TYPES: ColType[] = ["int", "num1", "num1signed", "pct", "pctfrac", "pctfracsigned", "money", "moneysigned"];
 
-// cumulative left offsets for frozen columns (desktop)
-const FROZEN_LEFT: Record<string, number> = (() => {
-  const map: Record<string, number> = {};
-  let acc = 0;
-  for (const c of FROZEN_COLS) {
-    map[c.key] = acc;
-    acc += c.w;
-  }
-  return map;
-})();
-const FROZEN_TOTAL_WIDTH = FROZEN_COLS.reduce((s, c) => s + c.w, 0);
+// ── Grouping levels ────────────────────────────────────────────────
+type GroupLevel = "serviceLine" | "region" | "division" | "location" | "locationSL" | "roomType" | "roomDetail";
+const GROUP_LEVELS: { id: GroupLevel; label: string }[] = [
+  { id: "serviceLine", label: "Service Line" },
+  { id: "region", label: "Region" },
+  { id: "division", label: "Division" },
+  { id: "location", label: "Location" },
+  { id: "locationSL", label: "Location + SL" },
+  { id: "roomType", label: "Room Type" },
+  { id: "roomDetail", label: "Room Detail" },
+];
 
-// cumulative left offsets for mobile-frozen columns (use wMobile if set)
-const MOBILE_FROZEN_LEFT: Record<string, number> = (() => {
-  const map: Record<string, number> = {};
-  let acc = 0;
-  for (const c of MOBILE_FROZEN_COLS) {
-    map[c.key] = acc;
-    acc += c.wMobile ?? c.w;
+const COL_DIVISION = GROUPS[0].cols[0];
+const COL_CAMPUS = GROUPS[0].cols[1];
+const COL_SL = GROUPS[0].cols[2];
+const COL_RT = GROUPS[0].cols[3];
+const COL_UNITS = GROUPS[0].cols[4];
+const COL_REGION: ColDef = { key: "region", label: "Region", type: "text", w: 110, frozen: true, mobileFreeze: true, wMobile: 95, tip: "The operating region the campus belongs to." };
+const COL_ROOMNUM: ColDef = { key: "roomNumber", label: "Room #", type: "text", w: 70, frozen: true, tip: "Unit / room number." };
+const COL_STATUS: ColDef = { key: "occupiedStatus", label: "Status", type: "text", w: 75, frozen: true, tip: "Occupied or vacant status of this unit in the latest month." };
+
+function campusColsForLevel(level: GroupLevel): ColDef[] {
+  switch (level) {
+    case "serviceLine": return [COL_SL, COL_UNITS];
+    case "region": return [COL_REGION, COL_UNITS];
+    case "division": return [COL_DIVISION, COL_UNITS];
+    case "location": return [COL_DIVISION, COL_REGION, COL_CAMPUS, COL_UNITS];
+    case "locationSL": return [COL_DIVISION, COL_CAMPUS, COL_SL, COL_UNITS];
+    case "roomDetail": return [COL_DIVISION, COL_CAMPUS, COL_SL, COL_RT, COL_ROOMNUM, COL_STATUS, COL_UNITS];
+    default: return GROUPS[0].cols;
   }
-  return map;
-})();
+}
+
+// ── client-side aggregation for higher grouping levels ─────────────
+const AGG_SUM_KEYS = [
+  "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
+  "inqPrevMonth", "inqVsT3", "tourPrevMonth", "tourVsT3", "revT3MoveIns",
+  "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
+];
+const AGG_WAVG_KEYS = [
+  "campusOccSpot", "campusOccT3", "campusOccT12", "slOccSpot", "slOccT3", "slOccT12",
+  "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
+  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
+  "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
+  "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
+  "revenueGrowthTarget", "revYtdGrowth",
+];
+const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory"];
+
+function keyForLevel(r: Record<string, any>, level: GroupLevel): string {
+  switch (level) {
+    case "serviceLine": return String(r.serviceLine ?? "—");
+    case "region": return String(r.region ?? "—");
+    case "division": return String(r.division ?? "—");
+    case "location": return `${r.locationId ?? ""}||${r.division}||${r.campus}`;
+    default: return `${r.locationId ?? ""}||${r.division}||${r.campus}||${r.serviceLine}`;
+  }
+}
+
+function aggregateRows(
+  rows: Record<string, any>[],
+  level: GroupLevel,
+  ruleIds: string[],
+  monthsList: string[],
+): Record<string, any>[] {
+  const keyOf = (r: Record<string, any>) => keyForLevel(r, level);
+
+  const groups = new Map<string, Record<string, any>[]>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(r);
+  }
+
+  return Array.from(groups.values()).map((rs) => {
+    const first = rs[0];
+    const out: Record<string, any> = {
+      division: ["division", "location", "locationSL"].includes(level) ? first.division : "All",
+      region: ["region", "location"].includes(level) ? (first.region ?? "—") : "All",
+      campus: ["location", "locationSL"].includes(level) ? first.campus : "All",
+      serviceLine: ["serviceLine", "locationSL"].includes(level) ? first.serviceLine : "All",
+      roomType: "All",
+      locationId: ["location", "locationSL"].includes(level) ? first.locationId : null,
+      hasManualOverride: false,
+    };
+    for (const k of AGG_SUM_KEYS) {
+      let sum = 0, any = false;
+      for (const r of rs) { const v = r[k]; if (v !== null && v !== undefined) { sum += Number(v); any = true; } }
+      out[k] = any ? sum : null;
+    }
+    const wavg = (get: (r: Record<string, any>) => any) => {
+      let n = 0, d = 0;
+      for (const r of rs) {
+        const v = get(r);
+        if (v !== null && v !== undefined) { const w = Number(r.totalUnits) || 1; n += Number(v) * w; d += w; }
+      }
+      return d ? n / d : null;
+    };
+    for (const k of AGG_WAVG_KEYS) out[k] = wavg((r) => r[k]);
+    // YTD growth recomputed from summed revenue components (not averaged %s)
+    {
+      let spotSum = 0, baseSum = 0, anyYtd = false;
+      for (const r of rs) {
+        if (r.ytdRevSpot != null && r.ytdRevBase != null) {
+          spotSum += Number(r.ytdRevSpot); baseSum += Number(r.ytdRevBase); anyYtd = true;
+        }
+      }
+      out.revYtdGrowth = anyYtd && baseSum > 0 ? (spotSum - baseSum) / baseSum : null;
+    }
+    // Derived variances recomputed from aggregates
+    out.compVarDollar = (out.compAdjusted !== null && out.compBase !== null) ? out.compAdjusted - out.compBase : null;
+    out.compVarPct = (out.compAdjusted !== null && out.compBase !== null && out.compBase !== 0) ? (out.compAdjusted - out.compBase) / out.compBase : null;
+    out.ihVarStreetDollar = (out.ihSpot !== null && out.streetSpot !== null) ? out.ihSpot - out.streetSpot : null;
+    out.ihVarStreetPct = (out.ihSpot !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.ihSpot - out.streetSpot) / out.streetSpot : null;
+    out.proposedVarDollar = (out.proposedRule !== null && out.ihSpot !== null) ? out.proposedRule - out.ihSpot : null;
+    out.proposedVarPct = (out.proposedRule !== null && out.ihSpot !== null && out.ihSpot !== 0) ? (out.proposedRule - out.ihSpot) / out.ihSpot : null;
+    // Rule rate columns (weighted avg of matching rows)
+    const rr: Record<string, number | null> = {};
+    for (const id of ruleIds) rr[id] = wavg((r) => (r.ruleRates as any)?.[id]);
+    out.ruleRates = rr;
+    // Monthly histories (weighted avg per month)
+    for (const hk of HISTORY_KEYS) {
+      const hist: Record<string, number | null> = {};
+      for (const mm of monthsList) hist[mm] = wavg((r) => (r[hk] as any)?.[mm]);
+      out[hk] = hist;
+    }
+    return out;
+  });
+}
 
 // ── value formatting ───────────────────────────────────────────────
 function fmt(value: any, type: ColType): string {
@@ -341,6 +464,13 @@ export default function ReferenceDataTable({
 }: ReferenceDataTableProps) {
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [groupLevel, setGroupLevel] = useState<GroupLevel>("roomType");
+  const { toast } = useToast();
+  // Create-rule-from-view dialog state
+  const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+  const [ruleAdjType, setRuleAdjType] = useState<"percentage" | "absolute">("percentage");
+  const [ruleAdjValue, setRuleAdjValue] = useState("");
+  const [ruleEffDate, setRuleEffDate] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -501,7 +631,34 @@ export default function ReferenceDataTable({
     refetchOnWindowFocus: false,
   });
 
-  const rawRows = data?.rows ?? [];
+  // ── Room Detail (per-unit) query — only fetched at that grouping level ──
+  const unitQueryKey = ["/api/reference-data/units", selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations];
+  const { data: unitData, isLoading: unitLoading, isFetching: unitFetching } = useQuery<{ rows: Record<string, any>[]; spotMonth: string | null }>({
+    queryKey: unitQueryKey,
+    enabled: groupLevel === "roomDetail",
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedServiceLine && selectedServiceLine !== "All") params.append("serviceLine", selectedServiceLine);
+      if (selectedRegions?.length) params.append("regions", selectedRegions.join(","));
+      if (selectedDivisions?.length) params.append("divisions", selectedDivisions.join(","));
+      if (selectedLocations?.length) params.append("locations", selectedLocations.join(","));
+      const res = await fetch(`/api/reference-data/units?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to load unit detail data");
+      return res.json();
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false,
+  });
+
+  const rawRows = useMemo(() => {
+    const detail = data?.rows ?? [];
+    if (groupLevel === "roomDetail") return unitData?.rows ?? [];
+    if (groupLevel === "roomType") return detail;
+    const ruleIds = (data?.rules ?? []).map(r => r.id);
+    return aggregateRows(detail, groupLevel, ruleIds, data?.months ?? []);
+  }, [data?.rows, data?.rules, data?.months, groupLevel, unitData?.rows]);
 
   // ── dynamic rule column groups ──
   const dynGroups = useMemo((): GroupDef[] => {
@@ -529,6 +686,11 @@ export default function ReferenceDataTable({
       base = [...GROUPS.slice(0, insertAt), ...ruleGroups, ...GROUPS.slice(insertAt)];
     }
 
+    // Swap the leading identity columns to match the active grouping level
+    if (groupLevel !== "roomType") {
+      base = base.map(g => g.id === "campus" ? { ...g, cols: campusColsForLevel(groupLevel) } : g);
+    }
+
     // For expandable groups that are currently open, inject per-month columns
     if (!allMonths.length) return base;
     return base.map(g => {
@@ -544,9 +706,20 @@ export default function ReferenceDataTable({
       }));
       return { ...g, cols: [...g.cols, ...monthCols] };
     });
-  }, [data?.rules, data?.months, expandedGroups]);
+  }, [data?.rules, data?.months, expandedGroups, groupLevel]);
 
   const dynAllCols = useMemo(() => dynGroups.flatMap(g => g.cols), [dynGroups]);
+
+  // Frozen column left offsets — recomputed because the frozen set changes with grouping level
+  const frozenOffsets = useMemo(() => {
+    const fl: Record<string, number> = {};
+    let acc = 0;
+    for (const c of dynAllCols) if (c.frozen) { fl[c.key] = acc; acc += c.w; }
+    const ml: Record<string, number> = {};
+    let macc = 0;
+    for (const c of dynAllCols) if (c.mobileFreeze) { ml[c.key] = macc; macc += c.wMobile ?? c.w; }
+    return { fl, ml };
+  }, [dynAllCols]);
 
   // ── filter + sort ──
   const processedRows = useMemo(() => {
@@ -604,6 +777,61 @@ export default function ReferenceDataTable({
   };
 
   const activeFilterCount = Object.values(filters).filter((v) => v.trim() !== "").length;
+
+  // ── scope of the current view (used by "Create Rule from View") ──
+  // At aggregated levels the visible rows show "All" for collapsed dimensions,
+  // so we map visible group rows back to the underlying detail rows to derive
+  // concrete campus / service line / room type filters.
+  const viewScope = useMemo(() => {
+    const aggregated = !["roomType", "roomDetail"].includes(groupLevel);
+    let sourceRows: Record<string, any>[];
+    if (!aggregated) {
+      sourceRows = processedRows;
+    } else {
+      const visibleKeys = new Set(processedRows.map((r) => keyForLevel(r, groupLevel)));
+      sourceRows = (data?.rows ?? []).filter((r) => visibleKeys.has(keyForLevel(r, groupLevel)));
+    }
+    const collect = (key: string) => {
+      const s = new Set<string>();
+      for (const r of sourceRows) {
+        const v = r[key];
+        if (v && v !== "All" && v !== "—") s.add(String(v));
+      }
+      return Array.from(s);
+    };
+    return {
+      serviceLines: collect("serviceLine"),
+      locations: collect("campus"),
+      roomTypes: collect("roomType"),
+    };
+  }, [processedRows, groupLevel, data?.rows]);
+
+  const createRuleMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("/api/adjustment-rules/from-filters", "POST", {
+        adjustmentType: ruleAdjType,
+        adjustmentValue: parseFloat(ruleAdjValue),
+        effectiveDate: ruleEffDate || undefined,
+        scope: viewScope,
+      });
+      return res.json();
+    },
+    onSuccess: (result: any) => {
+      setRuleDialogOpen(false);
+      setRuleAdjValue("");
+      setRuleEffDate("");
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
+      toast({
+        title: "Rule created",
+        description: `${result?.rule?.name ?? "New rule"} — est. ${result?.annualImpact != null ? `$${Math.round(result.annualImpact).toLocaleString()}/yr impact` : "impact pending"}`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to create rule", description: err?.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
 
   // ── export (ExcelJS — preserves table formatting: colored group headers,
   // number formats with % / $ / +− colors, banded rows, frozen headers) ──
@@ -790,7 +1018,7 @@ export default function ReferenceDataTable({
         {dynAllCols.map((c) => {
           const isFrozen = isMobile ? !!c.mobileFreeze : !!c.frozen;
           const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
-          const frozenLeft = isMobile ? MOBILE_FROZEN_LEFT[c.key] : FROZEN_LEFT[c.key];
+          const frozenLeft = isMobile ? frozenOffsets.ml[c.key] : frozenOffsets.fl[c.key];
           const sorted = sortKey === c.key;
           const hasFilter = (filters[c.key] ?? "").trim() !== "";
           return (
@@ -890,7 +1118,7 @@ export default function ReferenceDataTable({
             g.cols.map((c) => {
               const isFrozen = isMobile ? !!c.mobileFreeze : !!c.frozen;
               const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
-              const frozenLeft = isMobile ? MOBILE_FROZEN_LEFT[c.key] : FROZEN_LEFT[c.key];
+              const frozenLeft = isMobile ? frozenOffsets.ml[c.key] : frozenOffsets.fl[c.key];
               const display = fmt(row[c.key], c.type);
               const colorCls = signClass(row[c.key], c.type);
               return (
@@ -909,7 +1137,7 @@ export default function ReferenceDataTable({
                     ...(isFrozen ? { left: frozenLeft } : {}),
                   }}
                 >
-                  {c.key === "proposedRule" ? (() => {
+                  {c.key === "proposedRule" && groupLevel === "roomType" ? (() => {
                     const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}`;
                     const isOpen = overridePop?.key === popKey;
                     return (
@@ -1046,7 +1274,7 @@ export default function ReferenceDataTable({
       <div className="flex items-center gap-2">
         <Table2 className="h-4 w-4 text-primary" />
         <CardTitle className="text-base">Reference Data</CardTitle>
-        {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        {(isFetching || (groupLevel === "roomDetail" && unitFetching)) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
         {data?.spotMonth && (
           <span className="text-xs text-muted-foreground">
             Spot month: {data.spotMonth} · {processedRows.length} rows
@@ -1064,7 +1292,36 @@ export default function ReferenceDataTable({
           </Button>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Grouping level toggle */}
+        <div className="flex items-center rounded-md border border-border p-0.5" data-testid="refdata-group-toggle">
+          {GROUP_LEVELS.map((lv) => (
+            <button
+              key={lv.id}
+              type="button"
+              onClick={() => setGroupLevel(lv.id)}
+              className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                groupLevel === lv.id
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+              data-testid={`refdata-group-${lv.id}`}
+            >
+              {lv.label}
+            </button>
+          ))}
+        </div>
+        {/* Create rule from current view */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => setRuleDialogOpen(true)}
+          disabled={processedRows.length === 0}
+          data-testid="refdata-create-rule"
+        >
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> Create Rule from View
+        </Button>
         {/* Calculate Rates button */}
         {calcDone ? (
           <Button variant="outline" size="sm" className="h-8 text-emerald-600 border-emerald-500" disabled>
@@ -1123,11 +1380,82 @@ export default function ReferenceDataTable({
     </div>
   );
 
+  const showLoading = isLoading || (groupLevel === "roomDetail" && unitLoading);
+
+  const ruleDialog = (
+    <Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create Rule from Current View</DialogTitle>
+          <DialogDescription>
+            Applies a street-rate adjustment to everything currently shown in the table.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-md bg-muted/50 p-2.5 text-xs space-y-1">
+            <p><span className="font-medium">Service lines:</span> {viewScope.serviceLines.length ? viewScope.serviceLines.join(", ") : "All"}</p>
+            <p><span className="font-medium">Locations:</span> {viewScope.locations.length > 8 ? `${viewScope.locations.length} locations` : viewScope.locations.length ? viewScope.locations.join(", ") : "All"}</p>
+            <p><span className="font-medium">Room types:</span> {viewScope.roomTypes.length > 8 ? `${viewScope.roomTypes.length} room types` : viewScope.roomTypes.length ? viewScope.roomTypes.join(", ") : "All"}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Adjustment type</Label>
+              <Select value={ruleAdjType} onValueChange={(v) => setRuleAdjType(v as "percentage" | "absolute")}>
+                <SelectTrigger className="h-9" data-testid="rule-adj-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percentage">Percent (%)</SelectItem>
+                  <SelectItem value="absolute">Dollar ($)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Amount {ruleAdjType === "percentage" ? "(%)" : "($)"}</Label>
+              <Input
+                type="number"
+                step={ruleAdjType === "percentage" ? "0.5" : "10"}
+                value={ruleAdjValue}
+                onChange={(e) => setRuleAdjValue(e.target.value)}
+                placeholder={ruleAdjType === "percentage" ? "e.g. 3 or -2" : "e.g. 100 or -50"}
+                className="h-9"
+                data-testid="rule-adj-value"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Effective date (optional)</Label>
+            <Input
+              type="date"
+              value={ruleEffDate}
+              onChange={(e) => setRuleEffDate(e.target.value)}
+              className="h-9"
+              data-testid="rule-eff-date"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setRuleDialogOpen(false)}>Cancel</Button>
+          <Button
+            size="sm"
+            disabled={createRuleMutation.isPending || !ruleAdjValue || !parseFloat(ruleAdjValue)}
+            onClick={() => createRuleMutation.mutate()}
+            data-testid="rule-create-submit"
+          >
+            {createRuleMutation.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            Create Rule
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col gap-2 bg-background p-4">
+        {ruleDialog}
         {headerBar}
-        {isLoading ? (
+        {showLoading ? (
           <div className="flex flex-1 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
@@ -1140,9 +1468,10 @@ export default function ReferenceDataTable({
 
   return (
     <Card data-testid="reference-data-card">
+      {ruleDialog}
       <CardHeader className="pb-3">{headerBar}</CardHeader>
       <CardContent>
-        {isLoading ? (
+        {showLoading ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
