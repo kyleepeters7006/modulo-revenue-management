@@ -230,8 +230,22 @@ interface DisplayGroup {
   accent: string;
   rowBg: string;
   rules: SummaryRow[];
-  agg: { units: number; sold: number; monthly: number; annual: number };
+  agg: { units: number; sold: number; monthly: number; annual: number; miDelta: number | null };
 }
+
+// Increase in T3 move-ins/month (after − before) from the calc payload
+const miDeltaOf = (m: { calc?: PerfMetrics["calc"] }): number | null => {
+  const c = m.calc;
+  if (!c || c.moveInsT3Before == null || c.moveInsT3After == null) return null;
+  return c.moveInsT3After - c.moveInsT3Before;
+};
+
+const fmtMiDelta = (v: number | null): JSX.Element => {
+  if (v == null) return <span className="text-muted-foreground">—</span>;
+  const r = Math.round(v * 10) / 10;
+  const cls = r > 0 ? "text-emerald-600" : r < 0 ? "text-red-600" : "text-muted-foreground";
+  return <span className={cls}>{r > 0 ? "+" : ""}{r.toFixed(1)}</span>;
+};
 
 // ── RoomVerification: occupied-room drill-down for the T3 calc dialog ────────
 interface RoomDetailMonth {
@@ -412,6 +426,19 @@ function buildTableRows({
 }): JSX.Element[] {
   const rows: JSX.Element[] = [];
 
+  // Rule-level Δ move-ins: use the rule's own calc when present (real rules),
+  // otherwise aggregate from its detail rows (synthetic rows in SL/campus grouping).
+  const ruleMi = (r: SummaryRow): number | null => {
+    const v = miDeltaOf(r);
+    if (v != null) return v;
+    let s: number | null = null;
+    for (const d of r.detail) {
+      const m = miDeltaOf(d);
+      if (m != null) s = (s ?? 0) + m;
+    }
+    return s;
+  };
+
   for (const g of groups) {
     const gRows = g.rules;
     if (gRows.length === 0) continue;
@@ -443,6 +470,9 @@ function buildTableRows({
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-sm border-b border-border/70">
           {g.id === "push" ? <span className="text-muted-foreground">—</span> : agg.sold.toLocaleString()}
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-sm border-b border-border/70">
+          {fmtMiDelta(agg.miDelta)}
         </td>
         <td className="px-3 py-2.5 border-b border-border/70" />
         <td className={`px-3 py-2.5 text-right tabular-nums font-medium text-sm border-b border-border/70 ${agg.monthly >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -479,6 +509,7 @@ function buildTableRows({
             <td className={tdCls}>{fmtDate(r.dateApplied)}</td>
             <td className={`${tdCls} text-right tabular-nums`}>{r.unitsImpacted.toLocaleString()}</td>
             <td className={`${tdCls} text-right tabular-nums`}>{r.unitsSold.toLocaleString()}</td>
+            <td className={`${tdCls} text-right tabular-nums`}>{fmtMiDelta(ruleMi(r))}</td>
             <td className={tdCls}>{speedBadge(r.daysFasterThanExpected)}</td>
             <td
               className={`${tdCls} text-right tabular-nums cursor-pointer underline decoration-dotted underline-offset-2 ${(r.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}
@@ -507,6 +538,7 @@ function buildTableRows({
                 <td className={`${tdCls} text-xs`}>{fmtDate(d.dateApplied)}</td>
                 <td className={`${tdCls} text-right tabular-nums text-xs`}>{d.unitsImpacted.toLocaleString()}</td>
                 <td className={`${tdCls} text-right tabular-nums text-xs`}>{d.unitsSold.toLocaleString()}</td>
+                <td className={`${tdCls} text-right tabular-nums text-xs`}>{fmtMiDelta(miDeltaOf(d))}</td>
                 <td className={`${tdCls} text-xs`}>{fmtDaysFaster(d.daysFasterThanExpected)}</td>
                 <td
                   className={`${tdCls} text-right tabular-nums text-xs cursor-pointer underline decoration-dotted underline-offset-2`}
@@ -584,13 +616,15 @@ export function RulePerformanceTable({
       return next;
     });
 
-  const aggOf = (rs: { unitsImpacted: number; unitsSold: number; monthlyRevenueImpact: number | null; annualRevenueImpact: number | null }[]) => {
-    const a = { units: 0, sold: 0, monthly: 0, annual: 0 };
+  const aggOf = (rs: { unitsImpacted: number; unitsSold: number; monthlyRevenueImpact: number | null; annualRevenueImpact: number | null; calc?: PerfMetrics["calc"] }[]) => {
+    const a = { units: 0, sold: 0, monthly: 0, annual: 0, miDelta: null as number | null };
     for (const r of rs) {
       a.units += r.unitsImpacted;
       a.sold += r.unitsSold;
       a.monthly += r.monthlyRevenueImpact ?? 0;
       a.annual += r.annualRevenueImpact ?? 0;
+      const mi = miDeltaOf(r);
+      if (mi != null) a.miDelta = (a.miDelta ?? 0) + mi;
     }
     return a;
   };
@@ -654,12 +688,14 @@ export function RulePerformanceTable({
   }, [rows, groupBy]);
 
   const totals = useMemo(() => {
-    const t = { unitsImpacted: 0, unitsSold: 0, monthly: 0, annual: 0 };
+    const t = { unitsImpacted: 0, unitsSold: 0, monthly: 0, annual: 0, miDelta: null as number | null };
     for (const r of rows) {
       t.unitsImpacted += r.unitsImpacted;
       t.unitsSold += r.unitsSold;
       t.monthly += r.monthlyRevenueImpact ?? 0;
       t.annual += r.annualRevenueImpact ?? 0;
+      const mi = miDeltaOf(r);
+      if (mi != null) t.miDelta = (t.miDelta ?? 0) + mi;
     }
     return t;
   }, [rows]);
@@ -989,6 +1025,7 @@ export function RulePerformanceTable({
                     <th className={thCls}>Date Applied</th>
                     <th className={`${thCls} text-right`}>Units Impacted</th>
                     <th className={`${thCls} text-right`}>New Move-ins</th>
+                    <th className={`${thCls} text-right`}>Δ Move-ins/Mo</th>
                     <th className={thCls}>Speed vs. Expected</th>
                     <th className={`${thCls} text-right`}>Monthly Impact</th>
                     <th className={`${thCls} text-right`}>Annual Impact</th>
@@ -1015,6 +1052,9 @@ export function RulePerformanceTable({
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-sm">
                       {totals.unitsSold.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-sm" data-testid="text-total-mi-delta">
+                      {fmtMiDelta(totals.miDelta)}
                     </td>
                     <td className="px-3 py-2.5" />
                     <td className={`px-3 py-2.5 text-right tabular-nums text-sm ${totals.monthly >= 0 ? "text-emerald-600" : "text-red-600"}`}>
