@@ -302,11 +302,18 @@ function campusColsForLevel(level: GroupLevel): ColDef[] {
 // ── client-side aggregation for higher grouping levels ─────────────
 const AGG_SUM_KEYS = [
   "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
-  "inqPrevMonth", "inqVsT3", "tourPrevMonth", "tourVsT3", "revT3MoveIns",
+  "revT3MoveIns",
   "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
 ];
+// Inquiry/tour counts live at the campus+SL level and are duplicated on every
+// room-type row — sum them once per unique campus||SL, not per row.
+const AGG_CAMPUS_SL_SUM_KEYS = ["inqPrevMonth", "inqVsT3", "tourPrevMonth", "tourVsT3"];
+// Campus- and SL-level occupancy values are repeated on every room-type row;
+// they must be deduped to one value per campus (or campus||SL) and weighted
+// by that entity's units — a per-row unit-weighted average double-counts.
+const AGG_CAMPUS_WAVG_KEYS = ["campusOccSpot", "campusOccT3", "campusOccT12"];
+const AGG_CAMPUS_SL_WAVG_KEYS = ["slOccSpot", "slOccT3", "slOccT12"];
 const AGG_WAVG_KEYS = [
-  "campusOccSpot", "campusOccT3", "campusOccT12", "slOccSpot", "slOccT3", "slOccT12",
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
@@ -365,6 +372,39 @@ function aggregateRows(
       return d ? n / d : null;
     };
     for (const k of AGG_WAVG_KEYS) out[k] = wavg((r) => r[k]);
+    // Subgroups for values that live above the room-type level
+    const subGroups = (subKey: (r: Record<string, any>) => string) => {
+      const m = new Map<string, { first: Record<string, any>; units: number }>();
+      for (const r of rs) {
+        const k = subKey(r);
+        const g = m.get(k);
+        if (!g) m.set(k, { first: r, units: Number(r.totalUnits) || 0 });
+        else g.units += Number(r.totalUnits) || 0;
+      }
+      return m;
+    };
+    const byCampus = subGroups((r) => `${r.locationId ?? ""}||${r.campus}`);
+    const byCampusSL = subGroups((r) => `${r.locationId ?? ""}||${r.campus}||${r.serviceLine}`);
+    // Inquiry/tour counts: one value per campus||SL — sum deduped
+    for (const k of AGG_CAMPUS_SL_SUM_KEYS) {
+      let sum = 0, any = false;
+      for (const g of Array.from(byCampusSL.values())) {
+        const v = g.first[k];
+        if (v !== null && v !== undefined) { sum += Number(v); any = true; }
+      }
+      out[k] = any ? sum : null;
+    }
+    // Occupancy: dedupe to one value per campus (or campus||SL), weight by that entity's units
+    const dedupeWavg = (m: Map<string, { first: Record<string, any>; units: number }>, get: (r: Record<string, any>) => any) => {
+      let n = 0, d = 0;
+      for (const g of Array.from(m.values())) {
+        const v = get(g.first);
+        if (v !== null && v !== undefined) { const w = g.units || 1; n += Number(v) * w; d += w; }
+      }
+      return d ? n / d : null;
+    };
+    for (const k of AGG_CAMPUS_WAVG_KEYS) out[k] = dedupeWavg(byCampus, (r) => r[k]);
+    for (const k of AGG_CAMPUS_SL_WAVG_KEYS) out[k] = dedupeWavg(byCampusSL, (r) => r[k]);
     // YTD growth recomputed from summed revenue components (not averaged %s)
     {
       let spotSum = 0, baseSum = 0, anyYtd = false;
@@ -386,10 +426,14 @@ function aggregateRows(
     const rr: Record<string, number | null> = {};
     for (const id of ruleIds) rr[id] = wavg((r) => (r.ruleRates as any)?.[id]);
     out.ruleRates = rr;
-    // Monthly histories (weighted avg per month)
+    // Monthly histories (weighted avg per month; campus/SL occ histories deduped)
     for (const hk of HISTORY_KEYS) {
       const hist: Record<string, number | null> = {};
-      for (const mm of monthsList) hist[mm] = wavg((r) => (r[hk] as any)?.[mm]);
+      for (const mm of monthsList) {
+        if (hk === "campusOccHistory") hist[mm] = dedupeWavg(byCampus, (r) => (r[hk] as any)?.[mm]);
+        else if (hk === "slOccHistory") hist[mm] = dedupeWavg(byCampusSL, (r) => (r[hk] as any)?.[mm]);
+        else hist[mm] = wavg((r) => (r[hk] as any)?.[mm]);
+      }
       out[hk] = hist;
     }
     return out;
