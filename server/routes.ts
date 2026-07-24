@@ -17512,7 +17512,7 @@ Return ONLY valid JSON, no markdown fences:
       if (locations.length) { revParams.push(locations);   revWhere += ` AND rr.location = ANY($${revParams.length})`; }
       if (regions.length)   { revParams.push(regions);     revWhere += ` AND loc.region = ANY($${revParams.length})`; }
       if (divisions.length) { revParams.push(divisions);   revWhere += ` AND loc.division = ANY($${revParams.length})`; }
-      const revRes = await pool.query<{ upload_month: string; location: string; service_line: string; room_type: string; revenue: number; occ_count: number }>(`
+      const revRes = await pool.query<{ upload_month: string; location: string; service_line: string; room_type: string; revenue: number; occ_count: number; occ_all: number; total_count: number }>(`
         SELECT rr.upload_month, rr.location, rr.service_line, rr.room_type,
                SUM(CASE WHEN rr.occupied_yn
                         AND (rr.service_line NOT IN ('HC','HC/MC')
@@ -17521,7 +17521,9 @@ Return ONLY valid JSON, no markdown fences:
                         ELSE 0 END) AS revenue,
                COUNT(*) FILTER (WHERE rr.occupied_yn
                         AND (rr.service_line NOT IN ('HC','HC/MC')
-                             OR rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS occ_count
+                             OR rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS occ_count,
+               COUNT(*) FILTER (WHERE rr.occupied_yn) AS occ_all,
+               COUNT(*) AS total_count
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
         WHERE ${revWhere}
@@ -17529,14 +17531,60 @@ Return ONLY valid JSON, no markdown fences:
         ORDER BY rr.upload_month
       `, revParams);
       // groupKey -> sorted [{month, revenue, occ}]
-      const revSeries = new Map<string, { month: string; revenue: number; occ: number }[]>();
+      const revSeries = new Map<string, { month: string; revenue: number; occ: number; occAll: number; total: number }[]>();
       for (const r of revRes.rows) {
         const k = `${r.location}|${r.service_line}|${r.room_type}`;
         if (!revSeries.has(k)) revSeries.set(k, []);
-        revSeries.get(k)!.push({ month: r.upload_month, revenue: Number(r.revenue), occ: Number(r.occ_count) });
+        revSeries.get(k)!.push({ month: r.upload_month, revenue: Number(r.revenue), occ: Number(r.occ_count), occAll: Number(r.occ_all), total: Number(r.total_count) });
       }
 
+      // ---- T3 move-in event series -------------------------------------------
+      // Distinct move-in events per (location, service_line, room_type) by month:
+      // each unique (room, move_in_date) counts once across all snapshots, so past
+      // residents captured in older snapshots are included.
+      const miRes = await pool.query<{ location: string; service_line: string; room_type: string; move_in_date: string }>(`
+        SELECT DISTINCT rr.location, rr.service_line, rr.room_type, rr.room_number, rr.move_in_date
+        FROM rent_roll_data rr
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+        WHERE ${revWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date <> ''
+      `, revParams);
+      // groupKey -> (YYYY-MM -> move-in count)
+      const miSeries = new Map<string, Map<string, number>>();
+
       const monthOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      for (const r of miRes.rows) {
+        const mi = parseMoveIn(r.move_in_date);
+        if (!mi) continue;
+        const k = `${r.location}|${r.service_line}|${r.room_type}`;
+        const m = monthOf(mi);
+        if (!miSeries.has(k)) miSeries.set(k, new Map());
+        const mm = miSeries.get(k)!;
+        mm.set(m, (mm.get(m) || 0) + 1);
+      }
+      // Avg move-ins/month over the same T3 windows the revenue calc uses: the
+      // group's snapshot months anchor the observable window (months with zero
+      // move-ins count as zero only when a rent roll snapshot exists for them).
+      const t3MoveInsFor = (groupKey: string, appliedMonth: string): { before: number; after: number } | null => {
+        const snaps = revSeries.get(groupKey);
+        if (!snaps || snaps.length === 0) return null;
+        const beforeMonths = snaps.filter(p => p.month < appliedMonth).slice(-3).map(p => p.month);
+        const afterMonths = snaps.filter(p => p.month >= appliedMonth).slice(0, 3).map(p => p.month);
+        if (beforeMonths.length === 0 || afterMonths.length === 0) return null;
+        const mm = miSeries.get(groupKey);
+        const sum = (months: string[]) => months.reduce((s, m) => s + (mm?.get(m) || 0), 0);
+        return { before: sum(beforeMonths) / beforeMonths.length, after: sum(afterMonths) / afterMonths.length };
+      };
+      // True occupancy % over the T3 "before" window: ALL occupied units ÷ ALL
+      // units in the group's snapshots (matched numerator/denominator — never
+      // mixes the private-pay-only revenue occ count with impacted-unit counts).
+      const t3OccPctBefore = (groupKey: string, appliedMonth: string): number | null => {
+        const snaps = revSeries.get(groupKey);
+        if (!snaps || snaps.length === 0) return null;
+        const before = snaps.filter(p => p.month < appliedMonth).slice(-3);
+        const occ = before.reduce((s, p) => s + p.occAll, 0);
+        const tot = before.reduce((s, p) => s + p.total, 0);
+        return tot > 0 ? (occ / tot) * 100 : null;
+      };
       type T3 = { before: number; after: number; occBefore: number; occAfter: number; occAdjusted: boolean; monthsBefore: number; monthsAfter: number; delta: number; extrapolated: boolean };
       // T3 delta for a group: avg monthly revenue over the last 3 snapshot months
       // strictly BEFORE the applied month vs. avg over the (up to) first 3 snapshot
@@ -17860,16 +17908,19 @@ Return ONLY valid JSON, no markdown fences:
 
       // T3 revenue impact per (rule, group): group's T3 delta × the rule's
       // proportional share of the group's impacted units.
-      type Calc = { monthly: number; t3Before: number; t3After: number; occBefore: number; occAfter: number; monthsBefore: number; monthsAfter: number; extrapolated: boolean; hasData: boolean };
-      const newCalc = (): Calc => ({ monthly: 0, t3Before: 0, t3After: 0, occBefore: 0, occAfter: 0, monthsBefore: 3, monthsAfter: 3, extrapolated: false, hasData: false });
+      type Calc = { monthly: number; t3Before: number; t3After: number; occBefore: number; occAfter: number; miBefore: number; miAfter: number; hasMi: boolean; occPctNum: number; occPctDen: number; monthsBefore: number; monthsAfter: number; extrapolated: boolean; hasData: boolean };
+      const newCalc = (): Calc => ({ monthly: 0, t3Before: 0, t3After: 0, occBefore: 0, occAfter: 0, miBefore: 0, miAfter: 0, hasMi: false, occPctNum: 0, occPctDen: 0, monthsBefore: 3, monthsAfter: 3, extrapolated: false, hasData: false });
       const summaryCalc = new Map<string, Calc>();
       const detailCalc = new Map<string, Calc>(); // ruleName|groupKey
       for (const [rgKey, rg] of Array.from(ruleGroupWeight.entries())) {
         const sep = rgKey.indexOf('|');
         const rn = rgKey.slice(0, sep);
         const gKey = rgKey.slice(sep + 1);
-        const t3 = t3For(gKey, monthOf(rg.earliestApplied), histRuleNames.has(rn));
+        const appliedMonth = monthOf(rg.earliestApplied);
+        const t3 = t3For(gKey, appliedMonth, histRuleNames.has(rn));
         if (!t3) { if (!detailCalc.has(rgKey)) detailCalc.set(rgKey, newCalc()); continue; }
+        const mi = t3MoveInsFor(gKey, appliedMonth);
+        const occPct = t3OccPctBefore(gKey, appliedMonth);
         const total = (histRuleNames.has(rn) ? groupTotalWeightHist.get(gKey) : groupTotalWeight.get(gKey)) || 1;
         const frac = rg.weight / total;
         const impact = t3.delta * frac;
@@ -17878,12 +17929,16 @@ Return ONLY valid JSON, no markdown fences:
         // Occupied counts: show the actual group count (not fractional) so the
         // user can see real unit numbers in the before/after dialog.
         dc.occBefore += t3.occBefore; dc.occAfter += t3.occAfter;
+        if (mi) { dc.miBefore += mi.before * frac; dc.miAfter += mi.after * frac; dc.hasMi = true; }
+        if (occPct != null) { const w = t3.occBefore > 0 ? t3.occBefore : 1; dc.occPctNum += occPct * w; dc.occPctDen += w; }
         dc.monthsBefore = t3.monthsBefore; dc.monthsAfter = t3.monthsAfter;
         dc.extrapolated = dc.extrapolated || t3.extrapolated; dc.hasData = true;
         detailCalc.set(rgKey, dc);
         const sc = summaryCalc.get(rn) || newCalc();
         sc.monthly += impact; sc.t3Before += t3.before * frac; sc.t3After += t3.after * frac;
         sc.occBefore += t3.occBefore; sc.occAfter += t3.occAfter;
+        if (mi) { sc.miBefore += mi.before * frac; sc.miAfter += mi.after * frac; sc.hasMi = true; }
+        if (occPct != null) { const w = t3.occBefore > 0 ? t3.occBefore : 1; sc.occPctNum += occPct * w; sc.occPctDen += w; }
         sc.monthsBefore = Math.min(sc.hasData ? sc.monthsBefore : 3, t3.monthsBefore);
         sc.monthsAfter = Math.min(sc.hasData ? sc.monthsAfter : 3, t3.monthsAfter);
         sc.extrapolated = sc.extrapolated || t3.extrapolated; sc.hasData = true;
@@ -17935,6 +17990,9 @@ Return ONLY valid JSON, no markdown fences:
             monthsBefore: c!.monthsBefore,
             monthsAfter: c!.monthsAfter,
             extrapolated: c!.extrapolated,
+            moveInsT3Before: c!.hasMi ? Math.round(c!.miBefore * 10) / 10 : null,
+            moveInsT3After: c!.hasMi ? Math.round(c!.miAfter * 10) / 10 : null,
+            occPctBefore: c!.occPctDen > 0 ? Math.round((c!.occPctNum / c!.occPctDen) * 10) / 10 : null,
           } : null,
         };
       };

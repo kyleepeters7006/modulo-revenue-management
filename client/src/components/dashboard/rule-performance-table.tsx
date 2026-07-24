@@ -24,11 +24,24 @@ import {
   Info,
   LayoutList,
   Rows3,
+  ChartScatter,
   Trophy,
   CheckCircle2,
   XCircle,
   MinusCircle,
 } from "lucide-react";
+import {
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  ZAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend as RechartsLegend,
+  ReferenceLine,
+  ResponsiveContainer,
+} from "recharts";
 
 // ── Strategy groups ─────────────────────────────────────────────────────────
 const PERF_RULE_GROUPS = [
@@ -156,6 +169,9 @@ interface PerfMetrics {
     monthsBefore: number;
     monthsAfter: number;
     extrapolated: boolean;
+    moveInsT3Before?: number | null;
+    moveInsT3After?: number | null;
+    occPctBefore?: number | null;
   } | null;
 }
 
@@ -533,7 +549,7 @@ export function RulePerformanceTable({
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupExpanded, setGroupExpanded] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"summary" | "detail">("summary");
+  const [viewMode, setViewMode] = useState<"summary" | "detail" | "scatter">("summary");
   const [groupBy, setGroupBy] = useState<"strategy" | "rule" | "serviceLine" | "campus">("strategy");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
 
@@ -684,6 +700,50 @@ export function RulePerformanceTable({
       });
   }, [rows]);
 
+  // ── Scattergram data: one point per rule breakdown row with T3 move-in data ──
+  // x = occupancy % before the change, y = Δ move-ins/mo (T3 after − T3 before),
+  // grouped by date applied so each pricing change gets its own color.
+  interface ScatterPoint {
+    x: number; y: number;
+    ruleName: string; location: string; serviceLine: string; roomType: string;
+    dateApplied: string | null; miBefore: number; miAfter: number;
+  }
+  const SCATTER_PALETTE = ["#0d9488", "#0284c7", "#d97706", "#7c3aed", "#db2777", "#059669", "#dc2626", "#475569", "#ca8a04", "#0891b2"];
+  const scatterSeries = useMemo(() => {
+    const byDate = new Map<string, ScatterPoint[]>();
+    const push = (m: PerfMetrics, meta: { ruleName: string; location: string; serviceLine: string; roomType: string }) => {
+      const c = m.calc;
+      if (!c || c.moveInsT3Before == null || c.moveInsT3After == null || c.occPctBefore == null) return;
+      const occPct = c.occPctBefore;
+      const dateKey = m.dateApplied ? m.dateApplied.slice(0, 10) : "unknown";
+      if (!byDate.has(dateKey)) byDate.set(dateKey, []);
+      byDate.get(dateKey)!.push({
+        x: Math.round(occPct * 10) / 10,
+        y: Math.round((c.moveInsT3After - c.moveInsT3Before) * 10) / 10,
+        ...meta,
+        dateApplied: m.dateApplied,
+        miBefore: c.moveInsT3Before,
+        miAfter: c.moveInsT3After,
+      });
+    };
+    for (const r of rows) {
+      if (r.detail.length > 0) {
+        for (const d of r.detail) push(d, { ruleName: r.ruleName, location: d.location, serviceLine: d.serviceLine, roomType: d.roomType });
+      } else {
+        push(r, { ruleName: r.ruleName, location: "All", serviceLine: "All", roomType: "All" });
+      }
+    }
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dateKey, points], i) => ({
+        dateKey,
+        label: dateKey === "unknown" ? "Unknown date" : fmtDate(dateKey),
+        color: SCATTER_PALETTE[i % SCATTER_PALETTE.length],
+        points,
+      }));
+  }, [rows]);
+  const scatterPointCount = scatterSeries.reduce((s, g) => s + g.points.length, 0);
+
   const handleExport = () => {
     const groupHeader = groupBy === "strategy" ? "Strategy" : groupBy === "rule" ? "Group" : groupBy === "serviceLine" ? "Service Line" : "Campus";
     const header = [groupHeader, "Rule", "Location", "Service Line", "Room Type", "Date Applied",
@@ -784,6 +844,14 @@ export function RulePerformanceTable({
               >
                 <LayoutList className="h-3.5 w-3.5" />Detail
               </button>
+              <button
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-l border-border ${viewMode === "scatter" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => setViewMode("scatter")}
+                disabled={rows.length === 0}
+                data-testid="button-perf-scatter"
+              >
+                <ChartScatter className="h-3.5 w-3.5" />Scattergram
+              </button>
             </div>
             <Button variant="outline" size="sm" className="h-8" onClick={handleExport}
               disabled={rows.length === 0} data-testid="button-perf-export">
@@ -840,6 +908,77 @@ export function RulePerformanceTable({
               </button>
             </div>
 
+            {viewMode === "scatter" ? (
+              scatterPointCount === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground" data-testid="text-scatter-empty">
+                  No pricing changes in this range have 3-month before/after move-in data yet.
+                  <div className="mt-1 text-xs">Points appear once a pricing change has rent roll snapshots both before and after its applied date.</div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-border p-3" data-testid="chart-perf-scatter">
+                  <ResponsiveContainer width="100%" height={420}>
+                    <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis
+                        type="number" dataKey="x" name="Occupancy" unit="%" domain={[0, 100]}
+                        tick={{ fontSize: 11 }}
+                        label={{ value: "Occupancy before change (%)", position: "insideBottom", offset: -2, fontSize: 11 }}
+                      />
+                      <YAxis
+                        type="number" dataKey="y" name="Δ Move-ins"
+                        tick={{ fontSize: 11 }}
+                        label={{ value: "Increase in move-ins/mo (T3 after − T3 before)", angle: -90, position: "insideLeft", fontSize: 11, style: { textAnchor: "middle" } }}
+                      />
+                      <ZAxis range={[70, 70]} />
+                      <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                      <RechartsTooltip
+                        cursor={{ strokeDasharray: "3 3" }}
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const p = payload[0].payload as ScatterPoint;
+                          return (
+                            <div className="rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-md">
+                              <div className="font-semibold mb-1">{p.ruleName}</div>
+                              <div>{p.location} · {p.serviceLine} · {p.roomType}</div>
+                              <div className="text-muted-foreground">Applied {fmtDate(p.dateApplied)}</div>
+                              <div className="mt-1">Occupancy before: <span className="font-medium">{p.x}%</span></div>
+                              <div>Move-ins/mo: {p.miBefore} → {p.miAfter} (<span className={`font-medium ${p.y > 0 ? "text-emerald-600" : p.y < 0 ? "text-red-600" : ""}`}>{p.y > 0 ? "+" : ""}{p.y}</span>)</div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <RechartsLegend
+                        wrapperStyle={{ fontSize: 11 }}
+                        payload={scatterSeries.map((g) => ({ value: g.label, type: "circle" as const, color: g.color, id: g.dateKey }))}
+                      />
+                      {scatterSeries.map((g) => (
+                        <Scatter
+                          key={g.dateKey}
+                          name={g.label}
+                          data={g.points}
+                          fill={g.color}
+                          shape={(props: any) => {
+                            const { cx, cy, payload } = props;
+                            if (cx == null || cy == null) return <g />;
+                            const up = payload.y > 0;
+                            return up ? (
+                              <circle cx={cx} cy={cy} r={6} fill={g.color} stroke="#059669" strokeWidth={2} />
+                            ) : (
+                              <circle cx={cx} cy={cy} r={5} fill="transparent" stroke={g.color} strokeWidth={2} opacity={0.85} />
+                            );
+                          }}
+                        />
+                      ))}
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Each point is one pricing change applied to a location / service line / room type group — colors distinguish the date the change was applied.{" "}
+                    <span className="font-medium text-emerald-600">Solid dots with a green ring</span> = move-ins increased after the change;{" "}
+                    <span className="font-medium">hollow dots</span> = move-ins stayed flat or declined. Move-ins compare the average per month over the 3 months before vs. after each change.
+                  </p>
+                </div>
+              )
+            ) : (
             <div className="overflow-auto rounded-md border border-border" style={{ maxHeight: 560 }}>
               <table className="w-full border-collapse">
                 <thead className="sticky top-0 z-10">
@@ -888,7 +1027,9 @@ export function RulePerformanceTable({
                 </tfoot>
               </table>
             </div>
+            )}
 
+            {viewMode !== "scatter" && (
             <p className="mt-2 text-[11px] text-muted-foreground">
               {groupBy === "rule"
                 ? "Click a rule row to see the breakdown by location, service line, and room type."
@@ -896,6 +1037,7 @@ export function RulePerformanceTable({
               Switch to <span className="font-medium">Detail</span> to expand all groups at once.{" "}
               <span className="font-medium">Revenue impact</span>: historical pricing changes compare actual occupied-room revenue for the 3 months before vs. after the change; active rules project impact based on expected new move-ins only (existing residents keep their current rates). Click any impact value for the full calculation.
             </p>
+            )}
           </>
         )}
       </CardContent>
