@@ -18288,6 +18288,7 @@ Return ONLY valid JSON, no markdown fences:
       const rtoRTMap     = new Map<string, Map<string, RtoEntry>>(); // campus||sl||rt
       const rtoSLMap     = new Map<string, Map<string, RtoEntry>>(); // campus||sl
       const rtoCampusMap = new Map<string, Map<string, RtoEntry>>(); // campus
+      const rtoMonthSet = new Set<string>();
 
       {
         // Convert YYYY-MM strings to (year, month) pairs for the query
@@ -18308,6 +18309,7 @@ Return ONLY valid JSON, no markdown fences:
 
           for (const r of rtoRes.rows as any[]) {
             const ym     = `${r.year}-${String(r.month).padStart(2, '0')}`;
+            rtoMonthSet.add(ym);
             const campus = r.location_name || '';
             const sl     = r.service_line  || '';
             const rt     = r.normalized_room_type || '';
@@ -18368,6 +18370,12 @@ Return ONLY valid JSON, no markdown fences:
         const e = monthMap.get(spotMonth);
         if (e && e.avail > 0) refCampusOcc.set(campus, e.occ / e.avail);
       });
+
+      // Occupancy data can lag the rent-roll upload (e.g. rent roll has July but the
+      // occupancy table's latest month is June). Anchor the occupancy "spot" window
+      // to the latest month that actually HAS occupancy data, capped at spot month.
+      const rtoSpotMonth = Array.from(rtoMonthSet).filter(m => m <= spotMonth).sort().reverse()[0] ?? spotMonth;
+      const rtoSpotWindow = [rtoSpotMonth];
 
       // Helper: RTO-based occupancy % over a month window (SUM occ / SUM avail — not an average)
       const rtoOccWindow = (map: Map<string, RtoEntry> | undefined, window: string[]): number | null => {
@@ -18750,18 +18758,20 @@ Return ONLY valid JSON, no markdown fences:
               vacantT12:  applyShare(physVacWindow(physMap, t12Months)) ?? vacWindow(bm, t12Months),
             };
           })(),
-          // Campus occupancy — from RTO (sum occ/sum avail) with rent_roll fallback
-          campusOccSpot: rtoOccWindow(rtoCampusMap.get(c.campus), [spotMonth]) ?? occPctWindow(cOcc, [spotMonth]),
+          // Campus occupancy — from the occupancy data table (RTO history), spot anchored
+          // to the latest month with occupancy data; rent-roll counts only as last resort
+          // (rent roll counts B beds separately and understates occupancy).
+          campusOccSpot: rtoOccWindow(rtoCampusMap.get(c.campus), rtoSpotWindow) ?? occPctWindow(cOcc, [spotMonth]),
           campusOccT3:   rtoOccWindow(rtoCampusMap.get(c.campus), t3Months)   ?? occPctWindow(cOcc, t3Months),
           campusOccT6:   rtoOccWindow(rtoCampusMap.get(c.campus), t6Months)   ?? occPctWindow(cOcc, t6Months),
           campusOccT12:  rtoOccWindow(rtoCampusMap.get(c.campus), t12Months)  ?? occPctWindow(cOcc, t12Months),
-          // Service line occupancy — from RTO
-          slOccSpot: rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [spotMonth]) ?? occPctWindow(sOcc, [spotMonth]),
+          // Service line occupancy — from the occupancy data table (anchored spot)
+          slOccSpot: rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), rtoSpotWindow) ?? occPctWindow(sOcc, [spotMonth]),
           slOccT3:   rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t3Months)   ?? occPctWindow(sOcc, t3Months),
           slOccT6:   rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t6Months)   ?? occPctWindow(sOcc, t6Months),
           slOccT12:  rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t12Months)  ?? occPctWindow(sOcc, t12Months),
-          // Room type occupancy — from RTO (exact campus/sl/rt match)
-          rtOccSpot: rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [spotMonth]) ?? (spot ? (spot.total > 0 ? (spot.occupied / spot.total) * 100 : 0) : null),
+          // Room type occupancy — from the occupancy data table (anchored spot)
+          rtOccSpot: rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), rtoSpotWindow) ?? (spot ? (spot.total > 0 ? (spot.occupied / spot.total) * 100 : 0) : null),
           rtOccT3:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)   ?? occWindowCombo(bm, t3Months),
           rtOccT6:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)   ?? occWindowCombo(bm, t6Months),
           rtOccT12:  rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)  ?? occWindowCombo(bm, t12Months),
@@ -18847,13 +18857,13 @@ Return ONLY valid JSON, no markdown fences:
           ytdRevBase,
           // Monthly history for expandable column drill-down (up to 24 months)
           campusOccHistory: Object.fromEntries(
-            months.map(mm => [mm, rtoOccWindow(rtoCampusMap.get(c.campus), [mm])])
+            months.map(mm => [mm, rtoOccWindow(rtoCampusMap.get(c.campus), [mm]) ?? occPctWindow(cOcc, [mm])])
           ),
           slOccHistory: Object.fromEntries(
-            months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm])])
+            months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm]) ?? occPctWindow(sOcc, [mm])])
           ),
           rtOccHistory: Object.fromEntries(
-            months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm])])
+            months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? occWindowCombo(bm, [mm])])
           ),
           streetHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgStreet ?? null])
