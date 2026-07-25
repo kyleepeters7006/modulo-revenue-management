@@ -658,6 +658,7 @@ export function RulePerformanceTable({
   const [scatterDivision, setScatterDivision] = useState<string>("All");
   const [scatterClass, setScatterClass] = useState<string>("All");
   const [scatterXRange, setScatterXRange] = useState<[number, number]>([0, 100]);
+  const [scatterExpanded, setScatterExpanded] = useState(false);
 
   // Location metadata (region / division / class) for scattergram filtering
   type LocMetaRow = { name: string; region: string | null; division: string | null; locationClass: string | null };
@@ -1083,6 +1084,17 @@ export function RulePerformanceTable({
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold" data-testid="text-scatter-title">Change in Move Ins By Occupancy Level</h3>
                     <div className="flex flex-wrap items-center gap-2">
+                      {!scatterExpanded && (
+                        <span className="text-[11px] text-muted-foreground">{visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}</span>
+                      )}
+                      <button
+                        className="px-2 py-1 text-xs font-medium rounded-md border border-border bg-background hover:bg-muted"
+                        onClick={() => setScatterExpanded((v) => !v)}
+                        data-testid="button-scatter-expand"
+                      >
+                        {scatterExpanded ? "Collapse" : "Expand"}
+                      </button>
+                      {scatterExpanded && (<>
                       <select
                         className="h-7 rounded-md border border-border bg-background px-2 text-xs"
                         value={scatterHighlightSL}
@@ -1130,9 +1142,11 @@ export function RulePerformanceTable({
                       >
                         Reset
                       </button>
+                      </>)}
                     </div>
                   </div>
                   {/* Drag-to-zoom / pan slider */}
+                  {scatterExpanded && (
                   <div className="mb-3 px-1">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[11px] text-muted-foreground">
@@ -1147,12 +1161,13 @@ export function RulePerformanceTable({
                       <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
                     </div>
                   </div>
+                  )}
                   {visibleScatterCount === 0 && (
                     <div className="py-8 text-center text-xs text-muted-foreground" data-testid="text-scatter-filtered-empty">
                       No points match the current filters{isZoomed ? " in this zoom range" : ""}. Adjust the filters or drag the slider to widen the range.
                     </div>
                   )}
-                  <ResponsiveContainer width="100%" height={420}>
+                  <ResponsiveContainer width="100%" height={scatterExpanded ? 420 : 220}>
                     <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis
@@ -1219,11 +1234,13 @@ export function RulePerformanceTable({
                       ))}
                     </ScatterChart>
                   </ResponsiveContainer>
+                  {scatterExpanded && (
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     Each point is one pricing change applied to a location / service line / room type group — colors distinguish the date the change was applied.{" "}
                     <span className="font-medium text-emerald-600">Solid dots with a green ring</span> = move-ins increased after the change;{" "}
                     <span className="font-medium">hollow dots</span> = move-ins stayed flat or declined. Move-ins compare the average per month over the 3 months before vs. after each change.
                   </p>
+                  )}
                 </div>
               )
             ) : (
