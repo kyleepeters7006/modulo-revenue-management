@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
@@ -563,8 +563,73 @@ function buildTableRows({
   return rows;
 }
 
+// ── Scatter range slider ─────────────────────────────────────────────────────
+// Two-thumb slider with a draggable centre bar for panning.
+// All values are in %, matching the x-axis (0–100).
+interface ScatterRangeSliderProps {
+  value: [number, number];
+  onChange: (v: [number, number]) => void;
+}
+function ScatterRangeSlider({ value, onChange }: ScatterRangeSliderProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ mode: "left" | "right" | "pan"; startX: number; startVal: [number, number] } | null>(null);
+
+  const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
+
+  const onMouseDown = (mode: "left" | "right" | "pan") => (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { mode, startX: e.clientX, startVal: value };
+    const onMove = (ev: MouseEvent) => {
+      const d = dragRef.current!;
+      const rect = trackRef.current!.getBoundingClientRect();
+      const delta = ((ev.clientX - d.startX) / rect.width) * 100;
+      let [lo, hi] = d.startVal;
+      const span = hi - lo;
+      if (d.mode === "left") {
+        lo = clamp(lo + delta, 0, hi - 5);
+      } else if (d.mode === "right") {
+        hi = clamp(hi + delta, lo + 5, 100);
+      } else {
+        lo = clamp(lo + delta, 0, 100 - span);
+        hi = lo + span;
+      }
+      onChange([Math.round(lo), Math.round(hi)]);
+    };
+    const onUp = () => { dragRef.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const [lo, hi] = value;
+  return (
+    <div className="relative h-5 w-full select-none" ref={trackRef} data-testid="scatter-range-slider">
+      {/* Full track */}
+      <div className="absolute top-1/2 left-0 right-0 h-1.5 -translate-y-1/2 rounded-full bg-muted" />
+      {/* Selected range bar (draggable pan) */}
+      <div
+        className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-primary/60 cursor-grab active:cursor-grabbing"
+        style={{ left: `${lo}%`, width: `${hi - lo}%` }}
+        onMouseDown={onMouseDown("pan")}
+      />
+      {/* Left thumb */}
+      <div
+        className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow cursor-ew-resize"
+        style={{ left: `${lo}%` }}
+        onMouseDown={onMouseDown("left")}
+        title={`Min: ${lo}%`}
+      />
+      {/* Right thumb */}
+      <div
+        className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow cursor-ew-resize"
+        style={{ left: `${hi}%` }}
+        onMouseDown={onMouseDown("right")}
+        title={`Max: ${hi}%`}
+      />
+    </div>
+  );
+}
+
 // ── Props ────────────────────────────────────────────────────────────────────
-const SCATTER_ZOOM_DOMAINS: [number, number][] = [[0, 100], [50, 100], [70, 100], [85, 100]];
 
 interface RulePerformanceTableProps {
   selectedServiceLine?: string;
@@ -592,7 +657,7 @@ export function RulePerformanceTable({
   const [scatterRegion, setScatterRegion] = useState<string>("All");
   const [scatterDivision, setScatterDivision] = useState<string>("All");
   const [scatterClass, setScatterClass] = useState<string>("All");
-  const [scatterZoom, setScatterZoom] = useState<number>(0); // 0 = full view, 1..3 = zoomed
+  const [scatterXRange, setScatterXRange] = useState<[number, number]>([0, 100]);
 
   // Location metadata (region / division / class) for scattergram filtering
   type LocMetaRow = { name: string; region: string | null; division: string | null; locationClass: string | null };
@@ -820,8 +885,10 @@ export function RulePerformanceTable({
   }, [scatterSeries, locMeta]);
 
   // Filtered + zoomed series actually rendered
-  const scatterXDomain = SCATTER_ZOOM_DOMAINS[Math.min(scatterZoom, SCATTER_ZOOM_DOMAINS.length - 1)];
+  const scatterXDomain: [number, number] = scatterXRange;
+  const isZoomed = scatterXRange[0] > 0 || scatterXRange[1] < 100;
   const visibleScatterSeries = useMemo(() => {
+    const [lo, hi] = scatterXRange;
     return scatterSeries
       .map((g) => ({
         ...g,
@@ -830,15 +897,15 @@ export function RulePerformanceTable({
           if (scatterRegion !== "All" && (meta?.region || "") !== scatterRegion) return false;
           if (scatterDivision !== "All" && (meta?.division || "") !== scatterDivision) return false;
           if (scatterClass !== "All" && (meta?.cls || "") !== scatterClass) return false;
-          if (p.x < scatterXDomain[0] || p.x > scatterXDomain[1]) return false;
+          if (p.x < lo || p.x > hi) return false;
           return true;
         }),
       }))
       .filter((g) => g.points.length > 0);
-  }, [scatterSeries, locMeta, scatterRegion, scatterDivision, scatterClass, scatterXDomain]);
+  }, [scatterSeries, locMeta, scatterRegion, scatterDivision, scatterClass, scatterXRange]);
   const visibleScatterCount = visibleScatterSeries.reduce((s, g) => s + g.points.length, 0);
   // Show campus labels once zoomed in (and the point count is manageable)
-  const showScatterLabels = scatterZoom >= 1 && visibleScatterCount <= 150;
+  const showScatterLabels = isZoomed && visibleScatterCount <= 150;
   const shortCampus = (loc: string) => loc.replace(/\s*-\s*\d+.*$/, "").trim();
 
   const handleExport = () => {
@@ -1054,36 +1121,35 @@ export function RulePerformanceTable({
                         <option value="All">All Classes</option>
                         {scatterOptions.classes.map((c) => <option key={c} value={c}>{c}</option>)}
                       </select>
-                      <div className="flex rounded-md border border-border overflow-hidden">
-                        <button
-                          className="px-2 py-1 text-xs font-medium bg-background text-muted-foreground hover:bg-muted disabled:opacity-40"
-                          onClick={() => setScatterZoom((z) => Math.min(z + 1, SCATTER_ZOOM_DOMAINS.length - 1))}
-                          disabled={scatterZoom >= SCATTER_ZOOM_DOMAINS.length - 1}
-                          title="Zoom in — campus names appear when zoomed"
-                          data-testid="button-scatter-zoom-in"
-                        >
-                          Zoom In +
-                        </button>
-                        <button
-                          className="px-2 py-1 text-xs font-medium border-l border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-40"
-                          onClick={() => setScatterZoom((z) => Math.max(z - 1, 0))}
-                          disabled={scatterZoom === 0}
-                          data-testid="button-scatter-zoom-out"
-                        >
-                          Zoom Out −
-                        </button>
-                      </div>
+                      <button
+                        className="px-2 py-1 text-xs font-medium rounded-md border border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-40"
+                        onClick={() => setScatterXRange([0, 100])}
+                        disabled={!isZoomed}
+                        title="Reset view to full range"
+                        data-testid="button-scatter-reset"
+                      >
+                        Reset
+                      </button>
                     </div>
                   </div>
-                  {scatterZoom > 0 && (
-                    <div className="mb-1 text-[11px] text-muted-foreground">
-                      Zoomed to {scatterXDomain[0]}–{scatterXDomain[1]}% occupancy · {visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}
-                      {showScatterLabels ? " · campus names shown" : visibleScatterCount > 150 ? " · zoom in further or filter to see campus names" : ""}
+                  {/* Drag-to-zoom / pan slider */}
+                  <div className="mb-3 px-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] text-muted-foreground">
+                        Occupancy range: <span className="font-medium text-foreground">{scatterXRange[0]}%</span> – <span className="font-medium text-foreground">{scatterXRange[1]}%</span>
+                        {" "}· {visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}
+                        {showScatterLabels ? " · campus names shown" : (isZoomed && visibleScatterCount > 0 && visibleScatterCount <= 150) ? " · campus names shown" : ""}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/70">Drag thumbs or bar to zoom &amp; pan</span>
                     </div>
-                  )}
+                    <ScatterRangeSlider value={scatterXRange} onChange={setScatterXRange} />
+                    <div className="flex justify-between mt-0.5 text-[10px] text-muted-foreground/60">
+                      <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+                    </div>
+                  </div>
                   {visibleScatterCount === 0 && (
                     <div className="py-8 text-center text-xs text-muted-foreground" data-testid="text-scatter-filtered-empty">
-                      No points match the current filters{scatterZoom > 0 ? " in this zoom range" : ""}. Adjust the filters or zoom out.
+                      No points match the current filters{isZoomed ? " in this zoom range" : ""}. Adjust the filters or drag the slider to widen the range.
                     </div>
                   )}
                   <ResponsiveContainer width="100%" height={420}>
