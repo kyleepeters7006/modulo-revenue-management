@@ -648,7 +648,7 @@ export function RulePerformanceTable({
   const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [groupExpanded, setGroupExpanded] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"summary" | "detail" | "scatter">("summary");
+  const [viewMode, setViewMode] = useState<"summary" | "detail" | "scatter">("scatter");
   const [groupBy, setGroupBy] = useState<"strategy" | "rule" | "serviceLine" | "campus">("strategy");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
 
