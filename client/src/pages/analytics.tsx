@@ -784,12 +784,12 @@ export function Analytics() {
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
                   <Scatter 
                     name="Campuses" 
-                    data={processedData} 
+                    data={processedData.filter((d: ProcessedCampusData) => d.occupancy >= 0.5)} 
                     fill="#6B7280"
                     onClick={handleScatterInteraction}
                     onMouseEnter={handleScatterInteraction}
                   >
-                    {processedData.map((entry: ProcessedCampusData, index: number) => (
+                    {processedData.filter((d: ProcessedCampusData) => d.occupancy >= 0.5).map((entry: ProcessedCampusData, index: number) => (
                       <Cell 
                         key={`cell-${index}`} 
                         fill={getColor(entry.division)} 
