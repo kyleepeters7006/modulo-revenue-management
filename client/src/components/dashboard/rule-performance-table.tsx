@@ -1199,7 +1199,8 @@ export function RulePerformanceTable({
                         }}
                       />
                       <RechartsLegend
-                        wrapperStyle={{ fontSize: 11 }}
+                        verticalAlign="top"
+                        wrapperStyle={{ fontSize: 11, paddingBottom: 8 }}
                         payload={visibleScatterSeries.map((g) => ({ value: g.label, type: "circle" as const, color: g.color, id: g.dateKey }))}
                       />
                       {visibleScatterSeries.map((g) => (
