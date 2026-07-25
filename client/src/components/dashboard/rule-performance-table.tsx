@@ -564,6 +564,8 @@ function buildTableRows({
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
+const SCATTER_ZOOM_DOMAINS: [number, number][] = [[0, 100], [50, 100], [70, 100], [85, 100]];
+
 interface RulePerformanceTableProps {
   selectedServiceLine?: string;
   selectedRegions?: string[];
@@ -584,6 +586,27 @@ export function RulePerformanceTable({
   const [viewMode, setViewMode] = useState<"summary" | "detail" | "scatter">("summary");
   const [groupBy, setGroupBy] = useState<"strategy" | "rule" | "serviceLine" | "campus">("strategy");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
+
+  // Scattergram controls: highlight + filters + zoom
+  const [scatterHighlightSL, setScatterHighlightSL] = useState<string>("All");
+  const [scatterRegion, setScatterRegion] = useState<string>("All");
+  const [scatterDivision, setScatterDivision] = useState<string>("All");
+  const [scatterClass, setScatterClass] = useState<string>("All");
+  const [scatterZoom, setScatterZoom] = useState<number>(0); // 0 = full view, 1..3 = zoomed
+
+  // Location metadata (region / division / class) for scattergram filtering
+  type LocMetaRow = { name: string; region: string | null; division: string | null; locationClass: string | null };
+  const { data: locMetaData } = useQuery<{ locations: LocMetaRow[] } | LocMetaRow[]>({
+    queryKey: ["/api/locations"],
+  });
+  const locMeta = useMemo(() => {
+    const m = new Map<string, { region: string; division: string; cls: string }>();
+    const list = Array.isArray(locMetaData) ? locMetaData : locMetaData?.locations ?? [];
+    for (const l of list) {
+      m.set(l.name, { region: l.region || "", division: l.division || "", cls: l.locationClass || "" });
+    }
+    return m;
+  }, [locMetaData]);
 
   const { data, isLoading, isFetching } = useQuery<PerfResponse>({
     queryKey: ["/api/rule-performance", start, end, selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations],
@@ -780,6 +803,44 @@ export function RulePerformanceTable({
   }, [rows]);
   const scatterPointCount = scatterSeries.reduce((s, g) => s + g.points.length, 0);
 
+  // Scattergram filter options (from the points + location metadata)
+  const scatterOptions = useMemo(() => {
+    const sls = new Set<string>(), regions = new Set<string>(), divisions = new Set<string>(), classes = new Set<string>();
+    for (const g of scatterSeries) {
+      for (const p of g.points) {
+        if (p.serviceLine && p.serviceLine !== "All") sls.add(p.serviceLine);
+        const meta = locMeta.get(p.location);
+        if (meta?.region) regions.add(meta.region);
+        if (meta?.division) divisions.add(meta.division);
+        if (meta?.cls) classes.add(meta.cls);
+      }
+    }
+    const sort = (s: Set<string>) => Array.from(s).sort((a, b) => a.localeCompare(b));
+    return { serviceLines: sort(sls), regions: sort(regions), divisions: sort(divisions), classes: sort(classes) };
+  }, [scatterSeries, locMeta]);
+
+  // Filtered + zoomed series actually rendered
+  const scatterXDomain = SCATTER_ZOOM_DOMAINS[Math.min(scatterZoom, SCATTER_ZOOM_DOMAINS.length - 1)];
+  const visibleScatterSeries = useMemo(() => {
+    return scatterSeries
+      .map((g) => ({
+        ...g,
+        points: g.points.filter((p) => {
+          const meta = locMeta.get(p.location);
+          if (scatterRegion !== "All" && (meta?.region || "") !== scatterRegion) return false;
+          if (scatterDivision !== "All" && (meta?.division || "") !== scatterDivision) return false;
+          if (scatterClass !== "All" && (meta?.cls || "") !== scatterClass) return false;
+          if (p.x < scatterXDomain[0] || p.x > scatterXDomain[1]) return false;
+          return true;
+        }),
+      }))
+      .filter((g) => g.points.length > 0);
+  }, [scatterSeries, locMeta, scatterRegion, scatterDivision, scatterClass, scatterXDomain]);
+  const visibleScatterCount = visibleScatterSeries.reduce((s, g) => s + g.points.length, 0);
+  // Show campus labels once zoomed in (and the point count is manageable)
+  const showScatterLabels = scatterZoom >= 1 && visibleScatterCount <= 150;
+  const shortCampus = (loc: string) => loc.replace(/\s*-\s*\d+.*$/, "").trim();
+
   const handleExport = () => {
     const groupHeader = groupBy === "strategy" ? "Strategy" : groupBy === "rule" ? "Group" : groupBy === "serviceLine" ? "Service Line" : "Campus";
     const header = [groupHeader, "Rule", "Location", "Service Line", "Room Type", "Date Applied",
@@ -952,18 +1013,91 @@ export function RulePerformanceTable({
                 </div>
               ) : (
                 <div className="rounded-md border border-border p-3" data-testid="chart-perf-scatter">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold" data-testid="text-scatter-title">Change in Move Ins By Occupancy Level</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+                        value={scatterHighlightSL}
+                        onChange={(e) => setScatterHighlightSL(e.target.value)}
+                        data-testid="select-scatter-highlight-sl"
+                      >
+                        <option value="All">Highlight: All Service Lines</option>
+                        {scatterOptions.serviceLines.map((sl) => (
+                          <option key={sl} value={sl}>Highlight: {sl}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+                        value={scatterRegion}
+                        onChange={(e) => setScatterRegion(e.target.value)}
+                        data-testid="select-scatter-region"
+                      >
+                        <option value="All">All Regions</option>
+                        {scatterOptions.regions.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                      <select
+                        className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+                        value={scatterDivision}
+                        onChange={(e) => setScatterDivision(e.target.value)}
+                        data-testid="select-scatter-division"
+                      >
+                        <option value="All">All Divisions</option>
+                        {scatterOptions.divisions.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      <select
+                        className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+                        value={scatterClass}
+                        onChange={(e) => setScatterClass(e.target.value)}
+                        data-testid="select-scatter-class"
+                      >
+                        <option value="All">All Classes</option>
+                        {scatterOptions.classes.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <div className="flex rounded-md border border-border overflow-hidden">
+                        <button
+                          className="px-2 py-1 text-xs font-medium bg-background text-muted-foreground hover:bg-muted disabled:opacity-40"
+                          onClick={() => setScatterZoom((z) => Math.min(z + 1, SCATTER_ZOOM_DOMAINS.length - 1))}
+                          disabled={scatterZoom >= SCATTER_ZOOM_DOMAINS.length - 1}
+                          title="Zoom in — campus names appear when zoomed"
+                          data-testid="button-scatter-zoom-in"
+                        >
+                          Zoom In +
+                        </button>
+                        <button
+                          className="px-2 py-1 text-xs font-medium border-l border-border bg-background text-muted-foreground hover:bg-muted disabled:opacity-40"
+                          onClick={() => setScatterZoom((z) => Math.max(z - 1, 0))}
+                          disabled={scatterZoom === 0}
+                          data-testid="button-scatter-zoom-out"
+                        >
+                          Zoom Out −
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {scatterZoom > 0 && (
+                    <div className="mb-1 text-[11px] text-muted-foreground">
+                      Zoomed to {scatterXDomain[0]}–{scatterXDomain[1]}% occupancy · {visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}
+                      {showScatterLabels ? " · campus names shown" : visibleScatterCount > 150 ? " · zoom in further or filter to see campus names" : ""}
+                    </div>
+                  )}
+                  {visibleScatterCount === 0 && (
+                    <div className="py-8 text-center text-xs text-muted-foreground" data-testid="text-scatter-filtered-empty">
+                      No points match the current filters{scatterZoom > 0 ? " in this zoom range" : ""}. Adjust the filters or zoom out.
+                    </div>
+                  )}
                   <ResponsiveContainer width="100%" height={420}>
                     <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis
-                        type="number" dataKey="x" name="Occupancy" unit="%" domain={[0, 100]}
+                        type="number" dataKey="x" name="Occupancy" unit="%" domain={scatterXDomain}
                         tick={{ fontSize: 11 }}
                         label={{ value: "Occupancy before change (%)", position: "insideBottom", offset: -2, fontSize: 11 }}
                       />
                       <YAxis
-                        type="number" dataKey="y" name="Δ Move-ins"
+                        type="number" dataKey="y" name="Change in Move-ins"
                         tick={{ fontSize: 11 }}
-                        label={{ value: "Increase in move-ins/mo (T3 after − T3 before)", angle: -90, position: "insideLeft", fontSize: 11, style: { textAnchor: "middle" } }}
+                        label={{ value: "Change in move-ins/mo (T3 after − T3 before)", angle: -90, position: "insideLeft", fontSize: 11, style: { textAnchor: "middle" } }}
                       />
                       <ZAxis range={[70, 70]} />
                       <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
@@ -985,9 +1119,9 @@ export function RulePerformanceTable({
                       />
                       <RechartsLegend
                         wrapperStyle={{ fontSize: 11 }}
-                        payload={scatterSeries.map((g) => ({ value: g.label, type: "circle" as const, color: g.color, id: g.dateKey }))}
+                        payload={visibleScatterSeries.map((g) => ({ value: g.label, type: "circle" as const, color: g.color, id: g.dateKey }))}
                       />
-                      {scatterSeries.map((g) => (
+                      {visibleScatterSeries.map((g) => (
                         <Scatter
                           key={g.dateKey}
                           name={g.label}
@@ -997,10 +1131,22 @@ export function RulePerformanceTable({
                             const { cx, cy, payload } = props;
                             if (cx == null || cy == null) return <g />;
                             const up = payload.y > 0;
-                            return up ? (
-                              <circle cx={cx} cy={cy} r={6} fill={g.color} stroke="#059669" strokeWidth={2} />
-                            ) : (
-                              <circle cx={cx} cy={cy} r={5} fill="transparent" stroke={g.color} strokeWidth={2} opacity={0.85} />
+                            const dimmed = scatterHighlightSL !== "All" && payload.serviceLine !== scatterHighlightSL;
+                            const opacity = dimmed ? 0.15 : 1;
+                            const label = showScatterLabels && !dimmed ? (
+                              <text x={cx + 8} y={cy + 3} fontSize={9} fill="currentColor" className="fill-muted-foreground">
+                                {shortCampus(payload.location)}
+                              </text>
+                            ) : null;
+                            return (
+                              <g opacity={opacity}>
+                                {up ? (
+                                  <circle cx={cx} cy={cy} r={6} fill={g.color} stroke="#059669" strokeWidth={2} />
+                                ) : (
+                                  <circle cx={cx} cy={cy} r={5} fill="transparent" stroke={g.color} strokeWidth={2} opacity={0.85} />
+                                )}
+                                {label}
+                              </g>
                             );
                           }}
                         />
