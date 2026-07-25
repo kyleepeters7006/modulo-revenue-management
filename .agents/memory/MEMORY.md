@@ -12,4 +12,5 @@
 - [IH-to-street variance metric](ih-street-variance-metric.md) — field aliases ih_street_variance/street_to_ih_var; compute from rent roll, never trust the sparse table cache alone.
 - [Rule preview / engine trigger parity](rule-preview-parity.md) — triggers are a conditions[] array (AND/OR); preview code must evaluate both shapes and match engine metric scales.
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
+- [Move-in/out event source](move-in-out-events.md) — imported event table is authoritative with rent-roll fallback; event-derived maps must be remapped through room-type groupings for key parity.
 - [Reference Data grouping & rule scope](refdata-grouping-scope.md) — aggregated views must map back to detail rows for rule scope; sum ratio components, never average %s; rule filters must reach both impact calculators.

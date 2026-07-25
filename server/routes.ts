@@ -17542,24 +17542,31 @@ Return ONLY valid JSON, no markdown fences:
       // Distinct move-in events per (location, service_line, room_type) by month:
       // each unique (room, move_in_date) counts once across all snapshots, so past
       // residents captured in older snapshots are included.
-      const miRes = await pool.query<{ location: string; service_line: string; room_type: string; move_in_date: string }>(`
-        SELECT DISTINCT rr.location, rr.service_line, rr.room_type, rr.room_number, rr.move_in_date
-        FROM rent_roll_data rr
-        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-        WHERE ${revWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date <> ''
-      `, revParams);
-      // groupKey -> (YYYY-MM -> move-in count)
-      const miSeries = new Map<string, Map<string, number>>();
+      // groupKey -> (YYYY-MM -> move-in count). Prefer imported move-in/out
+      // event data (authoritative, from the Move Ins & Outs Detail upload);
+      // fall back to distinct rent-roll move_in_date events otherwise.
+      const { hasMoveInOutEvents: hasMioEvents, getMonthlyMoveInSeriesFromEvents } = await import('./services/moveInOutService');
+      let miSeries = new Map<string, Map<string, number>>();
 
       const monthOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      for (const r of miRes.rows) {
-        const mi = parseMoveIn(r.move_in_date);
-        if (!mi) continue;
-        const k = `${r.location}|${r.service_line}|${r.room_type}`;
-        const m = monthOf(mi);
-        if (!miSeries.has(k)) miSeries.set(k, new Map());
-        const mm = miSeries.get(k)!;
-        mm.set(m, (mm.get(m) || 0) + 1);
+      if (await hasMioEvents(clientId)) {
+        miSeries = await getMonthlyMoveInSeriesFromEvents(clientId);
+      } else {
+        const miRes = await pool.query<{ location: string; service_line: string; room_type: string; move_in_date: string }>(`
+          SELECT DISTINCT rr.location, rr.service_line, rr.room_type, rr.room_number, rr.move_in_date
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          WHERE ${revWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date <> ''
+        `, revParams);
+        for (const r of miRes.rows) {
+          const mi = parseMoveIn(r.move_in_date);
+          if (!mi) continue;
+          const k = `${r.location}|${r.service_line}|${r.room_type}`;
+          const m = monthOf(mi);
+          if (!miSeries.has(k)) miSeries.set(k, new Map());
+          const mm = miSeries.get(k)!;
+          mm.set(m, (mm.get(m) || 0) + 1);
+        }
       }
       // Avg move-ins/month over the same T3 windows the revenue calc uses: the
       // group's snapshot months anchor the observable window (months with zero
@@ -18663,9 +18670,50 @@ Return ONLY valid JSON, no markdown fences:
       const inqSpotMonth = inqMonths[0] ?? spotMonth;
       const inqT3Months  = inqMonths.slice(0, 3);
       const inqT12Months = inqMonths.slice(0, 12);
-      // move-ins map: `${location}||${sl}||${rt}` -> t3
-      const moveMap = new Map<string, number>();
-      for (const r of moveRes.rows as any[]) moveMap.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
+      // move-ins map: `${location}||${sl}||${rt}` -> t3. Prefer imported
+      // move-in/out event data (Move Ins & Outs Detail upload) when present;
+      // fall back to the rent-roll-derived query result otherwise.
+      let moveMap = new Map<string, number>();
+      {
+        const { hasMoveInOutEvents: hasMioEvents, getT3MoveInsMapFromEvents } = await import('./services/moveInOutService');
+        if (await hasMioEvents(clientId)) {
+          const evMap = await getT3MoveInsMapFromEvents(clientId, t3Months, { serviceLine });
+          // Apply location/region/division filters (event map is client-wide)
+          let allowedLocs: Set<string> | null = null;
+          if (locations.length) {
+            allowedLocs = new Set(locations);
+          } else if (regions.length || divisions.length) {
+            const p: any[] = [clientId];
+            let w = `client_id = $1`;
+            if (regions.length)   { p.push(regions);   w += ` AND region = ANY($${p.length})`; }
+            if (divisions.length) { p.push(divisions); w += ` AND division = ANY($${p.length})`; }
+            const lr = await pool.query(`SELECT name FROM locations WHERE ${w}`, p);
+            allowedLocs = new Set(lr.rows.map((r: any) => r.name));
+          }
+          // Apply room-type groupings so event keys match the grouped
+          // room types used by the reference-data rows (rtg.group_name).
+          const rtgRes = await pool.query(`
+            SELECT DISTINCT rtg.location, rtg.service_line, rr.room_type, rtg.group_name
+            FROM room_type_groupings rtg
+            JOIN rent_roll_data rr
+              ON rr.client_id = rtg.client_id AND rr.location = rtg.location
+             AND rr.service_line = rtg.service_line AND rr.source_room_type = rtg.source_room_type
+            WHERE rtg.client_id = $1
+          `, [clientId]);
+          const rtgMap = new Map<string, string>();
+          for (const r of rtgRes.rows as any[]) {
+            rtgMap.set(`${r.location}||${r.service_line}||${r.room_type}`, r.group_name);
+          }
+          for (const [k, v] of Array.from(evMap.entries())) {
+            if (allowedLocs && !allowedLocs.has(k.split('||')[0])) continue;
+            const grouped = rtgMap.get(k);
+            const key = grouped ? `${k.split('||')[0]}||${k.split('||')[1]}||${grouped}` : k;
+            moveMap.set(key, (moveMap.get(key) || 0) + v);
+          }
+        } else {
+          for (const r of moveRes.rows as any[]) moveMap.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
+        }
+      }
 
       // occupancy % helper across a window of months for a rollup map entry
       const occPctWindow = (m: Map<string, { total: number; occupied: number }> | undefined, window: string[]): number | null => {
@@ -19866,6 +19914,23 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
   
+  // Move Ins & Outs Detail workbook (Admissions + Discharges sheets)
+  app.post("/api/import/move-ins-outs", upload.single("file"), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      const clientId = (req.session as any)?.clientId || 'demo';
+      const { importMoveInOutWorkbook } = await import('./services/moveInOutService');
+      const stats = await importMoveInOutWorkbook(req.file.buffer, clientId);
+      analyticsCache.clear();
+      res.json(stats);
+    } catch (error) {
+      console.error("Move-ins/outs import error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Import failed" });
+    }
+  });
+
   app.post("/api/import/enquire", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
@@ -20436,12 +20501,30 @@ Return ONLY valid JSON, no markdown fences:
       const enquireData = await storage.getEnquireDataSummary();
       const competitiveSurvey = await storage.getCompetitiveSurveySummary();
       const locationMappings = await storage.getLocationMappingSummary();
-      
+      const clientId = (req.session as any)?.clientId || 'demo';
+      const mioRes = await pool.query(`
+        SELECT
+          COUNT(*)::int AS total_rows,
+          COUNT(*) FILTER (WHERE event_type = 'move_in' AND counted)::int AS move_ins,
+          COUNT(*) FILTER (WHERE event_type = 'move_out' AND counted)::int AS move_outs,
+          MIN(SUBSTRING(event_date, 1, 7)) AS min_month,
+          MAX(SUBSTRING(event_date, 1, 7)) AS max_month
+        FROM move_in_out_events WHERE client_id = $1
+      `, [clientId]);
+      const mio = mioRes.rows[0];
+
       res.json({
         rentRollHistory,
         enquireData,
         competitiveSurvey,
-        locationMappings
+        locationMappings,
+        moveInOutEvents: {
+          totalRecords: Number(mio?.total_rows) || 0,
+          moveIns: Number(mio?.move_ins) || 0,
+          moveOuts: Number(mio?.move_outs) || 0,
+          minMonth: mio?.min_month ?? null,
+          maxMonth: mio?.max_month ?? null,
+        },
       });
     } catch (error) {
       console.error('Error fetching import status:', error);

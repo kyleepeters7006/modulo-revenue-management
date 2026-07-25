@@ -834,6 +834,39 @@ export const insertInquiryMetricsSchema = createInsertSchema(inquiryMetrics).omi
   createdAt: true,
 });
 
+// Move-In / Move-Out events — authoritative event-level source for monthly
+// move-in and move-out counts (imported from "Move Ins & Outs Detail" xlsx).
+export const moveInOutEvents = pgTable("move_in_out_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  eventType: text("event_type").notNull(), // 'move_in' | 'move_out'
+  censusId: text("census_id").notNull(),
+  patientId: text("patient_id"),
+  division: text("division"),
+  location: text("location").notNull(),
+  dept: text("dept"),
+  serviceLine: text("service_line"),
+  roomType: text("room_type"),
+  bedType: text("bed_type"),
+  roomName: text("room_name"),
+  payer: text("payer"),
+  eventDate: text("event_date").notNull(), // YYYY-MM-DD
+  eventCategory: text("event_category"), // Census_Event or Discharge_Type
+  isReturn: boolean("is_return").default(false),
+  counted: boolean("counted").notNull().default(false), // true if this event counts toward monthly move-in/out stats
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  uniqueClientTypeCensus: uniqueIndex("miox_client_type_census_idx").on(t.clientId, t.eventType, t.censusId),
+  clientLocSlDate: index("miox_client_loc_sl_date_idx").on(t.clientId, t.location, t.serviceLine, t.eventDate),
+}));
+
+export const insertMoveInOutEventSchema = createInsertSchema(moveInOutEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertMoveInOutEvent = z.infer<typeof insertMoveInOutEventSchema>;
+export type MoveInOutEvent = typeof moveInOutEvents.$inferSelect;
+
 // Competitor Rate Jobs - For tracking background competitor rate matching
 export const competitorRateJobs = pgTable("competitor_rate_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

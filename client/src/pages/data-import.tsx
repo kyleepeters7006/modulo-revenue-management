@@ -34,6 +34,13 @@ interface ImportStatus {
     autoMapped: number;
     manualMapped: number;
   };
+  moveInOutEvents?: {
+    totalRecords: number;
+    moveIns: number;
+    moveOuts: number;
+    minMonth: string | null;
+    maxMonth: string | null;
+  };
 }
 
 interface DataCategory {
@@ -83,6 +90,13 @@ const dataCategories: DataCategory[] = [
     importEndpoint: '/api/import/competitive-survey',
     exportEndpoint: '/api/export/competitive-survey/',
     requiresMonth: true,
+  },
+  {
+    id: 'move-ins-outs',
+    category: 'Move Ins & Outs Detail',
+    description: 'Monthly move-in/move-out event workbook (Admissions + Discharges)',
+    fileType: '.xlsx',
+    importEndpoint: '/api/import/move-ins-outs',
   },
   {
     id: 'location-mappings',
@@ -198,6 +212,8 @@ export default function DataImport() {
         return importStatus.enquireData?.totalRecords?.toLocaleString() || '-';
       case 'competitive-survey':
         return importStatus.competitiveSurvey?.totalRecords?.toLocaleString() || '-';
+      case 'move-ins-outs':
+        return importStatus.moveInOutEvents?.totalRecords?.toLocaleString() || '-';
       case 'location-mappings':
         return importStatus.locationMappings?.totalMappings?.toLocaleString() || '-';
       default:

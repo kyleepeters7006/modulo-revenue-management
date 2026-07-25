@@ -88,6 +88,21 @@ export async function getT3MoveInsMap(
   const t3 = monthsRes.rows.map((r: any) => r.upload_month).filter(Boolean);
   if (t3.length === 0) return map;
 
+  // Prefer imported move-in/out event data (Move Ins & Outs Detail upload)
+  // over rent-roll-derived move-in dates when available for this client.
+  const { hasMoveInOutEvents, getT3MoveInsMapFromEvents } = await import("./moveInOutService");
+  if (await hasMoveInOutEvents(clientId)) {
+    let locationName: string | null = null;
+    if (scope.locationId) {
+      const locRes = await pool.query(`SELECT name FROM locations WHERE id = $1`, [scope.locationId]);
+      locationName = locRes.rows[0]?.name ?? null;
+    }
+    return getT3MoveInsMapFromEvents(clientId, t3, {
+      location: locationName,
+      serviceLine: scope.serviceLine ?? null,
+    });
+  }
+
   const where: string[] = ["rr.client_id = $1"];
   const params: any[] = [clientId];
   let idx = 2;
@@ -192,10 +207,30 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   const moveMap = await getT3MoveInsMap(clientId);
 
   // Portfolio-wide move-in rate per service line: trailing-3-month move-in
-  // events (deduped per room + date) / 3 months / active units in the SL.
-  // Per-group event counts over-count (room-type strings vary between
-  // snapshots), so impact math uses this rate × qualified unit count instead.
-  const slRateRes = await pool.query(`
+  // events / 3 months / active units in the SL. Prefer imported move-in/out
+  // event data (Move Ins & Outs Detail upload) when present; fall back to
+  // rent-roll-derived move-in dates (deduped per room + date) otherwise.
+  const t3MonthsRes = await pool.query(
+    `SELECT DISTINCT upload_month AS m FROM rent_roll_data
+     WHERE client_id = $1 AND upload_month IS NOT NULL
+     ORDER BY upload_month DESC LIMIT 3`,
+    [clientId],
+  );
+  const t3Months = t3MonthsRes.rows.map((r: any) => r.m).filter(Boolean);
+  const { hasMoveInOutEvents } = await import("./moveInOutService");
+  const useEvents = await hasMoveInOutEvents(clientId);
+
+  const slRateRes = useEvents
+    ? await pool.query(`
+        SELECT service_line, COUNT(*)::float / ${Math.max(t3Months.length, 1)} AS per_month
+        FROM move_in_out_events
+        WHERE client_id = $1 AND event_type = 'move_in' AND counted = true
+          AND SUBSTRING(event_date, 1, 7) = ANY($2)
+          AND (CASE WHEN service_line IN ('HC','HC/MC')
+               THEN (payer ILIKE '%private%' OR payer ILIKE '%pvt%') ELSE TRUE END)
+        GROUP BY service_line
+      `, [clientId, t3Months])
+    : await pool.query(`
     WITH t3 AS (
       SELECT DISTINCT upload_month FROM rent_roll_data
       WHERE client_id = $1 AND upload_month IS NOT NULL
