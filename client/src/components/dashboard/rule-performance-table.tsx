@@ -1087,7 +1087,7 @@ export function RulePerformanceTable({
                       {!scatterExpanded && (
                         <span
                           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground cursor-help"
-                          title="Each point is one location + service line + room type combination affected by a rule — not one rule. A single rule spanning many communities produces many points. Points only appear once a combination has 3 months of move-in data both before and after the rule's applied date, so this count differs from Rules Applied."
+                          title="Each point is one location + service line + room type combination affected by a rule — not one rule. A single rule spanning many communities produces many points. Move-in trends compare up to 3 months before vs. after the rule's applied date; recent rules use a monthly average of whatever months have elapsed so far. Combinations without any before/after move-in data are excluded, so this count differs from Rules Applied."
                           data-testid="text-scatter-point-count"
                         >
                           {visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}
