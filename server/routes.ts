@@ -18565,21 +18565,24 @@ Return ONLY valid JSON, no markdown fences:
         return vals.length ? Math.round(avg(vals) * 10) / 10 : null;
       };
 
-      // Override refSlOcc / refCampusOcc from RTO spot month (sum occ / sum avail)
-      rtoSLMap.forEach((monthMap, slKey) => {
-        const e = monthMap.get(spotMonth);
-        if (e && e.avail > 0) refSlOcc.set(slKey, e.occ / e.avail);
-      });
-      rtoCampusMap.forEach((monthMap, campus) => {
-        const e = monthMap.get(spotMonth);
-        if (e && e.avail > 0) refCampusOcc.set(campus, e.occ / e.avail);
-      });
-
       // Occupancy data can lag the rent-roll upload (e.g. rent roll has July but the
       // occupancy table's latest month is June). Anchor the occupancy "spot" window
       // to the latest month that actually HAS occupancy data, capped at spot month.
       const rtoSpotMonth = Array.from(rtoMonthSet).filter(m => m <= spotMonth).sort().reverse()[0] ?? spotMonth;
       const rtoSpotWindow = [rtoSpotMonth];
+
+      // Override refSlOcc / refCampusOcc from the RTO anchored spot month
+      // (sum occ / sum avail). Anchoring (not exact spotMonth) keeps rule-trigger
+      // occupancy on the authoritative occupancy table even when it lags the
+      // rent-roll upload — matching the displayed occupancy columns below.
+      rtoSLMap.forEach((monthMap, slKey) => {
+        const e = monthMap.get(rtoSpotMonth);
+        if (e && e.avail > 0) refSlOcc.set(slKey, e.occ / e.avail);
+      });
+      rtoCampusMap.forEach((monthMap, campus) => {
+        const e = monthMap.get(rtoSpotMonth);
+        if (e && e.avail > 0) refCampusOcc.set(campus, e.occ / e.avail);
+      });
 
       // Helper: RTO-based occupancy % over a month window (SUM occ / SUM avail — not an average)
       const rtoOccWindow = (map: Map<string, RtoEntry> | undefined, window: string[]): number | null => {
@@ -19049,7 +19052,9 @@ Return ONLY valid JSON, no markdown fences:
             const share = (rtTotal > 0 && spot?.total) ? spot.total / rtTotal : 1;
             const applyShare = (v: number | null) => v !== null ? Math.round(v * share * 10) / 10 : null;
             return {
-              vacantSpot: applyShare(physVacWindow(physMap, [spotMonth])),
+              // Spot anchored to the latest month with occupancy data (rtoSpotWindow),
+              // falling back to rent-roll counts when history has no usable month.
+              vacantSpot: applyShare(physVacWindow(physMap, rtoSpotWindow)) ?? (spot ? spot.total - spot.occupied : null),
               vacantT3:   applyShare(physVacWindow(physMap, t3Months))  ?? vacWindow(bm, t3Months),
               vacantT6:   applyShare(physVacWindow(physMap, t6Months))  ?? vacWindow(bm, t6Months),
               vacantT12:  applyShare(physVacWindow(physMap, t12Months)) ?? vacWindow(bm, t12Months),
