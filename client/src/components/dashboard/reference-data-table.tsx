@@ -33,6 +33,7 @@ import {
   Pencil,
   Trash2,
   Plus,
+  Upload,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -226,6 +227,14 @@ const GROUPS: GroupDef[] = [
       { key: "proposedRule", label: "Rule", type: "money", w: 80, tip: "Proposed rate from the rules engine. Blank when no adjustment rule applies to this combo." },
       { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 75, tip: "Proposed rate minus current in-house rate (dollars)." },
       { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 65, tip: "Proposed rate vs current in-house rate as a percentage." },
+    ],
+  },
+  {
+    id: "importCols",
+    label: "Import Columns",
+    cols: [
+      { key: "importRuleDesc", label: "Import Rule Desc", type: "text", w: 170, tip: "Fill this in on an exported Excel file, then use Import from Excel to create a new adjustment rule (e.g. \"Increase street rate by 5%\"). Rows with the same description are combined into one rule scoped to those rows." },
+      { key: "importRate", label: "Import Rate", type: "money", w: 90, tip: "Fill this in on an exported Excel file, then use Import from Excel to set an exact proposed rate for this campus / service line / room type." },
     ],
   },
   {
@@ -542,6 +551,15 @@ export default function ReferenceDataTable({
   const [calcJobId, setCalcJobId] = useState<string | null>(null);
   const [calcProgress, setCalcProgress] = useState<number>(0);
   const [calcDone, setCalcDone] = useState(false);
+
+  // ── Import from Excel state ──────────────────────────────────────
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    rulesCreated: { name: string; rowCount: number; annualImpact: number | null }[];
+    overridesApplied: number;
+    errors: string[];
+  } | null>(null);
 
   // ── Manual override popover state ────────────────────────────────
   const [overridePop, setOverridePop] = useState<{
@@ -984,6 +1002,79 @@ export default function ReferenceDataTable({
     URL.revokeObjectURL(url);
   }, [processedRows, data?.spotMonth, dynGroups, dynAllCols]);
 
+  // ── import from Excel (round-trip of the export: reads the "Import Rule
+  // Desc" and "Import Rate" columns and creates rules / rate overrides) ──
+  const handleImportFile = useCallback(async (file: File) => {
+    setImportBusy(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(await file.arrayBuffer());
+      const ws = wb.worksheets[0];
+      if (!ws) throw new Error("No worksheet found in the file.");
+
+      // Header labels are on row 2 (row 1 holds merged group headers)
+      const headerRow = ws.getRow(2);
+      const colIdx: Record<string, number> = {};
+      headerRow.eachCell((cell, col) => {
+        const label = String(cell.value ?? "").trim();
+        if (label) colIdx[label] = col;
+      });
+
+      const descCol = colIdx["Import Rule Desc"];
+      const rateCol = colIdx["Import Rate"];
+      if (!descCol && !rateCol) {
+        throw new Error('Could not find the "Import Rule Desc" or "Import Rate" columns. Use a file created by Export to Excel.');
+      }
+      const campusCol = colIdx["Campus"];
+      const slCol = colIdx["SL"];
+      const rtCol = colIdx["Room Type"];
+
+      const cellText = (row: import("exceljs").Row, col?: number): string => {
+        if (!col) return "";
+        const v = row.getCell(col).value;
+        if (v == null) return "";
+        if (typeof v === "object" && "result" in (v as any)) return String((v as any).result ?? "").trim();
+        if (typeof v === "object" && "richText" in (v as any)) return (v as any).richText.map((t: any) => t.text).join("").trim();
+        return String(v).trim();
+      };
+
+      const rows: { campus?: string; serviceLine?: string; roomType?: string; importRuleDesc?: string; importRate?: number }[] = [];
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber < 3) return;
+        const desc = cellText(row, descCol);
+        const rateStr = cellText(row, rateCol).replace(/[$,\s]/g, "");
+        const rate = rateStr ? Number(rateStr) : NaN;
+        if (!desc && !(Number.isFinite(rate) && rate > 0)) return;
+        const campus = cellText(row, campusCol);
+        rows.push({
+          campus: campus && campus !== "All" && campus !== "—" ? campus : undefined,
+          serviceLine: cellText(row, slCol) || undefined,
+          roomType: cellText(row, rtCol) || undefined,
+          importRuleDesc: desc || undefined,
+          importRate: Number.isFinite(rate) && rate > 0 ? rate : undefined,
+        });
+      });
+
+      if (!rows.length) {
+        throw new Error('No rows had a value in "Import Rule Desc" or "Import Rate". Fill in those columns and try again.');
+      }
+
+      const res = await apiRequest("/api/reference-data/import-rules", "POST", { rows });
+      const result = await res.json();
+      setImportResult(result);
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/manual-rate-overrides"] });
+    } catch (err: any) {
+      toast({ title: "Import failed", description: err?.message ?? "Could not read the file.", variant: "destructive" });
+    } finally {
+      setImportBusy(false);
+      if (importFileRef.current) importFileRef.current.value = "";
+    }
+  }, [queryClient, toast]);
+
   // ── shared cell styling ──
   const groupBg = (gid: string, idx: number) =>
     idx % 2 === 0 ? "bg-muted/40" : "bg-muted/20";
@@ -1416,6 +1507,32 @@ export default function ReferenceDataTable({
         >
           <Download className="mr-1.5 h-3.5 w-3.5" /> Export to Excel
         </Button>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".xlsx"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleImportFile(f);
+          }}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => importFileRef.current?.click()}
+          disabled={importBusy}
+          title='Upload an exported Reference Data Excel file with the "Import Rule Desc" and/or "Import Rate" columns filled in to create new rules. Export at the Room Type view for the most precise results — Import Rate rows need Campus, SL and Room Type.'
+          data-testid="refdata-import"
+        >
+          {importBusy ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Import from Excel
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -1507,10 +1624,73 @@ export default function ReferenceDataTable({
     </Dialog>
   );
 
+  const importResultDialog = (
+    <Dialog open={importResult != null} onOpenChange={(open) => { if (!open) setImportResult(null); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Import Results</DialogTitle>
+          <DialogDescription>
+            Rules and rate overrides created from the imported Excel file.
+          </DialogDescription>
+        </DialogHeader>
+        {importResult && (
+          <div className="space-y-3 text-sm">
+            {importResult.rulesCreated.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
+                  New rules ({importResult.rulesCreated.length})
+                </p>
+                <ul className="space-y-1">
+                  {importResult.rulesCreated.map((r, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      <span>
+                        {r.name}
+                        <span className="text-muted-foreground text-xs">
+                          {" "}— {r.rowCount} row{r.rowCount === 1 ? "" : "s"}
+                          {r.annualImpact != null ? ` · est. $${Math.round(r.annualImpact).toLocaleString()}/yr` : ""}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {importResult.overridesApplied > 0 && (
+              <p className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                {importResult.overridesApplied} exact rate{importResult.overridesApplied === 1 ? "" : "s"} set from the Import Rate column.
+              </p>
+            )}
+            {importResult.errors.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="font-medium text-xs uppercase tracking-wide text-destructive">
+                  Skipped ({importResult.errors.length})
+                </p>
+                <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+                  {importResult.errors.map((e, i) => (
+                    <li key={i}>• {e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {importResult.rulesCreated.length === 0 && importResult.overridesApplied === 0 && importResult.errors.length === 0 && (
+              <p className="text-muted-foreground">Nothing to import.</p>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button size="sm" onClick={() => setImportResult(null)} data-testid="import-result-close">Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col gap-2 bg-background p-4">
         {ruleDialog}
+        {importResultDialog}
         {headerBar}
         {showLoading ? (
           <div className="flex flex-1 items-center justify-center">
@@ -1526,6 +1706,7 @@ export default function ReferenceDataTable({
   return (
     <Card data-testid="reference-data-card">
       {ruleDialog}
+      {importResultDialog}
       <CardHeader className="pb-3">{headerBar}</CardHeader>
       <CardContent>
         {showLoading ? (

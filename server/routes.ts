@@ -14608,6 +14608,145 @@ Respond in JSON format:
     }
   });
 
+  // POST /api/reference-data/import-rules
+  // Round-trip import of the Reference Data Excel export. Each row may carry:
+  //  - importRuleDesc: natural-language rule text → rows with the same text are
+  //    combined into ONE adjustment rule scoped to those rows' campus/SL/room type.
+  //  - importRate: exact target rate → saved as a manual rate override for that
+  //    campus / service line / room type (feeds the Proposed Rates column).
+  app.post("/api/reference-data/import-rules", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || req.session?.clientId || 'demo';
+      const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+      if (!rows.length) {
+        return res.status(400).json({ error: "rows array is required" });
+      }
+      if (rows.length > 5000) {
+        return res.status(400).json({ error: "Too many rows (max 5000)" });
+      }
+
+      const errors: string[] = [];
+      const rulesCreated: { name: string; rowCount: number; annualImpact: number | null }[] = [];
+      let overridesApplied = 0;
+
+      // Resolve campus names → location ids once
+      const locs = await storage.getLocations(clientId);
+      const locByName = new Map<string, string>();
+      for (const l of locs) if (l.name) locByName.set(String(l.name).toLowerCase(), l.id);
+
+      // ── 1) Exact rates → manual rate overrides ──
+      for (const r of rows) {
+        const rate = Number(r?.importRate);
+        if (!Number.isFinite(rate) || rate <= 0) continue;
+        const campus = String(r?.campus ?? '').trim();
+        const serviceLine = String(r?.serviceLine ?? '').trim();
+        const roomType = String(r?.roomType ?? '').trim();
+        if (!campus || !serviceLine || !roomType || serviceLine === 'All' || roomType === 'All') {
+          errors.push(`Import Rate ${rate} skipped — needs Campus, SL and Room Type on the row (export at the Room Type level).`);
+          continue;
+        }
+        if (rate > 50000) {
+          errors.push(`Import Rate ${rate} for ${campus} / ${serviceLine} / ${roomType} skipped — rate looks out of range.`);
+          continue;
+        }
+        const locationId = locByName.get(campus.toLowerCase()) ?? null;
+        await pool.query(
+          `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, now())
+           ON CONFLICT (client_id, location_name, service_line, room_type)
+           DO UPDATE SET override_rate = EXCLUDED.override_rate,
+                         location_id   = EXCLUDED.location_id,
+                         updated_at    = now()`,
+          [clientId, locationId, campus, serviceLine, roomType, rate]
+        );
+        overridesApplied++;
+      }
+
+      // ── 2) Rule descriptions → adjustment rules (grouped by identical text) ──
+      const groups = new Map<string, { desc: string; campuses: Set<string>; sls: Set<string>; rts: Set<string>; rowCount: number }>();
+      for (const r of rows) {
+        const desc = String(r?.importRuleDesc ?? '').trim();
+        if (!desc) continue;
+        const key = desc.toLowerCase();
+        let g = groups.get(key);
+        if (!g) { g = { desc, campuses: new Set(), sls: new Set(), rts: new Set(), rowCount: 0 }; groups.set(key, g); }
+        g.rowCount++;
+        const campus = String(r?.campus ?? '').trim();
+        const sl = String(r?.serviceLine ?? '').trim();
+        const rt = String(r?.roomType ?? '').trim();
+        if (campus && campus !== 'All' && campus !== '—') g.campuses.add(campus);
+        if (sl && sl !== 'All' && sl !== '—') g.sls.add(sl);
+        if (rt && rt !== 'All' && rt !== '—') g.rts.add(rt);
+      }
+
+      for (const g of Array.from(groups.values())) {
+        const parsedRule = parseNaturalLanguageRule(g.desc);
+        if (!parsedRule) {
+          errors.push(`Could not understand rule "${g.desc}" — try wording like "Increase street rate by 5%" or "Decrease rate by $100".`);
+          continue;
+        }
+        const validation = validateParsedRule(parsedRule);
+        if (!validation.isValid) {
+          errors.push(`Rule "${g.desc}" is invalid: ${validation.errors.join('; ')}`);
+          continue;
+        }
+
+        // Expand room-type display groups to raw source room types (same as from-filters)
+        const rts = Array.from(g.rts);
+        let expandedRoomTypes: string[] | undefined;
+        if (rts.length) {
+          const set = new Set<string>(rts);
+          const rtgRes = await pool.query<{ source_room_type: string }>(
+            `SELECT DISTINCT source_room_type FROM room_type_groupings
+             WHERE client_id = $1 AND group_name = ANY($2)`,
+            [clientId, rts]
+          );
+          for (const row of rtgRes.rows) if (row.source_room_type) set.add(row.source_room_type);
+          expandedRoomTypes = Array.from(set);
+        }
+
+        const sls = Array.from(g.sls);
+        const campuses = Array.from(g.campuses);
+        parsedRule.action = {
+          ...parsedRule.action,
+          isAdditive: false,
+          filters: {
+            ...(parsedRule.action.filters ?? {}),
+            ...(sls.length ? { serviceLine: sls } : {}),
+            ...(campuses.length ? { location: campuses } : {}),
+            ...(expandedRoomTypes?.length ? { roomType: expandedRoomTypes } : {}),
+          },
+        };
+        parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+
+        const impact = await computeRuleImpact({ action: parsedRule.action }, clientId);
+        const rule = await storage.createAdjustmentRule({
+          locationId: campuses.length === 1 ? (locByName.get(campuses[0].toLowerCase()) ?? null) : null,
+          serviceLine: sls.length === 1 ? sls[0] : null,
+          serviceLines: sls.length > 1 ? sls : null,
+          name: parsedRule.name,
+          description: `${g.desc} (imported from Excel — ${g.rowCount} row${g.rowCount === 1 ? '' : 's'})`,
+          trigger: parsedRule.trigger,
+          action: parsedRule.action,
+          isActive: true,
+          isHistorical: false,
+          effectiveDate: null,
+          createdBy: 'excel-import',
+          monthlyImpact: Math.round(impact.monthlyImpact),
+          annualImpact: Math.round(impact.annualImpact),
+          volumeAdjustedAnnualImpact: Math.round(impact.volumeAdjustedAnnualImpact),
+        } as any);
+        rulesCreated.push({ name: rule.name, rowCount: g.rowCount, annualImpact: Math.round(impact.annualImpact) });
+      }
+
+      if (rulesCreated.length || overridesApplied) purgeRuleCaches(clientId);
+      res.json({ rulesCreated, overridesApplied, errors });
+    } catch (error) {
+      console.error('Error importing rules from Excel:', error);
+      res.status(500).json({ error: "Failed to import rules from Excel" });
+    }
+  });
+
   // Helper: compute revenue impact for an adjustment rule using the latest month's data
   async function computeRuleImpact(
     rule: any,

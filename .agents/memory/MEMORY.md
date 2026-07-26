@@ -13,4 +13,5 @@
 - [Rule preview / engine trigger parity](rule-preview-parity.md) — triggers are a conditions[] array (AND/OR); preview code must evaluate both shapes and match engine metric scales.
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
 - [Move-in/out event source](move-in-out-events.md) — imported event table is authoritative with rent-roll fallback; event-derived maps must be remapped through room-type groupings for key parity.
+- [Excel round-trip rule import](excel-roundtrip-import.md) — identical import descriptions merge into one scoped rule; exact rates go through manual_rate_overrides, never synthetic adjust rules.
 - [Reference Data grouping & rule scope](refdata-grouping-scope.md) — aggregated views must map back to detail rows for rule scope; sum ratio components, never average %s; rule filters must reach both impact calculators.
