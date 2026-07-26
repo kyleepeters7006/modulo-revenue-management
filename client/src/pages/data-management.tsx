@@ -34,6 +34,7 @@ type UploadSummary = {
   competitors: UploadSummaryEntry;
   location: UploadSummaryEntry;
   room_type_occupancy: UploadSummaryEntry;
+  move_in_out: UploadSummaryEntry;
 };
 
 function formatUploadTime(ts: string | null): string {
@@ -60,6 +61,7 @@ export default function DataManagement() {
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
   const locationFileInputRef = useRef<HTMLInputElement>(null);
   const roomTypeOccFileInputRef = useRef<HTMLInputElement>(null);
+  const moveInOutFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
@@ -559,7 +561,46 @@ export default function DataManagement() {
     },
   });
 
-  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy') => (event: React.ChangeEvent<HTMLInputElement>) => {
+  const moveInOutMutation = useMutation({
+    mutationFn: async ({ formData, uploadId }: { formData: FormData; uploadId: string }) => {
+      const response = await fetch('/api/import/move-ins-outs', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseErrorBody(response));
+      }
+
+      return { data: await response.json(), uploadId };
+    },
+    onSuccess: ({ data, uploadId }) => {
+      const total = (data.moveInsImported || 0) + (data.moveOutsImported || 0);
+      updateUpload(uploadId, { status: 'success', message: `Imported ${total} events` });
+      toast({
+        title: "Upload Successful",
+        description: `Imported ${data.moveInsImported || 0} move-ins and ${data.moveOutsImported || 0} move-outs${data.monthRange?.min ? ` (${data.monthRange.min} to ${data.monthRange.max})` : ''}.`,
+      });
+      setUploadHistory(prev => [{ ...data, type: 'move-in-out', timestamp: new Date() }, ...prev.slice(0, 9)]);
+      queryClient.invalidateQueries({ queryKey: ["/api"] });
+      queryClient.invalidateQueries({ queryKey: ['/api/upload-summary'] });
+    },
+    onError: (error: Error, variables) => {
+      updateUpload(variables.uploadId, { status: 'error', error: error.message });
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      if (moveInOutFileInputRef.current) {
+        moveInOutFileInputRef.current.value = '';
+      }
+    },
+  });
+
+  const handleFileUpload = (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy' | 'move-in-out') => (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
@@ -578,6 +619,7 @@ export default function DataManagement() {
       'competitor': competitorMutation,
       'location': locationMutation,
       'room-type-occupancy': roomTypeOccMutation,
+      'move-in-out': moveInOutMutation,
     };
     
     mutations[type].mutate({ formData, uploadId });
@@ -1048,6 +1090,65 @@ export default function DataManagement() {
                 className="hidden"
                 onChange={handleFileUpload('room-type-occupancy')}
                 data-testid="input-room-type-occ-file"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Move Ins & Outs Detail Upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Move Ins &amp; Outs Upload</CardTitle>
+              <CardDescription>
+                Upload the "Move Ins &amp; Outs Detail" workbook to track admissions and discharges
+              </CardDescription>
+              {uploadSummary?.move_in_out?.lastUploadAt && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Last upload: {formatUploadTime(uploadSummary.move_in_out.lastUploadAt)}</span>
+                  {(uploadSummary.move_in_out.count ?? 0) > 0 && (
+                    <span className="text-gray-400">· {(uploadSummary.move_in_out.count ?? 0).toLocaleString()} events</span>
+                  )}
+                  {uploadSummary.move_in_out.periods.length > 0 && (
+                    <button
+                      onClick={() => setPeriodsDialog({ label: 'Move Ins & Outs', periods: uploadSummary.move_in_out.periods, lastUploadAt: uploadSummary.move_in_out.lastUploadAt })}
+                      className="flex items-center gap-1 text-teal-600 hover:text-teal-700 font-medium"
+                      data-testid="button-move-in-out-periods"
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      {uploadSummary.move_in_out.periods.length} month{uploadSummary.move_in_out.periods.length !== 1 ? 's' : ''} uploaded
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <FileSpreadsheet className="h-4 w-4" />
+                <AlertDescription>
+                  Upload the Excel workbook containing an "Admissions" sheet and/or a "Discharges" sheet. This authoritative census feed powers move-in/out counts across the dashboard (Reference Data, rule performance, and pricing impact). Re-uploading replaces existing events for the same records.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col space-y-3">
+                <Button
+                  onClick={() => moveInOutFileInputRef.current?.click()}
+                  disabled={isUploading('move-in-out')}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white border-2 border-blue-600"
+                  data-testid="button-upload-move-in-out"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {isUploading('move-in-out') ? 'Processing...' : 'Upload Move Ins & Outs Data'}
+                </Button>
+              </div>
+
+              <input
+                ref={moveInOutFileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleFileUpload('move-in-out')}
+                data-testid="input-move-in-out-file"
               />
             </CardContent>
           </Card>

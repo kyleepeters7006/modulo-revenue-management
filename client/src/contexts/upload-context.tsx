@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 
 interface ActiveUpload {
   id: string;
-  type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy';
+  type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy' | 'move-in-out';
   fileName: string;
   startedAt: number;
   status: 'uploading' | 'processing' | 'success' | 'error';

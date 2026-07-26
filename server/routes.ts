@@ -19949,6 +19949,16 @@ Return ONLY valid JSON, no markdown fences:
       }
       const rtOccPeriods = Array.from(rtOccPeriodSet.keys()).sort().reverse();
 
+      // Move-In/Out events: from move_in_out_events (Move Ins & Outs Detail workbook)
+      const mioRes = await pool.query(
+        `SELECT MAX(created_at) AS last_upload_at, COUNT(*)::int AS n,
+                ARRAY(SELECT DISTINCT SUBSTRING(event_date, 1, 7) FROM move_in_out_events
+                      WHERE client_id = $1 AND event_date IS NOT NULL
+                      ORDER BY 1 DESC) AS periods
+         FROM move_in_out_events WHERE client_id = $1`,
+        [clientId]
+      );
+
       res.json({
         rent_roll: {
           lastUploadAt: rrLast[0]?.lastUploadAt || null,
@@ -19971,6 +19981,11 @@ Return ONLY valid JSON, no markdown fences:
         room_type_occupancy: {
           lastUploadAt: rtOccLast[0]?.lastUploadAt || null,
           periods: rtOccPeriods,
+        },
+        move_in_out: {
+          lastUploadAt: mioRes.rows[0]?.last_upload_at || null,
+          count: Number(mioRes.rows[0]?.n || 0),
+          periods: (mioRes.rows[0]?.periods || []).filter(Boolean),
         },
       });
     } catch (error) {
