@@ -190,6 +190,15 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    id: "moves",
+    label: "Move-Ins / Outs",
+    cols: [
+      { key: "moveInsLatest", label: "Ins", type: "int", w: 60, tip: "Move-ins recorded in the most recent month with data (all payers — census counts, not pricing-impact counts)." },
+      { key: "moveOutsLatest", label: "Outs", type: "int", w: 60, tip: "Move-outs recorded in the most recent month with data. Blank when no move-out data source is available." },
+      { key: "moveNetLatest", label: "Net", type: "num1signed", w: 65, tip: "Move-ins minus move-outs for the most recent month (positive = net gain in residents)." },
+    ],
+  },
+  {
     id: "street",
     label: "Street Rates",
     expandable: true,
@@ -311,7 +320,7 @@ function campusColsForLevel(level: GroupLevel): ColDef[] {
 // ── client-side aggregation for higher grouping levels ─────────────
 const AGG_SUM_KEYS = [
   "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
-  "revT3MoveIns",
+  "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
   "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
 ];
 // Inquiry/tour counts live at the campus+SL level and are duplicated on every

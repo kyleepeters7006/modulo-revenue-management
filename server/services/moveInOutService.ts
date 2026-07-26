@@ -182,20 +182,25 @@ export async function hasMoveInOutEvents(clientId: string): Promise<boolean> {
 
 /**
  * Monthly counted move-in series keyed `${location}|${serviceLine}|${roomType}`
- * → Map<YYYY-MM, count>. HC / HC-MC move-ins are restricted to Private Pay
- * payers (street pricing only affects private pay — see pricing methodology).
+ * → Map<YYYY-MM, count>. By default HC / HC-MC move-ins are restricted to
+ * Private Pay payers (street pricing only affects private pay — see pricing
+ * methodology). Pass `allPayers: true` for census-style counts (all payers),
+ * e.g. when displaying move-ins/outs/net flows rather than pricing impact.
  */
 export async function getMonthlyMoveInSeriesFromEvents(
   clientId: string,
-  opts: { keySep?: string } = {},
+  opts: { keySep?: string; allPayers?: boolean } = {},
 ): Promise<Map<string, Map<string, number>>> {
   const sep = opts.keySep ?? "|";
+  const payerFilter = opts.allPayers
+    ? ""
+    : `AND (CASE WHEN service_line IN ('HC','HC/MC')
+           THEN (payer ILIKE '%private%' OR payer ILIKE '%pvt%') ELSE TRUE END)`;
   const res = await pool.query(`
     SELECT location, service_line, room_type, SUBSTRING(event_date, 1, 7) AS mm, COUNT(*)::int AS n
     FROM move_in_out_events
     WHERE client_id = $1 AND event_type = 'move_in' AND counted = true
-      AND (CASE WHEN service_line IN ('HC','HC/MC')
-           THEN (payer ILIKE '%private%' OR payer ILIKE '%pvt%') ELSE TRUE END)
+      ${payerFilter}
     GROUP BY 1, 2, 3, 4
   `, [clientId]);
   const map = new Map<string, Map<string, number>>();

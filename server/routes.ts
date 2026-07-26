@@ -18455,9 +18455,9 @@ Return ONLY valid JSON, no markdown fences:
             WHERE dt IS NOT NULL
               AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
           )
-          SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
+          SELECT location, service_line, room_type, mm, COUNT(*)::int AS n
           FROM valid WHERE mm = ANY($2)
-          GROUP BY location, service_line, room_type
+          GROUP BY location, service_line, room_type, mm
         `, moveParams),
       ]);
 
@@ -18813,8 +18813,20 @@ Return ONLY valid JSON, no markdown fences:
       // move-in/out event data (Move Ins & Outs Detail upload) when present;
       // fall back to the rent-roll-derived query result otherwise.
       let moveMap = new Map<string, number>();
+      // Latest-month move-in / move-out counts per grouped `${loc}||${sl}||${rt}` key.
+      // hasMoveInData/hasMoveOutData distinguish "0 events" from "no data source at all"
+      // (demo rent-roll has move-in dates but no move-out dates → outs/net stay null).
+      const miLatestMap = new Map<string, number>();
+      const moLatestMap = new Map<string, number>();
+      let hasMoveInData = false;
+      let hasMoveOutData = false;
       {
-        const { hasMoveInOutEvents: hasMioEvents, getT3MoveInsMapFromEvents } = await import('./services/moveInOutService');
+        const {
+          hasMoveInOutEvents: hasMioEvents,
+          getT3MoveInsMapFromEvents,
+          getMonthlyMoveInSeriesFromEvents,
+          getMonthlyMoveOutSeriesFromEvents,
+        } = await import('./services/moveInOutService');
         if (await hasMioEvents(clientId)) {
           const evMap = await getT3MoveInsMapFromEvents(clientId, t3Months, { serviceLine });
           // Apply location/region/division filters (event map is client-wide)
@@ -18849,8 +18861,48 @@ Return ONLY valid JSON, no markdown fences:
             const key = grouped ? `${k.split('||')[0]}||${k.split('||')[1]}||${grouped}` : k;
             moveMap.set(key, (moveMap.get(key) || 0) + v);
           }
+
+          // Latest-month move-ins & move-outs from the monthly event series.
+          // Event data can lag the rent-roll spot month, so anchor to the latest
+          // event month ≤ spotMonth (same anchoring pattern as inquiries/tours).
+          const [miSeries, moSeries] = await Promise.all([
+            getMonthlyMoveInSeriesFromEvents(clientId, { keySep: '||', allPayers: true }),
+            getMonthlyMoveOutSeriesFromEvents(clientId, { keySep: '||' }),
+          ]);
+          const evMonthSet = new Set<string>();
+          for (const s of [miSeries, moSeries]) {
+            for (const mMap of Array.from(s.values())) {
+              for (const mm of Array.from(mMap.keys())) if (mm <= spotMonth) evMonthSet.add(mm);
+            }
+          }
+          const mioSpotMonth = Array.from(evMonthSet).sort().reverse()[0] ?? spotMonth;
+          const fillLatest = (series: Map<string, Map<string, number>>, target: Map<string, number>) => {
+            for (const [k, mMap] of Array.from(series.entries())) {
+              const parts = k.split('||');
+              if (allowedLocs && !allowedLocs.has(parts[0])) continue;
+              if (serviceLine && parts[1] !== serviceLine) continue;
+              const v = mMap.get(mioSpotMonth);
+              if (!v) continue;
+              const grouped = rtgMap.get(k);
+              const key = grouped ? `${parts[0]}||${parts[1]}||${grouped}` : k;
+              target.set(key, (target.get(key) || 0) + v);
+            }
+          };
+          fillLatest(miSeries, miLatestMap);
+          fillLatest(moSeries, moLatestMap);
+          hasMoveInData = true;
+          hasMoveOutData = true;
         } else {
-          for (const r of moveRes.rows as any[]) moveMap.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
+          // Rent-roll fallback: moveRes now returns per-month counts; T3 avg = sum ÷ 3,
+          // latest = counts in the rent-roll spot month. No move-out source here.
+          for (const r of moveRes.rows as any[]) {
+            const key = `${r.location}||${r.service_line}||${r.room_type}`;
+            moveMap.set(key, (moveMap.get(key) || 0) + (Number(r.n) || 0) / 3.0);
+            if (r.mm === spotMonth) {
+              miLatestMap.set(key, (miLatestMap.get(key) || 0) + (Number(r.n) || 0));
+            }
+          }
+          hasMoveInData = moveRes.rows.length > 0;
         }
       }
 
@@ -19035,6 +19087,13 @@ Return ONLY valid JSON, no markdown fences:
           tourPrevMonth: tourPrev,
           tourVsT3: (tourPrev !== null && tourT3Avg !== null) ? tourPrev - tourT3Avg : null,
           tourVsT12: (tourPrev !== null && tourT12Avg !== null) ? tourPrev - tourT12Avg : null,
+          // Move-ins / move-outs (latest month with data; 0 when data source exists but no events)
+          ...((): { moveInsLatest: number|null; moveOutsLatest: number|null; moveNetLatest: number|null } => {
+            const key = `${c.campus}||${c.serviceLine}||${c.roomType}`;
+            const mi = hasMoveInData ? (miLatestMap.get(key) ?? 0) : null;
+            const mo = hasMoveOutData ? (moLatestMap.get(key) ?? 0) : null;
+            return { moveInsLatest: mi, moveOutsLatest: mo, moveNetLatest: (mi !== null && mo !== null) ? mi - mo : null };
+          })(),
           // Street rates - single occupant
           streetSpot,
           streetIncT3: incPct(streetSpot, rateWindow(bm, t3Months, 'avgStreet')),

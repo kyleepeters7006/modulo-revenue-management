@@ -7,7 +7,7 @@ description: Authoritative move-in/out counts come from imported event data with
 
 Move-in/out counts prefer the imported `move_in_out_events` table (Move Ins & Outs Detail workbook upload) whenever a client has rows; otherwise fall back to rent-roll `move_in_date` derivation. All consumers (rule performance, reference data, rule impact/designer, SL move-in rate) must branch on `hasMoveInOutEvents(clientId)`.
 
-**Counting rules:** move-in counted = Census_Event 'Admission' only (hospital-leave 'Return' rows stored uncounted); move-out counted = Discharge_Type 'Discharge - Return Not Anticipated' only. HC/HC-MC move-ins remain Private-Pay-only in all counting queries.
+**Counting rules:** move-in counted = Census_Event 'Admission' only (hospital-leave 'Return' rows stored uncounted); move-out counted = Discharge_Type 'Discharge - Return Not Anticipated' only. Two counting modes: pricing-impact metrics keep HC/HC-MC move-ins Private-Pay-only (default); census-style displays (e.g. reference-data Move-Ins/Outs/Net columns) count ALL payers via `allPayers: true` — otherwise Net looks falsely negative because move-outs are never payer-filtered.
 
 **Why:** rent-roll move-in dates under/over-count (snapshot dedupe artifacts); the event workbook is the operator's authoritative census feed.
 
