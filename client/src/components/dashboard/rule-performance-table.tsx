@@ -1085,7 +1085,14 @@ export function RulePerformanceTable({
                     <h3 className="text-sm font-semibold" data-testid="text-scatter-title">Change in Move Ins By Occupancy Level</h3>
                     <div className="flex flex-wrap items-center gap-2">
                       {!scatterExpanded && (
-                        <span className="text-[11px] text-muted-foreground">{visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}</span>
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground cursor-help"
+                          title="Each point is one location + service line + room type combination affected by a rule — not one rule. A single rule spanning many communities produces many points. Points only appear once a combination has 3 months of move-in data both before and after the rule's applied date, so this count differs from Rules Applied."
+                          data-testid="text-scatter-point-count"
+                        >
+                          {visibleScatterCount} point{visibleScatterCount === 1 ? "" : "s"}
+                          <Info className="h-3 w-3" />
+                        </span>
                       )}
                       <button
                         className="px-2 py-1 text-xs font-medium rounded-md border border-border bg-background hover:bg-muted"
