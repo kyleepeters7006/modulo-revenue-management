@@ -942,6 +942,19 @@ export default function ReferenceDataTable({
       column.alignment = c.type === "text" ? { horizontal: "left" } : { horizontal: "right" };
     });
 
+    // Column-level alignment overwrites cell alignment, so re-center the header rows
+    let hc = 1;
+    dynGroups.forEach((g) => {
+      row1.getCell(hc).alignment = { horizontal: "center", vertical: "middle" };
+      g.cols.forEach((c, ci) => {
+        row2.getCell(hc + ci).alignment = {
+          horizontal: ci === 0 && c.type === "text" ? "left" : "center",
+          vertical: "middle",
+        };
+      });
+      hc += g.cols.length;
+    });
+
     // Data rows with light banding
     processedRows.forEach((row, ri) => {
       const r = ws.getRow(ri + 3);
