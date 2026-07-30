@@ -504,3 +504,169 @@ export function computeQualifiedRuleImpact(
     overlapExcludedUnits,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Shared rule-preview pipeline
+// ---------------------------------------------------------------------------
+// Both the grouped /api/reference-data endpoint and /api/reference-data/units
+// need to compute "which rate would each active rule produce for each
+// campus/SL/room-type group?"  This shared helper centralises:
+//   • trigger condition evaluation (occupancy thresholds, ih_street_variance)
+//   • action filter matching (room type, service line, occupancy status)
+//   • adjusted-rate arithmetic
+// so any future change to trigger semantics only needs to be made here.
+// ---------------------------------------------------------------------------
+
+export interface ActiveRule {
+  id: string;
+  name: string;
+  description: string;
+  priority: number;
+  action: any;
+  trigger: any;
+  location_id: string | null;
+  service_line: string | null;
+}
+
+/** Fetch all active adjustment rules for a client ordered by priority DESC. */
+export async function fetchActiveRules(clientId: string): Promise<ActiveRule[]> {
+  const res = await pool.query(
+    `SELECT id, name, description, priority, action, trigger, location_id, service_line
+     FROM adjustment_rules
+     WHERE is_active = true
+       AND (location_id IS NULL OR location_id IN (
+         SELECT id FROM locations WHERE client_id = $1
+       ))
+     ORDER BY priority DESC NULLS LAST, created_at ASC`,
+    [clientId],
+  );
+  return res.rows as ActiveRule[];
+}
+
+export interface GroupRateInput {
+  campus: string;
+  sl: string;
+  rt: string;
+  locationId: string | null;
+  /**
+   * Mode street rate for the group — mirrors mode() WITHIN GROUP from the
+   * grouped endpoint's SQL so both endpoints use the same base for preview rates.
+   */
+  modeStreetRate: number;
+  /** Average in-house rate across the group (used when rule targets care_rate). */
+  avgIhRate: number;
+  total: number;
+  occ: number;
+}
+
+export interface RulePreviewResult {
+  /**
+   * campus||sl||rt → adjusted rate from the first (highest-priority) matching
+   * active rule.  Used by the units endpoint as a proposed-rate fallback.
+   */
+  rulePreviewMap: Map<string, number>;
+  /**
+   * campus||sl||rt||ruleId → adjusted rate for *every* matching active rule.
+   * Used by the grouped endpoint to populate per-rule rate columns.
+   */
+  ruleRatesMap: Map<string, number>;
+}
+
+/**
+ * Evaluate trigger conditions and compute adjusted rates for every active rule
+ * across the provided groups, using the supplied occupancy / IH-variance maps.
+ *
+ * Both the grouped reference-data endpoint and the units detail endpoint call
+ * this function with their respective pre-built occupancy maps so the trigger
+ * semantics are identical.
+ *
+ * @param groups   One entry per (campus, SL, RT) combination to evaluate.
+ * @param rules    Active rules ordered priority DESC (from fetchActiveRules).
+ * @param campOcc  campus → occupancy fraction 0–1 (authoritative source).
+ * @param slOcc    campus||sl → occupancy fraction 0–1.
+ * @param ihVar    campus||sl → IH-to-street variance % (may be negative).
+ */
+export function buildGroupRulePreviewRates(
+  groups: GroupRateInput[],
+  rules: ActiveRule[],
+  campOcc: Map<string, number>,
+  slOcc: Map<string, number>,
+  ihVar: Map<string, number>,
+): RulePreviewResult {
+  const rulePreviewMap = new Map<string, number>();
+  const ruleRatesMap   = new Map<string, number>();
+
+  /** Evaluate one metric-based condition against the pre-built occupancy maps. */
+  const evalCond = (
+    c: { field: string; operator: string; value: number },
+    campus: string,
+    sl: string,
+  ): boolean => {
+    let metricVal: number | null = null;
+    if (c.field === 'service_line_occupancy') {
+      metricVal = slOcc.get(`${campus}||${sl}`) ?? null;
+    } else if (c.field === 'occupancy' || c.field === 'campus_occupancy') {
+      metricVal = campOcc.get(campus) ?? null;
+    } else if (c.field === 'ih_street_variance' || c.field === 'street_to_ih_var') {
+      metricVal = ihVar.get(`${campus}||${sl}`) ?? null;
+    } else {
+      // Metric not computable from aggregated group data — don't block display
+      return true;
+    }
+    if (metricVal === null) return false;
+    return c.operator === '>='  ? metricVal >= c.value
+         : c.operator === '>'   ? metricVal >  c.value
+         : c.operator === '<='  ? metricVal <= c.value
+         : c.operator === '<'   ? metricVal <  c.value
+         : Math.abs(metricVal - c.value) < 0.001;
+  };
+
+  /** Does a rule's trigger condition pass for this campus/SL? */
+  const passesTrigger = (rule: ActiveRule, campus: string, sl: string): boolean => {
+    const trig = rule.trigger as any;
+    if (!trig || trig.type !== 'condition') return true;
+    const conds: Array<{ field: string; operator: string; value: number }> =
+      Array.isArray(trig.conditions) && trig.conditions.length
+        ? trig.conditions
+        : (trig.condition?.field ? [trig.condition] : []);
+    if (!conds.length) return true;
+    const op = String(trig.conditionOperator || 'AND').toUpperCase();
+    return op === 'OR'
+      ? conds.some(c => evalCond(c, campus, sl))
+      : conds.every(c => evalCond(c, campus, sl));
+  };
+
+  for (const g of groups) {
+    const gKey = `${g.campus}||${g.sl}||${g.rt}`;
+    for (const rule of rules) {
+      const action       = (rule.action as any) || {};
+      const filters      = action.filters || {};
+      const usesCareRate = action.target === 'care_rate';
+      const baseRate     = usesCareRate ? g.avgIhRate : g.modeStreetRate;
+      if (!baseRate) continue;
+      // Rule top-level scope
+      if (rule.location_id && g.locationId !== rule.location_id) continue;
+      if (rule.service_line && g.sl !== rule.service_line)        continue;
+      // Action filters
+      if (filters.roomType?.length    && !filters.roomType.includes(g.rt))     continue;
+      if (filters.serviceLine?.length && !filters.serviceLine.includes(g.sl))  continue;
+      if (filters.location?.length    && !filters.location.includes(g.campus)) continue;
+      if (filters.occupancyStatus === 'vacant'   && g.occ >= g.total) continue;
+      if (filters.occupancyStatus === 'occupied' && g.occ === 0)      continue;
+      // Trigger conditions
+      if (!passesTrigger(rule, g.campus, g.sl)) continue;
+      // Compute adjusted rate
+      const adjustmentType: string  = action.adjustmentType  || 'percentage';
+      const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
+      const adjRate = adjustmentType === 'percentage'
+        ? baseRate * (1 + adjustmentValue / 100)
+        : baseRate + adjustmentValue;
+      ruleRatesMap.set(`${gKey}||${rule.id}`, adjRate);
+      if (!rulePreviewMap.has(gKey)) {
+        rulePreviewMap.set(gKey, adjRate);
+      }
+    }
+  }
+
+  return { rulePreviewMap, ruleRatesMap };
+}
