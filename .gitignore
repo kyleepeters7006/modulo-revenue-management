@@ -20,3 +20,5 @@ vite.config.ts.*
 nohup.out
 /CLAUDE.md
 /.idea/
+test-results/
+playwright-report/
