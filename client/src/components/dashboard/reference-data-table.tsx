@@ -239,19 +239,19 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: "revenue",
-    label: "Revenue Impact",
-    cols: [
-      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × move-ins — estimated monthly revenue change from new move-ins at the proposed rate." },
-      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change from new move-ins at the proposed rate." },
-    ],
-  },
-  {
     id: "importCols",
     label: "Import Columns",
     cols: [
       { key: "importRuleDesc", label: "Import Rule Desc", type: "text", w: 170, tip: "Fill this in on an exported Excel file, then use Import from Excel to create a new adjustment rule (e.g. \"Increase street rate by 5%\"). Rows with the same description are combined into one rule scoped to those rows." },
       { key: "importRate", label: "Import Rate", type: "money", w: 90, tip: "Fill this in on an exported Excel file, then use Import from Excel to set an exact proposed rate for this campus / service line / room type." },
+    ],
+  },
+  {
+    id: "revenue",
+    label: "Revenue Impact",
+    cols: [
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
+      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
     ],
   },
   {

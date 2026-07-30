@@ -18375,7 +18375,9 @@ Return ONLY valid JSON, no markdown fences:
       const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
 
       // ── Cache check ──
-      const cacheKey = JSON.stringify({ clientId, serviceLine, regions, divisions, locations });
+      // Key is prefixed with "grouped:" so it cannot collide with the "units:" key
+      // used by /api/reference-data/units for an identical filter combination.
+      const cacheKey = `grouped:${JSON.stringify({ clientId, serviceLine, regions, divisions, locations })}`;
       const cachedPayload = getRefDataCache(cacheKey);
       if (cachedPayload) {
         res.setHeader('X-Cache', 'HIT');
@@ -19430,6 +19432,42 @@ Return ONLY valid JSON, no markdown fences:
         groupMonthlyImpactMap.set(key, gMonthly);
       }
 
+      // Step 4: Pre-compute group elasticity-based revenue impact — uses T3 move-ins
+      // as the volume denominator (matching the revenue impact model) and passes
+      // predictedDTS unchanged so groups without elasticity data return null rather
+      // than a naive non-elasticity-adjusted figure. Distributed evenly across units.
+      const groupElasticityMonthlyImpactMap = new Map<string, number | null>();
+      {
+        const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
+          await import('./services/elasticityService');
+        const elasticityMap = await getElasticityMap(clientId);
+
+        for (const key of Array.from(groupUnitCount.keys())) {
+          const parts = key.split('||');
+          const campus = parts[0], sl = parts[1], rt = parts[2];
+          const groupProposed = groupEffectiveProposedMap.get(key) ?? null;
+          const groupStreet   = groupModeStreet.get(key) ?? null;
+
+          const elas = elasticityMap.get(`${campus}||${sl}||${rt}`) ?? null;
+          const elasticity      = elas?.elasticity ?? null;
+          const daysToSellAfter = elas?.daysToSellAfter ?? null;
+          const deltaRate       = (groupProposed !== null && groupStreet !== null) ? groupProposed - groupStreet : null;
+          const predictedDTS    = predictDaysToSellChange(elasticity, daysToSellAfter, groupStreet, deltaRate);
+          const dailyRate       = groupStreet !== null ? toDailyRate(groupStreet, sl) : null;
+          // Use T3 move-ins (not unit count) as move-in volume — same basis as revMonthlyImpact.
+          // Pass predictedDTS as-is: null → calculateElasticityRevenueImpact returns null,
+          // so groups without elasticity data correctly show blank rather than a naive figure.
+          const groupT3MoveIns  = t3Map.get(key) ?? null;
+          const elasticImpact   = calculateElasticityRevenueImpact({
+            moveInsMonthly: groupT3MoveIns,
+            deltaRate,
+            deltaDaysToSell: predictedDTS,
+            dailyRate,
+          });
+          groupElasticityMonthlyImpactMap.set(key, elasticImpact.monthly);
+        }
+      }
+
       const num = (v: any) => (v === null || v === undefined ? null : Number(v));
       const rows = unitsRes.rows.map((r: any) => {
         const ihSpot = num(r.in_house_rate);
@@ -19474,6 +19512,18 @@ Return ONLY valid JSON, no markdown fences:
               revT3MoveIns: unitT3,
               revMonthlyImpact: unitMonthly,
               revAnnualImpact: unitMonthly !== null ? unitMonthly * 12 : null,
+            };
+          })(),
+          // Elasticity-based revenue impact — group total distributed evenly per unit,
+          // matching the parity guarantee used for revMonthlyImpact above.
+          ...((): { elasticityMonthlyImpact: number | null; elasticityAnnualImpact: number | null } => {
+            const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+            const n = groupUnitCount.get(key) || 1;
+            const gElMonthly = groupElasticityMonthlyImpactMap.get(key) ?? null;
+            const unitElMonthly = gElMonthly !== null ? gElMonthly / n : null;
+            return {
+              elasticityMonthlyImpact: unitElMonthly,
+              elasticityAnnualImpact: unitElMonthly !== null ? unitElMonthly * 12 : null,
             };
           })(),
         };
