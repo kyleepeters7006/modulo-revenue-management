@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { AGG_SUM_KEYS, AGG_WAVG_KEYS, wavg as sharedWavg } from "@shared/referenceDataAgg";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -337,29 +338,12 @@ function campusColsForLevel(level: GroupLevel): ColDef[] {
     default: return GROUPS[0].cols;
   }
 }
-
-// ── client-side aggregation for higher grouping levels ─────────────
-const AGG_SUM_KEYS = [
-  "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
-  "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
-  "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
-];
-// Inquiry/tour counts live at the campus+SL level and are duplicated on every
-// room-type row — sum them once per unique campus||SL, not per row.
 const AGG_CAMPUS_SL_SUM_KEYS = ["inqPrevMonth", "inqVsT3", "tourPrevMonth", "tourVsT3"];
 // Campus- and SL-level occupancy values are repeated on every room-type row;
 // they must be deduped to one value per campus (or campus||SL) and weighted
 // by that entity's units — a per-row unit-weighted average double-counts.
 const AGG_CAMPUS_WAVG_KEYS = ["campusOccSpot", "campusOccT3", "campusOccT12"];
 const AGG_CAMPUS_SL_WAVG_KEYS = ["slOccSpot", "slOccT3", "slOccT12"];
-const AGG_WAVG_KEYS = [
-  "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
-  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
-  "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
-  "elasticity", "elasticityTrend", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
-  "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
-  "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
-];
 const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory", "ihHistory"];
 
 function keyForLevel(r: Record<string, any>, level: GroupLevel): string {
@@ -403,15 +387,7 @@ function aggregateRows(
       for (const r of rs) { const v = r[k]; if (v !== null && v !== undefined) { sum += Number(v); any = true; } }
       out[k] = any ? sum : null;
     }
-    const wavg = (get: (r: Record<string, any>) => any) => {
-      let n = 0, d = 0;
-      for (const r of rs) {
-        const v = get(r);
-        if (v !== null && v !== undefined) { const w = Number(r.totalUnits) || 1; n += Number(v) * w; d += w; }
-      }
-      return d ? n / d : null;
-    };
-    for (const k of AGG_WAVG_KEYS) out[k] = wavg((r) => r[k]);
+    for (const k of AGG_WAVG_KEYS) out[k] = sharedWavg(rs, (r) => r[k]);
     // Subgroups for values that live above the room-type level
     const subGroups = (subKey: (r: Record<string, any>) => string) => {
       const m = new Map<string, { first: Record<string, any>; units: number }>();
@@ -464,7 +440,7 @@ function aggregateRows(
     out.proposedVarPct = (out.proposedRule !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.proposedRule - out.streetSpot) / out.streetSpot : null;
     // Rule rate columns (weighted avg of matching rows)
     const rr: Record<string, number | null> = {};
-    for (const id of ruleIds) rr[id] = wavg((r) => (r.ruleRates as any)?.[id]);
+    for (const id of ruleIds) rr[id] = sharedWavg(rs, (r) => (r.ruleRates as any)?.[id]);
     out.ruleRates = rr;
     // Monthly histories (weighted avg per month; campus/SL occ histories deduped)
     for (const hk of HISTORY_KEYS) {
@@ -472,7 +448,7 @@ function aggregateRows(
       for (const mm of monthsList) {
         if (hk === "campusOccHistory") hist[mm] = dedupeWavg(byCampus, (r) => (r[hk] as any)?.[mm]);
         else if (hk === "slOccHistory") hist[mm] = dedupeWavg(byCampusSL, (r) => (r[hk] as any)?.[mm]);
-        else hist[mm] = wavg((r) => (r[hk] as any)?.[mm]);
+        else hist[mm] = sharedWavg(rs, (r) => (r[hk] as any)?.[mm]);
       }
       out[hk] = hist;
     }

@@ -19660,6 +19660,7 @@ Return ONLY valid JSON, no markdown fences:
         daysToSellBefore: number | null;
         daysToSellAfter: number | null;
         daysToSellChange: number | null;
+        predictedDaysToSellChange: number | null;
       }>();
       {
         const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
@@ -19698,7 +19699,8 @@ Return ONLY valid JSON, no markdown fences:
           const elasticityTrend = (elasticity !== null && prevElasticityForGroup !== null)
             ? prevElasticityForGroup - elasticity
             : null;
-          groupElasticityDataMap.set(key, { elasticity, elasticityTrend, daysToSellBefore, daysToSellAfter, daysToSellChange });
+          // predictedDaysToSellChange is included so it rolls up correctly via AGG_WAVG_KEYS.
+          groupElasticityDataMap.set(key, { elasticity, elasticityTrend, daysToSellBefore, daysToSellAfter, daysToSellChange, predictedDaysToSellChange: predictedDTS });
         }
       }
 
@@ -19780,7 +19782,8 @@ Return ONLY valid JSON, no markdown fences:
           // Raw elasticity / DTS metrics — group-level values repeated on each unit row,
           // same pattern as campusOccSpot / slOccSpot so the Room Detail view can
           // display them and they aggregate correctly in the grouping layers.
-          ...((): { elasticity: number | null; elasticityTrend: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null } => {
+          // predictedDaysToSellChange is included so AGG_WAVG_KEYS roll-up parity holds.
+          ...((): { elasticity: number | null; elasticityTrend: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null; predictedDaysToSellChange: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
             const d = groupElasticityDataMap.get(key);
             return {
@@ -19789,6 +19792,7 @@ Return ONLY valid JSON, no markdown fences:
               daysToSellBefore: d?.daysToSellBefore ?? null,
               daysToSellAfter: d?.daysToSellAfter ?? null,
               daysToSellChange: d?.daysToSellChange ?? null,
+              predictedDaysToSellChange: d?.predictedDaysToSellChange ?? null,
             };
           })(),
           // Month-by-month in-house rate history for the expandable IH Rates column group
