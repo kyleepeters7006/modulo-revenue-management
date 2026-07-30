@@ -889,6 +889,46 @@ export default function ReferenceDataTable({
     return rows;
   }, [rawRows, filters, sortKey, sortDir, dynAllCols, data?.rules]);
 
+  // ── Totals row — shown when >1 row is visible (not on Room Detail) ──
+  const totalRow = useMemo(() => {
+    if (processedRows.length <= 1 || groupLevel === "roomDetail") return null;
+    const out: Record<string, any> = {};
+    for (const k of AGG_SUM_KEYS) {
+      let sum = 0, any = false;
+      for (const r of processedRows) {
+        const v = r[k]; if (v !== null && v !== undefined) { sum += Number(v); any = true; }
+      }
+      out[k] = any ? sum : null;
+    }
+    for (const k of [...AGG_WAVG_KEYS, ...AGG_CAMPUS_WAVG_KEYS, ...AGG_CAMPUS_SL_WAVG_KEYS]) {
+      let n = 0, d = 0;
+      for (const r of processedRows) {
+        const v = r[k];
+        if (v !== null && v !== undefined) { const w = Number(r.totalUnits) || 1; n += Number(v) * w; d += w; }
+      }
+      out[k] = d ? n / d : null;
+    }
+    for (const k of [...AGG_CAMPUS_SL_SUM_KEYS]) {
+      let sum = 0, any = false;
+      for (const r of processedRows) {
+        const v = r[k]; if (v !== null && v !== undefined) { sum += Number(v); any = true; }
+      }
+      out[k] = any ? sum : null;
+    }
+    // Derived variance columns
+    if (out.compBase != null && out.compAdjusted != null && out.compBase !== 0)
+      out.compVarPct = (out.compAdjusted - out.compBase) / out.compBase;
+    if (out.ihSpot != null && out.streetSpot != null) {
+      out.ihVarStreetDollar = out.ihSpot - out.streetSpot;
+      if (out.streetSpot !== 0) out.ihVarStreetPct = (out.ihSpot - out.streetSpot) / out.streetSpot;
+    }
+    if (out.proposedRule != null && out.streetSpot != null) {
+      out.proposedVarDollar = out.proposedRule - out.streetSpot;
+      if (out.streetSpot !== 0) out.proposedVarPct = (out.proposedRule - out.streetSpot) / out.streetSpot;
+    }
+    return out;
+  }, [processedRows, groupLevel]);
+
   const toggleSort = (key: string) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1534,6 +1574,40 @@ export default function ReferenceDataTable({
           <td colSpan={dynAllCols.length} className="py-10 text-center text-sm text-muted-foreground">
             No reference data for the current filters.
           </td>
+        </tr>
+      )}
+      {totalRow && (
+        <tr className="border-t-2 border-border font-semibold">
+          {dynGroups.map((g, gi) =>
+            g.cols.map((c, ci) => {
+              const isFrozen = isMobile ? !!c.mobileFreeze : !!c.frozen;
+              const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
+              const frozenLeft = isMobile ? frozenOffsets.ml[c.key] : frozenOffsets.fl[c.key];
+              const isLabelCell = gi === 0 && ci === 0;
+              const val = isLabelCell ? null : totalRow[c.key];
+              const display = isLabelCell ? "Total" : (fmt(val, c.type) || "—");
+              const colorCls = isLabelCell ? "" : signClass(val, c.type);
+              return (
+                <td
+                  key={c.key}
+                  className={`border-r border-border px-1.5 py-1.5 text-[11px] ${
+                    isLabelCell || c.type === "text" ? "text-left" : "text-right tabular-nums"
+                  } ${colorCls} ${
+                    isFrozen
+                      ? "sticky z-10 bg-muted"
+                      : `${groupBg(g.id, gi)} bg-muted/30`
+                  }`}
+                  style={{
+                    minWidth: colW,
+                    width: colW,
+                    ...(isFrozen ? { left: frozenLeft } : {}),
+                  }}
+                >
+                  {display}
+                </td>
+              );
+            })
+          )}
         </tr>
       )}
     </tbody>

@@ -19067,7 +19067,7 @@ Return ONLY valid JSON, no markdown fences:
           compBase,
           compAdjusted: compAdj,
           compVarDollar: (compAdj !== null && compBase !== null) ? compAdj - compBase : null,
-          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0) ? (compAdj - compBase) / compBase : null,
+          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0 && compAdj !== compBase) ? (compAdj - compBase) / compBase : null,
           // In-house rates
           ihSpot,
           ihVarStreetDollar: (ihSpot !== null && streetSpot !== null) ? ihSpot - streetSpot : null,
@@ -19454,7 +19454,7 @@ Return ONLY valid JSON, no markdown fences:
           streetSpot,
           compBase,
           compAdjusted: compAdj,
-          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0) ? (compAdj - compBase) / compBase : null,
+          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0 && compAdj !== compBase) ? (compAdj - compBase) / compBase : null,
           ihSpot,
           ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
           proposedRule: proposed,
