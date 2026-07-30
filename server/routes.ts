@@ -19341,6 +19341,9 @@ Return ONLY valid JSON, no markdown fences:
           ihHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
           ),
+          ihHistory: Object.fromEntries(
+            months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
+          ),
           streetHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgStreet ?? null])
           ),
@@ -19404,7 +19407,14 @@ Return ONLY valid JSON, no markdown fences:
         [clientId]
       );
       const spotMonth = spotRes.rows[0]?.m ?? null;
-      if (!spotMonth) return res.json({ rows: [], spotMonth: null });
+      if (!spotMonth) return res.json({ rows: [], spotMonth: null, months: [] });
+
+      // Same 24-month window as the grouped endpoint so ihHistory keys align with data?.months
+      const histMonthsRes = await pool.query<{ m: string }>(
+        `SELECT DISTINCT upload_month AS m FROM rent_roll_data WHERE client_id=$1 AND upload_month IS NOT NULL ORDER BY upload_month DESC LIMIT 24`,
+        [clientId]
+      );
+      const months = histMonthsRes.rows.map(r => r.m);
 
       const params: any[] = [clientId, spotMonth];
       let where = `rr.client_id = $1 AND rr.upload_month = $2`;
@@ -19692,6 +19702,23 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
+      // Historical in-house rates per unit for ihHistory drill-down
+      const histIhRes = await pool.query(`
+        SELECT rr.room_number, rr.location AS campus, rr.service_line, rr.upload_month,
+               NULLIF(rr.in_house_rate, 0) AS in_house_rate
+        FROM rent_roll_data rr
+        WHERE rr.client_id = $1 AND rr.upload_month = ANY($2)
+          AND rr.room_number IS NOT NULL
+      `, [clientId, months]);
+      // Map: "roomNumber||campus||serviceLine" → { [YYYY-MM]: rate | null }
+      const unitIhHistMap = new Map<string, Record<string, number | null>>();
+      for (const hr of histIhRes.rows as any[]) {
+        const key = `${hr.room_number}||${hr.campus}||${hr.service_line}`;
+        if (!unitIhHistMap.has(key)) unitIhHistMap.set(key, {});
+        unitIhHistMap.get(key)![hr.upload_month] =
+          hr.in_house_rate !== null ? Number(hr.in_house_rate) : null;
+      }
+
       const num = (v: any) => (v === null || v === undefined ? null : Number(v));
       const rows = unitsRes.rows.map((r: any) => {
         const ihSpot = num(r.in_house_rate);
@@ -19764,10 +19791,16 @@ Return ONLY valid JSON, no markdown fences:
               daysToSellChange: d?.daysToSellChange ?? null,
             };
           })(),
+          // Month-by-month in-house rate history for the expandable IH Rates column group
+          ihHistory: (() => {
+            const key = `${r.room_number}||${r.campus}||${r.service_line}`;
+            const hist = unitIhHistMap.get(key) ?? {};
+            return Object.fromEntries(months.map(mm => [mm, hist[mm] ?? null]));
+          })(),
         };
       });
 
-      const payload = { rows, spotMonth };
+      const payload = { rows, spotMonth, months };
       setRefDataCache(cacheKey, payload, computeStart);
       res.setHeader('X-Cache', 'MISS');
       res.json(payload);
