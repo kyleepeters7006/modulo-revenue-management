@@ -37,6 +37,25 @@ export function normalizeToMonthlyRate(rate: number, serviceLine: string): numbe
 }
 
 /**
+ * Convert a monthly rate to the stored unit for a given service line.
+ * HC / HC-MC rates are stored as DAILY (÷ DAYS_IN_MONTH, rounded to 2 dp).
+ * All other service lines are stored as MONTHLY (unchanged).
+ *
+ * This is the canonical conversion used by every competitor-rate write path.
+ * The plausibility guard (MAX_PLAUSIBLE_MONTHLY_RATE) must be applied to the
+ * monthly value BEFORE calling this function so the limit is unit-consistent.
+ */
+export function convertToStoredRate(
+  monthlyRate: number,
+  serviceLine: string | null
+): number {
+  if (!serviceLine || !isDailyRateServiceLine(serviceLine)) {
+    return monthlyRate; // already in monthly storage units
+  }
+  return Math.round((monthlyRate / DAYS_IN_MONTH) * 100) / 100;
+}
+
+/**
  * Convert a rate to daily based on service line
  * @param rate The rate value
  * @param serviceLine The service line (HC, AL, etc.)

@@ -1216,28 +1216,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const units = await unitsQuery;
       console.log(`Found ${units.length} units to process`);
       
-      // Process in batches to avoid overwhelming the system
-      const batchSize = 100;
+      // processAllUnitsForCompetitorRates processes all matching units in one
+      // call — no outer batching loop needed here.
       let totalProcessed = 0;
       let totalUpdated = 0;
       let totalErrors = 0;
       const updates: any[] = [];
-      
-      for (let i = 0; i < units.length; i += batchSize) {
-        const batch = units.slice(i, i + batchSize);
-        console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(units.length/batchSize)}`);
-        
-        // Process this batch
-        const stats = await processAllUnitsForCompetitorRates(uploadMonth || undefined, clientId);
-        totalProcessed += stats.processed;
-        totalUpdated += stats.updated;
-        totalErrors += stats.errors;
-        
-        // Track updates for response
-        if (stats.updates && stats.updates.length > 0) {
-          updates.push(...stats.updates);
-        }
-      }
+
+      console.log(`Processing ${units.length} units...`);
+      const stats = await processAllUnitsForCompetitorRates(uploadMonth || undefined, clientId);
+      totalProcessed = stats.processed;
+      totalUpdated = stats.updated;
+      totalErrors = stats.errors;
       
       // Get summary of changes (scoped by clientId)
       const changedUnits = await db.select({
@@ -12588,15 +12578,55 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       for (const unit of units) {
         const result = await calculateCompetitorRateForUnit(unit);
         
-        // Update the database if calculation was successful
-        if (result.competitorAdjustedRate !== null) {
-          await db.update(rentRollData)
-            .set({
-              competitorRate: result.competitorAdjustedRate,
-              competitorFinalRate: result.competitorAdjustedRate
-            })
-            .where(eq(rentRollData.id, unit.id));
+        // Use the shared sanitizer + stored-rate conversion so this test path
+        // applies the same plausibility guard and unit conversion as the bulk job
+        // and recalculation endpoint.  HC/HC-MC rates are stored as DAILY
+        // (÷ 30.44); the plausibility check receives the monthly value.
+        // When implausible the sanitizer returns NULLs for EVERY competitor
+        // field, explicitly clearing any corrupt value already stored in the row.
+        const { buildCompetitorRateUpdate } = await import('./services/competitorRateSanitizer.js');
+        const { convertToStoredRate } = await import('./services/rateNormalization.js');
+        const sl = unit.serviceLine ?? null;
+        const storedFinal = result.competitorAdjustedRate !== null
+          ? convertToStoredRate(result.competitorAdjustedRate, sl)
+          : null;
+        const storedBase = result.competitorBaseRate != null
+          ? convertToStoredRate(result.competitorBaseRate, sl)
+          : null;
+        const sanitized = buildCompetitorRateUpdate(
+          result.competitorAdjustedRate,  // monthly — used for plausibility limit
+          {
+            competitorName: result.competitorName,
+            competitorBaseRate: storedBase,
+            competitorFinalRate: storedFinal,
+            competitorCareLevel2Adjustment: result.careLevel2Adjustment != null
+              ? convertToStoredRate(result.careLevel2Adjustment, sl) : null,
+            competitorMedManagementAdjustment: result.medicationManagementAdjustment != null
+              ? convertToStoredRate(result.medicationManagementAdjustment, sl) : null,
+            competitorWeight: result.competitorWeight,
+          }
+        );
+        if (!sanitized.plausible) {
+          console.warn(
+            `[competitor-rates/test] Implausible rate for unit ${unit.id} ` +
+            `(${unit.location} / ${unit.serviceLine} / ${unit.roomType}): ` +
+            `${sanitized.reason} — clearing all competitor fields`
+          );
         }
+        // Write the full sanitized update — valid fields on success, NULLs on
+        // implausible — so every competitor column is covered and corrupt rows
+        // are fully cleared, not just partially overwritten.
+        await db.update(rentRollData)
+          .set({
+            competitorRate:                    sanitized.update.competitorFinalRate,
+            competitorFinalRate:               sanitized.update.competitorFinalRate,
+            competitorName:                    sanitized.update.competitorName,
+            competitorBaseRate:                sanitized.update.competitorBaseRate,
+            competitorWeight:                  sanitized.update.competitorWeight,
+            competitorCareLevel2Adjustment:    sanitized.update.competitorCareLevel2Adjustment,
+            competitorMedManagementAdjustment: sanitized.update.competitorMedManagementAdjustment,
+          })
+          .where(eq(rentRollData.id, unit.id));
         
         results.push({
           ...result,

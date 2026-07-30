@@ -1,9 +1,15 @@
 import { db } from '../db';
 import { competitorRateJobs, rentRollData, competitiveSurveyData } from '@shared/schema';
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
+import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
 
 const BATCH_SIZE = 500;
 const JOB_CHECK_INTERVAL = 5000; // 5 seconds
+
+// Plausibility guard: monthly rates above this threshold are treated as corrupt
+// and skipped rather than written to the DB.  The highest legitimate survey rate
+// observed is ~$33k/month for a VIL Two-Bedroom; $50k gives a comfortable margin
+// while still catching runaway values like the historic $375M Romeo - 2512 bug.
 
 interface JobProgress {
   processed: number;
@@ -295,18 +301,35 @@ async function processBatch(
         const careAdjustmentStored = convertToStoredRate(careLevel2Adjustment, serviceLine);
         const medMgmtStored = convertToStoredRate(medMgmtAdjustment, serviceLine);
 
+        // Plausibility guard via shared sanitizer.  Pass the MONTHLY rate so the
+        // limit (50 000 $/month) is applied consistently regardless of service line.
+        // When implausible the sanitizer returns NULLs — this clears any corrupt
+        // value already stored (e.g. the historic $375M Romeo - 2512 row) rather
+        // than leaving it.
+        const sanitized = buildCompetitorRateUpdate(finalRateMonthly, {
+          competitorName: matchedCompetitor.competitorName,
+          competitorBaseRate: baseRate,
+          competitorFinalRate: finalRate,
+          competitorCareLevel2Adjustment: careAdjustmentStored,
+          competitorMedManagementAdjustment: medMgmtStored,
+          competitorWeight: matchedCompetitor.weight || null,
+        });
+
+        if (!sanitized.plausible) {
+          console.warn(
+            `[CompetitorJob] Implausible rate for unit ${unit.id} ` +
+            `(${unit.location} / ${serviceLine} / ${unit.roomType}): ` +
+            `${sanitized.reason} — clearing competitor fields`
+          );
+        }
+
+        // Always write (valid fields or NULLs) so stale corrupt values are cleared.
         await db.update(rentRollData)
-          .set({
-            competitorName: matchedCompetitor.competitorName,
-            competitorBaseRate: baseRate,
-            competitorFinalRate: finalRate,
-            competitorCareLevel2Adjustment: careAdjustmentStored,
-            competitorMedManagementAdjustment: medMgmtStored,
-            competitorWeight: matchedCompetitor.weight || null,
-          })
+          .set(sanitized.update)
           .where(eq(rentRollData.id, unit.id));
 
-        progress.updated++;
+        if (sanitized.plausible) progress.updated++;
+        else progress.skipped++;
       } else {
         progress.skipped++;
       }

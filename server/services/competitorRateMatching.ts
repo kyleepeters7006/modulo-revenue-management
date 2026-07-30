@@ -16,7 +16,8 @@ import { db } from "../db";
 import { competitiveSurveyData, rentRollData, locations, careLevelRates } from "@shared/schema";
 import type { CompetitiveSurveyData, RentRollData } from "@shared/schema";
 import { eq, and, sql, desc, asc } from "drizzle-orm";
-import { isDailyRateServiceLine, normalizeToMonthlyRate } from "./rateNormalization";
+import { isDailyRateServiceLine, normalizeToMonthlyRate, convertToStoredRate } from "./rateNormalization";
+import { buildCompetitorRateUpdate } from "./competitorRateSanitizer";
 
 // Mapping from Trilogy service line to competitor survey type
 // IL data is split: "IL_Villa" for VIL service line, "IL_IL" for SL service line
@@ -91,6 +92,11 @@ const ROOM_TYPE_MAPPING: Record<string, Record<string, string>> = {
     'Private': 'Studio'
   }
 };
+
+// Plausibility guard for computed competitor rates.
+// Monthly rates above this threshold are treated as corrupt and skipped rather
+// than written to the DB, preventing a repeat of the $375M Romeo - 2512 incident
+// where a bad care-level value produced an astronomically large final rate.
 
 // Service lines that should apply care level 2 adjustments
 const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
@@ -587,32 +593,72 @@ export async function processAllUnitsForCompetitorRates(
           console.warn(`Error for unit ${result.roomNumber}: ${result.error}`);
           continue;
         }
-        
-        // Update the database with calculated competitor data
-        try {
-          let adjustmentData: any = {};
-          if (result.adjustmentDetails) {
-            try {
-              adjustmentData = JSON.parse(result.adjustmentDetails);
-            } catch (e) {
-              console.warn('Failed to parse adjustment details:', e);
-            }
+
+        // Plausibility guard — uses the shared sanitizer so the same rule applies
+        // to every write path.  When the rate is implausible the sanitizer returns
+        // a NULL-filled update object, which explicitly CLEARS any corrupt value
+        // previously stored (e.g. the $375M Romeo - 2512 row) rather than leaving it.
+        let adjustmentData: any = {};
+        if (result.adjustmentDetails) {
+          try { adjustmentData = JSON.parse(result.adjustmentDetails); }
+          catch (e) { console.warn('Failed to parse adjustment details:', e); }
+        }
+
+        // Convert monthly values to stored-rate units (daily for HC/HC-MC) before
+        // writing.  The plausibility check receives the monthly value so the limit
+        // is unit-consistent; the fields object carries the already-converted values
+        // that go directly into the DB columns.
+        const sl = result.serviceLine ?? null;
+        const storedFinal   = result.competitorAdjustedRate !== null
+          ? convertToStoredRate(result.competitorAdjustedRate, sl)
+          : null;
+        const storedBase    = result.competitorBaseRate !== null
+          ? convertToStoredRate(result.competitorBaseRate, sl)
+          : null;
+        const storedCareAdj = result.careLevel2Adjustment !== null && result.careLevel2Adjustment !== undefined
+          ? convertToStoredRate(result.careLevel2Adjustment, sl)
+          : null;
+        const storedMedAdj  = result.medicationManagementAdjustment !== null && result.medicationManagementAdjustment !== undefined
+          ? convertToStoredRate(result.medicationManagementAdjustment, sl)
+          : null;
+
+        const sanitized = buildCompetitorRateUpdate(
+          result.competitorAdjustedRate, // monthly — used for plausibility limit
+          {
+            competitorName: result.competitorName,
+            competitorBaseRate: storedBase,
+            competitorFinalRate: storedFinal,
+            competitorCareLevel2Adjustment: storedCareAdj ?? 0,
+            competitorMedManagementAdjustment: storedMedAdj ?? 0,
+            competitorWeight: result.competitorWeight,
           }
-          
+        );
+
+        if (!sanitized.plausible) {
+          console.warn(
+            `[CompetitorRate] Implausible rate for unit ${result.roomNumber} ` +
+            `(${result.location} / ${result.serviceLine} / ${result.roomType}): ` +
+            `${sanitized.reason} — clearing competitor fields`
+          );
+        }
+
+        // Always write (valid fields or NULLs) so stale corrupt values are cleared.
+        try {
           await db.update(rentRollData)
             .set({
-              competitorRate: result.competitorAdjustedRate,
-              competitorFinalRate: result.competitorAdjustedRate,
-              competitorName: result.competitorName,
-              competitorBaseRate: result.competitorBaseRate,
-              competitorWeight: result.competitorWeight,
-              competitorCareLevel2Adjustment: result.careLevel2Adjustment || 0,
-              competitorMedManagementAdjustment: result.medicationManagementAdjustment || 0,
-              competitorAdjustmentExplanation: adjustmentData.explanation || null
+              competitorRate: sanitized.update.competitorFinalRate,
+              competitorFinalRate: sanitized.update.competitorFinalRate,
+              competitorName: sanitized.update.competitorName,
+              competitorBaseRate: sanitized.update.competitorBaseRate,
+              competitorWeight: sanitized.update.competitorWeight,
+              competitorCareLevel2Adjustment: sanitized.update.competitorCareLevel2Adjustment ?? null,
+              competitorMedManagementAdjustment: sanitized.update.competitorMedManagementAdjustment ?? null,
+              competitorAdjustmentExplanation: sanitized.plausible ? (adjustmentData.explanation || null) : null,
             })
             .where(eq(rentRollData.id, result.unitId));
-          
-          stats.updated++;
+
+          if (sanitized.plausible) stats.updated++;
+          else stats.errors++;
         } catch (updateError) {
           console.error(`Error updating unit ${result.unitId}:`, updateError);
           stats.errors++;
