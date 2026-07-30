@@ -3,13 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight, ChevronDown, ShieldAlert, Info } from "lucide-react";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
@@ -36,6 +37,285 @@ type UploadSummary = {
   room_type_occupancy: UploadSummaryEntry;
   move_in_out: UploadSummaryEntry;
 };
+
+// ── RT Occupancy Coverage Panel ──────────────────────────────────────────────
+type RtCoverageRow = {
+  campus: string;
+  serviceLine: string;
+  hasHistory: boolean;
+  rtTypeCount: number;
+  rtTypes: string[];
+  periodCount: number;
+};
+type RtCampusSummary = {
+  campus: string;
+  total: number;
+  covered: number;
+  coveragePct: number;
+  flagged: boolean;
+  serviceLines: RtCoverageRow[];
+};
+type RtSlSummary = {
+  serviceLine: string;
+  total: number;
+  covered: number;
+  coveragePct: number;
+  flagged: boolean;
+};
+type RtCoverageData = {
+  clientId: string;
+  summary: { total: number; covered: number; uncovered: number; overallPct: number };
+  campuses: RtCampusSummary[];
+  serviceLines: RtSlSummary[];
+  rows: RtCoverageRow[];
+};
+
+function RtOccCoveragePanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [view, setView] = useState<'campus' | 'sl'>('campus');
+
+  const { data, isLoading, refetch, isFetching } = useQuery<RtCoverageData>({
+    queryKey: ['/api/admin/rt-occupancy-coverage'],
+    enabled: expanded,
+    staleTime: 60_000,
+  });
+
+  const summary = data?.summary;
+  const hasFlagged = data
+    ? data.campuses.some((c) => c.flagged) || data.serviceLines.some((s) => s.flagged)
+    : false;
+
+  const coverageBadgeClass =
+    !summary ? 'bg-gray-100 text-gray-600' :
+    summary.overallPct < 50 ? 'bg-red-100 text-red-700' :
+    summary.overallPct < 80 ? 'bg-amber-100 text-amber-700' :
+    'bg-green-100 text-green-700';
+
+  return (
+    <Card className="border border-dashed border-gray-300 bg-gray-50">
+      <CardHeader className="pb-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center justify-between w-full text-left group"
+          data-testid="btn-rt-occ-coverage-toggle"
+        >
+          <div className="flex items-center gap-2">
+            {hasFlagged ? (
+              <ShieldAlert className="w-4 h-4 text-amber-600" />
+            ) : (
+              <Info className="w-4 h-4 text-gray-400" />
+            )}
+            <CardTitle className="text-sm font-semibold text-gray-700 group-hover:text-gray-900">
+              RT Occupancy History Coverage Check
+            </CardTitle>
+            {hasFlagged && (
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-xs">
+                Gaps found
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {summary && (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${coverageBadgeClass}`}>
+                {summary.overallPct}% covered ({summary.covered}/{summary.total})
+              </span>
+            )}
+            {expanded ? (
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            )}
+          </div>
+        </button>
+        {!expanded && (
+          <CardDescription className="text-xs mt-1 ml-6">
+            Shows which campus × service line combinations are missing RT-level occupancy history and will fall back to SL-level data in pricing.
+          </CardDescription>
+        )}
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0 space-y-4">
+          <p className="text-xs text-gray-500">
+            Each campus × service line combination from the most recent rent roll is checked against{' '}
+            <code className="bg-gray-100 px-1 rounded">room_type_occupancy_history</code>. Combinations with no
+            RT-level rows trigger the SL-level fallback in pricing. Campuses where fewer than 50% of their
+            service lines have RT history are flagged.
+          </p>
+
+          {isLoading || isFetching ? (
+            <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading coverage data…
+            </div>
+          ) : !data ? (
+            <p className="text-sm text-gray-500">No data available.</p>
+          ) : (
+            <>
+              {/* Summary bar */}
+              <div className="flex flex-wrap gap-3 text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
+                  <span className="text-gray-700 font-medium">{summary!.covered}</span>
+                  <span className="text-gray-500">covered</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-3 rounded-full bg-red-400" />
+                  <span className="text-gray-700 font-medium">{summary!.uncovered}</span>
+                  <span className="text-gray-500">missing RT history (SL fallback will trigger)</span>
+                </span>
+              </div>
+
+              {/* View toggle */}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={view === 'campus' ? 'default' : 'outline'}
+                  onClick={() => setView('campus')}
+                  className="h-7 text-xs"
+                >
+                  By Campus
+                </Button>
+                <Button
+                  size="sm"
+                  variant={view === 'sl' ? 'default' : 'outline'}
+                  onClick={() => setView('sl')}
+                  className="h-7 text-xs"
+                >
+                  By Service Line
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                  className="h-7 text-xs ml-auto"
+                >
+                  <RefreshCw className={`w-3 h-3 mr-1 ${isFetching ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+
+              {view === 'campus' ? (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {data.campuses.map((campus) => (
+                    <CampusRow key={campus.campus} campus={campus} />
+                  ))}
+                  {data.campuses.length === 0 && (
+                    <p className="text-sm text-gray-400 text-center py-4">
+                      No campus/service line combinations found in the latest rent roll.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 pr-4 font-semibold text-gray-600">Service Line</th>
+                        <th className="text-right py-2 pr-4 font-semibold text-gray-600">Campuses</th>
+                        <th className="text-right py-2 pr-4 font-semibold text-gray-600">Covered</th>
+                        <th className="text-right py-2 font-semibold text-gray-600">Coverage %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.serviceLines.map((sl) => (
+                        <tr key={sl.serviceLine} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-2 pr-4 font-medium text-gray-800">
+                            {sl.flagged && (
+                              <ShieldAlert className="w-3 h-3 text-amber-500 inline mr-1" />
+                            )}
+                            {sl.serviceLine}
+                          </td>
+                          <td className="py-2 pr-4 text-right text-gray-600">{sl.total}</td>
+                          <td className="py-2 pr-4 text-right text-gray-600">{sl.covered}</td>
+                          <td className="py-2 text-right">
+                            <span className={`font-semibold px-1.5 py-0.5 rounded text-xs ${
+                              sl.coveragePct < 50 ? 'bg-red-100 text-red-700' :
+                              sl.coveragePct < 80 ? 'bg-amber-100 text-amber-700' :
+                              'bg-green-100 text-green-700'
+                            }`}>
+                              {sl.coveragePct}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {data.serviceLines.length === 0 && (
+                    <p className="text-sm text-gray-400 text-center py-4">
+                      No service lines found.
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function CampusRow({ campus }: { campus: RtCampusSummary }) {
+  const [open, setOpen] = useState(false);
+  const pct = campus.coveragePct;
+  const badgeClass =
+    pct < 50 ? 'bg-red-100 text-red-700' :
+    pct < 80 ? 'bg-amber-100 text-amber-700' :
+    'bg-green-100 text-green-700';
+
+  return (
+    <div className={`border rounded-md ${campus.flagged ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-between w-full px-3 py-2 text-xs text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {campus.flagged && <ShieldAlert className="w-3 h-3 text-amber-500 shrink-0" />}
+          <span className="font-medium text-gray-800 truncate">{campus.campus}</span>
+          <span className="text-gray-400 shrink-0">{campus.total} SL{campus.total !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`px-1.5 py-0.5 rounded font-semibold ${badgeClass}`}>
+            {pct}%
+          </span>
+          {open ? <ChevronDown className="w-3 h-3 text-gray-400" /> : <ChevronRight className="w-3 h-3 text-gray-400" />}
+        </div>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-1 border-t border-gray-100">
+          {campus.serviceLines.map((sl) => (
+            <div key={sl.serviceLine} className="flex items-center justify-between text-xs py-1">
+              <div className="flex items-center gap-2">
+                {sl.hasHistory ? (
+                  <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />
+                )}
+                <span className="text-gray-700 font-medium">{sl.serviceLine}</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-500">
+                {sl.hasHistory ? (
+                  <>
+                    <span>{sl.rtTypeCount} RT type{sl.rtTypeCount !== 1 ? 's' : ''}</span>
+                    <span>·</span>
+                    <span>{sl.periodCount} period{sl.periodCount !== 1 ? 's' : ''}</span>
+                    {sl.rtTypes.length > 0 && (
+                      <span className="text-gray-400 italic">({sl.rtTypes.join(', ')})</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-red-500 font-medium">No RT history — SL fallback will be used</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatUploadTime(ts: string | null): string {
   if (!ts) return '';
@@ -1093,6 +1373,9 @@ export default function DataManagement() {
               />
             </CardContent>
           </Card>
+
+          {/* RT Occupancy Coverage Diagnostic */}
+          <RtOccCoveragePanel />
 
           {/* Move Ins & Outs Detail Upload */}
           <Card>

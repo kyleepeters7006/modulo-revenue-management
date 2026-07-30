@@ -1354,6 +1354,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/rt-occupancy-coverage?clientId=
+  // Reports, per client, what % of campus × service-line combinations in the most-recent
+  // rent roll have RT-level rows in room_type_occupancy_history.  Combinations with
+  // no history trigger the SL-level fallback in pricing; those with < 50% campus coverage
+  // per service line are flagged so data imports can be investigated.
+  app.get('/api/admin/rt-occupancy-coverage', async (req: any, res) => {
+    try {
+      const queryClientId = (req.query.clientId as string) || req.clientId || 'demo';
+
+      // Universe: every distinct (campus, service_line) present in the most recent rent-roll upload
+      const universeRows = await db.execute(sql`
+        WITH latest AS (
+          SELECT MAX(upload_month) AS month
+          FROM rent_roll_data
+          WHERE client_id = ${queryClientId}
+        )
+        SELECT DISTINCT
+          rrd.location   AS campus,
+          rrd.service_line
+        FROM rent_roll_data rrd, latest
+        WHERE rrd.client_id = ${queryClientId}
+          AND rrd.upload_month = latest.month
+        ORDER BY rrd.location, rrd.service_line
+      `);
+
+      // RT-level history: per (campus, service_line) how many distinct normalized room types
+      // are present and across how many periods
+      const historyRows = await db.execute(sql`
+        SELECT
+          location_name                                                   AS campus,
+          service_line,
+          COUNT(DISTINCT normalized_room_type)::int                       AS rt_type_count,
+          array_agg(DISTINCT normalized_room_type ORDER BY normalized_room_type) AS rt_types,
+          COUNT(DISTINCT year * 100 + month)::int                         AS period_count
+        FROM room_type_occupancy_history
+        WHERE client_id = ${queryClientId}
+        GROUP BY location_name, service_line
+      `);
+
+      // Index history by lower(campus) + service_line for join
+      const histIndex = new Map<string, { rtTypeCount: number; rtTypes: string[]; periodCount: number }>();
+      for (const h of historyRows.rows as any[]) {
+        const key = `${(h.campus as string).toLowerCase().trim()}||${h.service_line}`;
+        histIndex.set(key, {
+          rtTypeCount: Number(h.rt_type_count),
+          rtTypes: h.rt_types ?? [],
+          periodCount: Number(h.period_count),
+        });
+      }
+
+      // Build per-row results
+      type CoverageRow = {
+        campus: string;
+        serviceLine: string;
+        hasHistory: boolean;
+        rtTypeCount: number;
+        rtTypes: string[];
+        periodCount: number;
+      };
+      const rows: CoverageRow[] = (universeRows.rows as any[]).map((u) => {
+        const key = `${(u.campus as string).toLowerCase().trim()}||${u.service_line}`;
+        const hist = histIndex.get(key);
+        return {
+          campus: u.campus as string,
+          serviceLine: u.service_line as string,
+          hasHistory: !!hist,
+          rtTypeCount: hist?.rtTypeCount ?? 0,
+          rtTypes: hist?.rtTypes ?? [],
+          periodCount: hist?.periodCount ?? 0,
+        };
+      });
+
+      // Summary
+      const total = rows.length;
+      const covered = rows.filter((r) => r.hasHistory).length;
+      const overallPct = total === 0 ? 100 : Math.round((covered / total) * 100);
+
+      // Per-campus rollup: flag campuses where < 50% of their SLs have RT history
+      const campusMap = new Map<string, { total: number; covered: number; serviceLines: CoverageRow[] }>();
+      for (const r of rows) {
+        if (!campusMap.has(r.campus)) campusMap.set(r.campus, { total: 0, covered: 0, serviceLines: [] });
+        const c = campusMap.get(r.campus)!;
+        c.total++;
+        if (r.hasHistory) c.covered++;
+        c.serviceLines.push(r);
+      }
+      const campuses = Array.from(campusMap.entries()).map(([campus, c]) => ({
+        campus,
+        total: c.total,
+        covered: c.covered,
+        coveragePct: Math.round((c.covered / c.total) * 100),
+        flagged: c.covered / c.total < 0.5,
+        serviceLines: c.serviceLines,
+      })).sort((a, b) => a.coveragePct - b.coveragePct || a.campus.localeCompare(b.campus));
+
+      // Per-service-line rollup
+      const slMap = new Map<string, { total: number; covered: number }>();
+      for (const r of rows) {
+        if (!slMap.has(r.serviceLine)) slMap.set(r.serviceLine, { total: 0, covered: 0 });
+        const s = slMap.get(r.serviceLine)!;
+        s.total++;
+        if (r.hasHistory) s.covered++;
+      }
+      const serviceLines = Array.from(slMap.entries()).map(([sl, s]) => ({
+        serviceLine: sl,
+        total: s.total,
+        covered: s.covered,
+        coveragePct: Math.round((s.covered / s.total) * 100),
+        flagged: s.covered / s.total < 0.5,
+      })).sort((a, b) => a.coveragePct - b.coveragePct || a.serviceLine.localeCompare(b.serviceLine));
+
+      res.json({
+        clientId: queryClientId,
+        summary: { total, covered, uncovered: total - covered, overallPct },
+        campuses,
+        serviceLines,
+        rows,
+      });
+    } catch (error) {
+      console.error('Error fetching RT occupancy coverage:', error);
+      res.status(500).json({ error: 'Failed to fetch RT occupancy coverage' });
+    }
+  });
+
   // POST /api/admin/backfill-companion-room-type
   // Corrects historical rent_roll_data and rent_roll_history rows where room_type
   // was stored as a non-canonical companion variant (e.g., "Companion Suite",
