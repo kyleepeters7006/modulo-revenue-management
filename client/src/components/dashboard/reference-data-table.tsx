@@ -748,25 +748,6 @@ export default function ReferenceDataTable({
     return aggregateRows(detail, groupLevel, ruleIds, data?.months ?? []);
   }, [data?.rows, data?.rules, data?.months, groupLevel, unitData?.rows]);
 
-  // Unique formatted values for the currently-open filter column (for checkbox list).
-  // Placed after rawRows since it depends on it.
-  const openFilterMeta = useMemo(() => {
-    if (!openFilter) return null;
-    const col = dynAllCols.find(c => c.key === openFilter);
-    if (!col) return null;
-    const isNumeric = NUMERIC_TYPES.includes(col.type);
-    if (isNumeric) return { col, isNumeric: true, vals: [] as string[] };
-    const seen = new Map<string, number>();
-    for (const row of rawRows) {
-      const v = fmt(row[openFilter], col.type);
-      if (v && v !== '–') seen.set(v, (seen.get(v) ?? 0) + 1);
-    }
-    const vals = Array.from(seen.entries())
-      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-      .map(([v]) => v);
-    return { col, isNumeric: false, vals };
-  }, [openFilter, rawRows, dynAllCols]);
-
   // ── dynamic rule column groups ──
   const dynGroups = useMemo((): GroupDef[] => {
     const rules = data?.rules ?? [];
@@ -816,6 +797,25 @@ export default function ReferenceDataTable({
   }, [data?.rules, data?.months, expandedGroups, groupLevel]);
 
   const dynAllCols = useMemo(() => dynGroups.flatMap(g => g.cols), [dynGroups]);
+
+  // Unique formatted values for the currently-open filter column (for checkbox list).
+  // Must be after both rawRows and dynAllCols.
+  const openFilterMeta = useMemo(() => {
+    if (!openFilter) return null;
+    const col = dynAllCols.find(c => c.key === openFilter);
+    if (!col) return null;
+    const isNumeric = NUMERIC_TYPES.includes(col.type);
+    if (isNumeric) return { col, isNumeric: true, vals: [] as string[] };
+    const seen = new Map<string, number>();
+    for (const row of rawRows) {
+      const v = fmt(row[openFilter], col.type);
+      if (v && v !== '–') seen.set(v, (seen.get(v) ?? 0) + 1);
+    }
+    const vals = Array.from(seen.entries())
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(([v]) => v);
+    return { col, isNumeric: false, vals };
+  }, [openFilter, rawRows, dynAllCols]);
 
   // Frozen column left offsets — recomputed because the frozen set changes with grouping level
   const frozenOffsets = useMemo(() => {
