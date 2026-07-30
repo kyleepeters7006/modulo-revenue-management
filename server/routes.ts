@@ -19309,6 +19309,35 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
+      // Mode street rate per group — matches the grouped endpoint's
+      //   mode() WITHIN GROUP (ORDER BY street_rate) FILTER (WHERE street_rate > 0)
+      // Tie-breaking: ascending sort → smallest value wins (PostgreSQL behaviour).
+      // Computed here (before rulePreviewMap) so the rule-preview base rate uses
+      // the same mode as the grouped endpoint, not a simple average.
+      const groupModeStreet = new Map<string, number>();
+      {
+        const freq = new Map<string, Map<number, number>>();
+        for (const r of unitsRes.rows as any[]) {
+          const st = Number(r.street_rate) || 0;
+          if (st <= 0) continue;
+          const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+          if (!freq.has(key)) freq.set(key, new Map());
+          const m = freq.get(key)!;
+          m.set(st, (m.get(st) || 0) + 1);
+        }
+        for (const [key, m] of Array.from(freq.entries())) {
+          // mode() WITHIN GROUP (ORDER BY street_rate ASC): most frequent;
+          // ties → smallest value (first in ascending sort order).
+          let maxCount = 0, modeRate = Infinity;
+          for (const [rate, count] of Array.from(m.entries())) {
+            if (count > maxCount || (count === maxCount && rate < modeRate)) {
+              maxCount = count; modeRate = rate;
+            }
+          }
+          if (isFinite(modeRate)) groupModeStreet.set(key, modeRate);
+        }
+      }
+
       // Rule-preview fallback per group (campus||sl||rt) — mirrors the main
       // reference-data endpoint: when no rate is stored (engine not yet run),
       // preview the first matching active rule's adjusted rate so Room Detail
@@ -19393,9 +19422,11 @@ Return ONLY valid JSON, no markdown fences:
               const action = (rule.action as any) || {};
               const filters = action.filters || {};
               const usesCareRate = action.target === 'care_rate';
+              // Use mode street rate (matching grouped endpoint's mode() WITHIN GROUP query)
+              // so rule-preview adjusted rates are computed from the same base as grouped.
               const baseRate = usesCareRate
                 ? (g.ihN ? g.ihSum / g.ihN : 0)
-                : (g.streetN ? g.streetSum / g.streetN : 0);
+                : (groupModeStreet.get(`${g.campus}||${g.sl}||${g.rt}`) ?? (g.streetN ? g.streetSum / g.streetN : 0));
               if (!baseRate) continue;
               if (rule.location_id && g.locationId !== rule.location_id) continue;
               if (rule.service_line && g.sl !== rule.service_line) continue;
@@ -19446,6 +19477,52 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
+      // ── Group-level revenue impact for parity with grouped /api/reference-data ──
+      // groupModeStreet was already computed above (before rulePreviewMap) so the
+      // rule-preview base rate uses the same mode as the grouped endpoint.
+
+      // Group effective proposed — mirrors the grouped endpoint's precedence:
+      //   manual override ?? AVG(rule_adjusted_rate) for units with a stored rate ?? rule preview.
+      const groupEffectiveProposedMap = new Map<string, number | null>();
+      {
+        const storedSums = new Map<string, { sum: number; count: number }>();
+        for (const r of unitsRes.rows as any[]) {
+          const stored = Number(r.proposed_rate) || 0;
+          if (stored > 0) {
+            const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+            const e = storedSums.get(key) || { sum: 0, count: 0 };
+            e.sum += stored; e.count += 1;
+            storedSums.set(key, e);
+          }
+        }
+        for (const key of Array.from(groupUnitCount.keys())) {
+          const manualRate = unitOverrideMap.get(key) ?? null;
+          if (manualRate !== null) {
+            groupEffectiveProposedMap.set(key, manualRate);
+            continue;
+          }
+          const stored = storedSums.get(key);
+          if (stored && stored.count > 0) {
+            groupEffectiveProposedMap.set(key, stored.sum / stored.count);
+            continue;
+          }
+          groupEffectiveProposedMap.set(key, rulePreviewMap.get(key) ?? null);
+        }
+      }
+
+      // Step 3: Pre-compute group monthly impact — (groupProposed − modeStreet) × groupT3.
+      // Distributing this evenly to each unit row guarantees exact summation parity.
+      const groupMonthlyImpactMap = new Map<string, number | null>();
+      for (const key of Array.from(groupUnitCount.keys())) {
+        const groupStreet   = groupModeStreet.get(key) ?? null;
+        const groupProposed = groupEffectiveProposedMap.get(key) ?? null;
+        const groupT3       = t3Map.get(key) ?? null;
+        const gMonthly = (groupProposed !== null && groupStreet !== null && groupT3 !== null)
+          ? (groupProposed - groupStreet) * groupT3
+          : null;
+        groupMonthlyImpactMap.set(key, gMonthly);
+      }
+
       const num = (v: any) => (v === null || v === undefined ? null : Number(v));
       const rows = unitsRes.rows.map((r: any) => {
         const ihSpot = num(r.in_house_rate);
@@ -19478,16 +19555,18 @@ Return ONLY valid JSON, no markdown fences:
           proposedVarPct: (proposed !== null && streetSpot !== null && streetSpot !== 0) ? (proposed - streetSpot) / streetSpot : null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
-            const groupT3 = t3Map.get(key) ?? null;
-            const units = groupUnitCount.get(key) || 1;
-            const unitT3 = groupT3 !== null ? groupT3 / units : null;
-            const monthly = (proposed !== null && streetSpot !== null && unitT3 !== null)
-              ? (proposed - streetSpot) * unitT3
-              : null;
+            const groupT3  = t3Map.get(key) ?? null;
+            const n        = groupUnitCount.get(key) || 1;
+            const unitT3   = groupT3 !== null ? groupT3 / n : null;
+            // Distribute the pre-computed group-level impact evenly across units so that
+            // sum(revMonthlyImpact for the group) == the grouped endpoint's revMonthlyImpact.
+            // Group impact uses mode street rate + avg proposed (same as grouped endpoint).
+            const gMonthly    = groupMonthlyImpactMap.get(key) ?? null;
+            const unitMonthly = gMonthly !== null ? gMonthly / n : null;
             return {
               revT3MoveIns: unitT3,
-              revMonthlyImpact: monthly,
-              revAnnualImpact: monthly !== null ? monthly * 12 : null,
+              revMonthlyImpact: unitMonthly,
+              revAnnualImpact: unitMonthly !== null ? unitMonthly * 12 : null,
             };
           })(),
         };
