@@ -885,6 +885,15 @@ export default function ReferenceDataTable({
         else cmp = String(av).localeCompare(String(bv));
         return sortDir === "asc" ? cmp : -cmp;
       });
+    } else if (groupLevel === "serviceLine") {
+      // Default service-line order: HC and HC/MC first, then others alphabetically.
+      const SL_PRIORITY: Record<string, number> = { HC: 0, "HC/MC": 1 };
+      rows = [...rows].sort((a, b) => {
+        const pa = SL_PRIORITY[a.serviceLine] ?? 2;
+        const pb = SL_PRIORITY[b.serviceLine] ?? 2;
+        if (pa !== pb) return pa - pb;
+        return String(a.serviceLine ?? "").localeCompare(String(b.serviceLine ?? ""));
+      });
     }
     return rows;
   }, [rawRows, filters, sortKey, sortDir, dynAllCols, data?.rules]);
