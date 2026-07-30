@@ -813,8 +813,15 @@ export function RulePerformanceTable({
   }, [rows]);
 
   const winRateMoveIns = useMemo(() => {
+    // Only include rules where at least one T3 window has actual move-in activity.
+    // Rules where both before and after are 0 have no data for that period and
+    // should not count as losses — they inflate the denominator artificially.
     const hist = rows.filter(
-      (r) => r.isHistorical && r.calc?.moveInsT3Before != null && r.calc?.moveInsT3After != null,
+      (r) =>
+        r.isHistorical &&
+        r.calc?.moveInsT3Before != null &&
+        r.calc?.moveInsT3After != null &&
+        (r.calc.moveInsT3Before > 0 || r.calc.moveInsT3After > 0),
     );
     if (hist.length === 0) return null;
     const wins = hist.filter((r) => (r.calc!.moveInsT3After! - r.calc!.moveInsT3Before!) > 0).length;

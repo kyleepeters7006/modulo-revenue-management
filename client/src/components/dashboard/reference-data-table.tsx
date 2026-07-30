@@ -199,6 +199,16 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    id: "inhouse",
+    label: "In-House Rates",
+    cols: [
+      { key: "ihSpot", label: "Spot", type: "money", w: 80, tip: "Average in-house (actual paid) rate for occupied units of this room type, latest month." },
+      { key: "ihVarStreetPct", label: "Δ% Street", type: "pctfracsigned", w: 80, tip: "In-house rate vs street rate as a percentage." },
+      { key: "ihIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of latest in-house rate vs the trailing 3-month average." },
+      { key: "ihIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of latest in-house rate vs the trailing 12-month average." },
+    ],
+  },
+  {
     id: "street",
     label: "Street Rates",
     expandable: true,
@@ -220,16 +230,6 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: "inhouse",
-    label: "In-House Rates",
-    cols: [
-      { key: "ihSpot", label: "Spot", type: "money", w: 80, tip: "Average in-house (actual paid) rate for occupied units of this room type, latest month." },
-      { key: "ihVarStreetPct", label: "Δ% Street", type: "pctfracsigned", w: 80, tip: "In-house rate vs street rate as a percentage." },
-      { key: "ihIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of latest in-house rate vs the trailing 3-month average." },
-      { key: "ihIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of latest in-house rate vs the trailing 12-month average." },
-    ],
-  },
-  {
     id: "proposed",
     label: "Proposed Rates",
     cols: [
@@ -239,19 +239,19 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    id: "revenue",
+    label: "Revenue Impact",
+    cols: [
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
+      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
+    ],
+  },
+  {
     id: "importCols",
     label: "Import Columns",
     cols: [
       { key: "importRuleDesc", label: "Import Rule Desc", type: "text", w: 170, tip: "Fill this in on an exported Excel file, then use Import from Excel to create a new adjustment rule (e.g. \"Increase street rate by 5%\"). Rows with the same description are combined into one rule scoped to those rows." },
       { key: "importRate", label: "Import Rate", type: "money", w: 90, tip: "Fill this in on an exported Excel file, then use Import from Excel to set an exact proposed rate for this campus / service line / room type." },
-    ],
-  },
-  {
-    id: "revenue",
-    label: "Revenue Impact",
-    cols: [
-      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × T3 move-ins/mo — estimated monthly revenue change." },
-      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change." },
     ],
   },
   {

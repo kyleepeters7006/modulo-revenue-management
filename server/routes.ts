@@ -475,6 +475,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Invalidate the reference-data cache on any mutation that changes its inputs.
   // (Async pricing jobs also invalidate on completion — see pricingJobManager.)
+  // After invalidation, schedule a background re-warm so the next page visit is instant.
+  let _refDataRewarmTimer: ReturnType<typeof setTimeout> | null = null;
   app.use('/api', (req, _res, next) => {
     if (req.method !== 'GET' && (
       req.path.startsWith('/adjustment-rules') ||
@@ -486,6 +488,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.path.includes('recalculate')
     )) {
       invalidateRefDataCache();
+      // Debounce: re-warm 5 s after the last mutation in a burst
+      if (_refDataRewarmTimer) clearTimeout(_refDataRewarmTimer);
+      _refDataRewarmTimer = setTimeout(() => {
+        _refDataRewarmTimer = null;
+        warmRefDataCache();
+      }, 5000);
     }
     next();
   });
@@ -18301,11 +18309,21 @@ Return ONLY valid JSON, no markdown fences:
   // Warm the cache for ALL client tenants shortly after startup so the first
   // page visit for any logged-in user is served instantly.
   const KNOWN_CLIENTS = ['demo', 'trilogy', 'glm', 'ssmg'];
+
+  /** Re-warm reference-data for every known client — called at startup and after invalidation. */
+  function warmRefDataCache() {
+    for (const clientId of KNOWN_CLIENTS) {
+      fetch('http://localhost:5000/api/reference-data', {
+        headers: { 'x-warmup-client': clientId, 'x-seed-secret': process.env.SEED_SECRET || '' },
+      })
+        .then(r => { if (r.ok) console.log(`[ref-data] cache warmed for ${clientId}`); })
+        .catch(() => {});
+    }
+  }
+
   setTimeout(() => {
-    // Warm reference-data for demo (the session-less default)
-    fetch('http://localhost:5000/api/reference-data')
-      .then(r => { if (r.ok) console.log('[ref-data] cache warmed for default view'); })
-      .catch(() => {});
+    // Warm reference-data for every client tenant
+    warmRefDataCache();
     // Warm commentary for every client tenant
     for (const clientId of KNOWN_CLIENTS) {
       fetch('http://localhost:5000/api/pricing-controls/commentary', {
@@ -18327,13 +18345,23 @@ Return ONLY valid JSON, no markdown fences:
     }
   }, 8000);
 
+  // Periodic re-warm: fires every 8 minutes so the reference-data cache (TTL=10 min)
+  // never goes cold for any tenant between user visits.
+  setInterval(() => {
+    warmRefDataCache();
+  }, 8 * 60 * 1000);
+
   // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=
   // One row per (Division, Campus, Service Line, Room Type) with Spot/T3/T6/T12
   // metrics computed across the latest 12 upload_months of rent_roll_data.
   // ============================================
   app.get("/api/reference-data", async (req, res) => {
     try {
-      const clientId: string = (req.session as any)?.clientId || 'demo';
+      // Allow server-side warm-up requests to specify a client without a session
+      const warmupClient = req.headers['x-warmup-client'] as string | undefined;
+      const warmupSecret = req.headers['x-seed-secret'] as string | undefined;
+      const warmupOk = !!warmupClient && !!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET;
+      const clientId: string = warmupOk ? warmupClient! : ((req.session as any)?.clientId || 'demo');
       const q = req.query as Record<string, string | undefined>;
       const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
       const regions     = csv(q.regions);
@@ -18408,8 +18436,8 @@ Return ONLY valid JSON, no markdown fences:
             -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
             mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0)  AS avg_street,
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
-            AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
-            AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
+            AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate BETWEEN 100 AND 30000)  AS avg_comp_base,
+            AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate BETWEEN 100 AND 30000) AS avg_comp_adj,
             -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
             -- No Modulo fallback — when no rule applies the proposed rate is NULL.
             AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
@@ -19003,11 +19031,11 @@ Return ONLY valid JSON, no markdown fences:
           if (rr !== null && rr !== undefined) { rulePreviewRate = rr; break; }
         }
         const effectiveProposed = manualRate ?? proposed ?? rulePreviewRate;
-        // Revenue impact: (proposed rate − current street rate) × T3 move-ins/month.
-        // Only move-ins are affected by street-rate changes; existing residents keep their rates.
+        // Revenue impact: (proposed rate − current street rate) × total units.
+        // Represents the full aggregate revenue change if all units in this group adopted the proposed rate.
         const t3MoveInsForImpact = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
-        const monthlyImpact = (effectiveProposed !== null && streetSpot !== null && t3MoveInsForImpact !== null)
-          ? (effectiveProposed - streetSpot) * t3MoveInsForImpact
+        const monthlyImpact = (effectiveProposed !== null && streetSpot !== null && totalUnits > 0)
+          ? (effectiveProposed - streetSpot) * totalUnits
           : null;
 
         // YTD in-house revenue growth: revenue = avg in-house rate × occupied units.
@@ -19142,12 +19170,14 @@ Return ONLY valid JSON, no markdown fences:
             const predictedDaysToSellChange = predictDaysToSellChange(
               elasticity, daysToSellAfter, streetSpot, deltaRate
             );
-            const moveInsMonthly = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
             const dailyRate = streetSpot !== null ? toDailyRate(streetSpot, c.serviceLine) : null;
+            // Use totalUnits as the volume denominator (same basis as revMonthlyImpact).
+            // When no elasticity data exists, deltaDaysToSell defaults to 0 so the
+            // impact degrades cleanly to totalUnits × deltaRate with no DTS penalty.
             const elasticImpact = calculateElasticityRevenueImpact({
-              moveInsMonthly,
+              moveInsMonthly: totalUnits > 0 ? totalUnits : null,
               deltaRate,
-              deltaDaysToSell: predictedDaysToSellChange,
+              deltaDaysToSell: predictedDaysToSellChange ?? 0,
               dailyRate,
             });
             return {
@@ -19251,8 +19281,8 @@ Return ONLY valid JSON, no markdown fences:
           rr.days_vacant,
           NULLIF(rr.street_rate, 0)          AS street_rate,
           NULLIF(rr.in_house_rate, 0)        AS in_house_rate,
-          NULLIF(rr.competitor_base_rate, 0) AS comp_base,
-          CASE WHEN rr.competitor_final_rate > 100 THEN rr.competitor_final_rate END AS comp_adj,
+          CASE WHEN rr.competitor_base_rate BETWEEN 100 AND 30000 THEN rr.competitor_base_rate END AS comp_base,
+          CASE WHEN rr.competitor_final_rate BETWEEN 100 AND 30000 THEN rr.competitor_final_rate END AS comp_adj,
           NULLIF(rr.rule_adjusted_rate, 0)   AS proposed_rate
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
@@ -19510,15 +19540,15 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
-      // Step 3: Pre-compute group monthly impact — (groupProposed − modeStreet) × groupT3.
+      // Step 3: Pre-compute group monthly impact — (groupProposed − modeStreet) × groupUnitCount.
       // Distributing this evenly to each unit row guarantees exact summation parity.
       const groupMonthlyImpactMap = new Map<string, number | null>();
       for (const key of Array.from(groupUnitCount.keys())) {
         const groupStreet   = groupModeStreet.get(key) ?? null;
         const groupProposed = groupEffectiveProposedMap.get(key) ?? null;
-        const groupT3       = t3Map.get(key) ?? null;
-        const gMonthly = (groupProposed !== null && groupStreet !== null && groupT3 !== null)
-          ? (groupProposed - groupStreet) * groupT3
+        const groupUnits    = groupUnitCount.get(key) ?? 0;
+        const gMonthly = (groupProposed !== null && groupStreet !== null && groupUnits > 0)
+          ? (groupProposed - groupStreet) * groupUnits
           : null;
         groupMonthlyImpactMap.set(key, gMonthly);
       }
