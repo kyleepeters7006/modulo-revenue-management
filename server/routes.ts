@@ -19441,6 +19441,13 @@ Return ONLY valid JSON, no markdown fences:
       // predictedDTS unchanged so groups without elasticity data return null rather
       // than a naive non-elasticity-adjusted figure. Distributed evenly across units.
       const groupElasticityMonthlyImpactMap = new Map<string, number | null>();
+      // Raw elasticity/DTS values per group — repeated on each unit row (same pattern as occupancy).
+      const groupElasticityDataMap = new Map<string, {
+        elasticity: number | null;
+        daysToSellBefore: number | null;
+        daysToSellAfter: number | null;
+        daysToSellChange: number | null;
+      }>();
       {
         const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
           await import('./services/elasticityService');
@@ -19455,6 +19462,8 @@ Return ONLY valid JSON, no markdown fences:
           const elas = elasticityMap.get(`${campus}||${sl}||${rt}`) ?? null;
           const elasticity      = elas?.elasticity ?? null;
           const daysToSellAfter = elas?.daysToSellAfter ?? null;
+          const daysToSellBefore = elas?.daysToSellBefore ?? null;
+          const daysToSellChange = elas?.daysToSellChange ?? null;
           const deltaRate       = (groupProposed !== null && groupStreet !== null) ? groupProposed - groupStreet : null;
           const predictedDTS    = predictDaysToSellChange(elasticity, daysToSellAfter, groupStreet, deltaRate);
           const dailyRate       = groupStreet !== null ? toDailyRate(groupStreet, sl) : null;
@@ -19469,6 +19478,8 @@ Return ONLY valid JSON, no markdown fences:
             dailyRate,
           });
           groupElasticityMonthlyImpactMap.set(key, elasticImpact.monthly);
+          // Store raw elasticity/DTS per group so unit rows can display them.
+          groupElasticityDataMap.set(key, { elasticity, daysToSellBefore, daysToSellAfter, daysToSellChange });
         }
       }
 
@@ -19528,6 +19539,19 @@ Return ONLY valid JSON, no markdown fences:
             return {
               elasticityMonthlyImpact: unitElMonthly,
               elasticityAnnualImpact: unitElMonthly !== null ? unitElMonthly * 12 : null,
+            };
+          })(),
+          // Raw elasticity / DTS metrics — group-level values repeated on each unit row,
+          // same pattern as campusOccSpot / slOccSpot so the Room Detail view can
+          // display them and they aggregate correctly in the grouping layers.
+          ...((): { elasticity: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null } => {
+            const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+            const d = groupElasticityDataMap.get(key);
+            return {
+              elasticity: d?.elasticity ?? null,
+              daysToSellBefore: d?.daysToSellBefore ?? null,
+              daysToSellAfter: d?.daysToSellAfter ?? null,
+              daysToSellChange: d?.daysToSellChange ?? null,
             };
           })(),
         };
