@@ -252,6 +252,7 @@ const GROUPS: GroupDef[] = [
     cols: [
       { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
       { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
+      { key: "revImpactPct", label: "% Impact", type: "pctfracsigned", w: 75, tip: "Annual revenue impact as a % of current in-house revenue — directly comparable to the Growth Target column." },
     ],
   },
   {
@@ -352,7 +353,7 @@ const AGG_WAVG_KEYS = [
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
-  "revenueGrowthTarget", "revYtdGrowth",
+  "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
 ];
 const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory"];
 

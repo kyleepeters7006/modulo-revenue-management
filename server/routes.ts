@@ -19086,6 +19086,10 @@ Return ONLY valid JSON, no markdown fences:
           revT3MoveIns: t3MoveInsForImpact,
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
+          // % impact: annual delta / current annual in-house revenue — comparable to Growth Target %
+          revImpactPct: (monthlyImpact !== null && ihSpot !== null && ihSpot > 0 && (spot?.occupied ?? 0) > 0)
+            ? monthlyImpact / (ihSpot * spot!.occupied)
+            : null,
           // ── Price elasticity + days-to-sell metrics + elasticity-based impact ──
           ...(() => {
             const elas = elasticityMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
