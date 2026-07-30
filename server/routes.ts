@@ -18310,13 +18310,18 @@ Return ONLY valid JSON, no markdown fences:
   // page visit for any logged-in user is served instantly.
   const KNOWN_CLIENTS = ['demo', 'trilogy', 'glm', 'ssmg'];
 
-  /** Re-warm reference-data for every known client — called at startup and after invalidation. */
+  /** Re-warm reference-data (grouped + unit-level) for every known client — called at startup and after invalidation. */
   function warmRefDataCache() {
     for (const clientId of KNOWN_CLIENTS) {
       fetch('http://localhost:5000/api/reference-data', {
         headers: { 'x-warmup-client': clientId, 'x-seed-secret': process.env.SEED_SECRET || '' },
       })
         .then(r => { if (r.ok) console.log(`[ref-data] cache warmed for ${clientId}`); })
+        .catch(() => {});
+      fetch('http://localhost:5000/api/reference-data/units', {
+        headers: { 'x-warmup-client': clientId, 'x-seed-secret': process.env.SEED_SECRET || '' },
+      })
+        .then(r => { if (r.ok) console.log(`[ref-data/units] cache warmed for ${clientId}`); })
         .catch(() => {});
     }
   }
@@ -18436,8 +18441,8 @@ Return ONLY valid JSON, no markdown fences:
             -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
             mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0)  AS avg_street,
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
-            AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate BETWEEN 100 AND 30000)  AS avg_comp_base,
-            AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate BETWEEN 100 AND 30000) AS avg_comp_adj,
+            AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
+            AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
             -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
             -- No Modulo fallback — when no rule applies the proposed rate is NULL.
             AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
@@ -18952,11 +18957,11 @@ Return ONLY valid JSON, no markdown fences:
           if (rr !== null && rr !== undefined) { rulePreviewRate = rr; break; }
         }
         const effectiveProposed = manualRate ?? proposed ?? rulePreviewRate;
-        // Revenue impact: (proposed rate − current street rate) × total units.
-        // Represents the full aggregate revenue change if all units in this group adopted the proposed rate.
+        // Revenue impact: (proposed rate − current street rate) × T3 move-ins/month.
+        // Only move-ins are affected by street-rate changes; existing residents keep their rates.
         const t3MoveInsForImpact = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
-        const monthlyImpact = (effectiveProposed !== null && streetSpot !== null && totalUnits > 0)
-          ? (effectiveProposed - streetSpot) * totalUnits
+        const monthlyImpact = (effectiveProposed !== null && streetSpot !== null && t3MoveInsForImpact !== null)
+          ? (effectiveProposed - streetSpot) * t3MoveInsForImpact
           : null;
 
         // YTD in-house revenue growth: revenue = avg in-house rate × occupied units.
@@ -19091,14 +19096,12 @@ Return ONLY valid JSON, no markdown fences:
             const predictedDaysToSellChange = predictDaysToSellChange(
               elasticity, daysToSellAfter, streetSpot, deltaRate
             );
+            const moveInsMonthly = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
             const dailyRate = streetSpot !== null ? toDailyRate(streetSpot, c.serviceLine) : null;
-            // Use totalUnits as the volume denominator (same basis as revMonthlyImpact).
-            // When no elasticity data exists, deltaDaysToSell defaults to 0 so the
-            // impact degrades cleanly to totalUnits × deltaRate with no DTS penalty.
             const elasticImpact = calculateElasticityRevenueImpact({
-              moveInsMonthly: totalUnits > 0 ? totalUnits : null,
+              moveInsMonthly,
               deltaRate,
-              deltaDaysToSell: predictedDaysToSellChange ?? 0,
+              deltaDaysToSell: predictedDaysToSellChange,
               dailyRate,
             });
             return {
@@ -19167,13 +19170,26 @@ Return ONLY valid JSON, no markdown fences:
   // Reference Data table: one row per unit at the spot (latest) month.
   app.get("/api/reference-data/units", async (req, res) => {
     try {
-      const clientId: string = (req.session as any)?.clientId || 'demo';
+      // Allow server-side warm-up requests to specify a client without a session
+      const warmupClient = req.headers['x-warmup-client'] as string | undefined;
+      const warmupSecret = req.headers['x-seed-secret'] as string | undefined;
+      const warmupOk = !!warmupClient && !!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET;
+      const clientId: string = warmupOk ? warmupClient! : ((req.session as any)?.clientId || 'demo');
       const q = req.query as Record<string, string | undefined>;
       const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
       const regions     = csv(q.regions);
       const divisions   = csv(q.divisions);
       const locations   = csv(q.locations);
       const serviceLine = q.serviceLine && q.serviceLine !== 'All' ? q.serviceLine : null;
+
+      // ── Cache check ──
+      const cacheKey = `units:${JSON.stringify({ clientId, serviceLine, regions, divisions, locations })}`;
+      const cachedPayload = getRefDataCache(cacheKey);
+      if (cachedPayload) {
+        res.setHeader('X-Cache', 'HIT');
+        return res.json(cachedPayload);
+      }
+      const computeStart = Date.now();
 
       const spotRes = await pool.query<{ m: string }>(
         `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id=$1`,
@@ -19202,8 +19218,8 @@ Return ONLY valid JSON, no markdown fences:
           rr.days_vacant,
           NULLIF(rr.street_rate, 0)          AS street_rate,
           NULLIF(rr.in_house_rate, 0)        AS in_house_rate,
-          CASE WHEN rr.competitor_base_rate BETWEEN 100 AND 30000 THEN rr.competitor_base_rate END AS comp_base,
-          CASE WHEN rr.competitor_final_rate BETWEEN 100 AND 30000 THEN rr.competitor_final_rate END AS comp_adj,
+          NULLIF(rr.competitor_base_rate, 0) AS comp_base,
+          CASE WHEN rr.competitor_final_rate > 100 THEN rr.competitor_final_rate END AS comp_adj,
           NULLIF(rr.rule_adjusted_rate, 0)   AS proposed_rate
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
@@ -19401,15 +19417,15 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
-      // Step 3: Pre-compute group monthly impact — (groupProposed − modeStreet) × groupUnitCount.
+      // Step 3: Pre-compute group monthly impact — (groupProposed − modeStreet) × groupT3.
       // Distributing this evenly to each unit row guarantees exact summation parity.
       const groupMonthlyImpactMap = new Map<string, number | null>();
       for (const key of Array.from(groupUnitCount.keys())) {
         const groupStreet   = groupModeStreet.get(key) ?? null;
         const groupProposed = groupEffectiveProposedMap.get(key) ?? null;
-        const groupUnits    = groupUnitCount.get(key) ?? 0;
-        const gMonthly = (groupProposed !== null && groupStreet !== null && groupUnits > 0)
-          ? (groupProposed - groupStreet) * groupUnits
+        const groupT3       = t3Map.get(key) ?? null;
+        const gMonthly = (groupProposed !== null && groupStreet !== null && groupT3 !== null)
+          ? (groupProposed - groupStreet) * groupT3
           : null;
         groupMonthlyImpactMap.set(key, gMonthly);
       }
@@ -19463,7 +19479,10 @@ Return ONLY valid JSON, no markdown fences:
         };
       });
 
-      res.json({ rows, spotMonth });
+      const payload = { rows, spotMonth };
+      setRefDataCache(cacheKey, payload, computeStart);
+      res.setHeader('X-Cache', 'MISS');
+      res.json(payload);
     } catch (error) {
       console.error("Error building unit detail reference data:", error);
       res.status(500).json({ error: "Failed to build unit detail data" });
