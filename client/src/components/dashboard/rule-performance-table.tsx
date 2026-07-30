@@ -651,6 +651,7 @@ export function RulePerformanceTable({
   const [viewMode, setViewMode] = useState<"summary" | "detail" | "scatter">("scatter");
   const [groupBy, setGroupBy] = useState<"strategy" | "rule" | "serviceLine" | "campus">("strategy");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
+  const [sectionOpen, setSectionOpen] = useState(true);
 
   // Scattergram controls: highlight + filters + zoom
   const [scatterHighlightSL, setScatterHighlightSL] = useState<string>("All");
@@ -1042,11 +1043,18 @@ export function RulePerformanceTable({
               disabled={rows.length === 0} data-testid="button-perf-export">
               <Download className="mr-1.5 h-3.5 w-3.5" />Export
             </Button>
+            <button
+              onClick={() => setSectionOpen(o => !o)}
+              className="h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              title={sectionOpen ? "Collapse" : "Expand"}
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${sectionOpen ? '' : '-rotate-180'}`} />
+            </button>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent>
+      {sectionOpen && <CardContent>
         {isLoading ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading rule performance…
@@ -1358,7 +1366,7 @@ export function RulePerformanceTable({
             )}
           </>
         )}
-      </CardContent>
+      </CardContent>}
 
       {/* Calculation explanation dialog */}
       <Dialog open={!!calcOpen} onOpenChange={(o) => !o && setCalcOpen(null)}>

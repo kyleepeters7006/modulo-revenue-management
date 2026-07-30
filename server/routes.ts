@@ -17922,7 +17922,21 @@ Return ONLY valid JSON, no markdown fences:
 
       // Historical rules use their OWN attribution pool so synthetic rows never
       // dilute the T3 credit of rules genuinely applied via applied_rule_name.
+      //
+      // Pre-populate histRuleNames from any applied_rule_name in the rent-roll window
+      // that the adjustment_rules table marks is_historical=true. This covers rules
+      // whose effective_date pre-dates the query window but whose units still appear
+      // in the rent-roll snapshot — without this they silently get isHistorical:false
+      // and the win-rate tile shows "no historical rules in range" incorrectly.
+      const appliedNamesInWindow = [...new Set(unitRes.rows.map((u: any) => u.applied_rule_name))].filter(Boolean) as string[];
       const histRuleNames = new Set<string>();
+      if (appliedNamesInWindow.length > 0) {
+        const preHistRes = await pool.query(
+          `SELECT name FROM adjustment_rules WHERE client_id = $1 AND is_historical = true AND name = ANY($2)`,
+          [clientId, appliedNamesInWindow]
+        );
+        for (const r of preHistRes.rows) histRuleNames.add(r.name);
+      }
       const groupTotalWeightHist = new Map<string, number>();
 
       if (histRes.rows.length > 0) {
@@ -19034,10 +19048,21 @@ Return ONLY valid JSON, no markdown fences:
           slOccT6:   rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t6Months)   ?? occPctWindow(sOcc, t6Months),
           slOccT12:  rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t12Months)  ?? occPctWindow(sOcc, t12Months),
           // Room type occupancy — from the occupancy data table (anchored spot)
-          rtOccSpot: rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), rtoSpotWindow) ?? (spot ? (spot.total > 0 ? (spot.occupied / spot.total) * 100 : 0) : null),
-          rtOccT3:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)   ?? occWindowCombo(bm, t3Months),
-          rtOccT6:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)   ?? occWindowCombo(bm, t6Months),
-          rtOccT12:  rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)  ?? occWindowCombo(bm, t12Months),
+          // RT Occ: prefer RT-level RTO history, fall back to SL-level RTO, then campus-level.
+          // Never fall back to raw spot.occupied/spot.total — that includes B-beds for senior housing
+          // (VIL, AL, SL, AL/MC) and produces falsely-low occupancy when no RT-level RTO row exists.
+          rtOccSpot: rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), rtoSpotWindow)
+            ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), rtoSpotWindow)
+            ?? occPctWindow(sOcc, [spotMonth]),
+          rtOccT3:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)
+            ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t3Months)
+            ?? occPctWindow(sOcc, t3Months),
+          rtOccT6:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)
+            ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t6Months)
+            ?? occPctWindow(sOcc, t6Months),
+          rtOccT12:  rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)
+            ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t12Months)
+            ?? occPctWindow(sOcc, t12Months),
           // Days vacant avg
           daysVacantSpot: spot?.avgDaysVacant ?? null,
           daysVacantT3: rateWindow(bm, t3Months, 'avgDaysVacant'),
@@ -19062,6 +19087,8 @@ Return ONLY valid JSON, no markdown fences:
           })(),
           // Street rates - single occupant
           streetSpot,
+          streetT3avg: rateWindow(bm, t3Months, 'avgStreet'),
+          streetT12avg: rateWindow(bm, t12Months, 'avgStreet'),
           streetIncT3: incPct(streetSpot, rateWindow(bm, t3Months, 'avgStreet')),
           streetIncT6: incPct(streetSpot, rateWindow(bm, t6Months, 'avgStreet')),
           streetIncT12: incPct(streetSpot, rateWindow(bm, t12Months, 'avgStreet')),
@@ -19069,11 +19096,13 @@ Return ONLY valid JSON, no markdown fences:
           compBase,
           compAdjusted: compAdj,
           compVarDollar: (compAdj !== null && compBase !== null) ? compAdj - compBase : null,
-          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0 && compAdj !== compBase) ? (compAdj - compBase) / compBase : null,
+          compVarPct: (compAdj !== null && streetSpot !== null && streetSpot !== 0) ? (compAdj - streetSpot) / streetSpot : null,
           // In-house rates
           ihSpot,
           ihVarStreetDollar: (ihSpot !== null && streetSpot !== null) ? ihSpot - streetSpot : null,
           ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
+          ihT3avg: rateWindow(bm, t3Months, 'avgIh'),
+          ihT12avg: rateWindow(bm, t12Months, 'avgIh'),
           ihIncT3: incPct(ihSpot, rateWindow(bm, t3Months, 'avgIh')),
           ihIncT6: incPct(ihSpot, rateWindow(bm, t6Months, 'avgIh')),
           ihIncT12: incPct(ihSpot, rateWindow(bm, t12Months, 'avgIh')),
@@ -19138,6 +19167,9 @@ Return ONLY valid JSON, no markdown fences:
           ),
           rtOccHistory: Object.fromEntries(
             months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? occWindowCombo(bm, [mm])])
+          ),
+          ihHistory: Object.fromEntries(
+            months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
           ),
           streetHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgStreet ?? null])
@@ -19507,7 +19539,7 @@ Return ONLY valid JSON, no markdown fences:
           streetSpot,
           compBase,
           compAdjusted: compAdj,
-          compVarPct: (compAdj !== null && compBase !== null && compBase !== 0 && compAdj !== compBase) ? (compAdj - compBase) / compBase : null,
+          compVarPct: (compAdj !== null && streetSpot !== null && streetSpot !== 0) ? (compAdj - streetSpot) / streetSpot : null,
           ihSpot,
           ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
           proposedRule: proposed,

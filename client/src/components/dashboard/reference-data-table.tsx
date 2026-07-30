@@ -193,14 +193,17 @@ const GROUPS: GroupDef[] = [
     id: "moves",
     label: "Move-Ins / Outs",
     cols: [
-      { key: "moveInsLatest", label: "Ins", type: "int", w: 60, tip: "Move-ins recorded in the most recent month with data (all payers — census counts, not pricing-impact counts)." },
-      { key: "moveOutsLatest", label: "Outs", type: "int", w: 60, tip: "Move-outs recorded in the most recent month with data. Blank when no move-out data source is available." },
+      { key: "moveInsLatest", label: "Ins", type: "num1", w: 60, tip: "Move-ins per month (most recent month) — all payers, census counts." },
+      { key: "moveOutsLatest", label: "Outs", type: "num1", w: 60, tip: "Move-outs per month (most recent month) — back-calculated from census change." },
       { key: "moveNetLatest", label: "Net", type: "num1signed", w: 65, tip: "Move-ins minus move-outs for the most recent month (positive = net gain in residents)." },
     ],
   },
   {
     id: "inhouse",
     label: "In-House Rates",
+    expandable: true,
+    historyKey: "ihHistory",
+    historyColType: "money",
     cols: [
       { key: "ihSpot", label: "Spot", type: "money", w: 80, tip: "Average in-house (actual paid) rate for occupied units of this room type, latest month." },
       { key: "ihVarStreetPct", label: "Δ% Street", type: "pctfracsigned", w: 80, tip: "In-house rate vs street rate as a percentage." },
@@ -226,7 +229,7 @@ const GROUPS: GroupDef[] = [
     cols: [
       { key: "compBase", label: "Base", type: "money", w: 80, tip: "Top competitor's base (unadjusted) rate for this room type." },
       { key: "compAdjusted", label: "Adjusted", type: "money", w: 80, tip: "Competitor rate after adjusting for care-level and med-management differences." },
-      { key: "compVarPct", label: "Δ%", type: "pctfracsigned", w: 65, tip: "Adjusted vs base competitor rate as a percentage." },
+      { key: "compVarPct", label: "Δ%", type: "pctfracsigned", w: 65, tip: "Adjusted competitor rate vs your street rate — positive means comp is above your street rate." },
     ],
   },
   {
@@ -239,18 +242,10 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: "importCols",
-    label: "Import Columns",
-    cols: [
-      { key: "importRuleDesc", label: "Import Rule Desc", type: "text", w: 170, tip: "Fill this in on an exported Excel file, then use Import from Excel to create a new adjustment rule (e.g. \"Increase street rate by 5%\"). Rows with the same description are combined into one rule scoped to those rows." },
-      { key: "importRate", label: "Import Rate", type: "money", w: 90, tip: "Fill this in on an exported Excel file, then use Import from Excel to set an exact proposed rate for this campus / service line / room type." },
-    ],
-  },
-  {
     id: "revenue",
     label: "Revenue Impact",
     cols: [
-      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − street rate) × total units — estimated monthly revenue change across the full portfolio at this level." },
       { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
       { key: "revImpactPct", label: "% Impact", type: "pctfracsigned", w: 75, tip: "Annual revenue impact as a % of current in-house revenue — directly comparable to the Growth Target column." },
     ],
@@ -279,6 +274,14 @@ const GROUPS: GroupDef[] = [
     cols: [
       { key: "elasticityMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated monthly revenue change, accounting for the demand response to the proposed rate." },
       { key: "elasticityAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated annual revenue change (monthly × 12)." },
+    ],
+  },
+  {
+    id: "importCols",
+    label: "Import Columns",
+    cols: [
+      { key: "importRuleDesc", label: "Import Rule Desc", type: "text", w: 170, tip: "Fill this in on an exported Excel file, then use Import from Excel to create a new adjustment rule (e.g. \"Increase street rate by 5%\"). Rows with the same description are combined into one rule scoped to those rows." },
+      { key: "importRate", label: "Import Rate", type: "money", w: 90, tip: "Fill this in on an exported Excel file, then use Import from Excel to set an exact proposed rate for this campus / service line / room type." },
     ],
   },
 ];
@@ -354,8 +357,9 @@ const AGG_WAVG_KEYS = [
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
+  "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
 ];
-const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory"];
+const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory", "ihHistory"];
 
 function keyForLevel(r: Record<string, any>, level: GroupLevel): string {
   switch (level) {
@@ -452,7 +456,7 @@ function aggregateRows(
     }
     // Derived variances recomputed from aggregates
     out.compVarDollar = (out.compAdjusted !== null && out.compBase !== null) ? out.compAdjusted - out.compBase : null;
-    out.compVarPct = (out.compAdjusted !== null && out.compBase !== null && out.compBase !== 0) ? (out.compAdjusted - out.compBase) / out.compBase : null;
+    out.compVarPct = (out.compAdjusted !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.compAdjusted - out.streetSpot) / out.streetSpot : null;
     out.ihVarStreetDollar = (out.ihSpot !== null && out.streetSpot !== null) ? out.ihSpot - out.streetSpot : null;
     out.ihVarStreetPct = (out.ihSpot !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.ihSpot - out.streetSpot) / out.streetSpot : null;
     out.proposedVarDollar = (out.proposedRule !== null && out.streetSpot !== null) ? out.proposedRule - out.streetSpot : null;
@@ -543,7 +547,7 @@ export default function ReferenceDataTable({
 }: ReferenceDataTableProps) {
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [groupLevel, setGroupLevel] = useState<GroupLevel>("roomType");
+  const [groupLevel, setGroupLevel] = useState<GroupLevel>("serviceLine");
   const { toast } = useToast();
   // Create-rule-from-view dialog state
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
@@ -744,9 +748,65 @@ export default function ReferenceDataTable({
   const rawRows = useMemo(() => {
     const detail = data?.rows ?? [];
     if (groupLevel === "roomDetail") return unitData?.rows ?? [];
-    if (groupLevel === "roomType") return detail;
-    const ruleIds = (data?.rules ?? []).map(r => r.id);
-    return aggregateRows(detail, groupLevel, ruleIds, data?.months ?? []);
+
+    const base = groupLevel === "roomType" ? detail
+      : aggregateRows(detail, groupLevel, (data?.rules ?? []).map(r => r.id), data?.months ?? []);
+
+    // Back-calculate Outs from Ins and the census change (vacantT3 − vacantSpot = occupied_spot − occupied_T3avg)
+    // so that Net always equals the actual census change over the T3 window.
+    // Applies at every grouping level; both vacant fields are in AGG_SUM_KEYS so they sum correctly.
+    //
+    // At aggregation levels above roomType, also recompute revenue impact from the weighted-average
+    // rates × total units. The per-row sum only captures units with an active rule (sparse for HC),
+    // so the aggregated view shows (wavg proposed − wavg street) × all units instead.
+    return base.map(row => {
+      const out: Record<string, any> = { ...row };
+
+      // Census-change back-calculated outs
+      const ins = row.moveInsLatest as number | null;
+      const vs  = row.vacantSpot   as number | null;
+      const vt3 = row.vacantT3     as number | null;
+      if (ins !== null && ins !== undefined && vs !== null && vt3 !== null) {
+        const censusChange = vt3 - vs;
+        out.moveOutsLatest = Math.max(0, Math.round((ins - censusChange) * 10) / 10);
+        out.moveNetLatest  = censusChange;
+      }
+
+      // Rate-change deltas recomputed from wavg base values at aggregation levels.
+      // Averaging per-row percentage deltas introduces a mix-effect when unit counts shift
+      // between months (new buildings, census changes). Computing from aggregated rates is correct.
+      if (groupLevel !== "roomType" && groupLevel !== "roomDetail") {
+        const ih    = row.ihSpot      as number | null;
+        const ihT3  = row.ihT3avg     as number | null;
+        const ihT12 = row.ihT12avg    as number | null;
+        const st    = row.streetSpot  as number | null;
+        const stT3  = row.streetT3avg as number | null;
+        const stT12 = row.streetT12avg as number | null;
+        if (ih !== null && ihT3  !== null && ihT3  > 0) out.ihIncT3   = (ih - ihT3)  / ihT3;
+        if (ih !== null && ihT12 !== null && ihT12 > 0) out.ihIncT12  = (ih - ihT12) / ihT12;
+        if (st !== null && stT3  !== null && stT3  > 0) out.streetIncT3  = (st - stT3)  / stT3;
+        if (st !== null && stT12 !== null && stT12 > 0) out.streetIncT12 = (st - stT12) / stT12;
+      }
+
+      // Revenue impact from portfolio-level rates at aggregation levels
+      if (groupLevel !== "roomType" && groupLevel !== "roomDetail") {
+        const proposed = row.proposedRule as number | null;
+        const street   = row.streetSpot   as number | null;
+        const units    = Number(row.totalUnits ?? 0);
+        const ihRate   = row.ihSpot        as number | null;
+        const occPct   = row.slOccSpot     as number | null; // 0–100
+        if (proposed !== null && street !== null && units > 0) {
+          const monthly = Math.round((proposed - street) * units * 10) / 10;
+          out.revMonthlyImpact = monthly;
+          out.revAnnualImpact  = Math.round(monthly * 12 * 10) / 10;
+          out.revImpactPct = (ihRate !== null && ihRate > 0 && occPct !== null && occPct > 0)
+            ? monthly / (ihRate * units * occPct / 100)
+            : null;
+        }
+      }
+
+      return out;
+    });
   }, [data?.rows, data?.rules, data?.months, groupLevel, unitData?.rows]);
 
   // ── dynamic rule column groups ──
@@ -843,6 +903,7 @@ export default function ReferenceDataTable({
         extra[`__hist_slOccHistory_${mm}`]     = (row.slOccHistory     as any)?.[mm] ?? null;
         extra[`__hist_rtOccHistory_${mm}`]     = (row.rtOccHistory     as any)?.[mm] ?? null;
         extra[`__hist_streetHistory_${mm}`]    = (row.streetHistory    as any)?.[mm] ?? null;
+        extra[`__hist_ihHistory_${mm}`]        = (row.ihHistory        as any)?.[mm] ?? null;
       }
       return { ...row, ...extra };
     });
@@ -926,8 +987,8 @@ export default function ReferenceDataTable({
       out[k] = any ? sum : null;
     }
     // Derived variance columns
-    if (out.compBase != null && out.compAdjusted != null && out.compBase !== 0)
-      out.compVarPct = (out.compAdjusted - out.compBase) / out.compBase;
+    if (out.compAdjusted != null && out.streetSpot != null && out.streetSpot !== 0)
+      out.compVarPct = (out.compAdjusted - out.streetSpot) / out.streetSpot;
     if (out.ihSpot != null && out.streetSpot != null) {
       out.ihVarStreetDollar = out.ihSpot - out.streetSpot;
       if (out.streetSpot !== 0) out.ihVarStreetPct = (out.ihSpot - out.streetSpot) / out.streetSpot;

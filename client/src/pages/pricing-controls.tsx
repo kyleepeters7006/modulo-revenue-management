@@ -53,6 +53,7 @@ export default function PricingControls() {
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
   const [strategyReportOpen, setStrategyReportOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(true);
 
   // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
   useEffect(() => {
@@ -193,8 +194,36 @@ export default function PricingControls() {
           selectedLocationId={selectedLocationId}
         />
 
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="space-y-4">
+        <div className="bg-white rounded-lg shadow-sm mb-6">
+          {/* Filter header — always visible */}
+          <button
+            onClick={() => setFiltersOpen(o => !o)}
+            className="w-full flex items-center justify-between px-6 py-4 group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-gray-700 group-hover:text-gray-900 transition-colors">Filters</span>
+              {/* Active filter summary pills */}
+              {(selectedRegions.length > 0 || selectedDivisions.length > 0 || selectedLocations.length > 0 || selectedServiceLine !== "All") && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedServiceLine !== "All" && (
+                    <span className="text-[11px] font-medium bg-teal-50 text-teal-700 border border-teal-200 rounded px-1.5 py-0.5">{selectedServiceLine}</span>
+                  )}
+                  {selectedLocations.map(l => (
+                    <span key={l} className="text-[11px] font-medium bg-slate-100 text-slate-600 rounded px-1.5 py-0.5 max-w-[140px] truncate">{l}</span>
+                  ))}
+                  {selectedRegions.length > 0 && !selectedLocations.length && (
+                    <span className="text-[11px] font-medium bg-slate-100 text-slate-600 rounded px-1.5 py-0.5">{selectedRegions.length} region{selectedRegions.length !== 1 ? 's' : ''}</span>
+                  )}
+                  {selectedDivisions.length > 0 && !selectedLocations.length && (
+                    <span className="text-[11px] font-medium bg-slate-100 text-slate-600 rounded px-1.5 py-0.5">{selectedDivisions.length} division{selectedDivisions.length !== 1 ? 's' : ''}</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <ChevronDown className={`h-4 w-4 text-gray-400 group-hover:text-gray-600 transition-transform duration-200 ${filtersOpen ? '' : '-rotate-90'}`} />
+          </button>
+
+          {filtersOpen && <div className="px-6 pb-6 space-y-4 border-t border-gray-100 pt-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <h3 className="text-sm font-medium text-gray-900 mb-2">Regions:</h3>
@@ -406,7 +435,7 @@ export default function PricingControls() {
                   : "Settings saved at this level will apply to matching units during rate calculations."}
               </p>
             </div>
-          </div>
+          </div>}
         </div>
 
 
@@ -530,6 +559,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [expandedImpactRow, setExpandedImpactRow] = useState<string | null>(null);
   const [scatterExpanded, setScatterExpanded] = useState(false);
   const [coverageRuleId, setCoverageRuleId] = useState<string | null>(null);
+  const [strategyOpen, setStrategyOpen] = useState(true);
+  const [highlightedSL, setHighlightedSL] = useState<string | null>(null);
 
   const qs = useMemo(() => {
     const params = new URLSearchParams();
@@ -726,7 +757,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           tick={{ fontSize: tickFontSize, fill: '#94a3b8' }}
           width={42}
         />
-        <ZAxis range={[height > 300 ? 55 : 35, height > 300 ? 55 : 35]} />
+        <ZAxis range={[height > 300 ? 70 : (selectedLocationId ? 65 : 35), height > 300 ? 70 : (selectedLocationId ? 65 : 35)]} />
         <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: tickFontSize + 1, fill: '#0d9488', position: 'insideTopRight' }} />
         <ReferenceLine x={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: tickFontSize + 1, fill: '#94a3b8', position: 'insideTopRight' }} />
         <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={scatterTooltipContent} />
@@ -734,9 +765,10 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
           if (!slData.length) return null;
           const color = SCATTER_SL_COLORS[sl] || '#64748b';
+          const dimmed = highlightedSL !== null && highlightedSL !== sl;
           return (
             <Scatter key={sl} name={sl} data={slData} fill={color}>
-              {slData.map((_: any, i: number) => <Cell key={i} fill={color} fillOpacity={0.75} />)}
+              {slData.map((_: any, i: number) => <Cell key={i} fill={color} fillOpacity={dimmed ? 0.12 : 0.85} />)}
             </Scatter>
           );
         })}
@@ -748,12 +780,21 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     <div className="flex flex-wrap gap-3 mt-2 justify-center">
       {(['AL','AL/MC','HC','HC/MC','SL','VIL'] as const)
         .filter(sl => compPositionData.some((d:any) => d.serviceLine === sl))
-        .map(sl => (
-          <span key={sl} className={`flex items-center gap-1 ${textSize} text-slate-500`}>
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: SCATTER_SL_COLORS[sl] }} />
-            {SL_DISPLAY[sl] || sl}
-          </span>
-        ))}
+        .map(sl => {
+          const active = highlightedSL === sl;
+          const faded  = highlightedSL !== null && !active;
+          return (
+            <button
+              key={sl}
+              onClick={() => setHighlightedSL(active ? null : sl)}
+              className={`flex items-center gap-1 ${textSize} transition-opacity cursor-pointer select-none
+                ${faded ? 'opacity-30' : 'opacity-100'} hover:opacity-100`}
+            >
+              <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: SCATTER_SL_COLORS[sl] }} />
+              <span className={active ? 'font-bold text-slate-700' : 'text-slate-500'}>{SL_DISPLAY[sl] || sl}</span>
+            </button>
+          );
+        })}
     </div>
   );
 
@@ -766,8 +807,14 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           <div className="flex-1 min-w-0">
             {/* rubric label */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="inline-block w-[3px] h-4 rounded-full bg-teal-500" />
-              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Strategy Overview</span>
+              <button
+                onClick={() => setStrategyOpen(o => !o)}
+                className="flex items-center gap-2 group"
+              >
+                <span className="inline-block w-[3px] h-4 rounded-full bg-teal-500" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 group-hover:text-slate-600 transition-colors">Strategy Overview</span>
+                <ChevronDown className={`h-3 w-3 text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${strategyOpen ? '' : '-rotate-90'}`} />
+              </button>
               {activeRulesWithImpact.length > 0 && (
                 <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-teal-500 border border-teal-200 rounded px-1.5 py-0.5">
                   {activeRulesWithImpact.length} Active Rule{activeRulesWithImpact.length !== 1 ? 's' : ''}
@@ -776,7 +823,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             </div>
 
             {/* headline — AI summary as editorial lede */}
-            {isLoading && !hasData ? (
+            {strategyOpen && (isLoading && !hasData ? (
               <div className="space-y-2">
                 <div className="h-7 rounded bg-slate-100 animate-pulse w-3/4" />
                 <div className="h-7 rounded bg-slate-100 animate-pulse w-1/2" />
@@ -785,11 +832,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               <h2 className="text-[22px] font-black text-slate-900 leading-[1.25] tracking-tight mb-0">
                 {parseBold(data.summary)}
               </h2>
-            ) : null}
+            ) : null)}
           </div>
 
           {/* KPI column — right-aligned on desktop */}
-          {activeRules.length > 0 && !isLoading && (
+          {strategyOpen && activeRules.length > 0 && !isLoading && (
             <button
               onClick={() => setImpactDialogOpen(true)}
               className="hidden sm:flex flex-col items-end gap-0 shrink-0 pl-4 border-l border-slate-100 group hover:bg-slate-50/60 rounded-lg px-3 py-1 -mr-1 transition-colors cursor-pointer text-left"
@@ -1144,7 +1191,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         </div>
 
         {/* mobile KPI strip */}
-        {activeRules.length > 0 && !isLoading && (
+        {strategyOpen && activeRules.length > 0 && !isLoading && (
           <div className="flex sm:hidden gap-6 mt-3 pt-3 border-t border-slate-100">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Net Annual Impact</p>
@@ -1155,7 +1202,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       </div>
 
       {/* ══ TREND BAND ══ */}
-      {data?.pricingTrend && !isLoading && (
+      {strategyOpen && data?.pricingTrend && !isLoading && (
         <div className="px-6 py-2 border-b border-slate-100 bg-slate-50/60">
           <span className="text-[11px] font-black uppercase tracking-[0.18em] text-teal-600 mr-2">6-Mo Trend</span>
           <span className="text-sm leading-relaxed text-slate-600">{parseBold(data.pricingTrend)}</span>
@@ -1163,7 +1210,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       )}
 
       {/* ══ RECOMMENDATION BAND ══ */}
-      {data?.recommendation && !isLoading && (
+      {strategyOpen && data?.recommendation && !isLoading && (
         <div className="px-6 py-2 border-b border-slate-100 bg-amber-50/50" data-testid="text-recommendation">
           {(() => {
             const lines = data.recommendation.split('\n').map((l: string) => l.trim()).filter(Boolean);
