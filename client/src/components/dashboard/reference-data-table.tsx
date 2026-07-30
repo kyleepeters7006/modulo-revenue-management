@@ -242,8 +242,8 @@ const GROUPS: GroupDef[] = [
     id: "revenue",
     label: "Revenue Impact",
     cols: [
-      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
-      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × move-ins — estimated monthly revenue change from new move-ins at the proposed rate." },
+      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change from new move-ins at the proposed rate." },
     ],
   },
   {
