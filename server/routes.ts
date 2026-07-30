@@ -19003,7 +19003,12 @@ Return ONLY valid JSON, no markdown fences:
           if (rr !== null && rr !== undefined) { rulePreviewRate = rr; break; }
         }
         const effectiveProposed = manualRate ?? proposed ?? rulePreviewRate;
-        const monthlyImpact = (effectiveProposed !== null && ihSpot !== null) ? (effectiveProposed - ihSpot) * (totalUnits || 0) : null;
+        // Revenue impact: (proposed rate − current street rate) × T3 move-ins/month.
+        // Only move-ins are affected by street-rate changes; existing residents keep their rates.
+        const t3MoveInsForImpact = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
+        const monthlyImpact = (effectiveProposed !== null && streetSpot !== null && t3MoveInsForImpact !== null)
+          ? (effectiveProposed - streetSpot) * t3MoveInsForImpact
+          : null;
 
         // YTD in-house revenue growth: revenue = avg in-house rate × occupied units.
         // Baseline = earliest available month in the spot year; growth = (spot − base) / base.
@@ -19121,8 +19126,8 @@ Return ONLY valid JSON, no markdown fences:
           hasManualOverride: manualRate !== null,
           proposedVarDollar: (effectiveProposed !== null && ihSpot !== null) ? effectiveProposed - ihSpot : null,
           proposedVarPct: (effectiveProposed !== null && ihSpot !== null && ihSpot !== 0) ? (effectiveProposed - ihSpot) / ihSpot : null,
-          // Revenue impact (existing in-house-vs-proposed × units model)
-          revT3MoveIns: moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null,
+          // Revenue impact: (proposed − street) × T3 move-ins/mo; annual = monthly × 12
+          revT3MoveIns: t3MoveInsForImpact,
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
           // ── Price elasticity + days-to-sell metrics + elasticity-based impact ──
@@ -19258,13 +19263,198 @@ Return ONLY valid JSON, no markdown fences:
         ORDER BY loc.division, rr.location, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.room_number
       `, params);
 
+      // T3 move-ins per grouped `${campus}||${sl}||${roomType}` — same model as the
+      // main reference-data endpoint: impact = (proposed − street) × T3 move-ins/mo.
+      // Each unit gets its proportional share (group T3 ÷ group unit count) so
+      // Room Detail rows sum to the same totals as the grouped views.
+      const { getT3MoveInsMap } = await import('./services/ruleImpactService');
+      const t3MapRaw = await getT3MoveInsMap(clientId);
+      // Remap raw room types to grouped names (rtg.group_name) for key parity.
+      const rtgRes2 = await pool.query(`
+        SELECT DISTINCT rtg.location, rtg.service_line, rr.room_type, rtg.group_name
+        FROM room_type_groupings rtg
+        JOIN rent_roll_data rr
+          ON rr.client_id = rtg.client_id AND rr.location = rtg.location
+         AND rr.service_line = rtg.service_line AND rr.source_room_type = rtg.source_room_type
+        WHERE rtg.client_id = $1
+      `, [clientId]);
+      const rtgMap2 = new Map<string, string>();
+      for (const r of rtgRes2.rows as any[]) {
+        rtgMap2.set(`${r.location}||${r.service_line}||${r.room_type}`, r.group_name);
+      }
+      const t3Map = new Map<string, number>();
+      for (const [k, v] of Array.from(t3MapRaw.entries())) {
+        const parts = k.split('||');
+        const grouped = rtgMap2.get(k);
+        const key = grouped ? `${parts[0]}||${parts[1]}||${grouped}` : k;
+        t3Map.set(key, (t3Map.get(key) || 0) + v);
+      }
+      // Group unit counts keyed the same way as row output below.
+      const groupUnitCount = new Map<string, number>();
+      for (const r of unitsRes.rows as any[]) {
+        const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+        groupUnitCount.set(key, (groupUnitCount.get(key) || 0) + 1);
+      }
+      // Manual rate overrides take precedence over stored rule-adjusted rates,
+      // matching the main reference-data endpoint's effectiveProposed behavior.
+      const unitOverrideMap = new Map<string, number>();
+      {
+        const ovRes = await pool.query(
+          `SELECT location_name, service_line, room_type, override_rate
+           FROM manual_rate_overrides WHERE client_id = $1`,
+          [clientId]
+        );
+        for (const o of ovRes.rows as any[]) {
+          unitOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+        }
+      }
+
+      // Rule-preview fallback per group (campus||sl||rt) — mirrors the main
+      // reference-data endpoint: when no rate is stored (engine not yet run),
+      // preview the first matching active rule's adjusted rate so Room Detail
+      // stays consistent with the grouped views.
+      const rulePreviewMap = new Map<string, number>();
+      {
+        const rulesRes2 = await pool.query(`
+          SELECT id, name, description, priority, action, trigger, location_id, service_line
+          FROM adjustment_rules
+          WHERE is_active = true
+            AND (location_id IS NULL OR location_id IN (
+              SELECT id FROM locations WHERE client_id = $1
+            ))
+          ORDER BY priority DESC NULLS LAST, created_at ASC
+        `, [clientId]);
+        const activeRules2 = rulesRes2.rows as any[];
+        if (activeRules2.length) {
+          // Per-group aggregates + occupancy metrics from the unit rows themselves.
+          type GAgg = { campus: string; sl: string; rt: string; locationId: string | null; streetSum: number; streetN: number; ihSum: number; ihN: number; total: number; occ: number };
+          const gAgg = new Map<string, GAgg>();
+          const campT = new Map<string, { total: number; occ: number }>();
+          const slT = new Map<string, { total: number; occ: number }>();
+          const ihAcc = new Map<string, { ih: number; st: number }>();
+          for (const r of unitsRes.rows as any[]) {
+            const sl = r.service_line || 'Other';
+            const rt = r.room_type || 'Other';
+            const key = `${r.campus}||${sl}||${rt}`;
+            const g = gAgg.get(key) || { campus: r.campus, sl, rt, locationId: r.location_id ?? null, streetSum: 0, streetN: 0, ihSum: 0, ihN: 0, total: 0, occ: 0 };
+            const st = Number(r.street_rate) || 0;
+            const ih = Number(r.in_house_rate) || 0;
+            if (st > 0) { g.streetSum += st; g.streetN += 1; }
+            if (ih > 0) { g.ihSum += ih; g.ihN += 1; }
+            g.total += 1; if (r.occupied_yn) g.occ += 1;
+            gAgg.set(key, g);
+            const ce = campT.get(r.campus) || { total: 0, occ: 0 };
+            ce.total += 1; if (r.occupied_yn) ce.occ += 1; campT.set(r.campus, ce);
+            const sk = `${r.campus}||${sl}`;
+            const se = slT.get(sk) || { total: 0, occ: 0 };
+            se.total += 1; if (r.occupied_yn) se.occ += 1; slT.set(sk, se);
+            if (rt !== 'Companion' && r.occupied_yn && st > 0 && ih > 0) {
+              const e = ihAcc.get(sk) || { ih: 0, st: 0 };
+              e.ih += ih; e.st += st; ihAcc.set(sk, e);
+            }
+          }
+          const campOcc = new Map<string, number>();
+          campT.forEach((v, k) => campOcc.set(k, v.total ? v.occ / v.total : 0));
+          const slOcc2 = new Map<string, number>();
+          slT.forEach((v, k) => slOcc2.set(k, v.total ? v.occ / v.total : 0));
+          // Override with authoritative room-type occupancy history (anchored to the
+          // latest history month ≤ spot month) — same as the grouped endpoint, so
+          // rule triggers evaluate against identical occupancy metrics.
+          {
+            const rtoRes2 = await pool.query(`
+              WITH anchored AS (
+                SELECT MAX(year::int * 100 + month::int) AS ym
+                FROM room_type_occupancy_history
+                WHERE client_id = $1
+                  AND (year::int * 100 + month::int) <= $2
+              )
+              SELECT location_name, service_line,
+                     SUM(occ_units) AS occ_units, SUM(available_units) AS avail_units
+              FROM room_type_occupancy_history, anchored
+              WHERE client_id = $1 AND (year::int * 100 + month::int) = anchored.ym
+              GROUP BY location_name, service_line
+            `, [clientId, Number(spotMonth.slice(0, 4)) * 100 + Number(spotMonth.slice(5, 7))]);
+            const campAcc = new Map<string, { occ: number; avail: number }>();
+            for (const r of rtoRes2.rows as any[]) {
+              const occ = Number(r.occ_units) || 0, avail = Number(r.avail_units) || 0;
+              if (avail > 0) slOcc2.set(`${r.location_name}||${r.service_line}`, occ / avail);
+              const ce = campAcc.get(r.location_name) || { occ: 0, avail: 0 };
+              ce.occ += occ; ce.avail += avail; campAcc.set(r.location_name, ce);
+            }
+            campAcc.forEach((e, k) => { if (e.avail > 0) campOcc.set(k, e.occ / e.avail); });
+          }
+          const ihVar2 = new Map<string, number>();
+          ihAcc.forEach((e, k) => { if (e.st > 0) ihVar2.set(k, (e.ih - e.st) / e.st * 100); });
+
+          for (const g of Array.from(gAgg.values())) {
+            const key = `${g.campus}||${g.sl}||${g.rt}`;
+            if (rulePreviewMap.has(key)) continue;
+            for (const rule of activeRules2) {
+              const action = (rule.action as any) || {};
+              const filters = action.filters || {};
+              const usesCareRate = action.target === 'care_rate';
+              const baseRate = usesCareRate
+                ? (g.ihN ? g.ihSum / g.ihN : 0)
+                : (g.streetN ? g.streetSum / g.streetN : 0);
+              if (!baseRate) continue;
+              if (rule.location_id && g.locationId !== rule.location_id) continue;
+              if (rule.service_line && g.sl !== rule.service_line) continue;
+              if (filters.roomType?.length && !filters.roomType.includes(g.rt)) continue;
+              if (filters.serviceLine?.length && !filters.serviceLine.includes(g.sl)) continue;
+              if (filters.location?.length && !filters.location.includes(g.campus)) continue;
+              if (filters.occupancyStatus === 'vacant' && g.occ >= g.total) continue;
+              if (filters.occupancyStatus === 'occupied' && g.occ === 0) continue;
+              // Trigger conditions (same evaluator as the grouped endpoint)
+              const trig = rule.trigger as any;
+              if (trig?.type === 'condition') {
+                const conds: Array<{ field: string; operator: string; value: number }> =
+                  Array.isArray(trig.conditions) && trig.conditions.length
+                    ? trig.conditions
+                    : (trig.condition?.field ? [trig.condition] : []);
+                if (conds.length) {
+                  const evalCond = (c: { field: string; operator: string; value: number }): boolean => {
+                    let metricVal: number | null = null;
+                    if (c.field === 'service_line_occupancy') {
+                      metricVal = slOcc2.get(`${g.campus}||${g.sl}`) ?? null;
+                    } else if (c.field === 'occupancy' || c.field === 'campus_occupancy') {
+                      metricVal = campOcc.get(g.campus) ?? null;
+                    } else if (c.field === 'ih_street_variance' || c.field === 'street_to_ih_var') {
+                      metricVal = ihVar2.get(`${g.campus}||${g.sl}`) ?? null;
+                    } else {
+                      return true;
+                    }
+                    if (metricVal === null) return false;
+                    return c.operator === '>=' ? metricVal >= c.value :
+                           c.operator === '>'  ? metricVal >  c.value :
+                           c.operator === '<=' ? metricVal <= c.value :
+                           c.operator === '<'  ? metricVal <  c.value :
+                           Math.abs(metricVal - c.value) < 0.001;
+                  };
+                  const op = String(trig.conditionOperator || 'AND').toUpperCase();
+                  const passes = op === 'OR' ? conds.some(evalCond) : conds.every(evalCond);
+                  if (!passes) continue;
+                }
+              }
+              const adjustmentType: string = action.adjustmentType || 'percentage';
+              const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
+              rulePreviewMap.set(key, adjustmentType === 'percentage'
+                ? baseRate * (1 + adjustmentValue / 100)
+                : baseRate + adjustmentValue);
+              break;
+            }
+          }
+        }
+      }
+
       const num = (v: any) => (v === null || v === undefined ? null : Number(v));
       const rows = unitsRes.rows.map((r: any) => {
         const ihSpot = num(r.in_house_rate);
         const streetSpot = num(r.street_rate);
         const compBase = num(r.comp_base);
         const compAdj = num(r.comp_adj);
-        const proposed = num(r.proposed_rate);
+        const unitGroupKey = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+        const manualOverride = unitOverrideMap.get(`${r.campus}||${r.service_line}||${r.room_type}`) ?? null;
+        const proposed = manualOverride ?? num(r.proposed_rate) ?? rulePreviewMap.get(unitGroupKey) ?? null;
         return {
           division: r.division,
           region: r.region,
@@ -19286,8 +19476,20 @@ Return ONLY valid JSON, no markdown fences:
           proposedRule: proposed,
           proposedVarDollar: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
           proposedVarPct: (proposed !== null && ihSpot !== null && ihSpot !== 0) ? (proposed - ihSpot) / ihSpot : null,
-          revMonthlyImpact: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
-          revAnnualImpact: (proposed !== null && ihSpot !== null) ? (proposed - ihSpot) * 12 : null,
+          ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
+            const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
+            const groupT3 = t3Map.get(key) ?? null;
+            const units = groupUnitCount.get(key) || 1;
+            const unitT3 = groupT3 !== null ? groupT3 / units : null;
+            const monthly = (proposed !== null && streetSpot !== null && unitT3 !== null)
+              ? (proposed - streetSpot) * unitT3
+              : null;
+            return {
+              revT3MoveIns: unitT3,
+              revMonthlyImpact: monthly,
+              revAnnualImpact: monthly !== null ? monthly * 12 : null,
+            };
+          })(),
         };
       });
 
