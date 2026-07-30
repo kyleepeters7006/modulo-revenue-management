@@ -234,8 +234,8 @@ const GROUPS: GroupDef[] = [
     label: "Proposed Rates",
     cols: [
       { key: "proposedRule", label: "Rule", type: "money", w: 80, tip: "Proposed rate from the rules engine. Blank when no adjustment rule applies to this combo." },
-      { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 75, tip: "Proposed rate minus current in-house rate (dollars)." },
-      { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 65, tip: "Proposed rate vs current in-house rate as a percentage." },
+      { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 75, tip: "Proposed rate minus current street rate (dollars)." },
+      { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 65, tip: "Proposed rate vs current street rate as a percentage." },
     ],
   },
   {
@@ -283,6 +283,22 @@ const GROUPS: GroupDef[] = [
 ];
 
 const NUMERIC_TYPES: ColType[] = ["int", "num1", "num1signed", "pct", "pctfrac", "pctfracsigned", "money", "moneysigned"];
+
+// ── Excel-like column filters ────────────────────────────────────────────────
+type NumericOp = '>' | '>=' | '=' | '!=' | '<=' | '<';
+type ColFilter =
+  | { mode: 'numeric'; op: NumericOp; value: string }
+  | { mode: 'select'; selected: string[]; search: string };
+
+function filterIsActive(f: ColFilter): boolean {
+  return f.mode === 'numeric' ? f.value.trim() !== '' : f.selected.length > 0;
+}
+/** Scale a raw row value to the "user-visible" unit for numeric comparison */
+function toDisplayNum(raw: any, type: ColType): number {
+  const v = Number(raw);
+  if (type === 'pctfrac' || type === 'pctfracsigned') return v * 100;
+  return v;
+}
 
 // ── Grouping levels ────────────────────────────────────────────────
 type GroupLevel = "serviceLine" | "region" | "division" | "location" | "locationSL" | "roomType" | "roomDetail";
@@ -438,8 +454,8 @@ function aggregateRows(
     out.compVarPct = (out.compAdjusted !== null && out.compBase !== null && out.compBase !== 0) ? (out.compAdjusted - out.compBase) / out.compBase : null;
     out.ihVarStreetDollar = (out.ihSpot !== null && out.streetSpot !== null) ? out.ihSpot - out.streetSpot : null;
     out.ihVarStreetPct = (out.ihSpot !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.ihSpot - out.streetSpot) / out.streetSpot : null;
-    out.proposedVarDollar = (out.proposedRule !== null && out.ihSpot !== null) ? out.proposedRule - out.ihSpot : null;
-    out.proposedVarPct = (out.proposedRule !== null && out.ihSpot !== null && out.ihSpot !== 0) ? (out.proposedRule - out.ihSpot) / out.ihSpot : null;
+    out.proposedVarDollar = (out.proposedRule !== null && out.streetSpot !== null) ? out.proposedRule - out.streetSpot : null;
+    out.proposedVarPct = (out.proposedRule !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.proposedRule - out.streetSpot) / out.streetSpot : null;
     // Rule rate columns (weighted avg of matching rows)
     const rr: Record<string, number | null> = {};
     for (const id of ruleIds) rr[id] = wavg((r) => (r.ruleRates as any)?.[id]);
@@ -535,8 +551,9 @@ export default function ReferenceDataTable({
   const [ruleEffDate, setRuleEffDate] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<Record<string, ColFilter>>({});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
+
   // groups that are currently expanded to show per-month columns
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (id: string) =>
@@ -731,6 +748,25 @@ export default function ReferenceDataTable({
     return aggregateRows(detail, groupLevel, ruleIds, data?.months ?? []);
   }, [data?.rows, data?.rules, data?.months, groupLevel, unitData?.rows]);
 
+  // Unique formatted values for the currently-open filter column (for checkbox list).
+  // Placed after rawRows since it depends on it.
+  const openFilterMeta = useMemo(() => {
+    if (!openFilter) return null;
+    const col = dynAllCols.find(c => c.key === openFilter);
+    if (!col) return null;
+    const isNumeric = NUMERIC_TYPES.includes(col.type);
+    if (isNumeric) return { col, isNumeric: true, vals: [] as string[] };
+    const seen = new Map<string, number>();
+    for (const row of rawRows) {
+      const v = fmt(row[openFilter], col.type);
+      if (v && v !== '–') seen.set(v, (seen.get(v) ?? 0) + 1);
+    }
+    const vals = Array.from(seen.entries())
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+      .map(([v]) => v);
+    return { col, isNumeric: false, vals };
+  }, [openFilter, rawRows, dynAllCols]);
+
   // ── dynamic rule column groups ──
   const dynGroups = useMemo((): GroupDef[] => {
     const rules = data?.rules ?? [];
@@ -809,15 +845,30 @@ export default function ReferenceDataTable({
       }
       return { ...row, ...extra };
     });
-    const activeFilters = Object.entries(filters).filter(([, v]) => v.trim() !== "");
+    const activeFilters = Object.entries(filters).filter(([, f]) => filterIsActive(f));
     if (activeFilters.length) {
       const colByKey = Object.fromEntries(dynAllCols.map((c) => [c.key, c]));
       rows = rows.filter((row) =>
-        activeFilters.every(([key, term]) => {
+        activeFilters.every(([key, f]) => {
           const col = colByKey[key];
           if (!col) return true;
-          const display = fmt(row[key], col.type).toLowerCase();
-          return display.includes(term.trim().toLowerCase());
+          if (f.mode === 'numeric') {
+            const raw = row[key];
+            if (raw === null || raw === undefined) return false;
+            const v = toDisplayNum(raw, col.type);
+            const threshold = parseFloat(f.value);
+            if (isNaN(threshold)) return true;
+            if (f.op === '>') return v > threshold;
+            if (f.op === '>=') return v >= threshold;
+            if (f.op === '=') return Math.abs(v - threshold) < 0.0001;
+            if (f.op === '!=') return Math.abs(v - threshold) >= 0.0001;
+            if (f.op === '<=') return v <= threshold;
+            if (f.op === '<') return v < threshold;
+            return true;
+          } else {
+            const display = fmt(row[key], col.type);
+            return f.selected.includes(display);
+          }
         })
       );
     }
@@ -847,7 +898,7 @@ export default function ReferenceDataTable({
     }
   };
 
-  const activeFilterCount = Object.values(filters).filter((v) => v.trim() !== "").length;
+  const activeFilterCount = Object.values(filters).filter(filterIsActive).length;
 
   // ── scope of the current view (used by "Create Rule from View") ──
   // At aggregated levels the visible rows show "All" for collapsed dimensions,
@@ -1177,7 +1228,7 @@ export default function ReferenceDataTable({
           const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
           const frozenLeft = isMobile ? frozenOffsets.ml[c.key] : frozenOffsets.fl[c.key];
           const sorted = sortKey === c.key;
-          const hasFilter = (filters[c.key] ?? "").trim() !== "";
+          const hasFilter = !!filters[c.key] && filterIsActive(filters[c.key]);
           return (
             <th
               key={c.key}
@@ -1220,7 +1271,18 @@ export default function ReferenceDataTable({
                 </TooltipProvider>
                 <Popover
                   open={openFilter === c.key}
-                  onOpenChange={(o) => setOpenFilter(o ? c.key : null)}
+                  onOpenChange={(o) => {
+                    setOpenFilter(o ? c.key : null);
+                    if (o && !filters[c.key]) {
+                      const isNum = NUMERIC_TYPES.includes(c.type);
+                      setFilters(f => ({
+                        ...f,
+                        [c.key]: isNum
+                          ? { mode: 'numeric' as const, op: '>=' as NumericOp, value: '' }
+                          : { mode: 'select' as const, selected: [], search: '' },
+                      }));
+                    }
+                  }}
                 >
                   <PopoverTrigger asChild>
                     <button
@@ -1231,33 +1293,117 @@ export default function ReferenceDataTable({
                       <Filter className="h-3 w-3" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-56 p-2" align="start">
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium">Filter {c.label}</p>
-                      <Input
-                        autoFocus
-                        value={filters[c.key] ?? ""}
-                        onChange={(e) =>
-                          setFilters((f) => ({ ...f, [c.key]: e.target.value }))
-                        }
-                        placeholder="Contains…"
-                        className="h-8 text-xs"
-                        data-testid={`refdata-filter-input-${c.key}`}
-                      />
-                      {hasFilter && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-full text-xs"
-                          onClick={() =>
-                            setFilters((f) => ({ ...f, [c.key]: "" }))
-                          }
-                        >
-                          <X className="mr-1 h-3 w-3" /> Clear
-                        </Button>
-                      )}
-                    </div>
-                  </PopoverContent>
+                  {openFilterMeta && openFilter === c.key && (
+                    <PopoverContent
+                      className={`p-2 ${openFilterMeta.isNumeric ? 'w-60' : 'w-64'}`}
+                      align="start"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold truncate max-w-[160px]">Filter: {c.label}</p>
+                          {hasFilter && (
+                            <button
+                              className="text-[10px] text-primary hover:underline"
+                              onClick={() => setFilters(f => { const n = { ...f }; delete n[c.key]; return n; })}
+                            >Clear</button>
+                          )}
+                        </div>
+
+                        {openFilterMeta.isNumeric ? (
+                          <div className="flex gap-1">
+                            <select
+                              className="h-8 w-24 shrink-0 rounded border border-border bg-background px-1 text-xs"
+                              value={(filters[c.key] as any)?.op ?? '>='}
+                              onChange={e => setFilters(f => ({
+                                ...f,
+                                [c.key]: { mode: 'numeric' as const, op: e.target.value as NumericOp, value: (f[c.key] as any)?.value ?? '' },
+                              }))}
+                            >
+                              <option value=">">{'>'} greater</option>
+                              <option value=">=">{'>='} at least</option>
+                              <option value="=">{'='} equals</option>
+                              <option value="!=">{'≠'} not equal</option>
+                              <option value="<=">{'<='} at most</option>
+                              <option value="<">{'<'} less</option>
+                            </select>
+                            <Input
+                              autoFocus
+                              type="number"
+                              className="h-8 text-xs"
+                              placeholder="Value…"
+                              value={(filters[c.key] as any)?.value ?? ''}
+                              onChange={e => setFilters(f => ({
+                                ...f,
+                                [c.key]: { mode: 'numeric' as const, op: (f[c.key] as any)?.op ?? '>=' as NumericOp, value: e.target.value },
+                              }))}
+                              data-testid={`refdata-filter-input-${c.key}`}
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <Input
+                              autoFocus
+                              className="h-7 text-xs"
+                              placeholder="Search values…"
+                              value={(filters[c.key] as any)?.search ?? ''}
+                              onChange={e => setFilters(f => ({
+                                ...f,
+                                [c.key]: { mode: 'select' as const, selected: (f[c.key] as any)?.selected ?? [], search: e.target.value },
+                              }))}
+                              data-testid={`refdata-filter-input-${c.key}`}
+                            />
+                            <div className="flex gap-2 text-[10px]">
+                              <button className="text-primary hover:underline"
+                                onClick={() => setFilters(f => ({
+                                  ...f,
+                                  [c.key]: { mode: 'select' as const, selected: openFilterMeta.vals, search: (f[c.key] as any)?.search ?? '' },
+                                }))}>Select all</button>
+                              <button className="text-muted-foreground hover:underline"
+                                onClick={() => setFilters(f => ({
+                                  ...f,
+                                  [c.key]: { mode: 'select' as const, selected: [], search: (f[c.key] as any)?.search ?? '' },
+                                }))}>Deselect all</button>
+                            </div>
+                            <div className="max-h-52 overflow-y-auto space-y-0.5 border border-border rounded p-1">
+                              {(() => {
+                                const search = ((filters[c.key] as any)?.search ?? '').toLowerCase();
+                                const selected: string[] = (filters[c.key] as any)?.selected ?? [];
+                                const visible = search
+                                  ? openFilterMeta.vals.filter(v => v.toLowerCase().includes(search))
+                                  : openFilterMeta.vals;
+                                if (visible.length === 0) return (
+                                  <p className="text-[11px] text-muted-foreground py-1 px-1">No values match</p>
+                                );
+                                return visible.map(val => {
+                                  const checked = selected.includes(val);
+                                  return (
+                                    <label key={val} className="flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-muted cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        className="h-3 w-3 accent-primary"
+                                        onChange={() => setFilters(f => {
+                                          const cur: string[] = (f[c.key] as any)?.selected ?? [];
+                                          const next = checked ? cur.filter(v => v !== val) : [...cur, val];
+                                          return { ...f, [c.key]: { mode: 'select' as const, selected: next, search: (f[c.key] as any)?.search ?? '' } };
+                                        })}
+                                      />
+                                      <span className="text-xs truncate">{val}</span>
+                                    </label>
+                                  );
+                                });
+                              })()}
+                            </div>
+                            {((filters[c.key] as any)?.selected?.length ?? 0) > 0 && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {(filters[c.key] as any).selected.length} of {openFilterMeta.vals.length} selected
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  )}
                 </Popover>
               </div>
             </th>

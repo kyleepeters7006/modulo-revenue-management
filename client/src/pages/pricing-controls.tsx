@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
-import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
+import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner } from "@/components/dashboard/rule-designer";
 import { StrategyReportModal } from "@/components/dashboard/pricing-reports";
@@ -1213,7 +1213,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           <Dialog open={scatterExpanded} onOpenChange={setScatterExpanded}>
             <DialogContent className="max-w-[96vw] w-[1200px] max-h-[95vh] flex flex-col gap-0 p-0 overflow-hidden">
               <DialogHeader className="px-6 pt-5 pb-3 border-b border-slate-100 shrink-0">
-                <DialogTitle className="text-base font-semibold text-slate-800">Competitive Position</DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle className="text-base font-semibold text-slate-800">Competitive Position</DialogTitle>
+                  <button
+                    onClick={() => setScatterExpanded(false)}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
+                    title="Collapse chart"
+                  >
+                    <Minimize2 className="h-3 w-3" />
+                    Collapse
+                  </button>
+                </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
                   {compPositionData.length} location/SL combinations · X = occupancy · Y = rate vs market
                 </p>

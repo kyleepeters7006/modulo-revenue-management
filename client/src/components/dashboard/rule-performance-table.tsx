@@ -802,13 +802,26 @@ export function RulePerformanceTable({
     return r.monthlyRevenueImpact;
   };
 
-  // Win Rate — % of historical applied rules whose occupancy-adjusted revenue grew
-  const winRate = useMemo(() => {
+  // Win Rate — two modes: revenue (occupancy-adjusted) or move-ins (T3 after vs before)
+  const [winRateMode, setWinRateMode] = useState<'revenue' | 'moveins'>('revenue');
+
+  const winRateRevenue = useMemo(() => {
     const hist = rows.filter((r) => r.isHistorical && r.monthlyRevenueImpact != null);
     if (hist.length === 0) return null;
     const wins = hist.filter((r) => (occAdjustedDelta(r) ?? 0) > 0).length;
     return { pct: Math.round((wins / hist.length) * 100), wins, total: hist.length };
   }, [rows]);
+
+  const winRateMoveIns = useMemo(() => {
+    const hist = rows.filter(
+      (r) => r.isHistorical && r.calc?.moveInsT3Before != null && r.calc?.moveInsT3After != null,
+    );
+    if (hist.length === 0) return null;
+    const wins = hist.filter((r) => (r.calc!.moveInsT3After! - r.calc!.moveInsT3Before!) > 0).length;
+    return { pct: Math.round((wins / hist.length) * 100), wins, total: hist.length };
+  }, [rows]);
+
+  const winRate = winRateMode === 'revenue' ? winRateRevenue : winRateMoveIns;
 
   const [winRateOpen, setWinRateOpen] = useState(false);
 
@@ -1053,24 +1066,45 @@ export function RulePerformanceTable({
                 <div className="text-lg font-semibold">{totals.unitsSold.toLocaleString()}</div>
                 <div className="text-[10px] text-muted-foreground">admitted after rule applied</div>
               </div>
-              <button
-                className="rounded-md border border-border bg-muted/30 px-3 py-2 text-left w-full hover:bg-muted/60 hover:border-primary/40 transition-colors cursor-pointer disabled:cursor-default disabled:hover:bg-muted/30 disabled:hover:border-border"
-                data-testid="stat-perf-win-rate"
-                onClick={() => winRate != null && historicalRules.length > 0 && setWinRateOpen(true)}
-                disabled={winRate == null || historicalRules.length === 0}
-                title={winRate != null ? "Click to see rule-by-rule breakdown" : undefined}
-              >
-                <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground mb-0.5">
-                  <Trophy className="h-3 w-3" />Win Rate
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <Trophy className="h-3 w-3" />Win Rate
+                  </div>
+                  {/* Mode toggle */}
+                  <div className="flex rounded border border-border overflow-hidden text-[10px] font-medium shrink-0">
+                    <button
+                      className={`px-1.5 py-0.5 transition-colors ${winRateMode === 'revenue' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted'}`}
+                      onClick={(e) => { e.stopPropagation(); setWinRateMode('revenue'); }}
+                      title="Win rate by change in revenue (occupancy-adjusted)"
+                    >Revenue</button>
+                    <button
+                      className={`px-1.5 py-0.5 transition-colors border-l border-border ${winRateMode === 'moveins' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted'}`}
+                      onClick={(e) => { e.stopPropagation(); setWinRateMode('moveins'); }}
+                      title="Win rate by change in move-ins (T3 after vs before)"
+                    >Move-ins</button>
+                  </div>
                 </div>
-                <div className={`text-4xl font-black leading-none tabular-nums ${winRate == null ? "text-muted-foreground" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
-                  {winRate == null ? "–" : `${winRate.pct}%`}
-                </div>
-                <div className="text-[11px] text-muted-foreground mt-1">
-                  {winRate == null ? "no historical rules in range" : `${winRate.wins} of ${winRate.total} rules grew revenue (occupancy-adjusted)`}
-                  {winRate != null && <span className="ml-1 text-primary/60">↗ see detail</span>}
-                </div>
-              </button>
+                <button
+                  className="text-left w-full hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-default"
+                  data-testid="stat-perf-win-rate"
+                  onClick={() => winRate != null && historicalRules.length > 0 && setWinRateOpen(true)}
+                  disabled={winRate == null || historicalRules.length === 0}
+                  title={winRate != null ? "Click to see rule-by-rule breakdown" : undefined}
+                >
+                  <div className={`text-4xl font-black leading-none tabular-nums ${winRate == null ? "text-muted-foreground" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
+                    {winRate == null ? "–" : `${winRate.pct}%`}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {winRate == null
+                      ? "no historical rules in range"
+                      : winRateMode === 'revenue'
+                        ? `${winRate.wins} of ${winRate.total} rules grew revenue (occupancy-adjusted)`
+                        : `${winRate.wins} of ${winRate.total} rules increased move-ins`}
+                    {winRate != null && <span className="ml-1 text-primary/60">↗ see detail</span>}
+                  </div>
+                </button>
+              </div>
             </div>
 
             {viewMode === "scatter" ? (
@@ -1452,7 +1486,9 @@ export function RulePerformanceTable({
               <DialogTitle className="text-base font-semibold">Win Rate Detail</DialogTitle>
             </div>
             <DialogDescription className="mt-0.5">
-              Historical rules ordered by date — whether each one grew or reduced revenue after being applied, holding occupancy constant so the result reflects the pricing change itself.
+              {winRateMode === 'revenue'
+                ? "Historical rules ordered by date — whether each one grew or reduced revenue after being applied, holding occupancy constant so the result reflects the pricing change itself."
+                : "Historical rules ordered by date — whether each one increased or decreased move-ins (T3 average after vs. before the rule was applied)."}
             </DialogDescription>
             {winRate != null && (
               <div className="flex items-center gap-4 mt-3 p-3 rounded-md bg-muted/40 border border-border">
@@ -1478,17 +1514,30 @@ export function RulePerformanceTable({
                 <tr>
                   <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Rule</th>
                   <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Date Applied</th>
-                  <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Monthly Impact</th>
+                  <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">{winRateMode === 'revenue' ? 'Monthly Impact' : 'Δ Move-ins/Mo'}</th>
                   <th className="px-4 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted border-b border-border whitespace-nowrap">Result</th>
                 </tr>
               </thead>
               <tbody>
                 {historicalRules.map((r, i) => {
-                  const impact = r.monthlyRevenueImpact;
-                  const adj = impact != null ? occAdjustedDelta(r) : null;
-                  const isWin = adj != null && adj > 0;
-                  const isLoss = adj != null && adj <= 0;
                   const cleanName = r.ruleName.replace(/^Historical:\s*/i, '');
+                  let isWin = false, isLoss = false, metricDisplay = '—';
+                  if (winRateMode === 'revenue') {
+                    const impact = r.monthlyRevenueImpact;
+                    const adj = impact != null ? occAdjustedDelta(r) : null;
+                    isWin = adj != null && adj > 0;
+                    isLoss = adj != null && adj <= 0;
+                    metricDisplay = impact != null ? fmtMoney(impact) + '/mo' : '—';
+                  } else {
+                    const before = r.calc?.moveInsT3Before;
+                    const after = r.calc?.moveInsT3After;
+                    if (before != null && after != null) {
+                      const delta = after - before;
+                      isWin = delta > 0;
+                      isLoss = delta <= 0;
+                      metricDisplay = (delta >= 0 ? '+' : '') + delta.toFixed(1) + '/mo';
+                    }
+                  }
                   return (
                     <tr
                       key={i}
@@ -1500,7 +1549,7 @@ export function RulePerformanceTable({
                       </td>
                       <td className="px-4 py-2.5 text-sm text-muted-foreground whitespace-nowrap">{r.dateApplied ? fmtDate(r.dateApplied) : '—'}</td>
                       <td className={`px-4 py-2.5 text-sm font-semibold tabular-nums text-right whitespace-nowrap ${isWin ? 'text-emerald-600' : isLoss ? 'text-red-500' : 'text-muted-foreground'}`}>
-                        {impact != null ? fmtMoney(impact) + '/mo' : '—'}
+                        {metricDisplay}
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         {isWin ? (

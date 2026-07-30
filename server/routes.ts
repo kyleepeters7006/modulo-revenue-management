@@ -19124,8 +19124,8 @@ Return ONLY valid JSON, no markdown fences:
           // Proposed rates — manual override takes precedence when present
           proposedRule: effectiveProposed,
           hasManualOverride: manualRate !== null,
-          proposedVarDollar: (effectiveProposed !== null && ihSpot !== null) ? effectiveProposed - ihSpot : null,
-          proposedVarPct: (effectiveProposed !== null && ihSpot !== null && ihSpot !== 0) ? (effectiveProposed - ihSpot) / ihSpot : null,
+          proposedVarDollar: (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null,
+          proposedVarPct: (effectiveProposed !== null && streetSpot !== null && streetSpot !== 0) ? (effectiveProposed - streetSpot) / streetSpot : null,
           // Revenue impact: (proposed − street) × T3 move-ins/mo; annual = monthly × 12
           revT3MoveIns: t3MoveInsForImpact,
           revMonthlyImpact: monthlyImpact,
@@ -19474,8 +19474,8 @@ Return ONLY valid JSON, no markdown fences:
           ihSpot,
           ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
           proposedRule: proposed,
-          proposedVarDollar: (proposed !== null && ihSpot !== null) ? proposed - ihSpot : null,
-          proposedVarPct: (proposed !== null && ihSpot !== null && ihSpot !== 0) ? (proposed - ihSpot) / ihSpot : null,
+          proposedVarDollar: (proposed !== null && streetSpot !== null) ? proposed - streetSpot : null,
+          proposedVarPct: (proposed !== null && streetSpot !== null && streetSpot !== 0) ? (proposed - streetSpot) / streetSpot : null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
             const groupT3 = t3Map.get(key) ?? null;
