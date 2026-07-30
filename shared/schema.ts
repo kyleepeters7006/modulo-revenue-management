@@ -1039,6 +1039,8 @@ export const elasticityMetrics = pgTable("elasticity_metrics", {
   serviceLine: text("service_line").notNull(),
   roomType: text("room_type").notNull(),
   elasticity: real("elasticity"), // learned (EMA-blended) elasticity; null when insufficient data
+  prevElasticity: real("prev_elasticity"), // EMA value snapshotted when the source period last advanced (trend = elasticity − prevElasticity)
+  latestSourceMonth: text("latest_source_month"), // most recent upload_month (months[0]) used in the last blend — detects period advances
   rawElasticity: real("raw_elasticity"), // most recent raw period-over-period computation
   daysToSellBefore: real("days_to_sell_before"), // avg days-to-sell in the "before" window
   daysToSellAfter: real("days_to_sell_after"), // avg days-to-sell in the "after" window

@@ -263,6 +263,7 @@ const GROUPS: GroupDef[] = [
     label: "Elasticity & DTS",
     cols: [
       { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this combo — how sensitive demand (days to sell) is to a rate change." },
+      { key: "elasticityTrend", label: "Trend", type: "num1signed", w: 70, tip: "Elasticity trend vs. prior upload period (prior EMA − current EMA). Positive (green) = demand becoming less price-sensitive (improving). Negative (red) = demand becoming more price-sensitive (worsening)." },
       { key: "daysToSellBefore", label: "DTS Now", type: "num1", w: 75, tip: "Estimated days to sell at the current in-house rate." },
       { key: "daysToSellAfter", label: "DTS New", type: "num1", w: 75, tip: "Estimated days to sell at the proposed rule rate." },
       { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 65, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },
@@ -355,7 +356,7 @@ const AGG_WAVG_KEYS = [
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
-  "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
+  "elasticity", "elasticityTrend", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
   "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
 ];

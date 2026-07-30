@@ -38,6 +38,7 @@ export interface ElasticityRecord {
   serviceLine: string;
   roomType: string;
   elasticity: number | null;
+  prevElasticity: number | null; // EMA value from the prior update cycle (trend = elasticity − prevElasticity)
   rawElasticity: number | null;
   daysToSellBefore: number | null;
   daysToSellAfter: number | null;
@@ -60,8 +61,10 @@ const avg = (a: number[]): number | null =>
 /**
  * Compute the raw (latest-period) elasticity and days-to-sell stats for one
  * segment from its ordered monthly aggregates (newest first).
+ *
+ * Exported for testing only — use computeAndStoreElasticity for production writes.
  */
-function computeRawElasticity(byMonth: MonthlyAgg[]): {
+export function computeRawElasticity(byMonth: MonthlyAgg[]): {
   rawElasticity: number | null;
   daysToSellBefore: number | null;
   daysToSellAfter: number | null;
@@ -101,6 +104,60 @@ function computeRawElasticity(byMonth: MonthlyAgg[]): {
     rateBefore,
     rateAfter,
   };
+}
+
+/** Prior state used by blendElasticityObservation. */
+export interface PriorElasticityState {
+  elasticity: number | null;
+  prevElasticity: number | null;
+  sampleSize: number;
+  latestSourceMonth: string | null;
+}
+
+/**
+ * Pure function: given a raw elasticity observation and the stored prior state,
+ * return the updated { elasticity, prevElasticity, sampleSize } to persist.
+ *
+ * Idempotency contract:
+ *   – When currentSourceMonth equals the stored latestSourceMonth, the function
+ *     returns the prior values unchanged (same-period rerun → no drift).
+ *   – When the source period advances, prevElasticity is snapshotted from the
+ *     current EMA BEFORE blending so the Trend column reflects one genuine period.
+ *
+ * Exported for unit testing; use computeAndStoreElasticity for DB writes.
+ */
+export function blendElasticityObservation(
+  rawElasticity: number | null,
+  prior: PriorElasticityState | null,
+  currentSourceMonth: string
+): { elasticity: number | null; prevElasticity: number | null; sampleSize: number } {
+  const priorElasticity = prior?.elasticity ?? null;
+  const priorSamples = prior?.sampleSize ?? 0;
+  const priorSourceMonth = prior?.latestSourceMonth ?? null;
+  const periodAdvanced = currentSourceMonth !== priorSourceMonth;
+
+  if (!periodAdvanced) {
+    // Same period: full idempotency — nothing changes.
+    return {
+      elasticity: priorElasticity,
+      prevElasticity: prior?.prevElasticity ?? null,
+      sampleSize: priorSamples,
+    };
+  }
+
+  // Period has advanced: snapshot current EMA as prev, then blend in the raw.
+  const snapshotPrev = priorElasticity;
+  let blended: number | null = priorElasticity;
+  let sampleSize = priorSamples;
+  if (rawElasticity !== null) {
+    sampleSize = priorSamples + 1;
+    const alpha = priorElasticity === null ? 1 : 1 / Math.min(sampleSize, 12);
+    blended =
+      priorElasticity === null
+        ? rawElasticity
+        : alpha * rawElasticity + (1 - alpha) * priorElasticity;
+  }
+  return { elasticity: blended, prevElasticity: snapshotPrev, sampleSize };
 }
 
 /**
@@ -168,20 +225,30 @@ export async function computeAndStoreElasticity(clientId: string): Promise<{ upd
     });
   }
 
-  // 4) Load prior stored values for blending.
+  // 4) Load prior stored values for blending, including the prev snapshot and the
+  //    source period that was current when that snapshot was last taken.
   const priorRes = await pool.query<{
     location_name: string; service_line: string; room_type: string;
-    elasticity: number | null; sample_size: number | null;
+    elasticity: number | null; prev_elasticity: number | null;
+    sample_size: number | null; latest_source_month: string | null;
   }>(
-    `SELECT location_name, service_line, room_type, elasticity, sample_size
+    `SELECT location_name, service_line, room_type,
+            elasticity, prev_elasticity, sample_size, latest_source_month
      FROM elasticity_metrics WHERE client_id = $1`,
     [clientId]
   );
-  const priorMap = new Map<string, { elasticity: number | null; sampleSize: number }>();
+  const priorMap = new Map<string, {
+    elasticity: number | null;
+    prevElasticity: number | null;
+    sampleSize: number;
+    latestSourceMonth: string | null;
+  }>();
   for (const p of priorRes.rows) {
     priorMap.set(`${p.location_name}||${p.service_line}||${p.room_type}`, {
       elasticity: p.elasticity !== null ? Number(p.elasticity) : null,
+      prevElasticity: p.prev_elasticity !== null ? Number(p.prev_elasticity) : null,
       sampleSize: Number(p.sample_size) || 0,
+      latestSourceMonth: p.latest_source_month ?? null,
     });
   }
 
@@ -193,47 +260,44 @@ export async function computeAndStoreElasticity(clientId: string): Promise<{ upd
       .filter((v): v is MonthlyAgg => v !== undefined);
     const raw = computeRawElasticity(orderedMonths);
 
-    const prior = priorMap.get(key);
-    const priorElasticity = prior?.elasticity ?? null;
-    const priorSamples = prior?.sampleSize ?? 0;
+    // Use each segment's own newest available month as the source period —
+    // not the client-global months[0] — so a segment absent from the latest
+    // client upload isn't falsely stamped with that month and permanently
+    // locked out of future blends via same-period idempotency.
+    const segmentSourceMonth = orderedMonths[0]?.month ?? months[0];
 
-    // Online-learning blend. Only counts as an observation when raw is defined.
-    let blended: number | null = priorElasticity;
-    let sampleSize = priorSamples;
-    if (raw.rawElasticity !== null) {
-      sampleSize = priorSamples + 1;
-      // alpha decays with the number of observations so the estimate stabilises.
-      const alpha = priorElasticity === null ? 1 : 1 / Math.min(sampleSize, 12);
-      blended =
-        priorElasticity === null
-          ? raw.rawElasticity
-          : alpha * raw.rawElasticity + (1 - alpha) * priorElasticity;
-    }
+    const prior = priorMap.get(key) ?? null;
+    const blend = blendElasticityObservation(raw.rawElasticity, prior, segmentSourceMonth);
+    const { elasticity: blended, prevElasticity, sampleSize } = blend;
     const confidence = Math.min(1, sampleSize / 12);
 
     await pool.query(
       `INSERT INTO elasticity_metrics
         (client_id, location_id, location_name, service_line, room_type,
-         elasticity, raw_elasticity, days_to_sell_before, days_to_sell_after,
-         days_to_sell_change, rate_before, rate_after, sample_size, confidence, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, NOW())
+         elasticity, prev_elasticity, raw_elasticity, days_to_sell_before, days_to_sell_after,
+         days_to_sell_change, rate_before, rate_after, sample_size, confidence,
+         latest_source_month, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, NOW())
        ON CONFLICT (client_id, location_name, service_line, room_type)
        DO UPDATE SET
-         location_id        = EXCLUDED.location_id,
-         elasticity         = EXCLUDED.elasticity,
-         raw_elasticity     = EXCLUDED.raw_elasticity,
-         days_to_sell_before= EXCLUDED.days_to_sell_before,
-         days_to_sell_after = EXCLUDED.days_to_sell_after,
-         days_to_sell_change= EXCLUDED.days_to_sell_change,
-         rate_before        = EXCLUDED.rate_before,
-         rate_after         = EXCLUDED.rate_after,
-         sample_size        = EXCLUDED.sample_size,
-         confidence         = EXCLUDED.confidence,
-         updated_at         = NOW()`,
+         location_id         = EXCLUDED.location_id,
+         elasticity          = EXCLUDED.elasticity,
+         prev_elasticity     = EXCLUDED.prev_elasticity,
+         raw_elasticity      = EXCLUDED.raw_elasticity,
+         days_to_sell_before = EXCLUDED.days_to_sell_before,
+         days_to_sell_after  = EXCLUDED.days_to_sell_after,
+         days_to_sell_change = EXCLUDED.days_to_sell_change,
+         rate_before         = EXCLUDED.rate_before,
+         rate_after          = EXCLUDED.rate_after,
+         sample_size         = EXCLUDED.sample_size,
+         confidence          = EXCLUDED.confidence,
+         latest_source_month = EXCLUDED.latest_source_month,
+         updated_at          = NOW()`,
       [
         clientId, seg.locationId, seg.campus, seg.sl, seg.rt,
-        blended, raw.rawElasticity, raw.daysToSellBefore, raw.daysToSellAfter,
+        blended, prevElasticity, raw.rawElasticity, raw.daysToSellBefore, raw.daysToSellAfter,
         raw.daysToSellChange, raw.rateBefore, raw.rateAfter, sampleSize, confidence,
+        segmentSourceMonth,
       ]
     );
     updated++;
@@ -250,7 +314,7 @@ export async function computeAndStoreElasticity(clientId: string): Promise<{ upd
 export async function getElasticityMap(clientId: string): Promise<Map<string, ElasticityRecord>> {
   const res = await pool.query(
     `SELECT client_id, location_id, location_name, service_line, room_type,
-            elasticity, raw_elasticity, days_to_sell_before, days_to_sell_after,
+            elasticity, prev_elasticity, raw_elasticity, days_to_sell_before, days_to_sell_after,
             days_to_sell_change, rate_before, rate_after, sample_size, confidence
      FROM elasticity_metrics WHERE client_id = $1`,
     [clientId]
@@ -264,6 +328,7 @@ export async function getElasticityMap(clientId: string): Promise<Map<string, El
       serviceLine: r.service_line,
       roomType: r.room_type,
       elasticity: r.elasticity !== null ? Number(r.elasticity) : null,
+      prevElasticity: r.prev_elasticity !== null ? Number(r.prev_elasticity) : null,
       rawElasticity: r.raw_elasticity !== null ? Number(r.raw_elasticity) : null,
       daysToSellBefore: r.days_to_sell_before !== null ? Number(r.days_to_sell_before) : null,
       daysToSellAfter: r.days_to_sell_after !== null ? Number(r.days_to_sell_after) : null,

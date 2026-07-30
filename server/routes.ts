@@ -439,6 +439,14 @@ async function checkAndInitializeDatabase() {
       ON manual_rate_overrides (client_id, location_name, service_line, room_type)
     `);
 
+    // Ensure prev_elasticity + latest_source_month columns exist for trend tracking (added in task-400)
+    await db.execute(sql`
+      ALTER TABLE elasticity_metrics ADD COLUMN IF NOT EXISTS prev_elasticity real
+    `);
+    await db.execute(sql`
+      ALTER TABLE elasticity_metrics ADD COLUMN IF NOT EXISTS latest_source_month text
+    `);
+
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
@@ -19169,8 +19177,16 @@ Return ONLY valid JSON, no markdown fences:
               deltaDaysToSell: predictedDaysToSellChange,
               dailyRate,
             });
+            const prevElasticity = elas?.prevElasticity ?? null;
+            // Trend = prev − current: positive means elasticity fell (demand less
+            // price-sensitive = improving), negative means it rose (worsening).
+            // This aligns with the table's green=positive color convention.
+            const elasticityTrend = (elasticity !== null && prevElasticity !== null)
+              ? prevElasticity - elasticity
+              : null;
             return {
               elasticity,
+              elasticityTrend,
               elasticityConfidence: elas?.confidence ?? null,
               daysToSellBefore,
               daysToSellAfter,
@@ -19506,6 +19522,7 @@ Return ONLY valid JSON, no markdown fences:
       // Raw elasticity/DTS values per group — repeated on each unit row (same pattern as occupancy).
       const groupElasticityDataMap = new Map<string, {
         elasticity: number | null;
+        elasticityTrend: number | null;
         daysToSellBefore: number | null;
         daysToSellAfter: number | null;
         daysToSellChange: number | null;
@@ -19541,7 +19558,13 @@ Return ONLY valid JSON, no markdown fences:
           });
           groupElasticityMonthlyImpactMap.set(key, elasticImpact.monthly);
           // Store raw elasticity/DTS per group so unit rows can display them.
-          groupElasticityDataMap.set(key, { elasticity, daysToSellBefore, daysToSellAfter, daysToSellChange });
+          const prevElasticityForGroup = elas?.prevElasticity ?? null;
+          // Trend = prev − current: positive = improving (less price-sensitive),
+          // negative = worsening (more price-sensitive). Matches green=positive convention.
+          const elasticityTrend = (elasticity !== null && prevElasticityForGroup !== null)
+            ? prevElasticityForGroup - elasticity
+            : null;
+          groupElasticityDataMap.set(key, { elasticity, elasticityTrend, daysToSellBefore, daysToSellAfter, daysToSellChange });
         }
       }
 
@@ -19606,11 +19629,12 @@ Return ONLY valid JSON, no markdown fences:
           // Raw elasticity / DTS metrics — group-level values repeated on each unit row,
           // same pattern as campusOccSpot / slOccSpot so the Room Detail view can
           // display them and they aggregate correctly in the grouping layers.
-          ...((): { elasticity: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null } => {
+          ...((): { elasticity: number | null; elasticityTrend: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
             const d = groupElasticityDataMap.get(key);
             return {
               elasticity: d?.elasticity ?? null,
+              elasticityTrend: d?.elasticityTrend ?? null,
               daysToSellBefore: d?.daysToSellBefore ?? null,
               daysToSellAfter: d?.daysToSellAfter ?? null,
               daysToSellChange: d?.daysToSellChange ?? null,
