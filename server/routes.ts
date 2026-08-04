@@ -18502,6 +18502,17 @@ Return ONLY valid JSON, no markdown fences:
     }
   }
 
+  // Explicit cache-bust endpoint for test harnesses.  Requires the same
+  // SEED_SECRET used by warmup requests so it cannot be called by end users.
+  app.post('/api/admin/bust-ref-data-cache', (req, res) => {
+    const secret = req.headers['x-seed-secret'] as string | undefined;
+    if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    invalidateRefDataCache();
+    res.json({ ok: true, invalidatedAt: Date.now() });
+  });
+
   setTimeout(() => {
     // Warm reference-data for every client tenant
     warmRefDataCache();
@@ -18944,10 +18955,17 @@ Return ONLY valid JSON, no markdown fences:
       const inqSpotMonth = inqMonths[0] ?? spotMonth;
       const inqT3Months  = inqMonths.slice(0, 3);
       const inqT12Months = inqMonths.slice(0, 12);
-      // move-ins map: `${location}||${sl}||${rt}` -> t3. Prefer imported
-      // move-in/out event data (Move Ins & Outs Detail upload) when present;
-      // fall back to the rent-roll-derived query result otherwise.
-      let moveMap = new Map<string, number>();
+      // move-ins map: `${location}||${sl}||${rt}` -> t3 move-ins/month.
+      // Uses the shared getGroupedT3MoveInsMap which applies room-type groupings
+      // and selects events vs rent-roll consistently with /api/reference-data/units,
+      // so revMonthlyImpact always matches on both views.
+      const { getGroupedT3MoveInsMap: _getGroupedT3MI } = await import('./services/ruleImpactService');
+      const moveMap = await _getGroupedT3MI(clientId, {
+        serviceLine: serviceLine || undefined,
+        locations:  locations.length  ? locations  : undefined,
+        regions:    regions.length    ? regions    : undefined,
+        divisions:  divisions.length  ? divisions  : undefined,
+      });
       // Latest-month move-in / move-out counts per grouped `${loc}||${sl}||${rt}` key.
       // hasMoveInData/hasMoveOutData distinguish "0 events" from "no data source at all"
       // (demo rent-roll has move-in dates but no move-out dates → outs/net stay null).
@@ -18990,12 +19008,7 @@ Return ONLY valid JSON, no markdown fences:
           for (const r of rtgRes.rows as any[]) {
             rtgMap.set(`${r.location}||${r.service_line}||${r.room_type}`, r.group_name);
           }
-          for (const [k, v] of Array.from(evMap.entries())) {
-            if (allowedLocs && !allowedLocs.has(k.split('||')[0])) continue;
-            const grouped = rtgMap.get(k);
-            const key = grouped ? `${k.split('||')[0]}||${k.split('||')[1]}||${grouped}` : k;
-            moveMap.set(key, (moveMap.get(key) || 0) + v);
-          }
+          // moveMap is built by getGroupedT3MoveInsMap above; no re-assignment needed.
 
           // Latest-month move-ins & move-outs from the monthly event series.
           // Event data can lag the rent-roll spot month, so anchor to the latest
@@ -19028,11 +19041,10 @@ Return ONLY valid JSON, no markdown fences:
           hasMoveInData = true;
           hasMoveOutData = true;
         } else {
-          // Rent-roll fallback: moveRes now returns per-month counts; T3 avg = sum ÷ 3,
-          // latest = counts in the rent-roll spot month. No move-out source here.
+          // Rent-roll fallback: moveMap already built by getGroupedT3MoveInsMap above.
+          // moveRes provides latest-month move-in counts for the miLatestMap display column.
           for (const r of moveRes.rows as any[]) {
             const key = `${r.location}||${r.service_line}||${r.room_type}`;
-            moveMap.set(key, (moveMap.get(key) || 0) + (Number(r.n) || 0) / 3.0);
             if (r.mm === spotMonth) {
               miLatestMap.set(key, (miLatestMap.get(key) || 0) + (Number(r.n) || 0));
             }
@@ -19448,32 +19460,17 @@ Return ONLY valid JSON, no markdown fences:
         ORDER BY loc.division, rr.location, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.room_number
       `, params);
 
-      // T3 move-ins per grouped `${campus}||${sl}||${roomType}` — same model as the
-      // main reference-data endpoint: impact = (proposed − street) × T3 move-ins/mo.
-      // Each unit gets its proportional share (group T3 ÷ group unit count) so
-      // Room Detail rows sum to the same totals as the grouped views.
-      const { getT3MoveInsMap } = await import('./services/ruleImpactService');
-      const t3MapRaw = await getT3MoveInsMap(clientId);
-      // Remap raw room types to grouped names (rtg.group_name) for key parity.
-      const rtgRes2 = await pool.query(`
-        SELECT DISTINCT rtg.location, rtg.service_line, rr.room_type, rtg.group_name
-        FROM room_type_groupings rtg
-        JOIN rent_roll_data rr
-          ON rr.client_id = rtg.client_id AND rr.location = rtg.location
-         AND rr.service_line = rtg.service_line AND rr.source_room_type = rtg.source_room_type
-        WHERE rtg.client_id = $1
-      `, [clientId]);
-      const rtgMap2 = new Map<string, string>();
-      for (const r of rtgRes2.rows as any[]) {
-        rtgMap2.set(`${r.location}||${r.service_line}||${r.room_type}`, r.group_name);
-      }
-      const t3Map = new Map<string, number>();
-      for (const [k, v] of Array.from(t3MapRaw.entries())) {
-        const parts = k.split('||');
-        const grouped = rtgMap2.get(k);
-        const key = grouped ? `${parts[0]}||${parts[1]}||${grouped}` : k;
-        t3Map.set(key, (t3Map.get(key) || 0) + v);
-      }
+      // T3 move-ins per grouped `${campus}||${sl}||${roomType}` — uses the shared
+      // getGroupedT3MoveInsMap which applies room-type groupings and selects the
+      // same move-in source (events or rent-roll) as /api/reference-data, so
+      // revMonthlyImpact always sums identically across both views.
+      const { getGroupedT3MoveInsMap } = await import('./services/ruleImpactService');
+      const t3Map = await getGroupedT3MoveInsMap(clientId, {
+        serviceLine: serviceLine || undefined,
+        locations:  locations.length  ? locations  : undefined,
+        regions:    regions.length    ? regions    : undefined,
+        divisions:  divisions.length  ? divisions  : undefined,
+      });
       // Group unit counts keyed the same way as row output below.
       const groupUnitCount = new Map<string, number>();
       for (const r of unitsRes.rows as any[]) {

@@ -577,10 +577,7 @@ export default function ReferenceDataTable({
 
   const overrideSaveMutation = useMutation({
     mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number }) =>
-      apiRequest('/api/manual-rate-override', {
-        method: 'POST',
-        body: JSON.stringify({ locationName: payload.campus, serviceLine: payload.serviceLine, roomType: payload.roomType, locationId: payload.locationId, overrideRate: payload.overrideRate }),
-      }),
+      apiRequest('/api/manual-rate-override', 'POST', { locationName: payload.campus, serviceLine: payload.serviceLine, roomType: payload.roomType, locationId: payload.locationId, overrideRate: payload.overrideRate }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
@@ -591,7 +588,7 @@ export default function ReferenceDataTable({
 
   const overrideClearMutation = useMutation({
     mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string }) =>
-      apiRequest(`/api/manual-rate-override/${encodeURIComponent(payload.campus)}/${encodeURIComponent(payload.serviceLine)}/${encodeURIComponent(payload.roomType)}`, { method: 'DELETE' }),
+      apiRequest(`/api/manual-rate-override/${encodeURIComponent(payload.campus)}/${encodeURIComponent(payload.serviceLine)}/${encodeURIComponent(payload.roomType)}`, 'DELETE'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });

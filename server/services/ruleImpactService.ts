@@ -140,6 +140,131 @@ export async function getT3MoveInsMap(
   return map;
 }
 
+/**
+ * Like getT3MoveInsMap but applies room-type groupings and the full set of
+ * endpoint filters so the returned keys use COALESCE(group_name, room_type)
+ * and cover exactly the same rows as the reference-data grouped and units
+ * endpoints.
+ *
+ * Both /api/reference-data and /api/reference-data/units call this function
+ * with matching scope so revMonthlyImpact is always computed from an
+ * identical pipeline on both sides.
+ *
+ * @param scope  Optional filters — all are AND-combined. `locations` is an
+ *               exact-name allowlist; `regions`/`divisions` are resolved via
+ *               the locations table.  `serviceLine` is applied in SQL.
+ */
+export async function getGroupedT3MoveInsMap(
+  clientId: string,
+  scope: {
+    serviceLine?: string | null;
+    locations?: string[];
+    regions?: string[];
+    divisions?: string[];
+  } = {},
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const monthsRes = await pool.query(
+    `SELECT DISTINCT upload_month FROM rent_roll_data
+     WHERE client_id = $1 AND upload_month IS NOT NULL
+     ORDER BY upload_month DESC LIMIT 3`,
+    [clientId],
+  );
+  const t3 = monthsRes.rows.map((r: any) => r.upload_month).filter(Boolean) as string[];
+  if (t3.length === 0) return map;
+
+  const { hasMoveInOutEvents, getT3MoveInsMapFromEvents } = await import('./moveInOutService');
+
+  // Resolve location allowlist from explicit names or region/division filters.
+  let allowedLocs: Set<string> | null = null;
+  if (scope.locations?.length) {
+    allowedLocs = new Set(scope.locations);
+  } else if (scope.regions?.length || scope.divisions?.length) {
+    const p: any[] = [clientId];
+    let w = `client_id = $1`;
+    if (scope.regions?.length)   { p.push(scope.regions);   w += ` AND region   = ANY($${p.length})`; }
+    if (scope.divisions?.length) { p.push(scope.divisions); w += ` AND division = ANY($${p.length})`; }
+    const lr = await pool.query(`SELECT name FROM locations WHERE ${w}`, p);
+    allowedLocs = new Set(lr.rows.map((r: any) => r.name as string));
+  }
+
+  // Room-type groupings: raw_key → group_name (used by both paths below).
+  const rtgRes = await pool.query(
+    `SELECT DISTINCT rtg.location, rtg.service_line, rr.room_type, rtg.group_name
+     FROM room_type_groupings rtg
+     JOIN rent_roll_data rr
+       ON rr.client_id = rtg.client_id AND rr.location = rtg.location
+      AND rr.service_line = rtg.service_line AND rr.source_room_type = rtg.source_room_type
+     WHERE rtg.client_id = $1`,
+    [clientId],
+  );
+  const rtgMap = new Map<string, string>();
+  for (const r of rtgRes.rows as any[]) {
+    rtgMap.set(`${r.location}||${r.service_line}||${r.room_type}`, r.group_name as string);
+  }
+
+  if (await hasMoveInOutEvents(clientId)) {
+    // Events path: apply groupings to remapped event keys, then filter by allowedLocs.
+    const evMap = await getT3MoveInsMapFromEvents(clientId, t3, {
+      location: null,
+      serviceLine: scope.serviceLine ?? null,
+    });
+    for (const [k, v] of Array.from(evMap.entries())) {
+      const parts = k.split('||');
+      if (allowedLocs && !allowedLocs.has(parts[0])) continue;
+      const grouped = rtgMap.get(k);
+      const key = grouped ? `${parts[0]}||${parts[1]}||${grouped}` : k;
+      map.set(key, (map.get(key) || 0) + v);
+    }
+    return map;
+  }
+
+  // Rent-roll path: COALESCE(group_name, room_type) in SQL.
+  // Location filtering is applied post-query against allowedLocs for
+  // simplicity (avoids a complex JOIN against the locations table here).
+  const where: string[] = ['rr.client_id = $1'];
+  const params: any[] = [clientId];
+  let idx = 2;
+  if (scope.serviceLine) { where.push(`rr.service_line = $${idx}`); params.push(scope.serviceLine); idx++; }
+  params.push(t3);
+
+  const res = await pool.query(`
+    WITH ev AS (
+      SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+        rr.location, rr.service_line,
+        COALESCE(rtg.group_name, rr.room_type) AS room_type,
+        rr.payor_type,
+        CASE
+          WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+          WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+          ELSE NULL END AS dt
+      FROM rent_roll_data rr
+      LEFT JOIN room_type_groupings rtg
+        ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+       AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+      WHERE ${where.join(' AND ')} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+      ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+               (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+    ),
+    valid AS (
+      SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+      FROM ev
+      WHERE dt IS NOT NULL
+        AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+    )
+    SELECT location, service_line, room_type,
+           COUNT(*)::float / GREATEST(CARDINALITY($${idx}::text[]), 1) AS t3_moveins
+    FROM valid WHERE mm = ANY($${idx})
+    GROUP BY location, service_line, room_type
+  `, params);
+  for (const r of res.rows as any[]) {
+    const loc = r.location as string;
+    if (allowedLocs && !allowedLocs.has(loc)) continue;
+    map.set(`${loc}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins) || 0);
+  }
+  return map;
+}
+
 /** Build the shared context (one DB pass) used to score every rule. */
 export async function buildRuleImpactContext(clientId: string): Promise<RuleImpactContext | null> {
   const latestRes = await pool.query(
