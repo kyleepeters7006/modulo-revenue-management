@@ -301,6 +301,40 @@ app.use((req, res, next) => {
     log(`[migration] locations unique index migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: ensure users.username has a unique constraint.
+  // The Drizzle schema declares .unique() which generates the name
+  // users_username_unique, but older DB instances may have users_username_key
+  // from a raw ALTER TABLE. Normalise to the Drizzle-expected name so
+  // drizzle-kit push stays a no-op and never prompts interactively.
+  try {
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        -- Drop the Postgres-auto-named variant if it exists
+        IF EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_name = 'users'
+            AND constraint_name = 'users_username_key'
+            AND constraint_type = 'UNIQUE'
+        ) THEN
+          ALTER TABLE users DROP CONSTRAINT users_username_key;
+        END IF;
+        -- Add the Drizzle-named constraint if missing
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE table_name = 'users'
+            AND constraint_name = 'users_username_unique'
+            AND constraint_type = 'UNIQUE'
+        ) THEN
+          ALTER TABLE users ADD CONSTRAINT users_username_unique UNIQUE (username);
+        END IF;
+      END $$
+    `);
+    log("[migration] users.username unique constraint ensured");
+  } catch (migErr) {
+    log(`[migration] users.username unique constraint migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure is_historical column exists on adjustment_rules.
   // Historical rules record past pricing changes (e.g. imported spreadsheets) and are
   // never applied to current rate calculations.
