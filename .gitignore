@@ -18,6 +18,7 @@ vite.config.ts.*
 
 # Runtime artifacts
 nohup.out
+test-results/
 /CLAUDE.md
 /.idea/
 test-results/
