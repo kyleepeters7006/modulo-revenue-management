@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { AGG_SUM_KEYS, AGG_WAVG_KEYS, wavg as sharedWavg } from "@shared/referenceDataAgg";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -194,8 +193,8 @@ const GROUPS: GroupDef[] = [
     id: "moves",
     label: "Move-Ins / Outs",
     cols: [
-      { key: "moveInsLatest", label: "Ins", type: "num1", w: 60, tip: "Move-ins per month (most recent month) — all payers, census counts." },
-      { key: "moveOutsLatest", label: "Outs", type: "num1", w: 60, tip: "Move-outs per month (most recent month) — back-calculated from census change." },
+      { key: "moveInsLatest", label: "Ins", type: "int", w: 60, tip: "Move-ins recorded in the most recent month with data (all payers — census counts, not pricing-impact counts)." },
+      { key: "moveOutsLatest", label: "Outs", type: "int", w: 60, tip: "Move-outs recorded in the most recent month with data. Blank when no move-out data source is available." },
       { key: "moveNetLatest", label: "Net", type: "num1signed", w: 65, tip: "Move-ins minus move-outs for the most recent month (positive = net gain in residents)." },
     ],
   },
@@ -230,6 +229,7 @@ const GROUPS: GroupDef[] = [
     cols: [
       { key: "compBase", label: "Base", type: "money", w: 80, tip: "Top competitor's base (unadjusted) rate for this room type." },
       { key: "compAdjusted", label: "Adjusted", type: "money", w: 80, tip: "Competitor rate after adjusting for care-level and med-management differences." },
+      { key: "compVarDollar", label: "Δ$", type: "moneysigned", w: 75, tip: "Adjusted competitor rate vs your street rate (dollars) — positive means comp is priced above your street rate." },
       { key: "compVarPct", label: "Δ%", type: "pctfracsigned", w: 65, tip: "Adjusted competitor rate vs your street rate — positive means comp is above your street rate." },
     ],
   },
@@ -246,7 +246,7 @@ const GROUPS: GroupDef[] = [
     id: "revenue",
     label: "Revenue Impact",
     cols: [
-      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − street rate) × total units — estimated monthly revenue change across the full portfolio at this level." },
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
       { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
       { key: "revImpactPct", label: "% Impact", type: "pctfracsigned", w: 75, tip: "Annual revenue impact as a % of current in-house revenue — directly comparable to the Growth Target column." },
     ],
@@ -264,7 +264,6 @@ const GROUPS: GroupDef[] = [
     label: "Elasticity & DTS",
     cols: [
       { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this combo — how sensitive demand (days to sell) is to a rate change." },
-      { key: "elasticityTrend", label: "Trend", type: "num1signed", w: 70, tip: "Elasticity trend vs. prior upload period (prior EMA − current EMA). Positive (green) = demand becoming less price-sensitive (improving). Negative (red) = demand becoming more price-sensitive (worsening)." },
       { key: "daysToSellBefore", label: "DTS Now", type: "num1", w: 75, tip: "Estimated days to sell at the current in-house rate." },
       { key: "daysToSellAfter", label: "DTS New", type: "num1", w: 75, tip: "Estimated days to sell at the proposed rule rate." },
       { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 65, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },
@@ -338,12 +337,29 @@ function campusColsForLevel(level: GroupLevel): ColDef[] {
     default: return GROUPS[0].cols;
   }
 }
+
+// ── client-side aggregation for higher grouping levels ─────────────
+const AGG_SUM_KEYS = [
+  "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
+  "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
+  "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
+];
+// Inquiry/tour counts live at the campus+SL level and are duplicated on every
+// room-type row — sum them once per unique campus||SL, not per row.
 const AGG_CAMPUS_SL_SUM_KEYS = ["inqPrevMonth", "inqVsT3", "tourPrevMonth", "tourVsT3"];
 // Campus- and SL-level occupancy values are repeated on every room-type row;
 // they must be deduped to one value per campus (or campus||SL) and weighted
 // by that entity's units — a per-row unit-weighted average double-counts.
 const AGG_CAMPUS_WAVG_KEYS = ["campusOccSpot", "campusOccT3", "campusOccT12"];
 const AGG_CAMPUS_SL_WAVG_KEYS = ["slOccSpot", "slOccT3", "slOccT12"];
+const AGG_WAVG_KEYS = [
+  "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
+  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
+  "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
+  "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
+  "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
+  "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
+];
 const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory", "ihHistory"];
 
 function keyForLevel(r: Record<string, any>, level: GroupLevel): string {
@@ -387,7 +403,15 @@ function aggregateRows(
       for (const r of rs) { const v = r[k]; if (v !== null && v !== undefined) { sum += Number(v); any = true; } }
       out[k] = any ? sum : null;
     }
-    for (const k of AGG_WAVG_KEYS) out[k] = sharedWavg(rs, (r) => r[k]);
+    const wavg = (get: (r: Record<string, any>) => any) => {
+      let n = 0, d = 0;
+      for (const r of rs) {
+        const v = get(r);
+        if (v !== null && v !== undefined) { const w = Number(r.totalUnits) || 1; n += Number(v) * w; d += w; }
+      }
+      return d ? n / d : null;
+    };
+    for (const k of AGG_WAVG_KEYS) out[k] = wavg((r) => r[k]);
     // Subgroups for values that live above the room-type level
     const subGroups = (subKey: (r: Record<string, any>) => string) => {
       const m = new Map<string, { first: Record<string, any>; units: number }>();
@@ -432,7 +456,7 @@ function aggregateRows(
       out.revYtdGrowth = anyYtd && baseSum > 0 ? (spotSum - baseSum) / baseSum : null;
     }
     // Derived variances recomputed from aggregates
-    out.compVarDollar = (out.compAdjusted !== null && out.compBase !== null) ? out.compAdjusted - out.compBase : null;
+    out.compVarDollar = (out.compAdjusted !== null && out.streetSpot !== null) ? out.compAdjusted - out.streetSpot : null;
     out.compVarPct = (out.compAdjusted !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.compAdjusted - out.streetSpot) / out.streetSpot : null;
     out.ihVarStreetDollar = (out.ihSpot !== null && out.streetSpot !== null) ? out.ihSpot - out.streetSpot : null;
     out.ihVarStreetPct = (out.ihSpot !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.ihSpot - out.streetSpot) / out.streetSpot : null;
@@ -440,7 +464,7 @@ function aggregateRows(
     out.proposedVarPct = (out.proposedRule !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.proposedRule - out.streetSpot) / out.streetSpot : null;
     // Rule rate columns (weighted avg of matching rows)
     const rr: Record<string, number | null> = {};
-    for (const id of ruleIds) rr[id] = sharedWavg(rs, (r) => (r.ruleRates as any)?.[id]);
+    for (const id of ruleIds) rr[id] = wavg((r) => (r.ruleRates as any)?.[id]);
     out.ruleRates = rr;
     // Monthly histories (weighted avg per month; campus/SL occ histories deduped)
     for (const hk of HISTORY_KEYS) {
@@ -448,7 +472,7 @@ function aggregateRows(
       for (const mm of monthsList) {
         if (hk === "campusOccHistory") hist[mm] = dedupeWavg(byCampus, (r) => (r[hk] as any)?.[mm]);
         else if (hk === "slOccHistory") hist[mm] = dedupeWavg(byCampusSL, (r) => (r[hk] as any)?.[mm]);
-        else hist[mm] = sharedWavg(rs, (r) => (r[hk] as any)?.[mm]);
+        else hist[mm] = wavg((r) => (r[hk] as any)?.[mm]);
       }
       out[hk] = hist;
     }
@@ -524,7 +548,7 @@ export default function ReferenceDataTable({
 }: ReferenceDataTableProps) {
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [groupLevel, setGroupLevel] = useState<GroupLevel>("serviceLine");
+  const [groupLevel, setGroupLevel] = useState<GroupLevel>("roomType");
   const { toast } = useToast();
   // Create-rule-from-view dialog state
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
@@ -726,25 +750,11 @@ export default function ReferenceDataTable({
     const base = groupLevel === "roomType" ? detail
       : aggregateRows(detail, groupLevel, (data?.rules ?? []).map(r => r.id), data?.months ?? []);
 
-    // Back-calculate Outs from Ins and the census change (vacantT3 − vacantSpot = occupied_spot − occupied_T3avg)
-    // so that Net always equals the actual census change over the T3 window.
-    // Applies at every grouping level; both vacant fields are in AGG_SUM_KEYS so they sum correctly.
-    //
-    // At aggregation levels above roomType, also recompute revenue impact from the weighted-average
-    // rates × total units. The per-row sum only captures units with an active rule (sparse for HC),
-    // so the aggregated view shows (wavg proposed − wavg street) × all units instead.
+    // At aggregation levels above roomType, recompute rate-delta and revenue impact columns
+    // from the weighted-average rates × total units. The per-row sum only captures units with an
+    // active rule (sparse for HC), so the aggregated view shows (wavg proposed − wavg street) × all units.
     return base.map(row => {
       const out: Record<string, any> = { ...row };
-
-      // Census-change back-calculated outs
-      const ins = row.moveInsLatest as number | null;
-      const vs  = row.vacantSpot   as number | null;
-      const vt3 = row.vacantT3     as number | null;
-      if (ins !== null && ins !== undefined && vs !== null && vt3 !== null) {
-        const censusChange = vt3 - vs;
-        out.moveOutsLatest = Math.max(0, Math.round((ins - censusChange) * 10) / 10);
-        out.moveNetLatest  = censusChange;
-      }
 
       // Rate-change deltas recomputed from wavg base values at aggregation levels.
       // Averaging per-row percentage deltas introduces a mix-effect when unit counts shift
@@ -961,6 +971,8 @@ export default function ReferenceDataTable({
       out[k] = any ? sum : null;
     }
     // Derived variance columns
+    if (out.compAdjusted != null && out.streetSpot != null)
+      out.compVarDollar = out.compAdjusted - out.streetSpot;
     if (out.compAdjusted != null && out.streetSpot != null && out.streetSpot !== 0)
       out.compVarPct = (out.compAdjusted - out.streetSpot) / out.streetSpot;
     if (out.ihSpot != null && out.streetSpot != null) {

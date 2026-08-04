@@ -439,14 +439,6 @@ async function checkAndInitializeDatabase() {
       ON manual_rate_overrides (client_id, location_name, service_line, room_type)
     `);
 
-    // Ensure prev_elasticity + latest_source_month columns exist for trend tracking (added in task-400)
-    await db.execute(sql`
-      ALTER TABLE elasticity_metrics ADD COLUMN IF NOT EXISTS prev_elasticity real
-    `);
-    await db.execute(sql`
-      ALTER TABLE elasticity_metrics ADD COLUMN IF NOT EXISTS latest_source_month text
-    `);
-
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
     
@@ -1224,18 +1216,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const units = await unitsQuery;
       console.log(`Found ${units.length} units to process`);
       
-      // processAllUnitsForCompetitorRates processes all matching units in one
-      // call — no outer batching loop needed here.
+      // Process in batches to avoid overwhelming the system
+      const batchSize = 100;
       let totalProcessed = 0;
       let totalUpdated = 0;
       let totalErrors = 0;
       const updates: any[] = [];
-
-      console.log(`Processing ${units.length} units...`);
-      const stats = await processAllUnitsForCompetitorRates(uploadMonth || undefined, clientId);
-      totalProcessed = stats.processed;
-      totalUpdated = stats.updated;
-      totalErrors = stats.errors;
+      
+      for (let i = 0; i < units.length; i += batchSize) {
+        const batch = units.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(units.length/batchSize)}`);
+        
+        // Process this batch
+        const stats = await processAllUnitsForCompetitorRates(uploadMonth || undefined, clientId);
+        totalProcessed += stats.processed;
+        totalUpdated += stats.updated;
+        totalErrors += stats.errors;
+        
+        // Track updates for response
+        if (stats.updates && stats.updates.length > 0) {
+          updates.push(...stats.updates);
+        }
+      }
       
       // Get summary of changes (scoped by clientId)
       const changedUnits = await db.select({
@@ -1351,130 +1353,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching competitor coverage:', error);
       res.status(500).json({ error: 'Failed to fetch competitor coverage' });
-    }
-  });
-
-  // GET /api/admin/rt-occupancy-coverage?clientId=
-  // Reports, per client, what % of campus × service-line combinations in the most-recent
-  // rent roll have RT-level rows in room_type_occupancy_history.  Combinations with
-  // no history trigger the SL-level fallback in pricing; those with < 50% campus coverage
-  // per service line are flagged so data imports can be investigated.
-  app.get('/api/admin/rt-occupancy-coverage', async (req: any, res) => {
-    try {
-      const queryClientId = (req.query.clientId as string) || req.clientId || 'demo';
-
-      // Universe: every distinct (campus, service_line) present in the most recent rent-roll upload
-      const universeRows = await db.execute(sql`
-        WITH latest AS (
-          SELECT MAX(upload_month) AS month
-          FROM rent_roll_data
-          WHERE client_id = ${queryClientId}
-        )
-        SELECT DISTINCT
-          rrd.location   AS campus,
-          rrd.service_line
-        FROM rent_roll_data rrd, latest
-        WHERE rrd.client_id = ${queryClientId}
-          AND rrd.upload_month = latest.month
-        ORDER BY rrd.location, rrd.service_line
-      `);
-
-      // RT-level history: per (campus, service_line) how many distinct normalized room types
-      // are present and across how many periods
-      const historyRows = await db.execute(sql`
-        SELECT
-          location_name                                                   AS campus,
-          service_line,
-          COUNT(DISTINCT normalized_room_type)::int                       AS rt_type_count,
-          array_agg(DISTINCT normalized_room_type ORDER BY normalized_room_type) AS rt_types,
-          COUNT(DISTINCT year * 100 + month)::int                         AS period_count
-        FROM room_type_occupancy_history
-        WHERE client_id = ${queryClientId}
-        GROUP BY location_name, service_line
-      `);
-
-      // Index history by lower(campus) + service_line for join
-      const histIndex = new Map<string, { rtTypeCount: number; rtTypes: string[]; periodCount: number }>();
-      for (const h of historyRows.rows as any[]) {
-        const key = `${(h.campus as string).toLowerCase().trim()}||${h.service_line}`;
-        histIndex.set(key, {
-          rtTypeCount: Number(h.rt_type_count),
-          rtTypes: h.rt_types ?? [],
-          periodCount: Number(h.period_count),
-        });
-      }
-
-      // Build per-row results
-      type CoverageRow = {
-        campus: string;
-        serviceLine: string;
-        hasHistory: boolean;
-        rtTypeCount: number;
-        rtTypes: string[];
-        periodCount: number;
-      };
-      const rows: CoverageRow[] = (universeRows.rows as any[]).map((u) => {
-        const key = `${(u.campus as string).toLowerCase().trim()}||${u.service_line}`;
-        const hist = histIndex.get(key);
-        return {
-          campus: u.campus as string,
-          serviceLine: u.service_line as string,
-          hasHistory: !!hist,
-          rtTypeCount: hist?.rtTypeCount ?? 0,
-          rtTypes: hist?.rtTypes ?? [],
-          periodCount: hist?.periodCount ?? 0,
-        };
-      });
-
-      // Summary
-      const total = rows.length;
-      const covered = rows.filter((r) => r.hasHistory).length;
-      const overallPct = total === 0 ? 100 : Math.round((covered / total) * 100);
-
-      // Per-campus rollup: flag campuses where < 50% of their SLs have RT history
-      const campusMap = new Map<string, { total: number; covered: number; serviceLines: CoverageRow[] }>();
-      for (const r of rows) {
-        if (!campusMap.has(r.campus)) campusMap.set(r.campus, { total: 0, covered: 0, serviceLines: [] });
-        const c = campusMap.get(r.campus)!;
-        c.total++;
-        if (r.hasHistory) c.covered++;
-        c.serviceLines.push(r);
-      }
-      const campuses = Array.from(campusMap.entries()).map(([campus, c]) => ({
-        campus,
-        total: c.total,
-        covered: c.covered,
-        coveragePct: Math.round((c.covered / c.total) * 100),
-        flagged: c.covered / c.total < 0.5,
-        serviceLines: c.serviceLines,
-      })).sort((a, b) => a.coveragePct - b.coveragePct || a.campus.localeCompare(b.campus));
-
-      // Per-service-line rollup
-      const slMap = new Map<string, { total: number; covered: number }>();
-      for (const r of rows) {
-        if (!slMap.has(r.serviceLine)) slMap.set(r.serviceLine, { total: 0, covered: 0 });
-        const s = slMap.get(r.serviceLine)!;
-        s.total++;
-        if (r.hasHistory) s.covered++;
-      }
-      const serviceLines = Array.from(slMap.entries()).map(([sl, s]) => ({
-        serviceLine: sl,
-        total: s.total,
-        covered: s.covered,
-        coveragePct: Math.round((s.covered / s.total) * 100),
-        flagged: s.covered / s.total < 0.5,
-      })).sort((a, b) => a.coveragePct - b.coveragePct || a.serviceLine.localeCompare(b.serviceLine));
-
-      res.json({
-        clientId: queryClientId,
-        summary: { total, covered, uncovered: total - covered, overallPct },
-        campuses,
-        serviceLines,
-        rows,
-      });
-    } catch (error) {
-      console.error('Error fetching RT occupancy coverage:', error);
-      res.status(500).json({ error: 'Failed to fetch RT occupancy coverage' });
     }
   });
 
@@ -12710,55 +12588,15 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       for (const unit of units) {
         const result = await calculateCompetitorRateForUnit(unit);
         
-        // Use the shared sanitizer + stored-rate conversion so this test path
-        // applies the same plausibility guard and unit conversion as the bulk job
-        // and recalculation endpoint.  HC/HC-MC rates are stored as DAILY
-        // (÷ 30.44); the plausibility check receives the monthly value.
-        // When implausible the sanitizer returns NULLs for EVERY competitor
-        // field, explicitly clearing any corrupt value already stored in the row.
-        const { buildCompetitorRateUpdate } = await import('./services/competitorRateSanitizer.js');
-        const { convertToStoredRate } = await import('./services/rateNormalization.js');
-        const sl = unit.serviceLine ?? null;
-        const storedFinal = result.competitorAdjustedRate !== null
-          ? convertToStoredRate(result.competitorAdjustedRate, sl)
-          : null;
-        const storedBase = result.competitorBaseRate != null
-          ? convertToStoredRate(result.competitorBaseRate, sl)
-          : null;
-        const sanitized = buildCompetitorRateUpdate(
-          result.competitorAdjustedRate,  // monthly — used for plausibility limit
-          {
-            competitorName: result.competitorName,
-            competitorBaseRate: storedBase,
-            competitorFinalRate: storedFinal,
-            competitorCareLevel2Adjustment: result.careLevel2Adjustment != null
-              ? convertToStoredRate(result.careLevel2Adjustment, sl) : null,
-            competitorMedManagementAdjustment: result.medicationManagementAdjustment != null
-              ? convertToStoredRate(result.medicationManagementAdjustment, sl) : null,
-            competitorWeight: result.competitorWeight,
-          }
-        );
-        if (!sanitized.plausible) {
-          console.warn(
-            `[competitor-rates/test] Implausible rate for unit ${unit.id} ` +
-            `(${unit.location} / ${unit.serviceLine} / ${unit.roomType}): ` +
-            `${sanitized.reason} — clearing all competitor fields`
-          );
+        // Update the database if calculation was successful
+        if (result.competitorAdjustedRate !== null) {
+          await db.update(rentRollData)
+            .set({
+              competitorRate: result.competitorAdjustedRate,
+              competitorFinalRate: result.competitorAdjustedRate
+            })
+            .where(eq(rentRollData.id, unit.id));
         }
-        // Write the full sanitized update — valid fields on success, NULLs on
-        // implausible — so every competitor column is covered and corrupt rows
-        // are fully cleared, not just partially overwritten.
-        await db.update(rentRollData)
-          .set({
-            competitorRate:                    sanitized.update.competitorFinalRate,
-            competitorFinalRate:               sanitized.update.competitorFinalRate,
-            competitorName:                    sanitized.update.competitorName,
-            competitorBaseRate:                sanitized.update.competitorBaseRate,
-            competitorWeight:                  sanitized.update.competitorWeight,
-            competitorCareLevel2Adjustment:    sanitized.update.competitorCareLevel2Adjustment,
-            competitorMedManagementAdjustment: sanitized.update.competitorMedManagementAdjustment,
-          })
-          .where(eq(rentRollData.id, unit.id));
         
         results.push({
           ...result,
@@ -18084,21 +17922,7 @@ Return ONLY valid JSON, no markdown fences:
 
       // Historical rules use their OWN attribution pool so synthetic rows never
       // dilute the T3 credit of rules genuinely applied via applied_rule_name.
-      //
-      // Pre-populate histRuleNames from any applied_rule_name in the rent-roll window
-      // that the adjustment_rules table marks is_historical=true. This covers rules
-      // whose effective_date pre-dates the query window but whose units still appear
-      // in the rent-roll snapshot — without this they silently get isHistorical:false
-      // and the win-rate tile shows "no historical rules in range" incorrectly.
-      const appliedNamesInWindow = [...new Set(unitRes.rows.map((u: any) => u.applied_rule_name))].filter(Boolean) as string[];
       const histRuleNames = new Set<string>();
-      if (appliedNamesInWindow.length > 0) {
-        const preHistRes = await pool.query(
-          `SELECT name FROM adjustment_rules WHERE client_id = $1 AND is_historical = true AND name = ANY($2)`,
-          [clientId, appliedNamesInWindow]
-        );
-        for (const r of preHistRes.rows) histRuleNames.add(r.name);
-      }
       const groupTotalWeightHist = new Map<string, number>();
 
       if (histRes.rows.length > 0) {
@@ -19269,7 +19093,7 @@ Return ONLY valid JSON, no markdown fences:
           // Comp rates - top comp
           compBase,
           compAdjusted: compAdj,
-          compVarDollar: (compAdj !== null && compBase !== null) ? compAdj - compBase : null,
+          compVarDollar: (compAdj !== null && streetSpot !== null) ? compAdj - streetSpot : null,
           compVarPct: (compAdj !== null && streetSpot !== null && streetSpot !== 0) ? (compAdj - streetSpot) / streetSpot : null,
           // In-house rates
           ihSpot,
@@ -19313,16 +19137,8 @@ Return ONLY valid JSON, no markdown fences:
               deltaDaysToSell: predictedDaysToSellChange,
               dailyRate,
             });
-            const prevElasticity = elas?.prevElasticity ?? null;
-            // Trend = prev − current: positive means elasticity fell (demand less
-            // price-sensitive = improving), negative means it rose (worsening).
-            // This aligns with the table's green=positive color convention.
-            const elasticityTrend = (elasticity !== null && prevElasticity !== null)
-              ? prevElasticity - elasticity
-              : null;
             return {
               elasticity,
-              elasticityTrend,
               elasticityConfidence: elas?.confidence ?? null,
               daysToSellBefore,
               daysToSellAfter,
@@ -19348,10 +19164,7 @@ Return ONLY valid JSON, no markdown fences:
             months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm]) ?? occPctWindow(sOcc, [mm])])
           ),
           rtOccHistory: Object.fromEntries(
-            months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm]) ?? occWindowCombo(bm, [mm])])
-          ),
-          ihHistory: Object.fromEntries(
-            months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
+            months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? occWindowCombo(bm, [mm])])
           ),
           ihHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
@@ -19419,14 +19232,7 @@ Return ONLY valid JSON, no markdown fences:
         [clientId]
       );
       const spotMonth = spotRes.rows[0]?.m ?? null;
-      if (!spotMonth) return res.json({ rows: [], spotMonth: null, months: [] });
-
-      // Same 24-month window as the grouped endpoint so ihHistory keys align with data?.months
-      const histMonthsRes = await pool.query<{ m: string }>(
-        `SELECT DISTINCT upload_month AS m FROM rent_roll_data WHERE client_id=$1 AND upload_month IS NOT NULL ORDER BY upload_month DESC LIMIT 24`,
-        [clientId]
-      );
-      const months = histMonthsRes.rows.map(r => r.m);
+      if (!spotMonth) return res.json({ rows: [], spotMonth: null });
 
       const params: any[] = [clientId, spotMonth];
       let where = `rr.client_id = $1 AND rr.upload_month = $2`;
@@ -19653,11 +19459,9 @@ Return ONLY valid JSON, no markdown fences:
       // Raw elasticity/DTS values per group — repeated on each unit row (same pattern as occupancy).
       const groupElasticityDataMap = new Map<string, {
         elasticity: number | null;
-        elasticityTrend: number | null;
         daysToSellBefore: number | null;
         daysToSellAfter: number | null;
         daysToSellChange: number | null;
-        predictedDaysToSellChange: number | null;
       }>();
       {
         const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
@@ -19690,32 +19494,8 @@ Return ONLY valid JSON, no markdown fences:
           });
           groupElasticityMonthlyImpactMap.set(key, elasticImpact.monthly);
           // Store raw elasticity/DTS per group so unit rows can display them.
-          const prevElasticityForGroup = elas?.prevElasticity ?? null;
-          // Trend = prev − current: positive = improving (less price-sensitive),
-          // negative = worsening (more price-sensitive). Matches green=positive convention.
-          const elasticityTrend = (elasticity !== null && prevElasticityForGroup !== null)
-            ? prevElasticityForGroup - elasticity
-            : null;
-          // predictedDaysToSellChange is included so it rolls up correctly via AGG_WAVG_KEYS.
-          groupElasticityDataMap.set(key, { elasticity, elasticityTrend, daysToSellBefore, daysToSellAfter, daysToSellChange, predictedDaysToSellChange: predictedDTS });
+          groupElasticityDataMap.set(key, { elasticity, daysToSellBefore, daysToSellAfter, daysToSellChange });
         }
-      }
-
-      // Historical in-house rates per unit for ihHistory drill-down
-      const histIhRes = await pool.query(`
-        SELECT rr.room_number, rr.location AS campus, rr.service_line, rr.upload_month,
-               NULLIF(rr.in_house_rate, 0) AS in_house_rate
-        FROM rent_roll_data rr
-        WHERE rr.client_id = $1 AND rr.upload_month = ANY($2)
-          AND rr.room_number IS NOT NULL
-      `, [clientId, months]);
-      // Map: "roomNumber||campus||serviceLine" → { [YYYY-MM]: rate | null }
-      const unitIhHistMap = new Map<string, Record<string, number | null>>();
-      for (const hr of histIhRes.rows as any[]) {
-        const key = `${hr.room_number}||${hr.campus}||${hr.service_line}`;
-        if (!unitIhHistMap.has(key)) unitIhHistMap.set(key, {});
-        unitIhHistMap.get(key)![hr.upload_month] =
-          hr.in_house_rate !== null ? Number(hr.in_house_rate) : null;
       }
 
       const num = (v: any) => (v === null || v === undefined ? null : Number(v));
@@ -19742,6 +19522,7 @@ Return ONLY valid JSON, no markdown fences:
           streetSpot,
           compBase,
           compAdjusted: compAdj,
+          compVarDollar: (compAdj !== null && streetSpot !== null) ? compAdj - streetSpot : null,
           compVarPct: (compAdj !== null && streetSpot !== null && streetSpot !== 0) ? (compAdj - streetSpot) / streetSpot : null,
           ihSpot,
           ihVarStreetPct: (ihSpot !== null && streetSpot !== null && streetSpot !== 0) ? (ihSpot - streetSpot) / streetSpot : null,
@@ -19779,29 +19560,20 @@ Return ONLY valid JSON, no markdown fences:
           // Raw elasticity / DTS metrics — group-level values repeated on each unit row,
           // same pattern as campusOccSpot / slOccSpot so the Room Detail view can
           // display them and they aggregate correctly in the grouping layers.
-          // predictedDaysToSellChange is included so AGG_WAVG_KEYS roll-up parity holds.
-          ...((): { elasticity: number | null; elasticityTrend: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null; predictedDaysToSellChange: number | null } => {
+          ...((): { elasticity: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
             const d = groupElasticityDataMap.get(key);
             return {
               elasticity: d?.elasticity ?? null,
-              elasticityTrend: d?.elasticityTrend ?? null,
               daysToSellBefore: d?.daysToSellBefore ?? null,
               daysToSellAfter: d?.daysToSellAfter ?? null,
               daysToSellChange: d?.daysToSellChange ?? null,
-              predictedDaysToSellChange: d?.predictedDaysToSellChange ?? null,
             };
-          })(),
-          // Month-by-month in-house rate history for the expandable IH Rates column group
-          ihHistory: (() => {
-            const key = `${r.room_number}||${r.campus}||${r.service_line}`;
-            const hist = unitIhHistMap.get(key) ?? {};
-            return Object.fromEntries(months.map(mm => [mm, hist[mm] ?? null]));
           })(),
         };
       });
 
-      const payload = { rows, spotMonth, months };
+      const payload = { rows, spotMonth };
       setRefDataCache(cacheKey, payload, computeStart);
       res.setHeader('X-Cache', 'MISS');
       res.json(payload);
