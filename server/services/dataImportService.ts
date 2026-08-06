@@ -572,7 +572,9 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
         }
         const finalRecs = Array.from(dedup.values());
         for (let i = 0; i < finalRecs.length; i += 500) {
-          await tx.insert(roomTypeOccupancyHistory).values(finalRecs.slice(i, i + 500));
+          await tx.insert(roomTypeOccupancyHistory)
+            .values(finalRecs.slice(i, i + 500))
+            .onConflictDoNothing();
         }
         inserted = finalRecs.length;
       } else {
