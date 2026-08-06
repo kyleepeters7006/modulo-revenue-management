@@ -7726,48 +7726,11 @@ ${campusOccLines.join('\n')}
       }
       const mergedRecords = Array.from(mergeMap.values());
 
-      // Use delete-then-insert inside a transaction instead of ON CONFLICT DO UPDATE.
-      // The DB unique index may be on only 5 columns (clientId, locationName,
-      // normalizedRoomType, month, year) WITHOUT serviceLine. When multiple rows share
-      // that 5-column key but differ only by serviceLine they all survive the first merge
-      // pass above (which keys on 6 columns) but then collide during insert.
-      // We therefore perform a second deduplication pass keyed on the 5-column key,
-      // summing numeric fields and collecting all service lines into one record.
-      const fiveKeyMap = new Map<string, typeof mergedRecords[0]>();
-      for (const rec of mergedRecords) {
-        const key = `${rec.clientId}|${rec.locationName}|${rec.normalizedRoomType}|${rec.month}|${rec.year}`;
-        if (fiveKeyMap.has(key)) {
-          const existing = fiveKeyMap.get(key)!;
-          // Merge serviceLine labels (deduplicated)
-          const existingLines = existing.serviceLine ? existing.serviceLine.split(', ') : [];
-          if (rec.serviceLine && !existingLines.includes(rec.serviceLine)) {
-            existing.serviceLine = existing.serviceLine
-              ? `${existing.serviceLine}, ${rec.serviceLine}`
-              : rec.serviceLine;
-          }
-          // Merge rawRoomType labels (deduplicated)
-          const existingTypes = existing.rawRoomType ? existing.rawRoomType.split(', ') : [];
-          if (rec.rawRoomType && !existingTypes.includes(rec.rawRoomType)) {
-            existing.rawRoomType = `${existing.rawRoomType}, ${rec.rawRoomType}`;
-          }
-          // Sum numeric fields
-          if (rec.occUnits !== null) {
-            existing.occUnits = (existing.occUnits ?? 0) + rec.occUnits;
-          }
-          if (rec.availableUnits !== null) {
-            existing.availableUnits = (existing.availableUnits ?? 0) + rec.availableUnits;
-          }
-          // Recalculate occ percent from merged totals
-          if (existing.availableUnits !== null && existing.availableUnits > 0 && existing.occUnits !== null) {
-            existing.occPercent = (existing.occUnits / existing.availableUnits) * 100;
-          } else {
-            existing.occPercent = null;
-          }
-        } else {
-          fiveKeyMap.set(key, { ...rec });
-        }
-      }
-      const insertRecords = Array.from(fiveKeyMap.values());
+      // The first merge pass (mergeMap) above keys on all 6 columns matching the DB unique
+      // index (rt_occ_hist_unique_idx: clientId, locationName, serviceLine, normalizedRoomType,
+      // month, year). Rows with different service lines are distinct records and must not be
+      // merged — the delete-then-insert strategy and onConflictDoNothing handle everything else.
+      const insertRecords = mergedRecords;
 
       const CHUNK_SIZE = 1000;
 
