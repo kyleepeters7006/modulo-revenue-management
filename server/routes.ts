@@ -15930,21 +15930,38 @@ Return ONLY valid JSON with no markdown fences:
 
         // Room Type Occupancy History — authoritative occupancy source (VO "Avg Occ by Room Type").
         // Scoped to the same location/region/division filters and the latest available month.
+        // Deduplication: pick one canonical row per (client_id, location_name, service_line,
+        // normalized_room_type, month, year) using DISTINCT ON ordered by uploaded_at DESC
+        // (latest import wins), then aggregate. This prevents lingering duplicate rows from
+        // inflating available_units / occ_units counts.
         pool.query(`
-          SELECT roh.service_line,
-            SUM(roh.occ_units) AS occ,
-            SUM(roh.available_units) AS avail
-          FROM room_type_occupancy_history roh
-          LEFT JOIN locations l ON l.id = roh.location_id
-          WHERE roh.client_id = $1
-            AND (roh.year * 100 + roh.month) = (
-              SELECT MAX(roh2.year * 100 + roh2.month)
-              FROM room_type_occupancy_history roh2
-              LEFT JOIN locations l2 ON l2.id = roh2.location_id
-              WHERE roh2.client_id = $1${rohSubWhere}
-            )
-            ${rohWhere}
-          GROUP BY roh.service_line
+          WITH deduped AS (
+            SELECT DISTINCT ON (
+                roh.client_id, roh.location_name, roh.service_line,
+                roh.normalized_room_type, roh.month, roh.year
+              )
+              roh.service_line,
+              roh.occ_units,
+              roh.available_units
+            FROM room_type_occupancy_history roh
+            LEFT JOIN locations l ON l.id = roh.location_id
+            WHERE roh.client_id = $1
+              AND (roh.year * 100 + roh.month) = (
+                SELECT MAX(roh2.year * 100 + roh2.month)
+                FROM room_type_occupancy_history roh2
+                LEFT JOIN locations l2 ON l2.id = roh2.location_id
+                WHERE roh2.client_id = $1${rohSubWhere}
+              )
+              ${rohWhere}
+            ORDER BY roh.client_id, roh.location_name, roh.service_line,
+                     roh.normalized_room_type, roh.month, roh.year,
+                     roh.uploaded_at DESC
+          )
+          SELECT service_line,
+            SUM(occ_units) AS occ,
+            SUM(available_units) AS avail
+          FROM deduped
+          GROUP BY service_line
         `, rohParams),
 
         // Competitors for the client — from both the competitors table and
