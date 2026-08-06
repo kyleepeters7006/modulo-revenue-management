@@ -15851,7 +15851,9 @@ Return ONLY valid JSON with no markdown fences:
 
       // Build a separate filter set for room_type_occupancy_history (authoritative occupancy).
       // Location filter matches location_name; region/division come from the locations join.
-      // Service line is intentionally excluded — history groups service lines per room type.
+      // When a service-line filter is active, only ROH rows whose comma-separated service_line
+      // column contains the selected SL token are included — this ensures the headline
+      // occupancy % and unit counts reflect only the selected service line, not the whole campus.
       const rohParams: any[] = [clientId];
       const rohFilters: string[] = [];
       if (locations.length > 0) {
@@ -15865,6 +15867,12 @@ Return ONLY valid JSON with no markdown fences:
       if (divisions.length > 0) {
         rohParams.push(divisions);
         rohFilters.push(`l.division = ANY($${rohParams.length})`);
+      }
+      if (serviceLine && serviceLine !== 'All') {
+        // ROH service_line is a comma-separated string (e.g. "AL, AL/MC, HC").
+        // Match rows that contain the selected token anywhere in that list.
+        rohParams.push(serviceLine);
+        rohFilters.push(`$${rohParams.length} = ANY(string_to_array(roh.service_line, ', '))`);
       }
       const rohWhere = rohFilters.length > 0 ? ' AND ' + rohFilters.join(' AND ') : '';
       // Subquery uses the same predicates but aliased to roh2/l2 for the latest-month lookup.
@@ -16036,6 +16044,9 @@ Return ONLY valid JSON with no markdown fences:
 
       // Aggregate totals — prefer history overall sum when available (exact),
       // fall back to rent-roll snapshot totals when history is absent (e.g. demo).
+      // NOTE: rohTotalOcc/rohTotalAvail are already SL-scoped (see rohFilters above),
+      // so overallOcc/totalVacant/totalUnits will reflect the selected SL when a filter
+      // is active. The rent-roll fallback path (slRows) is also SL-scoped via rrWhere.
       const totalUnits = hasHistoryOcc
         ? Math.round(rohTotalAvail)
         : slRows.reduce((s: number, r: any) => s + parseInt(r.total || '0'), 0);
