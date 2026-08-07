@@ -479,6 +479,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Invalidate the reference-data cache on any mutation that changes its inputs.
   // (Async pricing jobs also invalidate on completion — see pricingJobManager.)
   // After invalidation, schedule a background re-warm so the next page visit is instant.
+  //
+  // NOTE: Import handlers (/upload/rent-roll, /upload_rent_roll, /upload-rent-roll-mapped,
+  // /import/rent-roll) call invalidateRefDataCache() + warmRefDataCache() directly after the
+  // DB commit so the cache is always repopulated with fresh data. The 5-second debounce below
+  // is kept as a safety-net catch-all for other mutation paths (weights, rules, etc.) — it is
+  // NOT relied upon for import correctness.
   let _refDataRewarmTimer: ReturnType<typeof setTimeout> | null = null;
   app.use('/api', (req, _res, next) => {
     if (req.method !== 'GET' && (
@@ -487,11 +493,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.path.startsWith('/pricing/') ||
       req.path.startsWith('/upload') ||
       req.path.startsWith('/rent-roll') ||
+      req.path.startsWith('/import') ||
       req.path.startsWith('/admin/') ||
       req.path.includes('recalculate')
     )) {
       invalidateRefDataCache();
-      // Debounce: re-warm 5 s after the last mutation in a burst
+      // Debounce: re-warm 5 s after the last mutation in a burst (safety-net fallback only
+      // for paths that don't perform their own post-commit re-warm).
       if (_refDataRewarmTimer) clearTimeout(_refDataRewarmTimer);
       _refDataRewarmTimer = setTimeout(() => {
         _refDataRewarmTimer = null;
@@ -2828,6 +2836,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Post-commit ref-data cache invalidation so the next /api/reference-data request
+      // reflects the newly imported data without waiting for the TTL or debounce timer.
+      // This is a legacy handler without per-tenant clientId — warm all known clients.
+      invalidateRefDataCache();
+      warmRefDataCache();
+      console.log(`[upload_rent_roll] ref-data cache invalidated and re-warmed (all clients) after import`);
+
       res.json({ rows: processedRows });
     } catch (error) {
       res.status(500).json({ error: "Upload failed" });
@@ -2999,6 +3014,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
+
+      // Post-commit ref-data cache invalidation so the next /api/reference-data request
+      // reflects the newly imported data without waiting for the TTL or debounce timer.
+      // This handler has no per-tenant clientId — warm all known clients.
+      invalidateRefDataCache();
+      warmRefDataCache();
+      console.log(`[upload-rent-roll-mapped] ref-data cache invalidated and re-warmed (all clients) after import`);
 
       res.json({ 
         success: true,
@@ -7322,6 +7344,14 @@ ${campusOccLines.join('\n')}
       // This ensures attribute pricing base rates are recalculated when same month is re-imported
       await invalidateCache(uploadMonth);
       console.log(`Attribute pricing cache invalidated for month: ${uploadMonth}`);
+
+      // Post-commit ref-data cache invalidation: the rent roll data is now committed to the DB,
+      // so we invalidate and re-warm immediately so the next /api/reference-data request reflects
+      // the new data without waiting for the 10-minute TTL or the 5-second middleware debounce.
+      // Use warmRefDataCacheForClient so the correct tenant's cache is repopulated (not just demo).
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
+      console.log(`[upload/rent-roll] ref-data cache invalidated and re-warmed for client ${clientId} after import`);
 
       // Auto-trigger competitor rate matching using the job-based system
       // This is resumable and won't be interrupted by server restarts.
@@ -17551,11 +17581,15 @@ Return ONLY valid JSON, no markdown fences:
   // detail rows at the (location, service line, room type) level.
   app.get("/api/rule-performance", async (req, res) => {
     try {
-      // Allow internal warm-up requests to specify the client directly — but only
-      // when authenticated with the server-side seed secret (never trust hostname).
+      // Allow internal warm-up requests to specify the client directly.
+      // Accepts either the optional SEED_SECRET or the always-available INTERNAL_WARMUP_TOKEN.
       const warmupClient = req.headers['x-warmup-client'] as string | undefined;
       const warmupSecret = req.headers['x-seed-secret'] as string | undefined;
-      const warmupOk = !!warmupClient && !!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET;
+      const internalToken = req.headers['x-internal-warmup-token'] as string | undefined;
+      const warmupOk = !!warmupClient && (
+        (!!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET) ||
+        (internalToken === INTERNAL_WARMUP_TOKEN)
+      );
       const clientId: string = warmupOk ? warmupClient! : ((req.session as any)?.clientId || 'demo');
       const q = req.query as Record<string, string | undefined>;
       const dateRe = /^\d{4}-\d{2}-\d{2}$/;
@@ -18332,19 +18366,30 @@ Return ONLY valid JSON, no markdown fences:
   // page visit for any logged-in user is served instantly.
   const KNOWN_CLIENTS = ['demo', 'trilogy', 'glm', 'ssmg'];
 
+  // An ephemeral token generated at startup that lets in-process code warm the
+  // reference-data cache for any client without requiring SEED_SECRET to be
+  // configured in the environment.  It is never exposed to clients.
+  const INTERNAL_WARMUP_TOKEN = `__intl_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  /** Re-warm reference-data (grouped + unit-level) for a single client. Uses the
+   *  internal warmup token so it works independently of the optional SEED_SECRET. */
+  function warmRefDataCacheForClient(clientId: string) {
+    const headers = {
+      'x-warmup-client': clientId,
+      'x-internal-warmup-token': INTERNAL_WARMUP_TOKEN,
+    };
+    fetch('http://localhost:5000/api/reference-data', { headers })
+      .then(r => { if (r.ok) console.log(`[ref-data] cache warmed for ${clientId}`); })
+      .catch(() => {});
+    fetch('http://localhost:5000/api/reference-data/units', { headers })
+      .then(r => { if (r.ok) console.log(`[ref-data/units] cache warmed for ${clientId}`); })
+      .catch(() => {});
+  }
+
   /** Re-warm reference-data (grouped + unit-level) for every known client — called at startup and after invalidation. */
   function warmRefDataCache() {
     for (const clientId of KNOWN_CLIENTS) {
-      fetch('http://localhost:5000/api/reference-data', {
-        headers: { 'x-warmup-client': clientId, 'x-seed-secret': process.env.SEED_SECRET || '' },
-      })
-        .then(r => { if (r.ok) console.log(`[ref-data] cache warmed for ${clientId}`); })
-        .catch(() => {});
-      fetch('http://localhost:5000/api/reference-data/units', {
-        headers: { 'x-warmup-client': clientId, 'x-seed-secret': process.env.SEED_SECRET || '' },
-      })
-        .then(r => { if (r.ok) console.log(`[ref-data/units] cache warmed for ${clientId}`); })
-        .catch(() => {});
+      warmRefDataCacheForClient(clientId);
     }
   }
 
@@ -18395,10 +18440,16 @@ Return ONLY valid JSON, no markdown fences:
   // ============================================
   app.get("/api/reference-data", async (req, res) => {
     try {
-      // Allow server-side warm-up requests to specify a client without a session
+      // Allow server-side warm-up requests to specify a client without a session.
+      // Accepts either the optional SEED_SECRET or the always-available INTERNAL_WARMUP_TOKEN
+      // so post-import warming works even when SEED_SECRET is not configured.
       const warmupClient = req.headers['x-warmup-client'] as string | undefined;
       const warmupSecret = req.headers['x-seed-secret'] as string | undefined;
-      const warmupOk = !!warmupClient && !!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET;
+      const internalToken = req.headers['x-internal-warmup-token'] as string | undefined;
+      const warmupOk = !!warmupClient && (
+        (!!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET) ||
+        (internalToken === INTERNAL_WARMUP_TOKEN)
+      );
       const clientId: string = warmupOk ? warmupClient! : ((req.session as any)?.clientId || 'demo');
       const q = req.query as Record<string, string | undefined>;
       const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
@@ -19228,10 +19279,15 @@ Return ONLY valid JSON, no markdown fences:
   // Reference Data table: one row per unit at the spot (latest) month.
   app.get("/api/reference-data/units", async (req, res) => {
     try {
-      // Allow server-side warm-up requests to specify a client without a session
+      // Allow server-side warm-up requests to specify a client without a session.
+      // Accepts either the optional SEED_SECRET or the always-available INTERNAL_WARMUP_TOKEN.
       const warmupClient = req.headers['x-warmup-client'] as string | undefined;
       const warmupSecret = req.headers['x-seed-secret'] as string | undefined;
-      const warmupOk = !!warmupClient && !!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET;
+      const internalToken = req.headers['x-internal-warmup-token'] as string | undefined;
+      const warmupOk = !!warmupClient && (
+        (!!process.env.SEED_SECRET && warmupSecret === process.env.SEED_SECRET) ||
+        (internalToken === INTERNAL_WARMUP_TOKEN)
+      );
       const clientId: string = warmupOk ? warmupClient! : ((req.session as any)?.clientId || 'demo');
       const q = req.query as Record<string, string | undefined>;
       const csv = (v?: string) => (v ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
@@ -20418,17 +20474,31 @@ Return ONLY valid JSON, no markdown fences:
         ? await importMatrixCareRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname, (req as any).clientId)
         : await importRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname);
       
-      // If this is the most recent month, sync to current rent roll
+      // Determine the importing tenant so only their cache slot is repopulated.
+      const importClientId: string = (req as any).clientId || 'demo';
+
+      // If this is the most recent month, sync history → rent_roll_data (the final DB write).
+      // The cache must be invalidated AFTER this write so it reflects the committed data.
       const currentMonth = new Date().toISOString().slice(0, 7);
       if (uploadMonth === currentMonth) {
         const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth);
+        // All DB writes are now complete — invalidate and re-warm so /api/reference-data
+        // reflects the new data immediately without waiting for the 10-minute TTL.
+        invalidateRefDataCache();
+        warmRefDataCacheForClient(importClientId);
+        console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after current-month sync`);
         return res.json({
           ...importStats,
           syncedToCurrent: true,
           syncedRecords: syncResult.synced
         });
       }
-      
+
+      // Non-current-month: importRentRollCSV/importMatrixCareRentRollCSV was the final write.
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(importClientId);
+      console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after import`);
+
       res.json({
         ...importStats,
         syncedToCurrent: false
