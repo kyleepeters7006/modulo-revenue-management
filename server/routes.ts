@@ -180,7 +180,9 @@ const commentaryInflight = new Map<string, Promise<any>>();
 
 // Purge all adjustment-rule-related cache entries for a client so that any
 // filter combination (location, service line, or "all") sees the fresh DB state.
-function purgeRuleCaches(clientId: string): void {
+// Returns a Promise so callers that need the DB deletion to complete before
+// continuing (e.g. after an ROH upload) can await it.
+function purgeRuleCaches(clientId: string): Promise<void> {
   const prefixes = [
     `adj-rules:${clientId}:`,
     `rule-strategy-analysis:${clientId}`,
@@ -195,7 +197,8 @@ function purgeRuleCaches(clientId: string): void {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
   }
   // Also purge the persistent commentary cache so post-rule-change commentary regenerates
-  pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
+  return pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
+    .then(() => undefined)
     .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
 }
 
@@ -7759,6 +7762,16 @@ ${campusOccLines.join('\n')}
       for (let i = 0; i < insertRecords.length; i += CHUNK_SIZE) {
         const chunk = insertRecords.slice(i, i + CHUNK_SIZE);
         await db.insert(roomTypeOccupancyHistory).values(chunk).onConflictDoNothing();
+      }
+
+      // Invalidate commentary and overview caches so Strategy Overview and
+      // occupancy tile cards reflect the freshly uploaded data immediately.
+      // Await the DB deletion so the stale ai_commentary_cache row is gone
+      // before we respond — preventing a race where an immediate commentary
+      // request re-populates the in-memory cache from the old DB row.
+      await purgeRuleCaches(clientId);
+      for (const key of Array.from(analyticsCache.keys())) {
+        if (key.startsWith(`overview_${clientId}`)) analyticsCache.delete(key);
       }
 
       res.json({
