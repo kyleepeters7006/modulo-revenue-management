@@ -7755,6 +7755,22 @@ ${campusOccLines.join('\n')}
           )
         );
 
+      // Delete stale "future-month" rows for the same locations — rows whose
+      // (year * 100 + month) is later than the latest month in this upload.
+      // Such rows can accumulate from old uploads that had OCC% but no unit
+      // counts, and cause the max-month subquery to anchor on a null-unit month.
+      const maxUploadedYearMonth = Math.max(...insertRecords.map(r => r.year * 100 + r.month));
+      const uniqueLocationNames = [...new Set(insertRecords.map(r => r.locationName))];
+      if (uniqueLocationNames.length > 0) {
+        await pool.query(
+          `DELETE FROM room_type_occupancy_history
+           WHERE client_id = $1
+             AND (year * 100 + month) > $2
+             AND location_name = ANY($3::text[])`,
+          [clientId, maxUploadedYearMonth, uniqueLocationNames]
+        );
+      }
+
       // Insert deduplicated records in chunks.
       // ON CONFLICT DO NOTHING is a safety net: the DELETE above removes stale rows,
       // but if any edge-case duplicate slips through (e.g. a previously-merged
@@ -15926,7 +15942,8 @@ Return ONLY valid JSON with no markdown fences:
                 SELECT MAX(roh2.year * 100 + roh2.month)
                 FROM room_type_occupancy_history roh2
                 LEFT JOIN locations l2 ON l2.id = roh2.location_id
-                WHERE roh2.client_id = $1${rohSubWhere}
+                WHERE roh2.client_id = $1
+                  AND roh2.available_units IS NOT NULL AND roh2.available_units > 0${rohSubWhere}
               )
               ${rohWhere}
             ORDER BY roh.client_id, roh.location_name, roh.service_line,
@@ -15961,6 +15978,7 @@ Return ONLY valid JSON with no markdown fences:
           FROM room_type_occupancy_history roh
           LEFT JOIN locations l ON l.id = roh.location_id
           WHERE roh.client_id = $1
+            AND roh.available_units IS NOT NULL AND roh.available_units > 0
             AND (roh.year * 100 + roh.month) >= (
               EXTRACT(YEAR FROM NOW() - INTERVAL '6 months')::int * 100 +
               EXTRACT(MONTH FROM NOW() - INTERVAL '6 months')::int
