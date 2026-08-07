@@ -18467,8 +18467,8 @@ Return ONLY valid JSON, no markdown fences:
             rr.service_line                                  AS service_line,
             COALESCE(rtg.group_name, rr.room_type)           AS room_type,
             rr.upload_month                                  AS month,
-            COUNT(*)                                         AS total,
-            COUNT(*) FILTER (WHERE rr.occupied_yn)           AS occupied,
+            COUNT(DISTINCT CASE WHEN rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '') ELSE rr.room_number END) AS total,
+            COUNT(DISTINCT CASE WHEN rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.occupied_yn THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '') WHEN rr.service_line NOT IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.occupied_yn THEN rr.room_number ELSE NULL END) AS occupied,
             AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
             -- Street rate is the published SINGLE-OCCUPANT asking rate, which should be uniform
             -- per room type. Use the mode (most common value) rather than AVG so that
