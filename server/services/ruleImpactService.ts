@@ -689,12 +689,13 @@ export interface ActiveRule {
   trigger: any;
   location_id: string | null;
   service_line: string | null;
+  notes: string | null;
 }
 
 /** Fetch all active adjustment rules for a client ordered by priority DESC. */
 export async function fetchActiveRules(clientId: string): Promise<ActiveRule[]> {
   const res = await pool.query(
-    `SELECT id, name, description, priority, action, trigger, location_id, service_line
+    `SELECT id, name, description, priority, action, trigger, location_id, service_line, notes
      FROM adjustment_rules
      WHERE is_active = true
        AND (location_id IS NULL OR location_id IN (

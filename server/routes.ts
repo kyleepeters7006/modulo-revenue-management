@@ -14542,7 +14542,7 @@ Respond in JSON format:
   app.post("/api/adjustment-rules/from-filters", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { adjustmentType, adjustmentValue, effectiveDate, scope } = req.body || {};
+      const { adjustmentType, adjustmentValue, effectiveDate, scope, notes } = req.body || {};
 
       if (!['percentage', 'absolute'].includes(adjustmentType)) {
         return res.status(400).json({ error: "adjustmentType must be 'percentage' or 'absolute'" });
@@ -14623,6 +14623,7 @@ Respond in JSON format:
         isHistorical: false,
         effectiveDate: effectiveDate || null,
         createdBy: 'user',
+        notes: typeof notes === 'string' && notes.trim() ? notes.trim() : null,
         monthlyImpact: Math.round(impact.monthlyImpact),
         annualImpact: Math.round(impact.annualImpact),
         volumeAdjustedAnnualImpact: Math.round(impact.volumeAdjustedAnnualImpact),
@@ -16917,6 +16918,35 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
   
+  // Update just the free-form note on a rule (inline edit from Reference Data).
+  app.patch("/api/adjustment-rules/:id/notes", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = req.clientId || 'demo';
+      const { notes } = req.body || {};
+      if (notes != null && typeof notes !== 'string') {
+        return res.status(400).json({ error: "notes must be a string or null" });
+      }
+      // Ownership-constrained update: only rules that are global (no location)
+      // or whose location belongs to this client can be edited.
+      const upd = await pool.query(
+        `UPDATE adjustment_rules SET notes = $1
+         WHERE id = $2
+           AND (location_id IS NULL OR location_id IN (
+             SELECT id FROM locations WHERE client_id = $3
+           ))
+         RETURNING *`,
+        [notes && notes.trim() ? notes.trim() : null, id, clientId]
+      );
+      if (!upd.rows.length) return res.status(404).json({ error: "Rule not found" });
+      purgeRuleCaches(clientId);
+      res.json(upd.rows[0]);
+    } catch (error) {
+      console.error('Error updating rule notes:', error);
+      res.status(500).json({ error: "Failed to update rule notes" });
+    }
+  });
+
   // Reselect a historical (pricing-history) rule: create a fresh active copy
   // effective today, leaving the historical record untouched.
   app.post("/api/adjustment-rules/:id/reselect", async (req: any, res) => {

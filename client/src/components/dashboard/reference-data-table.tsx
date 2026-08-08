@@ -52,6 +52,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Column metadata ────────────────────────────────────────────────
@@ -79,7 +80,7 @@ interface ColDef {
   wMobile?: number;
 }
 
-type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any };
+type ActiveRule = { id: string; name: string; description: string; priority: number; action: any; trigger: any; notes?: string | null };
 
 interface GroupDef {
   id: string;
@@ -555,6 +556,9 @@ export default function ReferenceDataTable({
   const [ruleAdjType, setRuleAdjType] = useState<"percentage" | "absolute">("percentage");
   const [ruleAdjValue, setRuleAdjValue] = useState("");
   const [ruleEffDate, setRuleEffDate] = useState("");
+  const [ruleNote, setRuleNote] = useState("");
+  // Inline note editing in the rule-column header popover
+  const [noteDraft, setNoteDraft] = useState<{ ruleId: string; text: string } | null>(null);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
@@ -1031,6 +1035,7 @@ export default function ReferenceDataTable({
         adjustmentType: ruleAdjType,
         adjustmentValue: parseFloat(ruleAdjValue),
         effectiveDate: ruleEffDate || undefined,
+        notes: ruleNote.trim() || undefined,
         scope: viewScope,
       });
       return res.json();
@@ -1039,6 +1044,7 @@ export default function ReferenceDataTable({
       setRuleDialogOpen(false);
       setRuleAdjValue("");
       setRuleEffDate("");
+      setRuleNote("");
       queryClient.invalidateQueries({ queryKey: ["/api/reference-data"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
@@ -1049,6 +1055,22 @@ export default function ReferenceDataTable({
     },
     onError: (err: any) => {
       toast({ title: "Failed to create rule", description: err?.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const updateNoteMutation = useMutation({
+    mutationFn: async ({ ruleId, notes }: { ruleId: string; notes: string }) => {
+      const res = await apiRequest(`/api/adjustment-rules/${ruleId}/notes`, "PATCH", { notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      setNoteDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
+      toast({ title: "Note saved" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save note", description: err?.message ?? "Unknown error", variant: "destructive" });
     },
   });
 
@@ -1292,6 +1314,49 @@ export default function ReferenceDataTable({
                           </div>
                         </div>
                       )}
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Note</p>
+                        {noteDraft?.ruleId === g.ruleInfo.id ? (
+                          <div className="space-y-1.5">
+                            <Textarea
+                              value={noteDraft.text}
+                              onChange={(e) => setNoteDraft({ ruleId: g.ruleInfo!.id, text: e.target.value })}
+                              className="min-h-[56px] text-xs"
+                              maxLength={500}
+                              autoFocus
+                              data-testid={`rule-note-edit-${g.ruleInfo.id}`}
+                            />
+                            <div className="flex justify-end gap-1.5">
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setNoteDraft(null)}>
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={updateNoteMutation.isPending}
+                                onClick={() => updateNoteMutation.mutate({ ruleId: g.ruleInfo!.id, notes: noteDraft.text })}
+                                data-testid={`rule-note-save-${g.ruleInfo.id}`}
+                              >
+                                {updateNoteMutation.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                                Save
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="w-full rounded border border-dashed border-border px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted"
+                            onClick={() => setNoteDraft({ ruleId: g.ruleInfo!.id, text: g.ruleInfo!.notes ?? "" })}
+                            data-testid={`rule-note-display-${g.ruleInfo.id}`}
+                          >
+                            {g.ruleInfo.notes ? (
+                              <span className="text-foreground whitespace-pre-wrap">{g.ruleInfo.notes}</span>
+                            ) : (
+                              "Add a note…"
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -1891,6 +1956,17 @@ export default function ReferenceDataTable({
               onChange={(e) => setRuleEffDate(e.target.value)}
               className="h-9"
               data-testid="rule-eff-date"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Note (optional)</Label>
+            <Textarea
+              value={ruleNote}
+              onChange={(e) => setRuleNote(e.target.value)}
+              placeholder="e.g. Q3 market repositioning — approved by pricing committee"
+              className="min-h-[60px] text-sm"
+              maxLength={500}
+              data-testid="rule-note"
             />
           </div>
         </div>

@@ -461,6 +461,7 @@ export const adjustmentRules = pgTable("adjustment_rules", {
   effectiveDate: date("effective_date"), // NULL = effective immediately; otherwise rule only applies on/after this date
   priority: integer("priority").default(0), // Higher priority rules execute first
   createdBy: text("created_by"),
+  notes: text("notes"), // Free-form user note (e.g. why the rule was created)
   lastExecuted: timestamp("last_executed"),
   executionCount: integer("execution_count").default(0),
   monthlyImpact: real("monthly_impact").default(0), // Estimated monthly revenue impact

@@ -348,6 +348,18 @@ app.use((req, res, next) => {
     log(`[migration] is_historical column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: ensure notes column exists on adjustment_rules
+  // (free-form user note shown/edited in the Reference Data rule columns).
+  try {
+    await db.execute(sql`
+      ALTER TABLE adjustment_rules
+        ADD COLUMN IF NOT EXISTS notes text
+    `);
+    log("[migration] adjustment_rules notes column ensured");
+  } catch (migErr) {
+    log(`[migration] notes column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules
