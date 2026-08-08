@@ -553,6 +553,7 @@ export function computeQualifiedRuleImpact(
   const adjustmentType: string = action.adjustmentType || "percentage";
   const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
   const useCareRate = action.target === "care_rate";
+  const useInHouseRate = action.target === "in_house_rate";
   const slScope = effectiveServiceLines(rule);
 
   const perCampus = new Map<string, RuleCampusImpact>();
@@ -578,22 +579,31 @@ export function computeQualifiedRuleImpact(
     if (!qualified.length) continue;
 
     const locationName = qualified[0].location || "Unknown";
-    const rates = qualified
-      .map(u => toMonthlyRate(Number(useCareRate ? u.care_rate : u.street_rate) || 0, sl))
+    // In-house rules reprice CURRENT residents, so only occupied units count
+    // and the impact is direct (occupied units × Δrate), not move-in based.
+    const impactUnits = useInHouseRate ? qualified.filter(u => u.occupied_yn) : qualified;
+    if (useInHouseRate && !impactUnits.length) continue;
+    const rates = impactUnits
+      .map(u => toMonthlyRate(Number(
+        useCareRate ? u.care_rate : useInHouseRate ? u.in_house_rate : u.street_rate) || 0, sl))
       .filter(r => r > 0);
     const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
-    const delta = adjustmentType === "percentage" ? avgRate * (adjustmentValue / 100) : adjustmentValue;
+    // Fixed-dollar deltas on in-house rules must be monthly-normalized for
+    // daily-rate service lines (HC/HC-MC) since avgRate is already monthly.
+    const delta = adjustmentType === "percentage"
+      ? avgRate * (adjustmentValue / 100)
+      : (useInHouseRate ? toMonthlyRate(adjustmentValue, sl) : adjustmentValue);
     // Move-ins = qualified units × portfolio move-in rate for the service line
     // (T3 move-ins / month / active unit). Per-group raw counts over-count.
-    const moveIns = qualified.length * (ctx.slMoveInRate.get(sl) ?? 0);
-    const gMonthly = moveIns * delta;
+    const moveIns = useInHouseRate ? 0 : qualified.length * (ctx.slMoveInRate.get(sl) ?? 0);
+    const gMonthly = useInHouseRate ? impactUnits.length * delta : moveIns * delta;
 
-    affectedUnits += qualified.length;
-    rateSum += avgRate * qualified.length;
+    affectedUnits += impactUnits.length;
+    rateSum += avgRate * impactUnits.length;
     moveInsTotal += moveIns;
     monthlyImpact += gMonthly;
-    deltaWeighted += delta * moveIns;
-    for (const u of qualified) qualifiedUnitIds.add(u.id);
+    deltaWeighted += delta * (useInHouseRate ? impactUnits.length : moveIns);
+    for (const u of impactUnits) qualifiedUnitIds.add(u.id);
 
     const key = locId || locationName;
     const c = perCampus.get(key) || {
@@ -601,8 +611,8 @@ export function computeQualifiedRuleImpact(
       unitCount: 0, avgRate: 0, moveInsPerMonth: 0, monthlyImpact: 0, annualImpact: 0,
     };
     // avgRate as running weighted mean
-    c.avgRate = (c.avgRate * c.unitCount + avgRate * qualified.length) / (c.unitCount + qualified.length);
-    c.unitCount += qualified.length;
+    c.avgRate = (c.avgRate * c.unitCount + avgRate * impactUnits.length) / ((c.unitCount + impactUnits.length) || 1);
+    c.unitCount += impactUnits.length;
     c.moveInsPerMonth += moveIns;
     c.monthlyImpact += gMonthly;
     perCampus.set(key, c);
@@ -621,7 +631,9 @@ export function computeQualifiedRuleImpact(
     affectedCampuses: campuses.length,
     moveInsPerMonth: Math.round(moveInsTotal * 10) / 10,
     avgStreetRate: affectedUnits ? Math.round(rateSum / affectedUnits) : 0,
-    avgRateChange: moveInsTotal ? Math.round((deltaWeighted / moveInsTotal) * 100) / 100 : 0,
+    avgRateChange: useInHouseRate
+      ? (affectedUnits ? Math.round((deltaWeighted / affectedUnits) * 100) / 100 : 0)
+      : (moveInsTotal ? Math.round((deltaWeighted / moveInsTotal) * 100) / 100 : 0),
     monthlyImpact: Math.round(monthlyImpact),
     annualImpact: Math.round(monthlyImpact * 12),
     perCampus: campuses,
@@ -765,6 +777,7 @@ export function buildGroupRulePreviewRates(
     const gKey = `${g.campus}||${g.sl}||${g.rt}`;
     for (const rule of rules) {
       const action       = (rule.action as any) || {};
+      if (action.target === 'in_house_rate') continue; // resident-rate rules don't preview street rates
       const filters      = action.filters || {};
       const usesCareRate = action.target === 'care_rate';
       const baseRate     = usesCareRate ? g.avgIhRate : g.modeStreetRate;

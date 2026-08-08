@@ -487,6 +487,8 @@ export function applyAdjustmentRulesToUnit(
 
     const action = rule.action as any;
     if (action.type !== "adjust_rate") continue;
+    // Resident-rate (in-house) rules never adjust street pricing.
+    if (action.target === "in_house_rate") continue;
 
     if (action.filters) {
       const filters = action.filters;

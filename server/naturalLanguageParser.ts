@@ -22,7 +22,7 @@ export interface ParsedTrigger {
 
 export interface ParsedAction {
   type: 'adjust_rate';
-  target: 'street_rate' | 'care_rate' | 'all_rates';
+  target: 'street_rate' | 'care_rate' | 'all_rates' | 'in_house_rate';
   adjustmentType: 'percentage' | 'absolute';
   adjustmentValue: number;
   filters?: {
@@ -68,6 +68,14 @@ const RATE_TYPES: Record<string, string> = {
   'base rates': 'street_rate',
   'rent': 'street_rate',
   'rents': 'street_rate',
+  'in-house rate': 'in_house_rate',
+  'in-house rates': 'in_house_rate',
+  'in house rate': 'in_house_rate',
+  'in house rates': 'in_house_rate',
+  'ih rate': 'in_house_rate',
+  'ih rates': 'in_house_rate',
+  'resident rate': 'in_house_rate',
+  'resident rates': 'in_house_rate',
   'care rate': 'care_rate',
   'care rates': 'care_rate',
   'care fee': 'care_rate',
@@ -88,6 +96,11 @@ const ROOM_TYPES: Record<string, string> = {
   'two bedrooms': 'Two Bedroom',
   '2 bedroom': 'Two Bedroom',
   '2br': 'Two Bedroom',
+  'companion': 'Companion',
+  'companions': 'Companion',
+  'studio deluxe': 'Studio Dlx',
+  'studio dlx': 'Studio Dlx',
+  'deluxe studio': 'Studio Dlx',
 };
 
 const SERVICE_LINES: Record<string, string> = {
@@ -404,10 +417,10 @@ function parseAction(input: string): ParsedAction | null {
   }
   
   // Parse target rate type
-  let target: 'street_rate' | 'care_rate' | 'all_rates' = 'street_rate';
+  let target: 'street_rate' | 'care_rate' | 'all_rates' | 'in_house_rate' = 'street_rate';
   for (const [pattern, rateType] of Object.entries(RATE_TYPES)) {
     if (input.includes(pattern)) {
-      target = rateType as 'street_rate' | 'care_rate' | 'all_rates';
+      target = rateType as 'street_rate' | 'care_rate' | 'all_rates' | 'in_house_rate';
       break;
     }
   }
@@ -415,17 +428,30 @@ function parseAction(input: string): ParsedAction | null {
   // Parse filters
   const filters: ParsedAction['filters'] = {};
   
-  // Room type filter
-  for (const [pattern, roomType] of Object.entries(ROOM_TYPES)) {
-    if (input.includes(pattern)) {
-      filters.roomType = [roomType];
-      break;
+  // Whole-word matcher: short codes like "al" and "il" must not match inside
+  // words ("all", "renewal", "until"). Escapes regex specials (e.g. "al/mc").
+  const wordMatch = (text: string, pattern: string): boolean => {
+    const esc = pattern.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`, 'i').test(text);
+  };
+
+  // Room type filter — collect ALL mentioned room types (rules often target
+  // several, e.g. "Studio, One Bedroom, and Companion units"). Longest pattern
+  // first, consuming matched text so "studio dlx" doesn't also match "studio".
+  const matchedRoomTypes: string[] = [];
+  let rtScan = input;
+  for (const [pattern, roomType] of Object.entries(ROOM_TYPES).sort((a, b) => b[0].length - a[0].length)) {
+    if (wordMatch(rtScan, pattern) && !matchedRoomTypes.includes(roomType)) {
+      matchedRoomTypes.push(roomType);
+      const esc = pattern.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+      rtScan = rtScan.replace(new RegExp(esc, 'gi'), ' ');
     }
   }
+  if (matchedRoomTypes.length) filters.roomType = matchedRoomTypes;
   
   // Service line filter — sort longest key first so "al/mc" matches before "al"
   for (const [pattern, serviceLine] of Object.entries(SERVICE_LINES).sort((a, b) => b[0].length - a[0].length)) {
-    if (input.includes(pattern)) {
+    if (wordMatch(input, pattern)) {
       // Skip "sl" when it appears as part of "sl occupancy" — that phrase refers to the
       // *service line occupancy* metric, not to the "SL" (Senior Living) service line filter.
       if (pattern === 'sl' && /\bsl\s+occupancy\b/.test(input)) {
@@ -485,6 +511,8 @@ export function generateRuleName(trigger: ParsedTrigger, action: ParsedAction): 
     name += ` - ${action.filters.serviceLine.join(', ')}`;
   } else if (action.target === 'care_rate') {
     name += ' - Care Rates';
+  } else if (action.target === 'in_house_rate') {
+    name += ' - In-House Rates';
   } else if (action.target === 'all_rates') {
     name += ' - All Rates';
   }

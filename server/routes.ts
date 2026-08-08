@@ -14913,7 +14913,10 @@ Respond in JSON format:
       const adjustmentType: string = action?.adjustmentType || 'percentage';
       const adjustmentValue: number = Number(action?.adjustmentValue ?? 0);
       const target = action?.target;
-      const rateOf = (u: any): number => (target === 'care_rate' ? (u.careRate || 0) : (u.streetRate || 0));
+      const rateOf = (u: any): number =>
+        target === 'care_rate' ? (u.careRate || 0)
+        : target === 'in_house_rate' ? (u.inHouseRate || 0)
+        : (u.streetRate || 0);
 
       const affected = allUnits.filter((u: any) => {
         if (scope.locationId && u.locationId !== scope.locationId) return false;
@@ -14999,6 +15002,7 @@ Respond in JSON format:
       ? `${Math.abs(a.adjustmentValue ?? 0)}%`
       : `$${Math.abs(a.adjustmentValue ?? 0)}`;
     const targetLabel = a.target === 'care_rate' ? 'care rate'
+      : a.target === 'in_house_rate' ? 'in-house rate'
       : a.target === 'all_rates' ? 'all rates' : 'street rate';
     const parts: string[] = [`${dir} ${targetLabel} by ${mag}`];
     const f = a.filters || {};
@@ -15022,7 +15026,7 @@ Respond in JSON format:
   app.post("/api/adjustment-rules/suggest", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { locationId, serviceLine, targetGrowthPercent } = req.body || {};
+      const { locationId, serviceLine, targetGrowthPercent, includeInHouse } = req.body || {};
       if (!serviceLine) return res.status(400).json({ error: "serviceLine is required" });
 
       const latestRes = await pool.query(
@@ -15084,7 +15088,17 @@ Respond in JSON format:
         `- Keep individual adjustments realistic (typically 1%–12%).\n` +
         `For each rule give: a short name, a one-sentence plain-English business intent, and a ` +
         `single plain-English rule sentence that states the action, the percentage or dollar ` +
-        `amount, and any condition (e.g. occupancy status, vacancy duration, room type).`;
+        `amount, and any condition (e.g. occupancy status, vacancy duration, room type).\n` +
+        `IMPORTANT: the name MUST match the direction of the action — use words like ` +
+        `"Discount", "Relief", or "Reduction" ONLY when the rule decreases the rate, and words ` +
+        `like "Increase", "Premium", or "Push" ONLY when the rule increases the rate.\n` +
+        (includeInHouse
+          ? `Every rule must adjust either the STREET rate (increases or decreases) or the ` +
+            `IN-HOUSE rate (increases only, for occupied units, e.g. "Increase in-house rate ` +
+            `by 3% for occupied units"). Do not propose care-rate rules.`
+          : `Every rule must adjust the STREET rate and say "street rate" explicitly ` +
+            `(e.g. "Increase street rate by 5%..."). Do not propose care-rate, in-house, ` +
+            `or resident-rate rules.`);
       const formatInstruction =
         `Return ONLY a valid JSON object of the form: ` +
         `{"rules":[{"name":string,"intent":string,"rule":string}]}. ` +
@@ -15104,6 +15118,15 @@ Respond in JSON format:
       const proposed: any[] = Array.isArray(parsedResponse?.rules) ? parsedResponse.rules : [];
       const suggestions: any[] = [];
 
+      // Shared rule-impact context (same engine as adjustment-rules / rule-performance)
+      // so suggestion impacts match what the rule will show once accepted.
+      const suggestCtxKey = `ruleImpactCtx:${clientId}`;
+      let suggestImpactCtx = getCachedAnalytics(suggestCtxKey);
+      if (!suggestImpactCtx) {
+        suggestImpactCtx = await buildRuleImpactContext(clientId);
+        if (suggestImpactCtx) setCachedAnalytics(suggestCtxKey, suggestImpactCtx);
+      }
+
       for (const p of proposed) {
         const sentence: string = p?.rule || p?.description || '';
         if (!sentence) continue;
@@ -15112,12 +15135,53 @@ Respond in JSON format:
         const validation = validateParsedRule(parsed);
         if (!validation.isValid) continue;
 
+        // Enforce target policy: street-rate rules only, unless the caller
+        // opted into in-house suggestions (then in-house INCREASES are allowed too).
+        const tgt = parsed.action?.target;
+        const adjSign = Number(parsed.action?.adjustmentValue ?? 0);
+        if (tgt !== 'street_rate') {
+          if (!(includeInHouse && tgt === 'in_house_rate' && adjSign > 0)) continue;
+        }
+
         const impact = await computeRuleElasticityImpact(
           clientId, { locationId: locationId || null, serviceLine }, parsed.action);
 
+        // Consistency guard: the LLM occasionally names an increase rule
+        // "…Discount" (or a decrease rule "…Increase"). When the name
+        // contradicts the parsed action direction, fall back to the
+        // parser-generated name which always matches the action.
+        const adjVal = Number(parsed.action?.adjustmentValue ?? 0);
+        let suggName: string = p?.name || parsed.name;
+        const decreaseWords = /discount|relief|reduction|concession|markdown|rollback|\bcut\b/i;
+        const increaseWords = /increase|raise|premium|surcharge|uplift|hike/i;
+        if ((adjVal > 0 && decreaseWords.test(suggName)) ||
+            (adjVal < 0 && increaseWords.test(suggName))) {
+          suggName = parsed.name;
+        }
+
+        // Impact from the shared qualified-rule engine (triggers + filters +
+        // HC private-pay + daily→monthly conversion), consistent with the
+        // impact shown after the rule is accepted.
+        let qUnits: number | null = null, qMonthly: number | null = null, qAnnual: number | null = null;
+        if (suggestImpactCtx) {
+          try {
+            const qi = computeQualifiedRuleImpact(suggestImpactCtx, {
+              action: parsed.action,
+              trigger: parsed.trigger,
+              serviceLine,
+              locationId: locationId || null,
+            });
+            qUnits = qi.affectedUnits;
+            qMonthly = qi.monthlyImpact;
+            qAnnual = qi.annualImpact;
+          } catch (qErr) {
+            console.error('suggest: computeQualifiedRuleImpact failed:', qErr);
+          }
+        }
+
         suggestions.push({
           suggestionId: randomUUID(),
-          name: p?.name || parsed.name,
+          name: suggName,
           intent: p?.intent || parsed.description,
           description: sentence,           // natural-language rule (persisted verbatim on accept)
           ruleDetail: formatRuleDetail(parsed),
@@ -15125,9 +15189,15 @@ Respond in JSON format:
           locationId: locationId || null,
           trigger: parsed.trigger,
           action: parsed.action,
-          unitsImpacted: impact.unitsImpacted,
-          monthlyImpact: impact.monthlyImpact,
-          annualImpact: impact.annualImpact,
+          // In-house rules: always trust the qualified (occupied-only) result —
+          // the naive fallback would count vacant units. Street rules fall back
+          // to the naive estimate only when the qualified engine found nothing.
+          unitsImpacted: tgt === 'in_house_rate' ? (qUnits ?? 0)
+            : (qUnits != null && qUnits > 0) ? qUnits : impact.unitsImpacted,
+          monthlyImpact: tgt === 'in_house_rate' ? qMonthly
+            : (qMonthly != null && qMonthly !== 0) ? qMonthly : impact.monthlyImpact,
+          annualImpact: tgt === 'in_house_rate' ? qAnnual
+            : (qAnnual != null && qAnnual !== 0) ? qAnnual : impact.annualImpact,
           elasticity: impact.elasticity,
           daysToSellAfter: impact.daysToSellAfter,
           predictedDaysToSellChange: impact.predictedDaysToSellChange,
@@ -15166,6 +15236,17 @@ Respond in JSON format:
       if (!parsed) return res.status(400).json({ error: "Could not understand the rule. Please rephrase." });
       const validation = validateParsedRule(parsed);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
+
+      // Target policy (same as suggestion generation): street-rate rules, or
+      // in-house rate INCREASES only. Care-rate / other targets are rejected,
+      // as are in-house decreases.
+      const acceptTarget = parsed.action?.target;
+      const acceptAdj = Number(parsed.action?.adjustmentValue ?? 0);
+      if (acceptTarget !== 'street_rate' && !(acceptTarget === 'in_house_rate' && acceptAdj > 0)) {
+        return res.status(400).json({
+          error: "Only street-rate rules or in-house rate increases can be accepted.",
+        });
+      }
 
       const impact = await computeRuleElasticityImpact(
         clientId, { locationId: locationId || null, serviceLine: serviceLine || null }, parsed.action);

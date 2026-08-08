@@ -4,6 +4,7 @@ import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown } f
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -61,6 +62,7 @@ export default function AiRuleGenerator({
   });
   const [suggestions, setSuggestions] = useState<RuleSuggestion[]>([]);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [includeInHouse, setIncludeInHouse] = useState(false);
 
   // Build query string for fetching saved targets
   const targetsQueryParams = new URLSearchParams();
@@ -135,6 +137,7 @@ export default function AiRuleGenerator({
           locationId: locationId ?? null,
           serviceLine: sl,
           targetGrowthPercent: targetGrowth[sl] ? Number(targetGrowth[sl]) : undefined,
+          includeInHouse,
         });
         const data = await response.json();
         return (data.suggestions || []) as RuleSuggestion[];
@@ -284,6 +287,14 @@ export default function AiRuleGenerator({
             Save targets to persist them, or let AI propose pricing rules to reach your growth targets. Accepted suggestions become adjustment rules.
           </p>
         </div>
+        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+          <Checkbox
+            checked={includeInHouse}
+            onCheckedChange={(v) => setIncludeInHouse(v === true)}
+            data-testid="checkbox-include-in-house"
+          />
+          Also suggest in-house rate increases (street-rate rules only by default)
+        </label>
       </div>
 
       {/* AI Rule Suggestions */}
