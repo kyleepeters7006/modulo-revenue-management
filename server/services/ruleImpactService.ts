@@ -471,7 +471,9 @@ function evalGroupCondition(
   // In-house-to-street rate variance % (single occupant), computed from the
   // same rent roll snapshot: (avg IH − avg street) / avg street × 100.
   if (field === "ih_street_variance" || field === "street_to_ih_var") {
-    return cmp(lookupMetric(ctx, locId, sl, rt, "ih_street_var_pct"), operator, value);
+    // Legacy rules may store the threshold as a fraction (0.1 = 10%).
+    const v = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
+    return cmp(lookupMetric(ctx, locId, sl, rt, "ih_street_var_pct"), operator, v);
   }
   // Unit-level days vacant — cannot be decided at the group level; defer to
   // the unit predicate (unitPasses evaluates days_vacant conditions per unit).

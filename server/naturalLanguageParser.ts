@@ -366,7 +366,8 @@ function parseTrigger(input: string): ParsedTrigger | null {
 
   // In-house to street rate variance
   if (/in.?house\s+to\s+street|ih.street\s+var|in_house_to_street|ih_street_var/i.test(lowerInput)) {
-    const cmp = extractCmp(lowerInput);
+    // Raw % scale (10 = 10%) to match the engines' ih_street_var_pct metric.
+    const cmp = extractCmpRaw(lowerInput);
     if (cmp) return { type: 'condition', condition: { field: 'ih_street_variance', operator: cmp.op, value: cmp.value } };
   }
 

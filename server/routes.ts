@@ -15142,6 +15142,7 @@ Respond in JSON format:
         `- If occupancy is high and elasticity is weak (small magnitude), favor rate increases.\n` +
         `- If occupancy is low or units sit vacant a long time, favor targeted discounts to accelerate leasing.\n` +
         `- Keep individual adjustments realistic (typically 1%–12%).\n` +
+        `- Include at least one rule that RIGHT-SIZES street rates versus in-house rates to protect the annual growth target — when in-house rates run well above street, street rates are underpriced and should rise, e.g. "When in-house to street variance is greater than 10%, increase street rate by 4% for vacant units".\n` +
         `COMPLEXITY REQUIREMENTS — every rule MUST be conditional and targeted, not a blanket change:\n` +
         `- Each rule must include at least ONE trigger condition AND, where sensible, a room-type or occupancy-status target.\n` +
         `- Prefer compound conditions (two conditions joined by AND or OR) when the data supports them.\n` +
@@ -15149,6 +15150,7 @@ Respond in JSON format:
         `  * Compound trigger: "If service line occupancy is greater than or equal to 92 AND room type occupancy is less than 85, decrease street rate by 4% for vacant Studio units"\n` +
         `  * Occupancy trigger: "when occupancy is above 90%" / "when service line occupancy drops below 80%" / "when room type occupancy exceeds 95%"\n` +
         `  * Competitor trigger: "when street rate to top comp var % is greater than 10"\n` +
+        `  * In-house vs street trigger: "when in-house to street variance is greater than 10%"\n` +
         `  * Vacancy duration: "for vacant units over 60 days"\n` +
         `  * Room types: name them exactly as listed in the metrics (e.g. Studio, Studio Dlx, One Bedroom, Two Bedroom, Companion)\n` +
         `  * Occupancy status: "for occupied units" / "for vacant units"\n` +

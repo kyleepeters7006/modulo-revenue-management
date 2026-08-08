@@ -278,9 +278,23 @@ function evaluateSingleCondition(
   // IH-to-street variance: prefer the recalculated table cache, then fall back
   // to the campus-metrics value computed fresh from rent roll before each run.
   if (field === "ih_street_variance" || field === "street_to_ih_var") {
+    // Legacy rules may store the threshold as a fraction (0.1 = 10%); the
+    // metric is on the 0–100 % scale.
+    const v = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
+    const cmpPct = (metricVal: number | null): boolean => {
+      if (metricVal === null) return false;
+      switch (operator) {
+        case "<":  return metricVal < v;
+        case "<=": return metricVal <= v;
+        case ">":  return metricVal > v;
+        case ">=": return metricVal >= v;
+        case "=": case "==": case "===": return Math.abs(metricVal - v) < 0.01;
+        default: return false;
+      }
+    };
     const cached = _lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL');
-    if (cached !== null) return cmpMetric(cached);
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'ih_street_var_pct'));
+    if (cached !== null) return cmpPct(cached);
+    return cmpPct(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'ih_street_var_pct'));
   }
 
   // Campus / service-line / room-type occupancy
