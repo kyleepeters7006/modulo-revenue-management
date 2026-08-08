@@ -473,15 +473,16 @@ export default function PricingControls() {
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
             locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
-            aiGenerator={
+            aiGenerator={({ editSuggestion }) => (
               <AiRuleGenerator
                 locationId={selectedLocationId}
                 selectedServiceLine={selectedServiceLine}
                 selectedRegions={selectedRegions}
                 selectedDivisions={selectedDivisions}
                 selectedLocations={selectedLocations}
+                onEditSuggestion={editSuggestion}
               />
-            }
+            )}
           />
           </div>
 

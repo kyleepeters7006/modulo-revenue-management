@@ -206,14 +206,20 @@ interface T3MoveIns {
   asOf: string | null;
 }
 
+export interface SuggestionToEdit {
+  description: string;
+  serviceLines?: string[];
+}
+
 interface RuleDesignerProps {
   locationId?: string;
   serviceLine?: string;
   locationName?: string;
-  aiGenerator?: React.ReactNode;
+  /** Either a ReactNode, or a render function receiving helpers (e.g. to load an AI suggestion into the Natural Language editor). */
+  aiGenerator?: React.ReactNode | ((helpers: { editSuggestion: (s: SuggestionToEdit) => void }) => React.ReactNode);
 }
 
-export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerator }: RuleDesignerProps) {
+export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerator: aiGeneratorProp }: RuleDesignerProps) {
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured' | 'ai-generator'>('structured');
@@ -245,6 +251,22 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   const newSlPickerRef = useRef<HTMLDivElement>(null);
   const newSlPickerAiRef = useRef<HTMLDivElement>(null);
   const [infoRule, setInfoRule] = useState<AdjustmentRule | null>(null);
+
+  // Load an AI-suggested rule into the Natural Language editor for tweaking
+  // before saving (invoked from the AI Rule Generator's Edit button).
+  const editSuggestion = useCallback((s: SuggestionToEdit) => {
+    setDesignerOpen(true);
+    setActiveTab('ask-ai');
+    setAiInput(s.description || '');
+    setNewRuleSLs(Array.isArray(s.serviceLines) ? s.serviceLines : []);
+    setImpactData(null);
+    // Wait for the tab switch to render, then bring the editor into view.
+    setTimeout(() => designerCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }, []);
+
+  const aiGenerator = typeof aiGeneratorProp === 'function'
+    ? aiGeneratorProp({ editSuggestion })
+    : aiGeneratorProp;
 
   // Rule Administration filters (mirrors the Rule Performance section)
   const [adminFrom, setAdminFrom] = useState<string>('');

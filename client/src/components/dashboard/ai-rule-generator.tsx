@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown } from "lucide-react";
+import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,8 @@ interface AiRuleGeneratorProps {
   selectedRegions: string[];
   selectedDivisions: string[];
   selectedLocations: string[];
+  /** Load a suggestion into the Rule Designer's Natural Language editor for tweaking. */
+  onEditSuggestion?: (s: { description: string; serviceLines?: string[] }) => void;
 }
 
 export default function AiRuleGenerator({
@@ -50,6 +52,7 @@ export default function AiRuleGenerator({
   selectedRegions,
   selectedDivisions,
   selectedLocations,
+  onEditSuggestion,
 }: AiRuleGeneratorProps) {
   const { toast } = useToast();
 
@@ -386,7 +389,20 @@ export default function AiRuleGenerator({
                       {s.intent && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{s.intent}</p>}
                       <p className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded px-2 py-1.5 mt-2">{s.ruleDetail}</p>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      {onEditSuggestion && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5 text-gray-600"
+                          onClick={() => onEditSuggestion({ description: s.description, serviceLines: s.serviceLines ?? (s.serviceLine ? s.serviceLine.split(',').map(x => x.trim()).filter(Boolean) : undefined) })}
+                          disabled={busy}
+                          data-testid={`button-edit-${s.suggestionId}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         className="h-8 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
