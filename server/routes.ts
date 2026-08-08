@@ -7819,6 +7819,10 @@ ${campusOccLines.join('\n')}
       for (const key of Array.from(analyticsCache.keys())) {
         if (key.startsWith(`overview_${clientId}`)) analyticsCache.delete(key);
       }
+      // Also invalidate the reference-data cache so occupancy changes surface
+      // immediately without waiting for the 10-minute TTL.
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
 
       res.json({
         message: 'Upload successful',
@@ -20600,6 +20604,8 @@ Return ONLY valid JSON, no markdown fences:
       const { importMoveInOutWorkbook } = await import('./services/moveInOutService');
       const stats = await importMoveInOutWorkbook(req.file.buffer, clientId);
       analyticsCache.clear();
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
       res.json(stats);
     } catch (error) {
       console.error("Move-ins/outs import error:", error);
@@ -20753,6 +20759,12 @@ Return ONLY valid JSON, no markdown fences:
         });
       }
 
+      // Invalidate the reference-data cache so competitor-rate changes surface
+      // immediately (matching runs async below, so a second invalidation fires
+      // on completion via the background .then() handler).
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
+
       // Auto-trigger competitor rate matching in the background so the HTTP
       // response returns immediately — matching thousands of units can take minutes.
       const matchingQueuedAt = new Date().toISOString();
@@ -20765,6 +20777,11 @@ Return ONLY valid JSON, no markdown fences:
             `processed=${matchingStats.processed} updated=${matchingStats.updated} errors=${matchingStats.errors} ` +
             `queuedAt=${matchingQueuedAt} completedAt=${new Date().toISOString()}`
           );
+          // Re-invalidate and re-warm after matching writes unit-level rates so
+          // reference-data reflects the fully-matched competitor rates, not the
+          // pre-match state that was warmed when the import response was sent.
+          invalidateRefDataCache();
+          warmRefDataCacheForClient(clientId);
         })
         .catch(err => {
           console.error(`[import-competitive-survey] ❌ Matching failed — clientId=${clientId} surveyMonth=${surveyMonth}:`, err);
