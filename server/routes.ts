@@ -15137,7 +15137,10 @@ Respond in JSON format:
         `Analyze this campus across ALL the service lines below and propose UP TO 10 pricing ` +
         `adjustment rules TOTAL (across all service lines combined, not per line) to reach ` +
         `each service line's revenue growth target. Allocate rules where they matter most — ` +
-        `service lines with bigger gaps to target deserve more rules.\n\n${metricsBlock}\n\n` +
+        `service lines with bigger gaps to target deserve more rules.\n` +
+        `If the SAME rule logic applies to several service lines, return it ONCE with all of them ` +
+        `in its "serviceLines" array instead of duplicating near-identical rules per line. ` +
+        `Only make a rule service-line specific when the data genuinely differs.\n\n${metricsBlock}\n\n` +
         `Guidance:\n` +
         `- If occupancy is high and elasticity is weak (small magnitude), favor rate increases.\n` +
         `- If occupancy is low or units sit vacant a long time, favor targeted discounts to accelerate leasing.\n` +
@@ -15167,8 +15170,9 @@ Respond in JSON format:
             `or resident-rate rules.`);
       const formatInstruction =
         `Return ONLY a valid JSON object of the form: ` +
-        `{"rules":[{"name":string,"intent":string,"serviceLine":string,"rule":string}]}. ` +
-        `Maximum 10 rules. "serviceLine" MUST be one of: ${validSLs.join(', ')}. ` +
+        `{"rules":[{"name":string,"intent":string,"serviceLines":string[],"rule":string}]}. ` +
+        `Maximum 10 rules. Each entry in "serviceLines" MUST be one of: ${validSLs.join(', ')} — ` +
+        `use multiple entries when one rule covers several service lines. ` +
         `The "rule" field MUST be a single imperative sentence containing the full condition and action, such as ` +
         `"If service line occupancy is greater than or equal to 92 AND room type occupancy is less than 85, decrease street rate by 4% for vacant Studio units" or ` +
         `"Decrease street rate by 8% for vacant One Bedroom units over 60 days". Preserve conditions verbatim. No other text.`;
@@ -15207,8 +15211,12 @@ Respond in JSON format:
         if (suggestions.length >= 10) break;
         const sentence: string = p?.rule || p?.description || '';
         if (!sentence) continue;
-        // Each rule targets one of the requested service lines.
-        const ruleSL: string = validSLs.includes(p?.serviceLine) ? p.serviceLine : validSLs[0];
+        // Each rule targets one or more of the requested service lines.
+        const rawSLs: string[] = Array.isArray(p?.serviceLines) ? p.serviceLines
+          : p?.serviceLine ? [p.serviceLine] : [];
+        const ruleSLs: string[] = rawSLs.filter((s: string) => validSLs.includes(s));
+        if (!ruleSLs.length) ruleSLs.push(validSLs[0]);
+        const ruleSL = ruleSLs[0]; // primary SL (naive fallback + legacy field)
         const parsed = parseNaturalLanguageRule(sentence);
         if (!parsed) continue;
         const validation = validateParsedRule(parsed);
@@ -15255,7 +15263,7 @@ Respond in JSON format:
             const qi = computeQualifiedRuleImpact(suggestImpactCtx, {
               action: parsed.action,
               trigger: parsed.trigger,
-              serviceLine: ruleSL,
+              serviceLines: ruleSLs, // multi-SL scope (effectiveServiceLines)
               locationId: locationId || null,
             });
             qUnits = qi.affectedUnits;
@@ -15272,7 +15280,8 @@ Respond in JSON format:
           intent: p?.intent || parsed.description,
           description: sentence,           // natural-language rule (persisted verbatim on accept)
           ruleDetail: formatRuleDetail(parsed),
-          serviceLine: ruleSL,
+          serviceLine: ruleSLs.join(', '),   // display / legacy
+          serviceLines: ruleSLs,             // authoritative multi-SL scope
           locationId: locationId || null,
           trigger: parsed.trigger,
           action: parsed.action,
@@ -15323,8 +15332,15 @@ Respond in JSON format:
   app.post("/api/adjustment-rules/suggestions/accept", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { name, description, locationId, serviceLine, priority } = req.body || {};
+      const { name, description, locationId, serviceLine, serviceLines: acceptSLs, priority } = req.body || {};
       if (!description) return res.status(400).json({ error: "description is required" });
+      // Multi-SL scope: prefer the serviceLines array; fall back to splitting a
+      // comma-joined serviceLine string (display form) or the single value.
+      const slList: string[] = Array.isArray(acceptSLs) && acceptSLs.length
+        ? acceptSLs
+        : typeof serviceLine === 'string' && serviceLine.trim()
+          ? serviceLine.split(',').map((s: string) => s.trim()).filter(Boolean)
+          : [];
 
       const parsed = parseNaturalLanguageRule(description);
       if (!parsed) return res.status(400).json({ error: "Could not understand the rule. Please rephrase." });
@@ -15343,11 +15359,12 @@ Respond in JSON format:
       }
 
       const impact = await computeRuleElasticityImpact(
-        clientId, { locationId: locationId || null, serviceLine: serviceLine || null }, parsed.action);
+        clientId, { locationId: locationId || null, serviceLine: slList[0] || null }, parsed.action);
 
       const rule = await storage.createAdjustmentRule({
         locationId: locationId || null,
-        serviceLine: serviceLine || null,
+        serviceLine: slList.length === 1 ? slList[0] : null,
+        serviceLines: slList.length > 1 ? slList : null,
         name: name || parsed.name,
         description,
         trigger: parsed.trigger,

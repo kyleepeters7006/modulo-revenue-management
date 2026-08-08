@@ -24,6 +24,7 @@ interface RuleSuggestion {
   description: string;
   ruleDetail: string;
   serviceLine: string;
+  serviceLines?: string[];
   locationId: string | null;
   unitsImpacted: number | null;
   monthlyImpact: number | null;
@@ -173,6 +174,7 @@ export default function AiRuleGenerator({
         description: s.description,
         locationId: s.locationId ?? locationId ?? null,
         serviceLine: s.serviceLine,
+        serviceLines: s.serviceLines ?? undefined,
       });
       return response.json();
     },
