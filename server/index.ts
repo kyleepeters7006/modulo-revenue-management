@@ -360,6 +360,21 @@ app.use((req, res, next) => {
     log(`[migration] notes column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: cache of the last AI rule-suggestion run per client so
+  // suggestions survive page reloads without re-running the (slow) AI call.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS ai_suggestion_runs (
+        client_id text PRIMARY KEY,
+        payload jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    log("[migration] ai_suggestion_runs table ensured");
+  } catch (migErr) {
+    log(`[migration] ai_suggestion_runs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules

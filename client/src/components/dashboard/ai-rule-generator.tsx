@@ -64,6 +64,22 @@ export default function AiRuleGenerator({
   const [suggestions, setSuggestions] = useState<RuleSuggestion[]>([]);
   const [hasGenerated, setHasGenerated] = useState(false);
   const [includeInHouse, setIncludeInHouse] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [restoredFromCache, setRestoredFromCache] = useState(false);
+
+  // Restore the last AI run (cached server-side) so suggestions survive reloads.
+  const { data: lastRun } = useQuery<{ suggestions?: RuleSuggestion[]; generatedAt?: string } | null>({
+    queryKey: ["/api/adjustment-rules/suggest/last"],
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    if (hasGenerated || !lastRun?.suggestions?.length) return;
+    setSuggestions(lastRun.suggestions);
+    setGeneratedAt(lastRun.generatedAt ?? null);
+    setRestoredFromCache(true);
+    setHasGenerated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastRun]);
 
   // Build query string for fetching saved targets
   const targetsQueryParams = new URLSearchParams();
@@ -151,6 +167,8 @@ export default function AiRuleGenerator({
     onSuccess: (data) => {
       setSuggestions(data);
       setHasGenerated(true);
+      setGeneratedAt(new Date().toISOString());
+      setRestoredFromCache(false);
       toast({
         title: data.length ? "Suggestions ready" : "No suggestions",
         description: data.length
@@ -167,6 +185,17 @@ export default function AiRuleGenerator({
     },
   });
 
+  // Keep the React Query cache of the last run in sync with accept/deny so an
+  // SPA remount can't restore a suggestion that was just removed.
+  const removeFromLastRunCache = (suggestionId: string) => {
+    queryClient.setQueryData<{ suggestions?: RuleSuggestion[] } | null>(
+      ["/api/adjustment-rules/suggest/last"],
+      (prev) => prev
+        ? { ...prev, suggestions: (prev.suggestions ?? []).filter(x => x.suggestionId !== suggestionId) }
+        : prev,
+    );
+  };
+
   const acceptSuggestionMutation = useMutation({
     mutationFn: async (s: RuleSuggestion) => {
       const response = await apiRequest("/api/adjustment-rules/suggestions/accept", "POST", {
@@ -180,6 +209,7 @@ export default function AiRuleGenerator({
     },
     onSuccess: (_data, s) => {
       setSuggestions(prev => prev.filter(x => x.suggestionId !== s.suggestionId));
+      removeFromLastRunCache(s.suggestionId);
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
       toast({
         title: "Rule created",
@@ -204,6 +234,7 @@ export default function AiRuleGenerator({
     },
     onSuccess: (_data, s) => {
       setSuggestions(prev => prev.filter(x => x.suggestionId !== s.suggestionId));
+      removeFromLastRunCache(s.suggestionId);
     },
   });
 
@@ -322,6 +353,12 @@ export default function AiRuleGenerator({
             <Sparkles className="h-4 w-4 text-blue-600" />
             <h4 className="font-semibold text-gray-900">AI-Suggested Rules</h4>
             <Badge variant="secondary" className="text-xs">{suggestions.length} pending</Badge>
+            {generatedAt && (
+              <span className="text-[11px] text-gray-400 ml-auto" data-testid="text-generated-at">
+                {restoredFromCache ? "Restored from last run · " : ""}
+                {new Date(generatedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 mb-3">
             Each suggestion becomes an adjustment rule when accepted. Estimated impact is based on price elasticity.

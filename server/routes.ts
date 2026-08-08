@@ -15050,6 +15050,27 @@ Respond in JSON format:
   // annotated with its plain-English intent, rule detail, units impacted, and an
   // elasticity-based revenue impact. Suggestions are NOT persisted here — the
   // client accepts or denies them via the endpoints below.
+  // Remove one suggestion from the cached last AI run. Awaited by callers so
+  // success responses can't be sent before the cache reflects the removal.
+  // The UPDATE is a single atomic statement (row-level lock), so concurrent
+  // prunes serialize and each removes its own suggestion.
+  async function pruneCachedSuggestion(clientId: string, suggestionId: string) {
+    try {
+      await pool.query(
+        `UPDATE ai_suggestion_runs
+         SET payload = jsonb_set(payload, '{suggestions}', (
+           SELECT COALESCE(jsonb_agg(s), '[]'::jsonb)
+           FROM jsonb_array_elements(payload->'suggestions') s
+           WHERE s->>'suggestionId' <> $2
+         ))
+         WHERE client_id = $1`,
+        [clientId, suggestionId]
+      );
+    } catch (err) {
+      console.error('Failed to prune cached AI suggestion:', err);
+    }
+  }
+
   app.post("/api/adjustment-rules/suggest", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
@@ -15305,7 +15326,7 @@ Respond in JSON format:
 
       // Back-compat: legacy single-serviceLine callers expect flat context fields.
       const flatCtx = slContexts.length === 1 ? slContexts[0] : null;
-      res.json({
+      const responsePayload = {
         suggestions,
         context: {
           campus: campusName,
@@ -15320,7 +15341,23 @@ Respond in JSON format:
             avgElasticity: flatCtx.avgElasticity,
           } : {}),
         },
-      });
+      };
+
+      // Cache the run per client so a page reload can restore the last
+      // suggestions without re-running the slow AI call. Await so a subsequent
+      // accept/deny prune can never race ahead of this write.
+      try {
+        await pool.query(
+          `INSERT INTO ai_suggestion_runs (client_id, payload, created_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (client_id) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()`,
+          [clientId, JSON.stringify(responsePayload)]
+        );
+      } catch (err) {
+        console.error('Failed to cache AI suggestion run:', err);
+      }
+
+      res.json(responsePayload);
     } catch (error) {
       console.error('Error generating rule suggestions:', error);
       res.status(500).json({ error: "Failed to generate rule suggestions" });
@@ -15377,6 +15414,12 @@ Respond in JSON format:
         volumeAdjustedAnnualImpact: impact.annualImpact != null ? Math.round(impact.annualImpact * 1.05) : 0,
       });
 
+      // Drop the accepted suggestion from the cached last run so a reload
+      // doesn't re-offer a rule that already exists.
+      if (req.body?.suggestionId) {
+        await pruneCachedSuggestion(clientId, String(req.body.suggestionId));
+      }
+
       res.json({ success: true, rule, elasticity: impact });
     } catch (error) {
       console.error('Error accepting rule suggestion:', error);
@@ -15384,15 +15427,33 @@ Respond in JSON format:
     }
   });
 
-  // Deny an AI-suggested rule. Suggestions are stateless (never persisted), so
-  // denial is simply an acknowledgement — nothing to delete.
+  // Deny an AI-suggested rule. Denial removes it from the cached last run so a
+  // reload doesn't re-offer it.
   app.post("/api/adjustment-rules/suggestions/deny", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { suggestionId } = req.body || {};
+      if (suggestionId) await pruneCachedSuggestion(clientId, String(suggestionId));
       res.json({ success: true, suggestionId: suggestionId ?? null });
     } catch (error) {
       console.error('Error denying rule suggestion:', error);
       res.status(500).json({ error: "Failed to deny rule suggestion" });
+    }
+  });
+
+  // Last cached AI suggestion run for this client (see ai_suggestion_runs).
+  app.get("/api/adjustment-rules/suggest/last", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const r = await pool.query(
+        `SELECT payload, created_at FROM ai_suggestion_runs WHERE client_id = $1`,
+        [clientId]
+      );
+      if (!r.rows.length) return res.json(null);
+      res.json({ ...r.rows[0].payload, generatedAt: r.rows[0].created_at });
+    } catch (error) {
+      console.error('Error fetching cached AI suggestions:', error);
+      res.status(500).json({ error: "Failed to fetch cached suggestions" });
     }
   });
 

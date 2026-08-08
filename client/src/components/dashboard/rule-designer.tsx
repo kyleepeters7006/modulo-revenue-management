@@ -858,16 +858,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
             {/* ── LEFT: Builder ── */}
             <div className="space-y-4">
               <Tabs value={activeTab} onValueChange={v => { setActiveTab(v as any); setImpactData(null); setNewSlPickerOpen(false); }}>
-                <TabsList className="w-full">
-                  <TabsTrigger value="structured" className="flex-1 gap-1.5" data-testid="tab-structured">
-                    <SlidersHorizontal className="h-3.5 w-3.5" /> Structured Rule Builder
+                <TabsList className="w-full h-auto flex-wrap">
+                  <TabsTrigger value="structured" className="flex-1 gap-1.5 min-w-[48%] sm:min-w-0" data-testid="tab-structured">
+                    <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" /> Structured Rule Builder
                   </TabsTrigger>
-                  <TabsTrigger value="ask-ai" className="flex-1 gap-1.5" data-testid="tab-ask-ai">
-                    <Wand2 className="h-3.5 w-3.5" /> Natural Language Rules
+                  <TabsTrigger value="ask-ai" className="flex-1 gap-1.5 min-w-[48%] sm:min-w-0" data-testid="tab-ask-ai">
+                    <Wand2 className="h-3.5 w-3.5 shrink-0" /> Natural Language Rules
                   </TabsTrigger>
                   {aiGenerator && (
-                    <TabsTrigger value="ai-generator" className="flex-1 gap-1.5" data-testid="tab-ai-generator">
-                      <Sparkles className="h-3.5 w-3.5" /> AI Rule Generator
+                    <TabsTrigger value="ai-generator" className="flex-1 gap-1.5 min-w-[48%] sm:min-w-0" data-testid="tab-ai-generator">
+                      <Sparkles className="h-3.5 w-3.5 shrink-0" /> AI Rule Generator
                     </TabsTrigger>
                   )}
                 </TabsList>
