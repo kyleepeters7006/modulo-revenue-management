@@ -14,4 +14,5 @@
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
 - [Move-in/out event source](move-in-out-events.md) — imported event table is authoritative with rent-roll fallback; event-derived maps must be remapped through room-type groupings for key parity.
 - [Excel round-trip rule import](excel-roundtrip-import.md) — identical import descriptions merge into one scoped rule; exact rates go through manual_rate_overrides, never synthetic adjust rules.
+- [AI rule-suggestion pipeline](ai-rule-suggest-pipeline.md) — one Opus call, 10-rule cap, prompt must mirror parser grammar exactly; days_vacant is raw days evaluated per unit in both engines.
 - [Reference Data grouping & rule scope](refdata-grouping-scope.md) — aggregated views must map back to detail rows for rule scope; sum ratio components, never average %s; rule filters must reach both impact calculators.

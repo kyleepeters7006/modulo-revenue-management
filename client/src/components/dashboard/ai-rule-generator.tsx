@@ -132,17 +132,20 @@ export default function AiRuleGenerator({
         ? (["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const)
         : [selectedServiceLine]) as Array<keyof TargetGrowth>;
 
-      const batches = await Promise.all(targetSLs.map(async (sl) => {
-        const response = await apiRequest("/api/adjustment-rules/suggest", "POST", {
-          locationId: locationId ?? null,
-          serviceLine: sl,
-          targetGrowthPercent: targetGrowth[sl] ? Number(targetGrowth[sl]) : undefined,
-          includeInHouse,
-        });
-        const data = await response.json();
-        return (data.suggestions || []) as RuleSuggestion[];
-      }));
-      return batches.flat();
+      // Single combined request — the server analyzes all service lines
+      // together and returns at most 10 rules total.
+      const targets: Record<string, number> = {};
+      for (const sl of targetSLs) {
+        if (targetGrowth[sl]) targets[sl] = Number(targetGrowth[sl]);
+      }
+      const response = await apiRequest("/api/adjustment-rules/suggest", "POST", {
+        locationId: locationId ?? null,
+        serviceLines: targetSLs,
+        targets,
+        includeInHouse,
+      });
+      const data = await response.json();
+      return (data.suggestions || []) as RuleSuggestion[];
     },
     onSuccess: (data) => {
       setSuggestions(data);

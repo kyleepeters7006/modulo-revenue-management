@@ -122,17 +122,17 @@ const SERVICE_LINES: Record<string, string> = {
 // ── Comparison operator table ─────────────────────────────────────────────
 // Ordered most-specific first.
 const CMP_OPS: Array<{ re: RegExp; op: '>' | '<' | '>=' | '<=' | '=' }> = [
-  { re: /is\s+greater\s+than\s+or\s+equal\s+to\s+(\d+(?:\.\d+)?)%?/i, op: '>=' },
-  { re: /is\s+less\s+than\s+or\s+equal\s+to\s+(\d+(?:\.\d+)?)%?/i, op: '<=' },
-  { re: /is\s+greater\s+than\s+(\d+(?:\.\d+)?)%?/i, op: '>' },
-  { re: /is\s+less\s+than\s+(\d+(?:\.\d+)?)%?/i, op: '<' },
-  { re: />=\s*(\d+(?:\.\d+)?)%?/i, op: '>=' },
-  { re: /<=\s*(\d+(?:\.\d+)?)%?/i, op: '<=' },
-  { re: />\s*(\d+(?:\.\d+)?)%/, op: '>' },
-  { re: /<\s*(\d+(?:\.\d+)?)%/, op: '<' },
-  { re: /(?:drops?|falls?)\s+below\s+(\d+(?:\.\d+)?)%?/i, op: '<' },
-  { re: /(?:above|over|exceeds?)\s+(\d+(?:\.\d+)?)%?/i, op: '>=' },
-  { re: /(?:below|under)\s+(\d+(?:\.\d+)?)%?/i, op: '<' },
+  { re: /is\s+greater\s+than\s+or\s+equal\s+to\s+(-?\d+(?:\.\d+)?)%?/i, op: '>=' },
+  { re: /is\s+less\s+than\s+or\s+equal\s+to\s+(-?\d+(?:\.\d+)?)%?/i, op: '<=' },
+  { re: /is\s+greater\s+than\s+(-?\d+(?:\.\d+)?)%?/i, op: '>' },
+  { re: /is\s+less\s+than\s+(-?\d+(?:\.\d+)?)%?/i, op: '<' },
+  { re: />=\s*(-?\d+(?:\.\d+)?)%?/i, op: '>=' },
+  { re: /<=\s*(-?\d+(?:\.\d+)?)%?/i, op: '<=' },
+  { re: />\s*(-?\d+(?:\.\d+)?)%/, op: '>' },
+  { re: /<\s*(-?\d+(?:\.\d+)?)%/, op: '<' },
+  { re: /(?:drops?|falls?)\s+below\s+(-?\d+(?:\.\d+)?)%?/i, op: '<' },
+  { re: /(?:above|over|exceeds?)\s+(-?\d+(?:\.\d+)?)%?/i, op: '>=' },
+  { re: /(?:below|under)\s+(-?\d+(?:\.\d+)?)%?/i, op: '<' },
 ];
 
 function extractCmp(text: string): { op: '>' | '<' | '>=' | '<=' | '='; value: number } | null {
@@ -163,10 +163,10 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'street rate to top comp var %',                       field: 'street_to_comp_var', rawPct: true },
   { key: 'in house to street rate var % - single occupant',     field: 'ih_street_variance' },
   { key: 'competitor rate',                                     field: 'competitor_variance' },
-  { key: 'vacant units/beds',                                   field: 'vacant_units' },
-  { key: 'total units/beds',                                    field: 'total_units' },
-  { key: 'days vacant',                                         field: 'days_vacant' },
-  { key: 'inquiry and tour volume',                             field: 'inquiry_volume' },
+  { key: 'vacant units/beds',                                   field: 'vacant_units', rawPct: true },
+  { key: 'total units/beds',                                    field: 'total_units', rawPct: true },
+  { key: 'days vacant',                                         field: 'days_vacant', rawPct: true },
+  { key: 'inquiry and tour volume',                             field: 'inquiry_volume', rawPct: true },
   { key: 'quality mix',                                         field: 'quality_mix' },
 ];
 
@@ -475,13 +475,19 @@ function parseAction(input: string): ParsedAction | null {
     filters.occupancyStatus = 'occupied';
   }
   
-  // Vacancy duration filter
-  const vacancyFilterMatch = input.match(/units?\s+(?:vacant|empty)\s*(?:for|over)?\s*(\d+)\s*days?/);
+  // Vacancy duration filter — handles both word orders:
+  //   "units vacant for 60 days", "vacant units over 120 days",
+  //   "vacant units unoccupied for 90 days or more"
+  const vacancyFilterMatch =
+    input.match(/units?\s+(?:vacant|empty|unoccupied)\s*(?:for|over|more\s+than)?\s*(\d+)\s*days?/) ||
+    input.match(/(?:vacant|empty|unoccupied)\s+units?[^.]*?(?:for|over|more\s+than|exceeding|at\s+least)\s+(\d+)\+?\s*days?/) ||
+    input.match(/(?:vacant|empty|unoccupied)\s*(?:for|over|more\s+than)\s+(\d+)\+?\s*days?/);
   if (vacancyFilterMatch) {
     filters.vacancyDuration = {
       operator: '>',
       days: parseInt(vacancyFilterMatch[1])
     };
+    if (!filters.occupancyStatus) filters.occupancyStatus = 'vacant';
   }
   
   return {

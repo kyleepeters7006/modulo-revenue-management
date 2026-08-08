@@ -28,17 +28,18 @@ export const aiClient = gptClient;
 export async function callClaude(
   systemPrompt: string,
   userPrompt: string,
-  opts?: { maxTokens?: number; temperature?: number; label?: string }
+  opts?: { maxTokens?: number; temperature?: number; label?: string; model?: string }
 ): Promise<string> {
   const label = opts?.label || 'claude';
   const maxTokens = opts?.maxTokens || 1024;
   const temperature = opts?.temperature ?? 0.3;
+  const claudeModel = opts?.model || CLAUDE_MODEL;
 
   if (anthropicClient) {
-    console.log(`[aiRouter:${label}] Calling ${CLAUDE_MODEL} via Anthropic SDK...`);
+    console.log(`[aiRouter:${label}] Calling ${claudeModel} via Anthropic SDK...`);
     try {
       const response = await anthropicClient.messages.create({
-        model: CLAUDE_MODEL,
+        model: claudeModel,
         max_tokens: maxTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
@@ -84,13 +85,14 @@ export async function callClaudeThenGPT(
   systemPrompt: string,
   userPrompt: string,
   formatInstruction: string,
-  opts?: { claudeMaxTokens?: number; gptMaxTokens?: number; label?: string }
+  opts?: { claudeMaxTokens?: number; gptMaxTokens?: number; label?: string; claudeModel?: string }
 ): Promise<string> {
   const label = opts?.label || 'claude→gpt';
 
   const claudeReasoning = await callClaude(systemPrompt, userPrompt, {
     maxTokens: opts?.claudeMaxTokens || 1024,
     label: `${label}:reasoning`,
+    model: opts?.claudeModel,
   });
 
   console.log(`[aiRouter:${label}] Reasoning complete, formatting with ${GPT_MODEL}...`);

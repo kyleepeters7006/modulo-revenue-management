@@ -15016,6 +15016,28 @@ Respond in JSON format:
     const t = rule.trigger || {};
     if (t.type === 'time' && t.timeInterval) parts.push(`every ${t.timeInterval.value} ${t.timeInterval.unit}(s)`);
     else if (t.type === 'event' && t.event) parts.push(`on ${t.event}`);
+    else if (t.type === 'condition') {
+      // Render trigger conditions so the detail line reflects the rule's full logic.
+      const condLabel = (c: any): string => {
+        const fieldNames: Record<string, string> = {
+          occupancy: 'occupancy', service_line_occupancy: 'SL occupancy',
+          room_type_occupancy: 'RT occupancy', street_to_comp_var: 'street-to-comp var',
+          ih_street_variance: 'IH-to-street var', days_vacant: 'days vacant',
+          vacant_units: 'vacant units', total_units: 'total units',
+          competitor_variance: 'competitor var', inquiry_volume: 'inquiry volume',
+          quality_mix: 'quality mix',
+        };
+        const isPct = ['occupancy', 'service_line_occupancy', 'room_type_occupancy', 'ih_street_variance'].includes(c.field);
+        const val = isPct && typeof c.value === 'number' && Math.abs(c.value) <= 1
+          ? `${Math.round(c.value * 100)}%`
+          : c.field === 'street_to_comp_var' ? `${c.value}%` : `${c.value}`;
+        return `${fieldNames[c.field] || c.field} ${c.operator} ${val}`;
+      };
+      const conds = t.conditions?.length ? t.conditions : (t.condition ? [t.condition] : []);
+      if (conds.length) {
+        parts.push(`when ${conds.map(condLabel).join(` ${t.conditionOperator || 'AND'} `)}`);
+      }
+    }
     return parts.join(' ');
   }
 
@@ -15030,8 +15052,18 @@ Respond in JSON format:
   app.post("/api/adjustment-rules/suggest", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { locationId, serviceLine, targetGrowthPercent, includeInHouse } = req.body || {};
-      if (!serviceLine) return res.status(400).json({ error: "serviceLine is required" });
+      const { locationId, serviceLine, serviceLines: slsBody, targets, targetGrowthPercent, includeInHouse } = req.body || {};
+      // Accept either a single serviceLine (legacy) or a serviceLines array —
+      // all service lines are analyzed in ONE AI call (max 10 rules total).
+      const requestedSLs: string[] = Array.isArray(slsBody) && slsBody.length
+        ? slsBody : (serviceLine ? [serviceLine] : []);
+      if (!requestedSLs.length) return res.status(400).json({ error: "serviceLine(s) required" });
+      const targetsBySL: Record<string, number | null> = {};
+      for (const sl of requestedSLs) {
+        const t = targets && targets[sl] != null ? Number(targets[sl])
+          : (targetGrowthPercent != null ? Number(targetGrowthPercent) : null);
+        targetsBySL[sl] = Number.isFinite(t as number) ? (t as number) : null;
+      }
 
       const latestRes = await pool.query(
         `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`, [clientId]);
@@ -15039,60 +15071,88 @@ Respond in JSON format:
       if (!latestMonth) return res.json({ suggestions: [], context: { reason: 'no rent roll data' } });
 
       const allUnits = await storage.getRentRollDataByMonth(latestMonth, clientId);
-      const scoped = allUnits.filter((u: any) =>
-        (!locationId || u.locationId === locationId) && u.serviceLine === serviceLine);
-      if (scoped.length === 0) return res.json({ suggestions: [], context: { reason: 'no units in scope' } });
-
-      // Aggregate metrics for the AI prompt
-      const total = scoped.length;
-      const occupied = scoped.filter((u: any) => u.occupiedYN).length;
-      const vacant = total - occupied;
-      const occPct = total ? (occupied / total) * 100 : 0;
-      const streetRates = scoped.map((u: any) => u.streetRate).filter((r: number) => r > 0);
-      const avgStreet = streetRates.length ? streetRates.reduce((a: number, b: number) => a + b, 0) / streetRates.length : 0;
-      const compRates = scoped.map((u: any) => u.competitorFinalRate).filter((r: number) => r > 0);
-      const avgComp = compRates.length ? compRates.reduce((a: number, b: number) => a + b, 0) / compRates.length : null;
-      const dvArr = scoped.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant);
-      const avgDaysVacant = dvArr.length ? dvArr.reduce((a: number, b: number) => a + b, 0) / dvArr.length : 0;
-      const campusName = scoped[0]?.location || '';
-
       const { getElasticityMap } = await import('./services/elasticityService');
       const elasticityMap = await getElasticityMap(clientId);
-      const segElasticities = Array.from(elasticityMap.values())
-        .filter((e: any) => e.locationName === campusName && e.serviceLine === serviceLine && e.elasticity !== null)
-        .map((e: any) => e.elasticity as number);
-      const avgElasticity = segElasticities.length
-        ? segElasticities.reduce((a, b) => a + b, 0) / segElasticities.length : null;
 
-      const roomTypes = Array.from(new Set(scoped.map((u: any) => u.roomType).filter(Boolean)));
+      // Per-service-line metric blocks for the AI prompt.
+      const slBlocks: string[] = [];
+      const slContexts: any[] = [];
+      const validSLs: string[] = [];
+      let campusName = '';
+      for (const sl of requestedSLs) {
+        const scoped = allUnits.filter((u: any) =>
+          (!locationId || u.locationId === locationId) && u.serviceLine === sl);
+        if (!scoped.length) continue;
+        validSLs.push(sl);
+        campusName = campusName || scoped[0]?.location || '';
+
+        const total = scoped.length;
+        const occupied = scoped.filter((u: any) => u.occupiedYN).length;
+        const vacant = total - occupied;
+        const occPct = total ? (occupied / total) * 100 : 0;
+        const streetRates = scoped.map((u: any) => u.streetRate).filter((r: number) => r > 0);
+        const avgStreet = streetRates.length ? streetRates.reduce((a: number, b: number) => a + b, 0) / streetRates.length : 0;
+        const compRates = scoped.map((u: any) => u.competitorFinalRate).filter((r: number) => r > 0);
+        const avgComp = compRates.length ? compRates.reduce((a: number, b: number) => a + b, 0) / compRates.length : null;
+        const dvArr = scoped.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant);
+        const avgDaysVacant = dvArr.length ? dvArr.reduce((a: number, b: number) => a + b, 0) / dvArr.length : 0;
+        const segElasticities = Array.from(elasticityMap.values())
+          .filter((e: any) => (!campusName || e.locationName === campusName) && e.serviceLine === sl && e.elasticity !== null)
+          .map((e: any) => e.elasticity as number);
+        const avgElasticity = segElasticities.length
+          ? segElasticities.reduce((a, b) => a + b, 0) / segElasticities.length : null;
+        const roomTypes = Array.from(new Set(scoped.map((u: any) => u.roomType).filter(Boolean)));
+
+        slBlocks.push(
+          `── Service line: ${sl} ──\n` +
+          `Revenue growth target: ${targetsBySL[sl] != null ? targetsBySL[sl] + '%' : 'not specified'}\n` +
+          `Total units: ${total}\n` +
+          `Occupied: ${occupied} (${occPct.toFixed(1)}% occupancy)\n` +
+          `Vacant: ${vacant}\n` +
+          `Average street rate: $${Math.round(avgStreet)}\n` +
+          `Average competitor rate: ${avgComp !== null ? '$' + Math.round(avgComp) : 'unknown'}\n` +
+          `Average days vacant: ${Math.round(avgDaysVacant)}\n` +
+          `Average price elasticity (Δdays-to-sell / Δrate): ${avgElasticity !== null ? avgElasticity.toFixed(3) : 'unknown'}\n` +
+          `Room types: ${roomTypes.join(', ') || 'unknown'}`);
+        slContexts.push({
+          serviceLine: sl,
+          targetGrowthPercent: targetsBySL[sl],
+          occupancyPercent: Number(occPct.toFixed(1)),
+          avgStreetRate: Math.round(avgStreet),
+          avgCompetitorRate: avgComp !== null ? Math.round(avgComp) : null,
+          avgDaysVacant: Math.round(avgDaysVacant),
+          avgElasticity,
+        });
+      }
+      if (!validSLs.length) return res.json({ suggestions: [], context: { reason: 'no units in scope' } });
 
       const metricsBlock =
-        `Campus: ${campusName || 'All campuses'}\n` +
-        `Service line: ${serviceLine}\n` +
-        `Revenue growth target: ${targetGrowthPercent != null ? targetGrowthPercent + '%' : 'not specified'}\n` +
-        `Total units: ${total}\n` +
-        `Occupied: ${occupied} (${occPct.toFixed(1)}% occupancy)\n` +
-        `Vacant: ${vacant}\n` +
-        `Average street rate: $${Math.round(avgStreet)}\n` +
-        `Average competitor rate: ${avgComp !== null ? '$' + Math.round(avgComp) : 'unknown'}\n` +
-        `Average days vacant: ${Math.round(avgDaysVacant)}\n` +
-        `Average price elasticity (Δdays-to-sell / Δrate): ${avgElasticity !== null ? avgElasticity.toFixed(3) : 'unknown'}\n` +
-        `Room types: ${roomTypes.join(', ') || 'unknown'}`;
+        `Campus: ${campusName || 'All campuses'}\n\n` + slBlocks.join('\n\n');
 
       const system =
         'You are a senior living revenue-management expert. You design pricing adjustment ' +
         'rules to hit revenue growth targets while protecting occupancy. You reason about ' +
         'occupancy pressure, vacancy duration, competitor positioning, and price elasticity.';
       const user =
-        `Analyze this campus + service line and propose 3 to 5 pricing adjustment rules to ` +
-        `reach the revenue growth target.\n\n${metricsBlock}\n\n` +
+        `Analyze this campus across ALL the service lines below and propose UP TO 10 pricing ` +
+        `adjustment rules TOTAL (across all service lines combined, not per line) to reach ` +
+        `each service line's revenue growth target. Allocate rules where they matter most — ` +
+        `service lines with bigger gaps to target deserve more rules.\n\n${metricsBlock}\n\n` +
         `Guidance:\n` +
         `- If occupancy is high and elasticity is weak (small magnitude), favor rate increases.\n` +
         `- If occupancy is low or units sit vacant a long time, favor targeted discounts to accelerate leasing.\n` +
         `- Keep individual adjustments realistic (typically 1%–12%).\n` +
-        `For each rule give: a short name, a one-sentence plain-English business intent, and a ` +
-        `single plain-English rule sentence that states the action, the percentage or dollar ` +
-        `amount, and any condition (e.g. occupancy status, vacancy duration, room type).\n` +
+        `COMPLEXITY REQUIREMENTS — every rule MUST be conditional and targeted, not a blanket change:\n` +
+        `- Each rule must include at least ONE trigger condition AND, where sensible, a room-type or occupancy-status target.\n` +
+        `- Prefer compound conditions (two conditions joined by AND or OR) when the data supports them.\n` +
+        `- Express ALL of the rule's logic inside the single rule sentence itself using EXACTLY this grammar (anything else will be dropped):\n` +
+        `  * Compound trigger: "If service line occupancy is greater than or equal to 92 AND room type occupancy is less than 85, decrease street rate by 4% for vacant Studio units"\n` +
+        `  * Occupancy trigger: "when occupancy is above 90%" / "when service line occupancy drops below 80%" / "when room type occupancy exceeds 95%"\n` +
+        `  * Competitor trigger: "when street rate to top comp var % is greater than 10"\n` +
+        `  * Vacancy duration: "for vacant units over 60 days"\n` +
+        `  * Room types: name them exactly as listed in the metrics (e.g. Studio, Studio Dlx, One Bedroom, Two Bedroom, Companion)\n` +
+        `  * Occupancy status: "for occupied units" / "for vacant units"\n` +
+        `Do NOT put conditions only in the intent — if a condition is not in the rule sentence, it does not exist.\n` +
         `IMPORTANT: the name MUST match the direction of the action — use words like ` +
         `"Discount", "Relief", or "Reduction" ONLY when the rule decreases the rate, and words ` +
         `like "Increase", "Premium", or "Push" ONLY when the rule increases the rate.\n` +
@@ -15105,18 +15165,28 @@ Respond in JSON format:
             `or resident-rate rules.`);
       const formatInstruction =
         `Return ONLY a valid JSON object of the form: ` +
-        `{"rules":[{"name":string,"intent":string,"rule":string}]}. ` +
-        `The "rule" field MUST be a single imperative sentence such as ` +
-        `"Increase street rate by 5% for occupied units" or ` +
-        `"Decrease street rate by 8% for vacant units over 60 days". No other text.`;
+        `{"rules":[{"name":string,"intent":string,"serviceLine":string,"rule":string}]}. ` +
+        `Maximum 10 rules. "serviceLine" MUST be one of: ${validSLs.join(', ')}. ` +
+        `The "rule" field MUST be a single imperative sentence containing the full condition and action, such as ` +
+        `"If service line occupancy is greater than or equal to 92 AND room type occupancy is less than 85, decrease street rate by 4% for vacant Studio units" or ` +
+        `"Decrease street rate by 8% for vacant One Bedroom units over 60 days". Preserve conditions verbatim. No other text.`;
 
-      const rawText = await callClaudeThenGPT(system, user, formatInstruction, {
-        label: `rule-suggest:${campusName || 'all'}:${serviceLine}`,
-        claudeMaxTokens: 700, gptMaxTokens: 900,
+      // Single call to the most capable model (no second formatting call) —
+      // the format instruction is appended to the prompt directly.
+      const rawText = await callClaude(system, `${user}\n\n${formatInstruction}`, {
+        label: `rule-suggest:${campusName || 'all'}:${validSLs.join('+')}`,
+        maxTokens: 4000,
+        model: 'claude-opus-4-6',
       });
 
       let parsedResponse: any;
-      try { parsedResponse = JSON.parse(rawText); }
+      try {
+        // Strip Markdown code fences / leading prose if present.
+        const jsonText = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        const start = jsonText.indexOf('{');
+        const end = jsonText.lastIndexOf('}');
+        parsedResponse = JSON.parse(start >= 0 && end > start ? jsonText.slice(start, end + 1) : jsonText);
+      }
       catch { return res.status(502).json({ error: 'AI returned an unparseable response', raw: rawText }); }
 
       const proposed: any[] = Array.isArray(parsedResponse?.rules) ? parsedResponse.rules : [];
@@ -15132,12 +15202,23 @@ Respond in JSON format:
       }
 
       for (const p of proposed) {
+        if (suggestions.length >= 10) break;
         const sentence: string = p?.rule || p?.description || '';
         if (!sentence) continue;
+        // Each rule targets one of the requested service lines.
+        const ruleSL: string = validSLs.includes(p?.serviceLine) ? p.serviceLine : validSLs[0];
         const parsed = parseNaturalLanguageRule(sentence);
         if (!parsed) continue;
         const validation = validateParsedRule(parsed);
         if (!validation.isValid) continue;
+
+        // Complexity gate: drop blanket rules — a suggestion must have a real
+        // trigger condition or at least a room-type / occupancy-status target,
+        // so the displayed rule matches the promised sophistication.
+        const f = parsed.action?.filters || {};
+        const hasCondition = parsed.trigger?.type === 'condition';
+        const hasTargeting = !!(f.roomType?.length || f.occupancyStatus || f.vacancyDuration);
+        if (!hasCondition && !hasTargeting) continue;
 
         // Enforce target policy: street-rate rules only, unless the caller
         // opted into in-house suggestions (then in-house INCREASES are allowed too).
@@ -15148,7 +15229,7 @@ Respond in JSON format:
         }
 
         const impact = await computeRuleElasticityImpact(
-          clientId, { locationId: locationId || null, serviceLine }, parsed.action);
+          clientId, { locationId: locationId || null, serviceLine: ruleSL }, parsed.action);
 
         // Consistency guard: the LLM occasionally names an increase rule
         // "…Discount" (or a decrease rule "…Increase"). When the name
@@ -15172,7 +15253,7 @@ Respond in JSON format:
             const qi = computeQualifiedRuleImpact(suggestImpactCtx, {
               action: parsed.action,
               trigger: parsed.trigger,
-              serviceLine,
+              serviceLine: ruleSL,
               locationId: locationId || null,
             });
             qUnits = qi.affectedUnits;
@@ -15189,7 +15270,7 @@ Respond in JSON format:
           intent: p?.intent || parsed.description,
           description: sentence,           // natural-language rule (persisted verbatim on accept)
           ruleDetail: formatRuleDetail(parsed),
-          serviceLine,
+          serviceLine: ruleSL,
           locationId: locationId || null,
           trigger: parsed.trigger,
           action: parsed.action,
@@ -15210,15 +15291,22 @@ Respond in JSON format:
         });
       }
 
+      // Back-compat: legacy single-serviceLine callers expect flat context fields.
+      const flatCtx = slContexts.length === 1 ? slContexts[0] : null;
       res.json({
         suggestions,
         context: {
-          campus: campusName, serviceLine, targetGrowthPercent: targetGrowthPercent ?? null,
-          occupancyPercent: Number(occPct.toFixed(1)),
-          avgStreetRate: Math.round(avgStreet),
-          avgCompetitorRate: avgComp !== null ? Math.round(avgComp) : null,
-          avgDaysVacant: Math.round(avgDaysVacant),
-          avgElasticity,
+          campus: campusName,
+          serviceLines: slContexts,
+          ...(flatCtx ? {
+            serviceLine: flatCtx.serviceLine,
+            targetGrowthPercent: flatCtx.targetGrowthPercent,
+            occupancyPercent: flatCtx.occupancyPercent,
+            avgStreetRate: flatCtx.avgStreetRate,
+            avgCompetitorRate: flatCtx.avgCompetitorRate,
+            avgDaysVacant: flatCtx.avgDaysVacant,
+            avgElasticity: flatCtx.avgElasticity,
+          } : {}),
         },
       });
     } catch (error) {

@@ -473,6 +473,9 @@ function evalGroupCondition(
   if (field === "ih_street_variance" || field === "street_to_ih_var") {
     return cmp(lookupMetric(ctx, locId, sl, rt, "ih_street_var_pct"), operator, value);
   }
+  // Unit-level days vacant — cannot be decided at the group level; defer to
+  // the unit predicate (unitPasses evaluates days_vacant conditions per unit).
+  if (field === "days_vacant") return true;
   // Metrics we can't compute here (inquiry volume, …) — treat as
   // not passing, same as the rate engine does when the metric is missing.
   return false;
@@ -514,6 +517,27 @@ function unitPasses(rule: any, u: UnitRow): boolean {
     if (!cmp(Number(u.days_vacant) || 0, operator, days)) return false;
   }
   const trigger = rule.trigger || {};
+  // Unit-level days_vacant trigger conditions (raw day counts) — group-level
+  // evaluation deferred them here so each unit is tested individually.
+  if (trigger.type === "condition") {
+    const condList = Array.isArray(trigger.conditions)
+      ? trigger.conditions
+      : trigger.condition?.field ? [trigger.condition] : [];
+    const dvConds = condList.filter((c: any) => c?.field === "days_vacant");
+    if (dvConds.length) {
+      const op = (trigger.conditionOperator || "AND").toUpperCase();
+      const dv = Number(u.days_vacant) || 0;
+      const results = dvConds.map((c: any) => cmp(dv, c.operator, Number(c.value)));
+      // Under AND every days_vacant condition must hold for this unit;
+      // under OR the group-level pass already satisfied the disjunction only
+      // if some condition passed — keep units where at least one dv cond holds
+      // OR another (non-dv) condition exists that could have passed.
+      if (op === "OR") {
+        const hasOtherConds = condList.length > dvConds.length;
+        if (!hasOtherConds && !results.some(Boolean)) return false;
+      } else if (!results.every(Boolean)) return false;
+    }
+  }
   if (trigger.type === "condition" && !Array.isArray(trigger.conditions) && !trigger.condition?.field) {
     const conds = trigger.conditions || {};
     if (conds.occupancyStatus === "vacant" && u.occupied_yn) return false;

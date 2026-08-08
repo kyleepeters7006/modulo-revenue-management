@@ -328,6 +328,12 @@ function evaluateSingleCondition(
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'avg_days_vacant'));
   }
 
+  // Unit-level days vacant (raw day count, e.g. "vacant over 60 days")
+  if (field === "days_vacant") {
+    const dv = Number(unit.daysVacant ?? unit.days_vacant);
+    return cmpMetric(Number.isFinite(dv) ? dv : 0);
+  }
+
   return false;
 }
 
@@ -501,6 +507,17 @@ export function applyAdjustmentRulesToUnit(
       }
       if (filters.occupancyStatus === "vacant" && unit.occupiedYN) continue;
       if (filters.occupancyStatus === "occupied" && !unit.occupiedYN) continue;
+      if (filters.vacancyDuration) {
+        // "vacant over N days" — enforce at the unit level so the live engine
+        // matches the impact preview (which already applies this filter).
+        const { operator, days } = filters.vacancyDuration as { operator: string; days: number };
+        const dv = Number(unit.daysVacant ?? 0) || 0;
+        const passes = operator === '>' ? dv > days
+          : operator === '>=' ? dv >= days
+          : operator === '<' ? dv < days
+          : operator === '<=' ? dv <= days : dv > days;
+        if (!passes) continue;
+      }
     }
 
     qualifying.push(rule);
