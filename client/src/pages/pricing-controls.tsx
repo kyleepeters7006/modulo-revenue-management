@@ -244,8 +244,8 @@ export default function PricingControls() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <div className="p-4 space-y-2">
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[180px] p-0">
+                    <div className="p-3 space-y-2">
                       {selectedRegions.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
                           {selectedRegions.map((region) => (
@@ -267,18 +267,20 @@ export default function PricingControls() {
                           </Button>
                         </div>
                       )}
-                      {regions.map((region: string) => (
-                        <div key={region} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`region-${region}`}
-                            checked={selectedRegions.includes(region)}
-                            onCheckedChange={() => toggleSelection(region, selectedRegions, setSelectedRegions)}
-                          />
-                          <label htmlFor={`region-${region}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            {region}
-                          </label>
-                        </div>
-                      ))}
+                      <div className="max-h-[min(240px,40vh)] overflow-y-auto space-y-2 pr-1">
+                        {regions.map((region: string) => (
+                          <div key={region} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`region-${region}`}
+                              checked={selectedRegions.includes(region)}
+                              onCheckedChange={() => toggleSelection(region, selectedRegions, setSelectedRegions)}
+                            />
+                            <label htmlFor={`region-${region}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                              {region}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -303,8 +305,8 @@ export default function PricingControls() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <div className="p-4 space-y-2">
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[180px] p-0">
+                    <div className="p-3 space-y-2">
                       {selectedDivisions.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
                           {selectedDivisions.map((division) => (
@@ -326,18 +328,20 @@ export default function PricingControls() {
                           </Button>
                         </div>
                       )}
-                      {divisions.map((division: string) => (
-                        <div key={division} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`division-${division}`}
-                            checked={selectedDivisions.includes(division)}
-                            onCheckedChange={() => toggleSelection(division, selectedDivisions, setSelectedDivisions)}
-                          />
-                          <label htmlFor={`division-${division}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            {division}
-                          </label>
-                        </div>
-                      ))}
+                      <div className="max-h-[min(240px,40vh)] overflow-y-auto space-y-2 pr-1">
+                        {divisions.map((division: string) => (
+                          <div key={division} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`division-${division}`}
+                              checked={selectedDivisions.includes(division)}
+                              onCheckedChange={() => toggleSelection(division, selectedDivisions, setSelectedDivisions)}
+                            />
+                            <label htmlFor={`division-${division}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                              {division}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -362,8 +366,8 @@ export default function PricingControls() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <div className="p-4 space-y-2">
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[200px] p-0">
+                    <div className="p-3 space-y-2">
                       {selectedLocations.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
                           {selectedLocations.map((location) => (
@@ -385,18 +389,20 @@ export default function PricingControls() {
                           </Button>
                         </div>
                       )}
-                      {locations.map((location: string) => (
-                        <div key={location} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`location-${location}`}
-                            checked={selectedLocations.includes(location)}
-                            onCheckedChange={() => toggleSelection(location, selectedLocations, setSelectedLocations)}
-                          />
-                          <label htmlFor={`location-${location}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            {location}
-                          </label>
-                        </div>
-                      ))}
+                      <div className="max-h-[min(260px,40vh)] overflow-y-auto space-y-2 pr-1">
+                        {locations.map((location: string) => (
+                          <div key={location} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`location-${location}`}
+                              checked={selectedLocations.includes(location)}
+                              onCheckedChange={() => toggleSelection(location, selectedLocations, setSelectedLocations)}
+                            />
+                            <label htmlFor={`location-${location}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                              {location}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
