@@ -380,51 +380,49 @@ export default function AiRuleGenerator({
                   className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
                   data-testid={`suggestion-${s.suggestionId}`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900">{s.name}</span>
-                        <Badge variant="outline" className="text-[10px] font-medium">{s.serviceLine}</Badge>
-                      </div>
-                      {s.intent && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{s.intent}</p>}
-                      <p className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded px-2 py-1.5 mt-2">{s.ruleDetail}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      {onEditSuggestion && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 gap-1.5 text-gray-600"
-                          onClick={() => onEditSuggestion({ description: s.description, serviceLines: s.serviceLines ?? (s.serviceLine ? s.serviceLine.split(',').map(x => x.trim()).filter(Boolean) : undefined) })}
-                          disabled={busy}
-                          data-testid={`button-edit-${s.suggestionId}`}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        className="h-8 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
-                        onClick={() => acceptSuggestionMutation.mutate(s)}
-                        disabled={busy}
-                        data-testid={`button-accept-${s.suggestionId}`}
-                      >
-                        {isAccepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                        Accept
-                      </Button>
+                  {/* Title + badge row (always full-width) */}
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900 leading-snug">{s.name}</span>
+                    <Badge variant="outline" className="text-[10px] font-medium shrink-0">{s.serviceLine}</Badge>
+                  </div>
+                  {s.intent && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{s.intent}</p>}
+                  <p className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded px-2 py-1.5 mt-2">{s.ruleDetail}</p>
+                  {/* Action buttons — stack on mobile, row on sm+ */}
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    {onEditSuggestion && (
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 gap-1.5 text-gray-600"
-                        onClick={() => denySuggestionMutation.mutate(s)}
+                        className="h-8 gap-1.5 text-gray-600 flex-1 sm:flex-none"
+                        onClick={() => onEditSuggestion({ description: s.description, serviceLines: s.serviceLines ?? (s.serviceLine ? s.serviceLine.split(',').map(x => x.trim()).filter(Boolean) : undefined) })}
                         disabled={busy}
-                        data-testid={`button-deny-${s.suggestionId}`}
+                        data-testid={`button-edit-${s.suggestionId}`}
                       >
-                        {isDenying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-                        Deny
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
                       </Button>
-                    </div>
+                    )}
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1.5 bg-green-600 hover:bg-green-700 text-white flex-1 sm:flex-none"
+                      onClick={() => acceptSuggestionMutation.mutate(s)}
+                      disabled={busy}
+                      data-testid={`button-accept-${s.suggestionId}`}
+                    >
+                      {isAccepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 text-gray-600 flex-1 sm:flex-none"
+                      onClick={() => denySuggestionMutation.mutate(s)}
+                      disabled={busy}
+                      data-testid={`button-deny-${s.suggestionId}`}
+                    >
+                      {isDenying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                      Deny
+                    </Button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                     <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
