@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
-  Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle,
+  Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle, StickyNote,
   Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart, PowerOff
 } from 'lucide-react';
 import { HistoryReportModal } from '@/components/dashboard/pricing-reports';
@@ -736,6 +736,28 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
     setAiInput(rule.description || rule.name || '');
     setActiveTab('structured');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Per-rule note editing (Rule Administration list)
+  const [adminNoteDraft, setAdminNoteDraft] = useState<{ ruleId: string; text: string } | null>(null);
+  const [adminNoteSaving, setAdminNoteSaving] = useState(false);
+  const saveRuleNote = async (ruleId: string, notes: string) => {
+    setAdminNoteSaving(true);
+    try {
+      const res = await fetch(`/api/adjustment-rules/${ruleId}/notes`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      });
+      if (!res.ok) throw new Error();
+      const trimmed = notes.trim();
+      setRules(prev => prev.map(r => r.id === ruleId ? { ...r, notes: trimmed || null } as any : r));
+      setAdminNoteDraft(null);
+    } catch {
+      toast({ title: 'Failed to save note', variant: 'destructive' });
+    } finally {
+      setAdminNoteSaving(false);
+    }
   };
 
   const toggleRule = async (ruleId: string) => {
@@ -1936,6 +1958,48 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                   <span className="text-xs text-gray-500 leading-relaxed line-clamp-3">
                                     {rule.description || '—'}
                                   </span>
+                                  {/* Note: quick free-form context, shown here, in Reference Data, and on the Strategy Report */}
+                                  {adminNoteDraft?.ruleId === rule.id ? (
+                                    <div className="mt-1.5 space-y-1" onClick={(e) => e.stopPropagation()}>
+                                      <Textarea
+                                        value={adminNoteDraft.text}
+                                        onChange={(e) => setAdminNoteDraft({ ruleId: rule.id, text: e.target.value })}
+                                        className="min-h-[52px] text-xs"
+                                        maxLength={500}
+                                        autoFocus
+                                        placeholder="Describe the change…"
+                                        data-testid={`admin-note-edit-${rule.id}`}
+                                      />
+                                      <div className="flex justify-end gap-1">
+                                        <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => setAdminNoteDraft(null)}>Cancel</Button>
+                                        <Button size="sm" className="h-6 px-2 text-[11px]" disabled={adminNoteSaving}
+                                          onClick={() => saveRuleNote(rule.id, adminNoteDraft.text)}
+                                          data-testid={`admin-note-save-${rule.id}`}>
+                                          Save
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (rule as any).notes ? (
+                                    <button
+                                      type="button"
+                                      className="mt-1.5 flex w-full items-start gap-1 rounded border border-amber-200 bg-amber-50/70 px-1.5 py-1 text-left hover:bg-amber-50"
+                                      onClick={() => setAdminNoteDraft({ ruleId: rule.id, text: (rule as any).notes ?? '' })}
+                                      title="Edit note"
+                                      data-testid={`admin-note-display-${rule.id}`}
+                                    >
+                                      <StickyNote className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                                      <span className="text-[11px] leading-snug text-amber-800 whitespace-pre-wrap">{(rule as any).notes}</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="mt-1 flex items-center gap-1 text-[10px] text-gray-400 hover:text-teal-600"
+                                      onClick={() => setAdminNoteDraft({ ruleId: rule.id, text: '' })}
+                                      data-testid={`admin-note-add-${rule.id}`}
+                                    >
+                                      <StickyNote className="h-3 w-3" /> Add note
+                                    </button>
+                                  )}
                                 </td>
 
                                 {/* Service Line */}

@@ -247,8 +247,8 @@ const GROUPS: GroupDef[] = [
     id: "revenue",
     label: "Revenue Impact",
     cols: [
-      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × total units — estimated monthly revenue change if the proposed rate were applied to all units." },
-      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change if the proposed rate were applied to all units." },
+      { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × expected move-ins per month (trailing 3-month average) — estimated monthly revenue change from new residents leasing at the proposed rate." },
+      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change from expected move-ins at the proposed rate." },
       { key: "revImpactPct", label: "% Impact", type: "pctfracsigned", w: 75, tip: "Annual revenue impact as a % of current in-house revenue — directly comparable to the Growth Target column." },
     ],
   },
@@ -358,7 +358,7 @@ const AGG_WAVG_KEYS = [
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
-  "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
+  "revenueGrowthTarget", "revYtdGrowth",
   "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
 ];
 const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory", "ihHistory"];
@@ -446,6 +446,24 @@ function aggregateRows(
     };
     for (const k of AGG_CAMPUS_WAVG_KEYS) out[k] = dedupeWavg(byCampus, (r) => r[k]);
     for (const k of AGG_CAMPUS_SL_WAVG_KEYS) out[k] = dedupeWavg(byCampusSL, (r) => r[k]);
+    // % impact recomputed from summed components (never average %s): summed
+    // move-ins-based monthly impact ÷ summed current in-house revenue
+    // (ihSpot × occupied units per detail row) — same basis as the server's
+    // per-room-type revImpactPct.
+    {
+      let denom = 0;
+      for (const r of rs) {
+        const ih = r.ihSpot;
+        const tu = Number(r.totalUnits ?? 0);
+        const vac = Number(r.vacantSpot ?? 0);
+        if (ih !== null && ih !== undefined && Number(ih) > 0 && tu > 0) {
+          denom += Number(ih) * Math.max(tu - vac, 0);
+        }
+      }
+      out.revImpactPct = (out.revMonthlyImpact !== null && denom > 0)
+        ? Number(out.revMonthlyImpact) / denom
+        : null;
+    }
     // YTD growth recomputed from summed revenue components (not averaged %s)
     {
       let spotSum = 0, baseSum = 0, anyYtd = false;
@@ -776,22 +794,11 @@ export default function ReferenceDataTable({
         if (st !== null && stT12 !== null && stT12 > 0) out.streetIncT12 = (st - stT12) / stT12;
       }
 
-      // Revenue impact from portfolio-level rates at aggregation levels
-      if (groupLevel !== "roomType" && groupLevel !== "roomDetail") {
-        const proposed = row.proposedRule as number | null;
-        const street   = row.streetSpot   as number | null;
-        const units    = Number(row.totalUnits ?? 0);
-        const ihRate   = row.ihSpot        as number | null;
-        const occPct   = row.slOccSpot     as number | null; // 0–100
-        if (proposed !== null && street !== null && units > 0) {
-          const monthly = Math.round((proposed - street) * units * 10) / 10;
-          out.revMonthlyImpact = monthly;
-          out.revAnnualImpact  = Math.round(monthly * 12 * 10) / 10;
-          out.revImpactPct = (ihRate !== null && ihRate > 0 && occPct !== null && occPct > 0)
-            ? monthly / (ihRate * units * occPct / 100)
-            : null;
-        }
-      }
+      // Revenue impact at aggregation levels: the summed per-room-type values
+      // (from AGG_SUM_KEYS / the % recompute in aggregateRows) are already
+      // move-ins-based — (proposed − street) × T3 move-ins/mo per row — so no
+      // units-based recompute here. Impact must reflect expected move-ins at
+      // the new rate, never "all units repriced".
 
       return out;
     });

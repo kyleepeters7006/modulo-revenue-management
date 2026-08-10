@@ -239,6 +239,11 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                         {rule.effectiveDate && (
                           <p className="text-[10px] text-slate-400 mt-0.5 pl-0">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
                         )}
+                        {rule.notes && (
+                          <p className="text-[10px] italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 leading-snug whitespace-pre-wrap" data-testid={`report-note-${rule.id}`}>
+                            {rule.notes}
+                          </p>
+                        )}
                       </td>
                       <td className="px-3 py-3.5">
                         {sl !== "—" ? (

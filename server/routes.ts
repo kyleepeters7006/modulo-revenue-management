@@ -14946,6 +14946,9 @@ Respond in JSON format:
       const deltaOf = (base: number): number =>
         adjustmentType === 'percentage' ? base * (adjustmentValue / 100) : adjustmentValue;
 
+      // In-house/care rules reprice CURRENT residents directly → per-unit delta sum.
+      // Street-rate rules only affect NEW move-ins → expected move-ins/mo × Δrate.
+      const directReprice = target === 'in_house_rate' || target === 'care_rate';
       let naiveMonthly = 0;
       const byRt = new Map<string, { count: number; sumBase: number; sumDelta: number; sl: string }>();
       for (const u of affected) {
@@ -14961,6 +14964,7 @@ Respond in JSON format:
       const elasticityMap = await getElasticityMap(clientId);
       const moveMap = await getT3MoveInsMapSvc(clientId, scope);
 
+      let mirMonthly = 0; // street-rate basis: Σ (T3 move-ins/mo × avg Δrate) per room type
       let elMonthly: number | null = null;
       let elAnnual: number | null = null;
       let wElasticity: number | null = null, wDaysAfter: number | null = null, wPredDays: number | null = null;
@@ -14978,6 +14982,7 @@ Respond in JSON format:
         const impact = calculateElasticityRevenueImpact({
           moveInsMonthly: moveIns, deltaRate: avgDelta, deltaDaysToSell: predDays, dailyRate,
         });
+        if (moveIns !== null && moveIns > 0) mirMonthly += moveIns * avgDelta;
         if (impact.monthly !== null) elMonthly = (elMonthly ?? 0) + impact.monthly;
         if (impact.annual !== null) elAnnual = (elAnnual ?? 0) + impact.annual;
         if (elasticity !== null) { wElasticity = (wElasticity ?? 0) + elasticity * g.count; elWeight += g.count; }
@@ -14985,10 +14990,14 @@ Respond in JSON format:
         if (predDays !== null) { wPredDays = (wPredDays ?? 0) + predDays * g.count; predWeight += g.count; }
       }
 
+      // Revenue impact basis: direct repricing (in-house/care) sums per-unit
+      // deltas; street-rate rules use expected move-ins × rate change so the
+      // number matches every other impact surface (rules list, Reference Data).
+      const baseMonthly = directReprice ? naiveMonthly : mirMonthly;
       return {
         unitsImpacted: affected.length,
-        monthlyImpact: Math.round(naiveMonthly),
-        annualImpact: Math.round(naiveMonthly * 12),
+        monthlyImpact: Math.round(baseMonthly),
+        annualImpact: Math.round(baseMonthly * 12),
         elasticity: elWeight > 0 && wElasticity !== null ? wElasticity / elWeight : null,
         daysToSellAfter: daysWeight > 0 && wDaysAfter !== null ? wDaysAfter / daysWeight : null,
         predictedDaysToSellChange: predWeight > 0 && wPredDays !== null ? wPredDays / predWeight : null,
