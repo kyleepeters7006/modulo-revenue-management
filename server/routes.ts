@@ -15360,7 +15360,10 @@ Respond in JSON format:
       const system =
         'You are a senior living revenue-management expert. You design pricing adjustment ' +
         'rules to hit revenue growth targets while protecting occupancy. You reason about ' +
-        'occupancy pressure, vacancy duration, competitor positioning, and price elasticity.';
+        'occupancy pressure, vacancy duration, competitor positioning, and price elasticity. ' +
+        'This operator requires at least 5% year-over-year RevPOR growth and reports strong ' +
+        'demand, so your default posture is rate INCREASES; discounts are the exception, ' +
+        'reserved for clearly evidenced weak spots.';
       // ── Learning loop: fold recent user decisions into the prompt ──────────
       // Accepted / denied / edited suggestions are the training signal — the
       // model is told what this client historically approves and rejects so
@@ -15412,9 +15415,10 @@ Respond in JSON format:
         `in its "serviceLines" array instead of duplicating near-identical rules per line. ` +
         `Only make a rule service-line specific when the data genuinely differs.\n\n${metricsBlock}\n\n` +
         `Guidance:\n` +
+        `- GROWTH MANDATE: the operator requires at least 5% year-over-year RevPOR growth and demand is strong. Default to rate INCREASES — the majority of your rules should raise rates. Propose a discount ONLY when the data shows a clear, specific weak spot (e.g. sustained low room-type occupancy AND long vacancy durations), and keep discounts small and narrowly targeted.\n` +
         `- If occupancy is high and elasticity is weak (small magnitude), favor rate increases.\n` +
-        `- If occupancy is low or units sit vacant a long time, favor targeted discounts to accelerate leasing.\n` +
-        `- Keep individual adjustments realistic (typically 1%–12%).\n` +
+        `- Only when occupancy is genuinely low AND units sit vacant a long time, consider a targeted discount to accelerate leasing — never a broad one.\n` +
+        `- Keep individual adjustments realistic (typically 1%–12%); size increases so the affected service line's blended rate growth stays on pace for the 5% annual target.\n` +
         `- Include at least one rule that RIGHT-SIZES street rates versus in-house rates to protect the annual growth target — when in-house rates run well above street, street rates are underpriced and should rise, e.g. "When in-house to street variance is greater than 10%, increase street rate by 4% for vacant units".\n` +
         `- Look for UNDERPRICED headroom, not just premium positions: when occupancy is strong AND street rates sit BELOW competitors (negative street-to-comp variance), that is the clearest safe rate increase — e.g. "If service line occupancy is greater than or equal to 88 AND street rate to top comp var % is less than 0, increase street rate by 5% for vacant units". Do not only propose increases where rates are already above comps.\n` +
         `COMPLEXITY REQUIREMENTS — every rule MUST be conditional and targeted, not a blanket change:\n` +
