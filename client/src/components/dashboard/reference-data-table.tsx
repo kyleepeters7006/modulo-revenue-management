@@ -236,11 +236,11 @@ const GROUPS: GroupDef[] = [
   },
   {
     id: "proposed",
-    label: "Proposed Rates",
+    label: "Final Rate (Rules Applied)",
     cols: [
-      { key: "proposedRule", label: "Rule", type: "money", w: 80, tip: "Proposed rate from the rules engine. Blank when no adjustment rule applies to this combo." },
-      { key: "proposedVarDollar", label: "$ Var", type: "moneysigned", w: 75, tip: "Proposed rate minus current street rate (dollars)." },
-      { key: "proposedVarPct", label: "% Var", type: "pctfracsigned", w: 65, tip: "Proposed rate vs current street rate as a percentage." },
+      { key: "proposedRule", label: "Final", type: "money", w: 80, tip: "Final proposed rate after all active rules (and any manual override) are applied. Blank when no adjustment rule applies to this combo." },
+      { key: "proposedVarDollar", label: "Δ$ vs Current", type: "moneysigned", w: 90, tip: "Final rules-applied rate minus the current street (spot) rate, in dollars." },
+      { key: "proposedVarPct", label: "Δ% vs Current", type: "pctfracsigned", w: 90, tip: "Final rules-applied rate vs the current street (spot) rate, as a percentage." },
     ],
   },
   {
@@ -826,8 +826,18 @@ export default function ReferenceDataTable({
           tip: `Avg proposed rate for units where the "${r.name}" rule was applied (spot month).`,
         }],
       }));
-      const insertAt = GROUPS.findIndex(g => g.id === "inhouse") + 1;
-      base = [...GROUPS.slice(0, insertAt), ...ruleGroups, ...GROUPS.slice(insertAt)];
+      // Inject rule columns after "inhouse", then place the Final Rate group
+      // (rules-applied rate + Δ vs current street rate) immediately after the
+      // rule columns so the outcome of the rules sits right beside them.
+      const proposedGroup = GROUPS.find(g => g.id === "proposed")!;
+      const withoutProposed = GROUPS.filter(g => g.id !== "proposed");
+      const insertAt = withoutProposed.findIndex(g => g.id === "inhouse") + 1;
+      base = [
+        ...withoutProposed.slice(0, insertAt),
+        ...ruleGroups,
+        proposedGroup,
+        ...withoutProposed.slice(insertAt),
+      ];
     }
 
     // Swap the leading identity columns to match the active grouping level
