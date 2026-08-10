@@ -4588,11 +4588,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const weights = await storage.getCurrentWeights();
-      const competitors = await storage.getCompetitors(clientId);
-      
+
+      // Shared care-adjusted market benchmark (task 437 methodology) — never
+      // compare against raw per-unit competitor rate averages (room-mix distorted).
+      const compBenchmark = await loadCompBenchmark(pool, clientId);
+
       // Generate recommendations based on algorithm
       const recommendations = await Promise.all(rentRollData.map(async unit => {
-        let recommendedRent = unit.baseRent;
+        let recommendedRent = unit.streetRate;
         let rationale = "Base rent";
         let mlConfidence = Math.floor(Math.random() * 30) + 70; // 70-99% confidence
         const factors = [];
@@ -4612,27 +4615,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Apply unit attributes
-        if (unit.attributes) {
-          if (unit.attributes.view) {
-            recommendedRent *= 1.05;
-            factors.push("premium view");
-            mlConfidence += 3;
-          }
-          if (unit.attributes.renovated) {
-            recommendedRent *= 1.08;
-            factors.push("recently renovated");
-            mlConfidence += 5;
-          }
-          if (unit.attributes.corner) {
-            recommendedRent *= 1.02;
-            factors.push("corner unit");
-            mlConfidence += 2;
-          }
+        if (unit.view && unit.view !== 'Street View') {
+          recommendedRent *= 1.05;
+          factors.push("premium view");
+          mlConfidence += 3;
+        }
+        if (unit.renovated) {
+          recommendedRent *= 1.08;
+          factors.push("recently renovated");
+          mlConfidence += 5;
         }
 
-        // Apply competitor rates
-        if (unit.competitorBenchmarkRate) {
-          const competitorDiff = (unit.competitorBenchmarkRate - unit.baseRent) / unit.baseRent;
+        // Apply competitor rates via the shared care-adjusted market benchmark
+        const marketBenchmark = compBenchmark.benchmarkFor(unit.location, unit.serviceLine)?.adjusted ?? null;
+        if (marketBenchmark && unit.streetRate > 0) {
+          const competitorDiff = (marketBenchmark - unit.streetRate) / unit.streetRate;
           if (Math.abs(competitorDiff) > 0.1) { // Significant difference
             recommendedRent += (competitorDiff * recommendedRent * 0.3);
             factors.push(competitorDiff > 0 ? "market premium opportunity" : "competitive pricing");
@@ -4670,12 +4667,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rationale = factors.length > 0 ? factors.join(", ") : "market rate analysis";
 
         return {
-          Unit_ID: unit.unitId,
+          Unit_ID: unit.roomNumber,
           Room_Type: unit.roomType,
           Occupied_YN: unit.occupiedYN ? 'Y' : 'N',
           Days_Vacant: unit.daysVacant || 0,
-          Fence_Price: unit.baseRent,
-          Competitor_Benchmark_Rate: unit.competitorBenchmarkRate,
+          Fence_Price: unit.streetRate,
+          Competitor_Benchmark_Rate: marketBenchmark,
           Recommended_Rent: Math.round(recommendedRent),
           ML_Suggested_Rent: mlSuggestedRent,
           ML_Confidence: mlConfidence,
@@ -4689,63 +4686,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Room type comparison
-  app.get("/api/compare", async (req: any, res) => {
-    try {
-      const clientId = req.clientId || 'demo';
-      const rentRollData = await storage.getRentRollData(clientId);
-      const competitors = await storage.getCompetitors(clientId);
-      
-      // Group by room type
-      const roomTypes = new Map();
-      
-      for (const unit of rentRollData) {
-        if (!roomTypes.has(unit.roomType)) {
-          roomTypes.set(unit.roomType, {
-            units: [],
-            totalRent: 0,
-            competitorRates: [],
-            competitorCareRates: []
-          });
-        }
-        
-        const roomData = roomTypes.get(unit.roomType);
-        roomData.units.push(unit);
-        roomData.totalRent += unit.baseRent + (unit.careFee || 0);
-        
-        if (unit.competitorBenchmarkRate) {
-          roomData.competitorRates.push(unit.competitorBenchmarkRate);
-        }
-        
-        if (unit.competitorAvgCareRate) {
-          roomData.competitorCareRates.push(unit.competitorAvgCareRate);
-        }
-      }
-
-      const comparison = Array.from(roomTypes.entries()).map(([roomType, data]) => {
-        const yourCurrentAvg = data.totalRent / data.units.length;
-        const marketAvg = data.competitorRates.length > 0 
-          ? data.competitorRates.reduce((sum, rate) => sum + rate, 0) / data.competitorRates.length 
-          : yourCurrentAvg;
-        const competitorAvgCare = data.competitorCareRates.length > 0
-          ? data.competitorCareRates.reduce((sum, rate) => sum + rate, 0) / data.competitorCareRates.length
-          : 0;
-
-        return {
-          Room_Type: roomType,
-          Your_Current_Avg: yourCurrentAvg,
-          Market_Avg: marketAvg,
-          Competitor_Avg_Care: competitorAvgCare,
-          Net_vs_Market: yourCurrentAvg - marketAvg,
-          Modulo_Recommended: marketAvg * 1.05 // 5% premium over market
-        };
-      });
-
-      res.json({ rows: comparison });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to generate comparison" });
-    }
-  });
+  // NOTE: The legacy /api/compare endpoint (room-type comparison from raw
+  // per-unit competitor rate averages) was removed — its only consumer was the
+  // unrouted pages/dashboard.tsx ComparisonTable, and its market math was
+  // room-mix distorted. Use the shared benchmark service (compBenchmark.ts).
 
   // Publish rates to CSV
   app.post("/api/publish", async (req, res) => {

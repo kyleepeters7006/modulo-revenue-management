@@ -181,7 +181,6 @@ export default function DataUpload() {
       queryClient.invalidateQueries({ queryKey: ['/api/status'] });
       queryClient.invalidateQueries({ queryKey: ['/api/series'] });
       queryClient.invalidateQueries({ queryKey: ['/api/recommendations'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/compare'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rent-roll'] });
     },
     onError: (error) => {

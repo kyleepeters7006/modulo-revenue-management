@@ -8,7 +8,6 @@ import DataUpload from "@/components/dashboard/data-upload";
 import PricingWeights from "@/components/dashboard/pricing-weights";
 import { CompetitorMap } from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
-import ComparisonTable from "@/components/dashboard/comparison-table";
 import UnitRecommendations from "@/components/dashboard/unit-recommendations";
 import AttributePricing from "@/components/dashboard/attribute-pricing";
 import AiInsights from "@/components/dashboard/ai-insights";
@@ -176,11 +175,6 @@ export default function Dashboard() {
                 <CompetitorForm />
               </div>
             </div>
-          </div>
-
-          {/* Comparison Table */}
-          <div className="mb-16">
-            <ComparisonTable />
           </div>
 
           {/* Unit Recommendations */}
