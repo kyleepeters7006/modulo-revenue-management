@@ -15745,6 +15745,56 @@ Respond in JSON format:
     }
   });
 
+  // Learning history: recent feedback entries (accepted/denied/edited) that
+  // shape the AI suggestion prompt. Lets users see what the AI has learned.
+  app.get("/api/adjustment-rules/suggestions/feedback", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const r = await pool.query(
+        `SELECT id, verdict, name, description, service_line, created_at
+         FROM ai_suggestion_feedback
+         WHERE client_id = $1
+         ORDER BY created_at DESC
+         LIMIT 40`,
+        [clientId]
+      );
+      res.json({
+        entries: r.rows.map((row: any) => ({
+          id: row.id,
+          verdict: row.verdict,
+          name: row.name,
+          description: row.description,
+          serviceLine: row.service_line,
+          createdAt: row.created_at,
+        })),
+      });
+    } catch (error) {
+      console.error('Error fetching AI learning history:', error);
+      res.status(500).json({ error: "Failed to fetch learning history" });
+    }
+  });
+
+  // Clear the tenant's AI learning history. The next suggestion run will have
+  // no learning block (fresh start) — used after e.g. a pricing-strategy pivot.
+  app.delete("/api/adjustment-rules/suggestions/feedback", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      // Server-side confirm guard: the destructive wipe requires an explicit
+      // confirmation token so it can't be triggered by a stray DELETE call.
+      if (req.body?.confirm !== 'clear-learning-history') {
+        return res.status(400).json({ error: "Confirmation required: pass { confirm: 'clear-learning-history' }" });
+      }
+      const r = await pool.query(
+        `DELETE FROM ai_suggestion_feedback WHERE client_id = $1`,
+        [clientId]
+      );
+      res.json({ success: true, deleted: r.rowCount ?? 0 });
+    } catch (error) {
+      console.error('Error clearing AI learning history:', error);
+      res.status(500).json({ error: "Failed to clear learning history" });
+    }
+  });
+
   // Last cached AI suggestion run for this client (see ai_suggestion_runs).
   app.get("/api/adjustment-rules/suggest/last", async (req: any, res) => {
     try {

@@ -1,6 +1,17 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil } from "lucide-react";
+import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil, History, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -75,6 +86,36 @@ export default function AiRuleGenerator({
   const [includeInHouse, setIncludeInHouse] = useState(false);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
+  const [showLearningHistory, setShowLearningHistory] = useState(false);
+
+  // Learning history: past Accept/Edit/Deny decisions that shape AI suggestions.
+  const { data: learningHistory, isLoading: learningLoading } = useQuery<{
+    entries: Array<{ id: number; verdict: 'accepted' | 'denied' | 'edited'; name: string | null; description: string | null; serviceLine: string | null; createdAt: string }>;
+  }>({
+    queryKey: ["/api/adjustment-rules/suggestions/feedback"],
+    enabled: showLearningHistory,
+  });
+
+  const clearLearningMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("/api/adjustment-rules/suggestions/feedback", "DELETE", { confirm: "clear-learning-history" });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules/suggestions/feedback"] });
+      toast({
+        title: "Learning history cleared",
+        description: `Removed ${data?.deleted ?? 0} past decision${data?.deleted === 1 ? '' : 's'}. The next suggestion run starts fresh.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to clear learning history",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   // Restore the last AI run (cached server-side) so suggestions survive reloads.
   const { data: lastRun } = useQuery<{ suggestions?: RuleSuggestion[]; generatedAt?: string } | null>({
@@ -488,6 +529,102 @@ export default function AiRuleGenerator({
           </div>
         </div>
       )}
+
+      {/* Learning history: what the AI has learned from past Accept/Edit/Deny decisions. */}
+      <div className="border border-gray-200 rounded-lg" data-testid="card-learning-history">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+          onClick={() => setShowLearningHistory(v => !v)}
+          data-testid="button-toggle-learning-history"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <History className="h-4 w-4 text-gray-500" />
+            Learning history
+            <span className="text-xs font-normal text-gray-400">— past decisions shaping AI suggestions</span>
+          </span>
+          {showLearningHistory ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+        </button>
+        {showLearningHistory && (
+          <div className="px-4 pb-4 space-y-3">
+            {learningLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading learning history...
+              </div>
+            ) : !learningHistory?.entries?.length ? (
+              <p className="text-sm text-gray-500 py-1" data-testid="text-no-learning-history">
+                No learning history yet. Accept, edit, or deny AI suggestions and your decisions will appear here — the AI uses them to calibrate future suggestions.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500">
+                  The AI favors rules similar to accepted/edited ones and avoids re-proposing denied ones. Showing the {learningHistory.entries.length} most recent decisions.
+                </p>
+                {(['accepted', 'edited', 'denied'] as const).map((verdict) => {
+                  const group = learningHistory.entries.filter(e => e.verdict === verdict);
+                  if (!group.length) return null;
+                  const styles = {
+                    accepted: { label: 'Accepted', badge: 'bg-green-100 text-green-800' },
+                    edited: { label: 'Edited', badge: 'bg-amber-100 text-amber-800' },
+                    denied: { label: 'Denied', badge: 'bg-red-100 text-red-800' },
+                  }[verdict];
+                  return (
+                    <div key={verdict} data-testid={`learning-group-${verdict}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Badge variant="secondary" className={`text-[10px] ${styles.badge}`}>{styles.label}</Badge>
+                        <span className="text-xs text-gray-400">{group.length}</span>
+                      </div>
+                      <ul className="space-y-1">
+                        {group.map((e) => (
+                          <li key={e.id} className="text-xs text-gray-600 flex items-baseline gap-2" data-testid={`learning-entry-${e.id}`}>
+                            <span className="text-gray-400 whitespace-nowrap">
+                              {new Date(e.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                            {e.serviceLine && <span className="text-gray-400 whitespace-nowrap">[{e.serviceLine}]</span>}
+                            <span className="truncate">{e.description || e.name || '—'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                      disabled={clearLearningMutation.isPending}
+                      data-testid="button-clear-learning-history"
+                    >
+                      {clearLearningMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      Clear learning history
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Clear AI learning history?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This permanently removes all {learningHistory.entries.length >= 40 ? '40+' : learningHistory.entries.length} recorded Accept/Edit/Deny decisions. The AI will stop calibrating suggestions to your past choices and start fresh on the next run. This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel data-testid="button-cancel-clear-learning">Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-red-600 hover:bg-red-700"
+                        onClick={() => clearLearningMutation.mutate()}
+                        data-testid="button-confirm-clear-learning"
+                      >
+                        Clear history
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
