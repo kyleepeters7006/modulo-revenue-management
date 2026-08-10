@@ -5521,10 +5521,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const avgHcDailyRate = hcUnits > 0 ? hcRate / hcUnits : 0;
         const avgSeniorHousingMonthlyRate = seniorHousingUnits > 0 ? seniorHousingRate / seniorHousingUnits : 0;
         
-        // Market position is benchmarked against the TOP (highest) competitor adjusted
-        // rate from the competitive data — NOT the average competitor rate. Comparing
-        // against the average overstated our premium (e.g. a campus could show +94%
-        // vs a low blended average). The top comp is the most relevant pricing ceiling.
+        // DECISION (kept intentionally): market position here is benchmarked against
+        // the TOP (highest) competitor adjusted rate from the competitive data — NOT
+        // the average competitor rate, and NOT the shared care-adjusted market
+        // benchmark (server/services/compBenchmark.ts) used by the Competitive
+        // Position scatter and AI rule suggestions. Comparing against a blended
+        // average overstated our premium (e.g. a campus could show +94% vs a low
+        // blended average). The top comp is the most relevant pricing ceiling for
+        // this campus-level view, and the UI labels it explicitly as "vs top
+        // competitor" so it cannot be confused with the shared market benchmark.
+        // If an AVERAGE-based premium is ever added here, it must come from
+        // loadCompBenchmark/unitWeightedBenchmark — never a raw
+        // competitor_final_rate average.
         //
         // Rates have two incompatible bases: HC / HC/MC are daily; senior housing
         // (AL, AL/MC, SL, VIL, IL) is monthly. We compute top comp + avg in-house rate

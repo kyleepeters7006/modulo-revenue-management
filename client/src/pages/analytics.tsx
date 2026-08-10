@@ -53,7 +53,7 @@ interface ExportRow {
   'Avg Rate': number;
   'Occupancy %': string;
   'Top Comp Rate': number;
-  'Price Position %': string;
+  'Position vs Top Comp %': string;
 }
 
 interface BreakdownItem {
@@ -69,7 +69,7 @@ interface CampusMetrics {
   avgRate: number;
   occupancy: number;
   competitorAvgRate: number;
-  pricePosition: number; // % above/below market
+  pricePosition: number; // % above/below the top competitor rate
   revenueImpact: number;
   potentialRevenue: number;
   unitsCount: number;
@@ -131,7 +131,7 @@ const CustomTooltip = ({ active, payload, pinnedData }: CustomTooltipProps & { p
             )}
             {data.pricePosition !== undefined && (
               <p className={`font-medium ${data.pricePosition > 0 ? 'text-[var(--trilogy-success)]' : 'text-[var(--trilogy-error)]'}`}>
-                Position: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
+                Position vs Top Comp: {data.pricePosition > 0 ? '+' : ''}{data.pricePosition.toFixed(1)}%
               </p>
             )}
             {data.rateGrowthT6 !== undefined && (
@@ -384,7 +384,7 @@ export function Analytics() {
       'Avg Rate': d.avgRate,
       'Occupancy %': (d.occupancy * 100).toFixed(1),
       'Top Comp Rate': d.competitorAvgRate,
-      'Price Position %': d.pricePosition.toFixed(1),
+      'Position vs Top Comp %': d.pricePosition.toFixed(1),
     }));
     
     const csv = [
@@ -449,12 +449,12 @@ export function Analytics() {
         const totalPricePosition = campusesWithData.reduce((sum: number, c: any) => 
           sum + (c.pricePosition || 0), 0);
         return {
-          title: 'Market Position Calculation',
+          title: 'Position vs Top Competitor Calculation',
           formula: 'Average of ((Your Rate - Top Competitor Rate) ÷ Top Competitor Rate × 100), benchmarked against the highest adjusted competitor rate per rate basis',
           steps: [
             { label: 'Campuses with adjusted competitor data', value: campusesWithData.length.toString() },
-            { label: 'Sum of all price positions', value: `${totalPricePosition > 0 ? '+' : ''}${totalPricePosition.toFixed(1)}%` },
-            { label: 'Average market position (weighted)', value: `${summary.avgPricePosition > 0 ? '+' : ''}${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
+            { label: 'Sum of all positions vs top competitor', value: `${totalPricePosition > 0 ? '+' : ''}${totalPricePosition.toFixed(1)}%` },
+            { label: 'Average position vs top competitor (weighted)', value: `${summary.avgPricePosition > 0 ? '+' : ''}${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
           ],
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,
@@ -695,7 +695,7 @@ export function Analytics() {
           data-testid="card-market-position"
         >
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Market Position</CardTitle>
+            <CardTitle className="text-sm font-medium">Position vs Top Competitor</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold flex items-center gap-2">
@@ -706,7 +706,7 @@ export function Analytics() {
               )}
               {analyticsData?.summary?.avgPricePosition?.toFixed(1) || 0}%
             </div>
-            <p className="text-xs text-muted-foreground">vs. competitors • Click for details</p>
+            <p className="text-xs text-muted-foreground">vs. top competitor rate • Click for details</p>
           </CardContent>
         </Card>
         
@@ -733,11 +733,11 @@ export function Analytics() {
       <Tabs defaultValue="rate-growth" className="space-y-4">
         <TabsList className="flex w-full overflow-x-auto flex-nowrap justify-start h-auto">
           <TabsTrigger value="rate-growth" className="flex-shrink-0 text-xs sm:text-sm">Rate Growth</TabsTrigger>
-          <TabsTrigger value="price-position" className="flex-shrink-0 text-xs sm:text-sm">Price vs Market</TabsTrigger>
+          <TabsTrigger value="price-position" className="flex-shrink-0 text-xs sm:text-sm">Price vs Top Comp</TabsTrigger>
           <TabsTrigger value="occupancy-rate" className="flex-shrink-0 text-xs sm:text-sm">Occupancy vs Rate</TabsTrigger>
           <TabsTrigger value="occupancy-position" className="flex-shrink-0 text-xs sm:text-sm">Occ vs Position</TabsTrigger>
           <TabsTrigger value="revenue-impact" className="flex-shrink-0 text-xs sm:text-sm">Revenue Impact</TabsTrigger>
-          <TabsTrigger value="market-share" className="flex-shrink-0 text-xs sm:text-sm">Market Position</TabsTrigger>
+          <TabsTrigger value="market-share" className="flex-shrink-0 text-xs sm:text-sm">Top Comp Position</TabsTrigger>
           <TabsTrigger value="vacancy-analysis" className="flex-shrink-0 text-xs sm:text-sm">Vacancy Analysis</TabsTrigger>
           <TabsTrigger value="rra-discounts" className="flex-shrink-0 text-xs sm:text-sm">RRA Discounts</TabsTrigger>
           <TabsTrigger value="room-type-trends" className="flex-shrink-0 text-xs sm:text-sm">Room Type Trends</TabsTrigger>
@@ -841,7 +841,7 @@ export function Analytics() {
             <CardHeader>
               <CardTitle>Price Positioning Matrix</CardTitle>
               <CardDescription>
-                Each dot represents a campus. Position shows how your rates compare to local competition.
+                Each dot represents a campus. Position shows how your rates compare to the top (highest) competitor rate at each campus.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -932,7 +932,7 @@ export function Analytics() {
             <CardHeader>
               <CardTitle>Occupancy vs Competitive Position</CardTitle>
               <CardDescription>
-                Current occupancy rate vs price differential from competitors.
+                Current occupancy rate vs price differential from the top competitor rate.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -950,8 +950,8 @@ export function Analytics() {
                   <YAxis 
                     type="number" 
                     dataKey="pricePosition" 
-                    name="Price Position"
-                    label={{ value: '% Higher/Lower than Competitor', angle: -90, position: 'center', dx: -35 }}
+                    name="Position vs Top Comp"
+                    label={{ value: '% Higher/Lower than Top Competitor', angle: -90, position: 'center', dx: -35 }}
                     domain={[(dataMin: number) => Math.floor(dataMin - 5), (dataMax: number) => Math.ceil(dataMax + 5)]}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value.toFixed(0)}%`}
                   />
@@ -1113,7 +1113,7 @@ export function Analytics() {
             <CardHeader>
               <CardTitle>Revenue Impact Analysis</CardTitle>
               <CardDescription>
-                Price position vs projected revenue impact. Size indicates campus capacity.
+                Price position vs top competitor plotted against projected revenue impact. Size indicates campus capacity.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1123,8 +1123,8 @@ export function Analytics() {
                   <XAxis 
                     type="number" 
                     dataKey="pricePosition" 
-                    name="Price Position"
-                    label={{ value: 'Price Position vs Market (%)', position: 'insideBottom', offset: -15 }}
+                    name="Position vs Top Comp"
+                    label={{ value: 'Price Position vs Top Competitor (%)', position: 'insideBottom', offset: -15 }}
                     domain={[-100, 200]}
                     tickFormatter={(value) => `${value > 0 ? '+' : ''}${value}%`}
                     ticks={[-100, -50, 0, 50, 100, 150, 200]}
@@ -1204,7 +1204,7 @@ export function Analytics() {
             <CardHeader>
               <CardTitle>Market Competition Position</CardTitle>
               <CardDescription>
-                Price differential from competitors vs occupancy performance.
+                Price differential from the top competitor rate vs occupancy performance.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1222,8 +1222,8 @@ export function Analytics() {
                   <YAxis 
                     type="number" 
                     dataKey="pricePosition" 
-                    name="Price Position"
-                    label={{ value: 'Price Differential from Market (%)', angle: -90, position: 'center', dx: -35 }}
+                    name="Position vs Top Comp"
+                    label={{ value: 'Price Differential from Top Competitor (%)', angle: -90, position: 'center', dx: -35 }}
                     domain={([dataMin, dataMax]) => [
                       Math.floor((Number(dataMin) - 10) / 10) * 10,
                       Math.ceil((Number(dataMax) + 10) / 10) * 10,
