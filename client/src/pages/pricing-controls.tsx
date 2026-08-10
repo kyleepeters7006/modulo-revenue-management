@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
 import Navigation from "@/components/navigation";
-import { RuleDesigner } from "@/components/dashboard/rule-designer";
+import { RuleDesigner, type RuleDesignerHelpers } from "@/components/dashboard/rule-designer";
 import { StrategyReportModal } from "@/components/dashboard/pricing-reports";
 import AiRuleGenerator from "@/components/dashboard/ai-rule-generator";
 import { RulePerformanceTable } from "@/components/dashboard/rule-performance-table";
@@ -53,6 +53,8 @@ export default function PricingControls() {
     urlLocation ? [urlLocation] : (savedFilters?.locations || [])
   );
   const [strategyReportOpen, setStrategyReportOpen] = useState(false);
+  const [ruleFocus, setRuleFocus] = useState<string | null>(null);
+  const designerHelpersRef = useRef<RuleDesignerHelpers | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(true);
 
   // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
@@ -451,6 +453,15 @@ export default function PricingControls() {
           selectedRegions={selectedRegions}
           selectedDivisions={selectedDivisions}
           selectedLocationId={selectedLocationId}
+          onDraftRule={(text) => {
+            setRuleFocus(text);
+            if (designerHelpersRef.current) {
+              designerHelpersRef.current.showAiGenerator();
+            } else {
+              // Helpers not captured yet — at least bring the designer into view.
+              document.getElementById('rule-designer-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }}
         />
 
         <div className="space-y-6 sm:space-y-8">
@@ -473,16 +484,21 @@ export default function PricingControls() {
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
             locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
-            aiGenerator={({ editSuggestion }) => (
-              <AiRuleGenerator
-                locationId={selectedLocationId}
-                selectedServiceLine={selectedServiceLine}
-                selectedRegions={selectedRegions}
-                selectedDivisions={selectedDivisions}
-                selectedLocations={selectedLocations}
-                onEditSuggestion={editSuggestion}
-              />
-            )}
+            aiGenerator={(helpers) => {
+              designerHelpersRef.current = helpers;
+              return (
+                <AiRuleGenerator
+                  locationId={selectedLocationId}
+                  selectedServiceLine={selectedServiceLine}
+                  selectedRegions={selectedRegions}
+                  selectedDivisions={selectedDivisions}
+                  selectedLocations={selectedLocations}
+                  onEditSuggestion={helpers.editSuggestion}
+                  focus={ruleFocus}
+                  onFocusHandled={() => setRuleFocus(null)}
+                />
+              );
+            }}
           />
           </div>
 
@@ -552,6 +568,7 @@ interface StrategyOverviewData {
 }
 
 interface PricingCommentaryCardProps {
+  onDraftRule?: (recommendationText: string) => void;
   selectedServiceLine: string;
   selectedLocations: string[];
   selectedRegions: string[];
@@ -559,7 +576,7 @@ interface PricingCommentaryCardProps {
   selectedLocationId?: string;
 }
 
-function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId }: PricingCommentaryCardProps) {
+function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId, onDraftRule }: PricingCommentaryCardProps) {
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
@@ -1230,6 +1247,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 <>
                   <span className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600 mr-2">Recommendation</span>
                   <span className="text-sm leading-snug text-slate-600">{parseBold(data.recommendation)}</span>
+                  {onDraftRule && (
+                    <button
+                      type="button"
+                      className="ml-2 inline-flex items-center gap-1 align-middle text-[11px] font-semibold text-teal-600 hover:text-teal-800 border border-teal-200 hover:border-teal-400 rounded-md px-1.5 py-0.5 transition-colors"
+                      title="Have AI draft an adjustment rule implementing this recommendation"
+                      onClick={() => onDraftRule(data.recommendation!.replace(/\*\*/g, ''))}
+                      data-testid="button-draft-rule-single"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      Draft rule
+                    </button>
+                  )}
                 </>
               );
             }
@@ -1262,7 +1291,21 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   <ChevronDown className={`h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500 group-hover:text-amber-700 transition-transform duration-200 ${recsOpen ? '' : '-rotate-90'}`} />
                 </button>
                 {recsOpen && lines.map((line: string, i: number) => (
-                  <p key={i} className="text-[13px] leading-snug text-slate-600">{parseBold(line)}</p>
+                  <div key={i} className="flex items-start gap-2">
+                    <p className="text-[13px] leading-snug text-slate-600 min-w-0 flex-1">{parseBold(line)}</p>
+                    {onDraftRule && (
+                      <button
+                        type="button"
+                        className="shrink-0 mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-800 border border-teal-200 hover:border-teal-400 rounded-md px-1.5 py-0.5 transition-colors"
+                        title="Have AI draft an adjustment rule implementing this recommendation"
+                        onClick={() => onDraftRule(line.replace(/\*\*/g, '').replace(/^[•\-\*]\s*/, ''))}
+                        data-testid={`button-draft-rule-${i}`}
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Draft rule
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             );

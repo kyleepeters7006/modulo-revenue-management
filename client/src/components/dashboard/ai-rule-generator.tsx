@@ -44,6 +44,10 @@ interface AiRuleGeneratorProps {
   selectedLocations: string[];
   /** Load a suggestion into the Rule Designer's Natural Language editor for tweaking. */
   onEditSuggestion?: (s: { description: string; serviceLines?: string[] }) => void;
+  /** When set, auto-generate suggestions focused on this recommendation text. */
+  focus?: string | null;
+  /** Called once the focus request has been kicked off (so the parent can clear it). */
+  onFocusHandled?: () => void;
 }
 
 export default function AiRuleGenerator({
@@ -53,6 +57,8 @@ export default function AiRuleGenerator({
   selectedDivisions,
   selectedLocations,
   onEditSuggestion,
+  focus,
+  onFocusHandled,
 }: AiRuleGeneratorProps) {
   const { toast } = useToast();
 
@@ -147,7 +153,7 @@ export default function AiRuleGenerator({
 
   // Generate AI rule suggestions to hit the revenue growth targets.
   const suggestRulesMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (focusText?: string) => {
       const targetSLs = (selectedServiceLine === "All"
         ? (["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const)
         : [selectedServiceLine]) as Array<keyof TargetGrowth>;
@@ -163,6 +169,7 @@ export default function AiRuleGenerator({
         serviceLines: targetSLs,
         targets,
         includeInHouse,
+        ...(focusText ? { focus: focusText } : {}),
       });
       const data = await response.json();
       return (data.suggestions || []) as RuleSuggestion[];
@@ -187,6 +194,16 @@ export default function AiRuleGenerator({
       });
     },
   });
+
+  // Auto-generate when the parent hands us a focus recommendation (e.g. the
+  // "Draft rule" button on a strategy-overview recommendation bullet).
+  useEffect(() => {
+    if (focus && focus.trim() && !suggestRulesMutation.isPending) {
+      suggestRulesMutation.mutate(focus.trim());
+      onFocusHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
 
   // Keep the React Query cache of the last run in sync with accept/deny so an
   // SPA remount can't restore a suggestion that was just removed.
@@ -305,7 +322,7 @@ export default function AiRuleGenerator({
               )}
             </Button>
             <Button
-              onClick={() => suggestRulesMutation.mutate()}
+              onClick={() => suggestRulesMutation.mutate(undefined)}
               disabled={suggestRulesMutation.isPending}
               data-testid="button-suggest-rules"
             >

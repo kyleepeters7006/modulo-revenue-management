@@ -211,12 +211,19 @@ export interface SuggestionToEdit {
   serviceLines?: string[];
 }
 
+export interface RuleDesignerHelpers {
+  /** Load an AI suggestion into the Natural Language editor for tweaking. */
+  editSuggestion: (s: SuggestionToEdit) => void;
+  /** Open the designer on the AI generator tab and scroll it into view. */
+  showAiGenerator: () => void;
+}
+
 interface RuleDesignerProps {
   locationId?: string;
   serviceLine?: string;
   locationName?: string;
   /** Either a ReactNode, or a render function receiving helpers (e.g. to load an AI suggestion into the Natural Language editor). */
-  aiGenerator?: React.ReactNode | ((helpers: { editSuggestion: (s: SuggestionToEdit) => void }) => React.ReactNode);
+  aiGenerator?: React.ReactNode | ((helpers: RuleDesignerHelpers) => React.ReactNode);
 }
 
 export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerator: aiGeneratorProp }: RuleDesignerProps) {
@@ -264,8 +271,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
     setTimeout(() => designerCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }, []);
 
+  // Open the designer on the AI generator tab and scroll it into view
+  // (used by "Draft rule" buttons elsewhere on the page).
+  const showAiGenerator = useCallback(() => {
+    setDesignerOpen(true);
+    setActiveTab('ai-generator');
+    setTimeout(() => designerCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }, []);
+
   const aiGenerator = typeof aiGeneratorProp === 'function'
-    ? aiGeneratorProp({ editSuggestion })
+    ? aiGeneratorProp({ editSuggestion, showAiGenerator })
     : aiGeneratorProp;
 
   // Rule Administration filters (mirrors the Rule Performance section)
