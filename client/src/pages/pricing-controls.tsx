@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
 import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
@@ -38,6 +39,7 @@ const loadFiltersFromStorage = () => {
 };
 
 export default function PricingControls() {
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
@@ -594,7 +596,18 @@ interface PricingCommentaryCardProps {
   selectedLocationId?: string;
 }
 
+function clientSpecScore(r: any): number {
+  let score = 0;
+  if (r.locationId) score += 4;
+  const sls = Array.isArray(r.serviceLines) && r.serviceLines.length
+    ? r.serviceLines : r.serviceLine ? [r.serviceLine] : [];
+  if (sls.length > 0) score += 2;
+  const rt = r.action?.filters?.roomType;
+  if (Array.isArray(rt) && rt.length > 0) score += 1;
+  return score;
+}
 function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId, onDraftRule }: PricingCommentaryCardProps) {
+  const [, setLocation] = useLocation();
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
@@ -707,21 +720,36 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const activeRules = useMemo(() => (rulesData || []).filter((r: any) => r.isActive), [rulesData]);
   const activeRulesWithImpact = useMemo(() => activeRules.filter((r: any) => (r.affectedUnits ?? 0) > 0), [activeRules]);
 
-  // ── Latest-cycle-wins: detect rules superseded by a newer cycle for the same SL ──
+  // ── Latest-cycle-wins: detect rules superseded by a newer cycle ──
+  // Two rules can supersede each other only when they have the SAME effective scope
+  // (same locationId + serviceLine + room-type filter) AND one is from an older cycle.
+  // Blanket portfolio rules (no scope) and targeted rules use separate cycle clocks so
+  // a newer blanket rule can never cross out an older targeted rule.
+  // Within the targeted tier, Campus A VIL rules and Campus B VIL rules are independent:
+  // only rules with the exact same location+SL+RT scope compete in the same cycle clock.
   const supersededIds = useMemo(() => {
-    const latestCyclePerSL: Record<string, string> = {};
+    // Key = tier + full scope so rules with different scopes never compete.
+    function scopeKey(r: any): string {
+      const tier = clientSpecScore(r) > 0 ? 'targeted' : 'blanket';
+      const loc = r.locationId ?? '';
+      const sl  = r.serviceLine ?? (Array.isArray(r.serviceLines) && r.serviceLines.length ? r.serviceLines.slice().sort().join('+') : '');
+      const rt  = Array.isArray(r.action?.filters?.roomType)
+        ? r.action.filters.roomType.slice().sort().join('+') : '';
+      return `${tier}|${loc}|${sl}|${rt}`;
+    }
+    const latestCyclePerKey: Record<string, string> = {};
     activeRules.forEach((r: any) => {
       if (!r.effectiveDate) return;
-      const sl = r.serviceLine || '*';
+      const key   = scopeKey(r);
       const month = String(r.effectiveDate).slice(0, 7);
-      if (!latestCyclePerSL[sl] || month > latestCyclePerSL[sl]) latestCyclePerSL[sl] = month;
+      if (!latestCyclePerKey[key] || month > latestCyclePerKey[key]) latestCyclePerKey[key] = month;
     });
     const ids = new Set<string>();
     activeRules.forEach((r: any) => {
       if (!r.effectiveDate) return;
-      const sl = r.serviceLine || '*';
+      const key   = scopeKey(r);
       const month = String(r.effectiveDate).slice(0, 7);
-      const latest = latestCyclePerSL[sl];
+      const latest = latestCyclePerKey[key];
       if (latest && month < latest) ids.add(r.id);
     });
     return ids;
@@ -735,12 +763,25 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
   const effectiveRules = useMemo(() => activeRules.filter((r: any) => !supersededIds.has(r.id)), [activeRules, supersededIds]);
 
+  // ── Targeted-over-blanket: replacement semantics, each unit counted once ──
+  // The backend dedup (specificity → priority → date) assigns each unit to the
+  // most-specific qualifying rule before computing per-rule annualImpact.
+  // Blanket rules (specificity 0) that were fully displaced by targeted rules
+  // will have affectedUnits === 0 and already contribute $0 to the sum, but
+  // we exclude them here to explicitly mirror the engine's Pass 3 suppression.
+  const effectiveRulesForTotal = useMemo(() =>
+    effectiveRules.filter((r: any) =>
+      clientSpecScore(r) > 0          // targeted rules always count
+      || (r.affectedUnits ?? 0) > 0  // blanket rules only count when they have leftover units
+    ),
+  [effectiveRules]);
+
   const { totalAnnualImpact, positiveImpact, negativeImpact, totalSteadyState } = useMemo(() => ({
-    totalAnnualImpact: effectiveRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0),
-    positiveImpact:    effectiveRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
-    negativeImpact:    effectiveRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
-    totalSteadyState:  effectiveRules.reduce((s: number, r: any) => s + (r.steadyStateAnnualImpact ?? r.annualImpact ?? 0), 0),
-  }), [effectiveRules]);
+    totalAnnualImpact: effectiveRulesForTotal.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0),
+    positiveImpact:    effectiveRulesForTotal.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
+    negativeImpact:    effectiveRulesForTotal.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
+    totalSteadyState:  effectiveRulesForTotal.reduce((s: number, r: any) => s + (r.steadyStateAnnualImpact ?? r.annualImpact ?? 0), 0),
+  }), [effectiveRulesForTotal]);
 
   const fmtImpact = (v: number, sign = true) => {
     const abs = Math.abs(v);

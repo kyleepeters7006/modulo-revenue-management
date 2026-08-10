@@ -567,6 +567,26 @@ export function effectiveServiceLines(rule: any): string[] {
 }
 
 /**
+ * Specificity score for a rule — used to break ties during unit-level dedup
+ * so targeted rules always claim their units before broad portfolio rules.
+ *
+ *   +4  campus-specific (locationId set)
+ *   +2  service-line-specific (at least one SL scoped)
+ *   +1  room-type-specific (action.filters.roomType non-empty)
+ *
+ * A rule with all three (e.g. "VIL Studio at Campus A") scores 7 and wins
+ * over a portfolio-wide, all-SL, all-room-type blanket rule that scores 0.
+ */
+export function ruleSpecificityScore(rule: any): number {
+  let score = 0;
+  if (rule.locationId) score += 4;
+  const sls = effectiveServiceLines(rule);
+  if (sls.length > 0) score += 2;
+  const rt = rule.action?.filters?.roomType;
+  if (Array.isArray(rt) && rt.length > 0) score += 1;
+  return score;
+}
+/**
  * Compute the qualified units + move-ins-based revenue impact for one rule.
  * `scope` optionally narrows to a page-level campus/service-line filter.
  */
@@ -701,13 +721,28 @@ export interface ActiveRule {
   trigger: any;
   location_id: string | null;
   service_line: string | null;
+  /** Multi-SL targeting: when non-empty, the rule covers exactly these service lines. */
+  service_lines: string[] | null;
+  effective_date: string | null;
   notes: string | null;
+}
+
+/** Specificity score for an ActiveRule (snake_case fields). Mirrors ruleSpecificityScore. */
+function activeRuleSpecificityScore(r: ActiveRule): number {
+  let score = 0;
+  if (r.location_id) score += 4;
+  const hasSL = (Array.isArray(r.service_lines) && r.service_lines.length > 0) || !!r.service_line;
+  if (hasSL) score += 2;
+  const rt = (r.action as any)?.filters?.roomType;
+  if (Array.isArray(rt) && rt.length > 0) score += 1;
+  return score;
 }
 
 /** Fetch all active adjustment rules for a client ordered by priority DESC. */
 export async function fetchActiveRules(clientId: string): Promise<ActiveRule[]> {
   const res = await pool.query(
-    `SELECT id, name, description, priority, action, trigger, location_id, service_line, notes
+    `SELECT id, name, description, priority, action, trigger, location_id, service_line,
+            service_lines, effective_date, notes
      FROM adjustment_rules
      WHERE is_active = true
        AND (location_id IS NULL OR location_id IN (
@@ -812,36 +847,82 @@ export function buildGroupRulePreviewRates(
       : conds.every(c => evalCond(c, campus, sl));
   };
 
+  // Sort rules by specificity DESC → priority DESC → effectiveDate DESC, then createdAt ASC.
+  // This mirrors the engine's applyAdjustmentRulesToUnit sort so that for each group the
+  // most-specific qualifying rule is selected first (targeted over blanket).
+  const sortedRules = [...rules].sort((a, b) => {
+    const specDiff = activeRuleSpecificityScore(b) - activeRuleSpecificityScore(a);
+    if (specDiff !== 0) return specDiff;
+    const priDiff = (b.priority || 0) - (a.priority || 0);
+    if (priDiff !== 0) return priDiff;
+    const da = a.effective_date ?? '';
+    const db = b.effective_date ?? '';
+    return db.localeCompare(da);
+  });
+
   for (const g of groups) {
     const gKey = `${g.campus}||${g.sl}||${g.rt}`;
-    for (const rule of rules) {
+
+    // Collect all qualifying rules for this group, tracking whether any is targeted.
+    // This allows a single pass to build ruleRatesMap (all qualifying rules) while
+    // also computing the preview rate with the same targeted-over-blanket suppression
+    // semantics as the live engine (Pass 3 of applyAdjustmentRulesToUnit).
+    let hasTargetedQualifying = false;
+    const qualifyingForGroup: Array<{ rule: ActiveRule; adjRate: number }> = [];
+
+    for (const rule of sortedRules) {
       const action       = (rule.action as any) || {};
-      if (action.target === 'in_house_rate') continue; // resident-rate rules don't preview street rates
+      if (action.target === 'in_house_rate') continue;
       const filters      = action.filters || {};
       const usesCareRate = action.target === 'care_rate';
       const baseRate     = usesCareRate ? g.avgIhRate : g.modeStreetRate;
       if (!baseRate) continue;
-      // Rule top-level scope
+
+      // ── Scope: top-level location/SL ──
       if (rule.location_id && g.locationId !== rule.location_id) continue;
-      if (rule.service_line && g.sl !== rule.service_line)        continue;
-      // Action filters
+      // Support both singular service_line and array service_lines
+      const slScope: string[] | null =
+        Array.isArray(rule.service_lines) && rule.service_lines.length ? rule.service_lines
+        : rule.service_line ? [rule.service_line]
+        : null;
+      if (slScope && !slScope.includes(g.sl)) continue;
+
+      // ── Action filters ──
       if (filters.roomType?.length    && !filters.roomType.includes(g.rt))     continue;
       if (filters.serviceLine?.length && !filters.serviceLine.includes(g.sl))  continue;
       if (filters.location?.length    && !filters.location.includes(g.campus)) continue;
       if (filters.occupancyStatus === 'vacant'   && g.occ >= g.total) continue;
       if (filters.occupancyStatus === 'occupied' && g.occ === 0)      continue;
-      // Trigger conditions
+
+      // ── Trigger conditions ──
       if (!passesTrigger(rule, g.campus, g.sl)) continue;
-      // Compute adjusted rate
+
+      // ── Compute adjusted rate ──
       const adjustmentType: string  = action.adjustmentType  || 'percentage';
       const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
       const adjRate = adjustmentType === 'percentage'
         ? baseRate * (1 + adjustmentValue / 100)
         : baseRate + adjustmentValue;
+
       ruleRatesMap.set(`${gKey}||${rule.id}`, adjRate);
-      if (!rulePreviewMap.has(gKey)) {
-        rulePreviewMap.set(gKey, adjRate);
-      }
+      qualifyingForGroup.push({ rule, adjRate });
+      if (activeRuleSpecificityScore(rule) > 0) hasTargetedQualifying = true;
+    }
+
+    // ── Apply most-specific-wins suppression (mirrors engine Pass 3) ──
+    // Each unit/group is governed by exactly one specificity level: the highest among
+    // all qualifying rules.  Lower-specificity rules are suppressed — a campus+SL+RT
+    // rule (spec 7) wins over campus+SL (spec 6) wins over SL-only (spec 2) wins over
+    // blanket (spec 0).  Within the same level, qualifying rules still stack.
+    const maxQualifyingSpec = qualifyingForGroup.reduce(
+      (m, { rule }) => Math.max(m, activeRuleSpecificityScore(rule)), 0
+    );
+    const effectiveForPreview = qualifyingForGroup.filter(
+      ({ rule }) => activeRuleSpecificityScore(rule) === maxQualifyingSpec
+    );
+
+    if (effectiveForPreview.length > 0 && !rulePreviewMap.has(gKey)) {
+      rulePreviewMap.set(gKey, effectiveForPreview[0].adjRate);
     }
   }
 

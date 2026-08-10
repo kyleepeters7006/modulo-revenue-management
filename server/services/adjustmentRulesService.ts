@@ -476,6 +476,27 @@ export function resolvePatchServiceLineScope(
 }
 
 /**
+ * Specificity score for a rule — mirrors ruleSpecificityScore in ruleImpactService.
+ * More-specific rules sort before blanket portfolio rules so the right rule name
+ * appears as "applied" and the dedup order is consistent with the impact display.
+ *
+ *   +4  campus-specific (locationId set)
+ *   +2  service-line-specific (serviceLine / serviceLines non-empty)
+ *   +1  room-type-specific (action.filters.roomType non-empty)
+ */
+function ruleSpecificityScoreLocal(rule: AdjustmentRules): number {
+  let score = 0;
+  if ((rule as any).locationId) score += 4;
+  const sls: string[] = Array.isArray((rule as any).serviceLines) && (rule as any).serviceLines.length
+    ? (rule as any).serviceLines
+    : (rule as any).serviceLine ? [(rule as any).serviceLine] : [];
+  if (sls.length > 0) score += 2;
+  const rt = (rule.action as any)?.filters?.roomType;
+  if (Array.isArray(rt) && rt.length > 0) score += 1;
+  return score;
+}
+
+/**
  * Apply all matching adjustment rules to a unit's rate, in priority order.
  * Latest-cycle-wins: when rules from multiple pricing cycles (effectiveDate months)
  * qualify for the same service line, only the most-recent cycle fires. This
@@ -487,10 +508,20 @@ export function applyAdjustmentRulesToUnit(
   baseRate: number,
   activeRules: AdjustmentRules[]
 ): UnitAdjustmentResult {
-  // Sort rules by priority (higher priority first)
-  const sortedRules = [...activeRules].sort(
-    (a, b) => (b.priority || 0) - (a.priority || 0)
-  );
+  // Sort rules: specificity first (targeted scope beats blanket portfolio),
+  // then explicit priority (user-set order within the same specificity tier),
+  // then newer effective date as the final tiebreaker.
+  // Specificity is the primary key so a targeted rule always outranks a
+  // blanket rule regardless of how explicit priority is set.
+  const sortedRules = [...activeRules].sort((a, b) => {
+    const specDiff = ruleSpecificityScoreLocal(b) - ruleSpecificityScoreLocal(a);
+    if (specDiff !== 0) return specDiff;
+    const priDiff = (b.priority || 0) - (a.priority || 0);
+    if (priDiff !== 0) return priDiff;
+    const da = (a as any).effectiveDate ? new Date((a as any).effectiveDate).toISOString() : '';
+    const db = (b as any).effectiveDate ? new Date((b as any).effectiveDate).toISOString() : '';
+    return db.localeCompare(da);
+  });
 
   // ── Pass 1: collect qualifying rules (scope + trigger + action filter checks) ──
   const qualifying: AdjustmentRules[] = [];
@@ -537,31 +568,66 @@ export function applyAdjustmentRulesToUnit(
     qualifying.push(rule);
   }
 
-  // ── Pass 2: latest-cycle-wins per service line ──────────────────────────────
-  // Find the latest effectiveDate month among qualifying rules for this unit's SL.
-  const unitSL = unit.serviceLine || '';
-  let latestCycleMonth = '0000-00';
-  for (const rule of qualifying) {
-    if (!rule.effectiveDate) continue;
-    // A rule's SL scope applies to this unit (already checked in pass 1).
-    const month = String(rule.effectiveDate).slice(0, 7);
-    if (month > latestCycleMonth) latestCycleMonth = month;
-  }
+  // ── Pass 2: latest-cycle-wins per scope key ────────────────────────────────
+  // Two rules supersede each other only when they have the SAME effective scope
+  // (locationId + serviceLine/serviceLines + roomType filter).  Rules with
+  // different scopes run independent cycle clocks even within the targeted tier,
+  // so an April "VIL at Campus A" rule is not eliminated by a July "VIL at
+  // Campus B" rule.  Blanket rules (no scope) share a single clock.
+  // Ongoing rules (no effectiveDate) always survive.
+  const ruleScopeKeyLocal = (r: AdjustmentRules): string => {
+    const action = (r as any).action;
+    const loc = (r as any).locationId ?? '';
+    const sls = Array.isArray((r as any).serviceLines) && (r as any).serviceLines.length
+      ? [...(r as any).serviceLines].sort().join('+')
+      : (r as any).serviceLine ?? '';
+    const rt  = Array.isArray(action?.filters?.roomType) && action.filters.roomType.length
+      ? [...action.filters.roomType].sort().join('+') : '';
+    return `${loc}|${sls}|${rt}`;
+  };
 
-  // Keep only rules from the latest cycle (or ongoing rules with no effectiveDate).
-  const finalRules = latestCycleMonth === '0000-00'
-    ? qualifying
-    : qualifying.filter(rule => {
-        if (!rule.effectiveDate) return true; // ongoing — always apply
-        return String(rule.effectiveDate).slice(0, 7) >= latestCycleMonth;
-      });
+  const latestCycleFilterByScope = (rules: AdjustmentRules[]): AdjustmentRules[] => {
+    const latestMonthPerScope: Record<string, string> = {};
+    for (const rule of rules) {
+      if (!rule.effectiveDate) continue;
+      const key   = ruleScopeKeyLocal(rule);
+      const month = String(rule.effectiveDate).slice(0, 7);
+      if (!latestMonthPerScope[key] || month > latestMonthPerScope[key]) {
+        latestMonthPerScope[key] = month;
+      }
+    }
+    return rules.filter(rule => {
+      if (!rule.effectiveDate) return true; // ongoing — always apply
+      const key    = ruleScopeKeyLocal(rule);
+      const latest = latestMonthPerScope[key];
+      return !latest || String(rule.effectiveDate).slice(0, 7) >= latest;
+    });
+  };
 
-  // ── Pass 3: apply final rules ───────────────────────────────────────────────
+  const targetedQualifying = qualifying.filter(r => ruleSpecificityScoreLocal(r) > 0);
+  const blanketQualifying  = qualifying.filter(r => ruleSpecificityScoreLocal(r) === 0);
+  const finalRules = [
+    ...latestCycleFilterByScope(targetedQualifying),
+    ...latestCycleFilterByScope(blanketQualifying),
+  ];
+
+  // ── Pass 3: most-specific-wins suppression ─────────────────────────────────
+  // Each unit is governed by exactly ONE specificity level: the highest among all
+  // qualifying rules.  Rules at lower specificity levels are unconditionally
+  // suppressed — a campus+SL+RT rule (spec 7) wins over a campus+SL rule (spec 6)
+  // wins over an SL-only rule (spec 2) wins over a blanket rule (spec 0).
+  // Within the same specificity level, multiple qualifying rules still stack
+  // (e.g. a vacancy discount at spec 2 alongside a general increase at spec 2).
+  // This is consistent with the specificity-ranked claimedUnitIds dedup in the
+  // impact/coverage-map display, ensuring reported impacts match applied rates.
+  const maxSpec = finalRules.reduce((m, r) => Math.max(m, ruleSpecificityScoreLocal(r)), 0);
+  const effectiveFinalRules = finalRules.filter(r => ruleSpecificityScoreLocal(r) === maxSpec);
+
   let currentRate = baseRate;
   const appliedRuleNames: string[] = [];
   let exclusiveApplied = false;
 
-  for (const rule of finalRules) {
+  for (const rule of effectiveFinalRules) {
     const action = rule.action as any;
     const isExclusive = isRuleExclusive(action);
     if (isExclusive) {

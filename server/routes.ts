@@ -138,7 +138,7 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope } from "./services/adjustmentRulesService";
-import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc } from "./services/ruleImpactService";
+import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, unitWeightedBenchmark } from "./services/compBenchmark";
 import { 
   getRevenuePerformanceForScope, 
@@ -15866,14 +15866,25 @@ Respond in JSON format:
       }
 
       // ── Unit-level overlap dedup across active rules ──
-      // The newest active rule claims its qualified units first; older rules
-      // only count units not already claimed, so no unit is ever counted twice
-      // across the Net Annual Impact / lift / concession totals.
-      const precedenceKey = (r: any) =>
-        `${r.effectiveDate ? new Date(r.effectiveDate).toISOString() : ''}|${r.createdAt ? new Date(r.createdAt).toISOString() : ''}|${r.id}`;
+      // More-specific (targeted) rules claim their units first so a broad
+      // portfolio-wide rule never swallows a narrower rule's impact.
+      // Sort: specificity DESC → explicit priority DESC → effectiveDate DESC.
+      // Specificity is the primary axis; explicit priority breaks ties within
+      // the same specificity tier (mirrors the live pricing engine).
       const dedupOrder = rules
         .filter((r: any) => r.isActive && r.isHistorical !== true && (r.action as any)?.adjustmentValue && impactCtx)
-        .sort((a: any, b: any) => precedenceKey(b).localeCompare(precedenceKey(a)));
+        .sort((a: any, b: any) => {
+          const specDiff = ruleSpecificityScore(b) - ruleSpecificityScore(a);
+          if (specDiff !== 0) return specDiff;
+          const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
+          if (priDiff !== 0) return priDiff;
+          const da = a.effectiveDate ? new Date(a.effectiveDate).toISOString() : '';
+          const db = b.effectiveDate ? new Date(b.effectiveDate).toISOString() : '';
+          if (da !== db) return db.localeCompare(da);
+          const ca = a.createdAt ? new Date(a.createdAt).toISOString() : '';
+          const cb = b.createdAt ? new Date(b.createdAt).toISOString() : '';
+          return cb.localeCompare(ca);
+        });
       const claimedUnitIds = new Set<string>();
       const dedupedImpactById = new Map<string, any>();
       for (const rule of dedupOrder) {
@@ -15986,16 +15997,40 @@ Respond in JSON format:
         return res.json({ uniqueCampuses: 0, uniqueUnits: 0, combinedMonthly: 0, combinedAnnual: 0, breakdown: [] });
       }
 
-      const breakdown: any[] = [];
-      const allUnitIds = new Set<string>();
-      const allCampusIds = new Set<string>();
       const pageScope = {
         locationId: (locationId as string) || null,
         serviceLine: (serviceLine as string) || null,
       };
 
+      // ── Specificity-ordered dedup: targeted rules claim units first ──
+      // Mirrors /api/adjustment-rules and the live engine:
+      //   specificity DESC → explicit priority DESC → effectiveDate DESC.
+      // Each unit is counted once, by the most-targeted rule that qualifies it.
+      const sortedForDedup = [...activeRules].sort((a, b) => {
+        const specDiff = ruleSpecificityScore(b) - ruleSpecificityScore(a);
+        if (specDiff !== 0) return specDiff;
+        const priDiff = ((b as any).priority ?? 0) - ((a as any).priority ?? 0);
+        if (priDiff !== 0) return priDiff;
+        const da = (a as any).effectiveDate ? new Date((a as any).effectiveDate).toISOString() : '';
+        const db = (b as any).effectiveDate ? new Date((b as any).effectiveDate).toISOString() : '';
+        return db.localeCompare(da);
+      });
+
+      const claimedUnitIds = new Set<string>();
+      const impactByRuleId = new Map<string, ReturnType<typeof computeQualifiedRuleImpact>>();
+      for (const rule of sortedForDedup) {
+        if (!(rule.action as any)?.adjustmentValue) continue;
+        const impact = computeQualifiedRuleImpact(impactCtx, rule, pageScope, claimedUnitIds);
+        for (const id of Array.from(impact.qualifiedUnitIds)) claimedUnitIds.add(id);
+        impactByRuleId.set(rule.id, impact);
+      }
+
+      const breakdown: any[] = [];
+      const allUnitIds = new Set<string>();
+      const allCampusIds = new Set<string>();
+
       for (const rule of activeRules) {
-        const impact = computeQualifiedRuleImpact(impactCtx, rule, pageScope);
+        const impact = impactByRuleId.get(rule.id) ?? computeQualifiedRuleImpact(impactCtx, rule, pageScope);
         for (const id of Array.from(impact.qualifiedUnitIds)) allUnitIds.add(id);
         for (const c of impact.perCampus) { if (c.locationId) allCampusIds.add(c.locationId); }
         breakdown.push({
@@ -18727,9 +18762,16 @@ Return ONLY valid JSON, no markdown fences:
           if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
         }
         if (impactCtx) {
-          // Deduplicate: newest rule claims units first (mirrors /api/adjustment-rules logic)
+          // Deduplicate: targeted rules claim units first (mirrors /api/adjustment-rules logic).
+          // Sort: specificity DESC → explicit priority DESC → effectiveDate DESC.
           const claimedIds = new Set<string>();
           const sorted = [...unapplied].sort((a: any, b: any) => {
+            const ruleA = { locationId: a.location_id, serviceLine: a.service_line, serviceLines: a.service_lines, action: a.action };
+            const ruleB = { locationId: b.location_id, serviceLine: b.service_line, serviceLines: b.service_lines, action: b.action };
+            const specDiff = ruleSpecificityScore(ruleB) - ruleSpecificityScore(ruleA);
+            if (specDiff !== 0) return specDiff;
+            const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
+            if (priDiff !== 0) return priDiff;
             const da = a.effective_date ? new Date(a.effective_date).toISOString() : '';
             const db = b.effective_date ? new Date(b.effective_date).toISOString() : '';
             return db.localeCompare(da);
@@ -19645,9 +19687,11 @@ Return ONLY valid JSON, no markdown fences:
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 78 : null,
           revSteadyStateImpact: monthlyImpact !== null ? monthlyImpact * 144 : null,
-          // % impact: annual delta / current annual in-house revenue — comparable to Growth Target %
+          // % impact: first-year annual delta (monthly × 78) / annual IH revenue (monthly × 12)
+          // Uses the same 78-month first-year multiplier as revAnnualImpact so that
+          // revAnnualImpact / (ihSpot × occupied × 12) === revImpactPct.
           revImpactPct: (monthlyImpact !== null && ihSpot !== null && ihSpot > 0 && (spot?.occupied ?? 0) > 0)
-            ? monthlyImpact / (ihSpot * spot!.occupied)
+            ? (monthlyImpact * 78) / (ihSpot * spot!.occupied * 12)
             : null,
           // ── Price elasticity + days-to-sell metrics + elasticity-based impact ──
           ...(() => {
