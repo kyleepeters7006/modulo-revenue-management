@@ -220,7 +220,7 @@ export default function PricingControls() {
             className="w-full flex items-center justify-between px-6 py-4 group"
           >
             <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold text-gray-700 group-hover:text-gray-900 transition-colors">Filters</span>
+              <span className="text-base font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">Filters</span>
               {/* Active filter summary pills */}
               {(selectedRegions.length > 0 || selectedDivisions.length > 0 || selectedLocations.length > 0 || selectedServiceLine !== "All") && (
                 <div className="flex flex-wrap gap-1.5">
@@ -429,7 +429,7 @@ export default function PricingControls() {
             </div>
 
             <div>
-              <h3 className="text-sm font-medium text-gray-900 mb-3">Service Line:</h3>
+              <h3 className="text-sm font-medium text-gray-900 mb-2">Service Line:</h3>
               <div className="flex flex-wrap gap-2">
                 {serviceLines.map((serviceLine) => (
                   <Button
@@ -450,7 +450,7 @@ export default function PricingControls() {
             <div className="mt-4 pt-4 border-t border-gray-200">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-600">Settings Scope:</span>
-                <Badge variant="secondary" className="text-sm" data-testid="badge-scope">
+                <Badge variant="secondary" className="text-xs" data-testid="badge-scope">
                   {getScopeDescription()}
                 </Badge>
               </div>
@@ -604,7 +604,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [scatterOpen, setScatterOpen] = useState(false);
   const [openRuleGroups, setOpenRuleGroups] = useState<Record<string, boolean>>({});
   const [coverageRuleId, setCoverageRuleId] = useState<string | null>(null);
-  const [strategyOpen, setStrategyOpen] = useState(true);
+  const [strategyOpen, setStrategyOpen] = useState(false);
   const [highlightedSL, setHighlightedSL] = useState<string | null>(null);
 
   const qs = useMemo(() => {
@@ -698,10 +698,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
   const effectiveRules = useMemo(() => activeRules.filter((r: any) => !supersededIds.has(r.id)), [activeRules, supersededIds]);
 
-  const { totalAnnualImpact, positiveImpact, negativeImpact } = useMemo(() => ({
+  const { totalAnnualImpact, positiveImpact, negativeImpact, totalSteadyState } = useMemo(() => ({
     totalAnnualImpact: effectiveRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0),
     positiveImpact:    effectiveRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
     negativeImpact:    effectiveRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
+    totalSteadyState:  effectiveRules.reduce((s: number, r: any) => s + (r.steadyStateAnnualImpact ?? r.annualImpact ?? 0), 0),
   }), [effectiveRules]);
 
   const fmtImpact = (v: number, sign = true) => {
@@ -888,12 +889,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               title="Click to see how this is calculated"
             >
               <div className="flex items-center gap-1 mb-0.5">
-                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400">Active Rule Annual Impact</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400">First-Year Rule Impact</p>
                 <Info className="h-2.5 w-2.5 text-slate-300 group-hover:text-teal-400 transition-colors" />
               </div>
               <p className={`text-3xl font-black leading-none tracking-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {fmtImpact(totalAnnualImpact)}
               </p>
+              {totalSteadyState !== totalAnnualImpact && (
+                <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
+                  {fmtImpact(totalSteadyState)}/yr fully ramped
+                </p>
+              )}
               {positiveImpact > 0 && negativeImpact < 0 && (
                 <div className="flex gap-3 mt-2">
                   <div className="text-right">
@@ -915,15 +921,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-base font-bold">
                   <Info className="h-4 w-4 text-teal-500" />
-                  How Net Annual Impact is Calculated
+                  How First-Year Rule Impact is Calculated
                 </DialogTitle>
               </DialogHeader>
 
               {/* Summary KPIs */}
               <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-lg">
                 <div className="text-center">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Net Annual Impact</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">First-Year Net Impact</p>
                   <p className={`text-2xl font-black ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
+                  {totalSteadyState !== totalAnnualImpact && (
+                    <p className="text-[11px] font-semibold text-slate-400 mt-0.5">{fmtImpact(totalSteadyState)}/yr once fully ramped</p>
+                  )}
                 </div>
                 <div className="text-center border-l border-slate-200">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Concessions</p>
@@ -1083,8 +1092,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           ) : (
                                             <span className={`font-medium tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)}</span>
                                           )}
-                                          <span className="text-slate-500">Annual impact</span>
-                                          <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 12 = {fmtImpact(annual)}</span>
+                                          <span className="text-slate-500">First-year impact</span>
+                                          <span className={`font-bold tabular-nums ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(monthly)} × 78 mo of stacked cohorts = {fmtImpact(annual)}</span>
                                         </div>
                                         {!isPos && (
                                           <div className="flex items-start gap-1.5 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
@@ -1129,7 +1138,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 <p className="font-semibold text-teal-700 mb-1">How the math works</p>
                 <p><span className="font-medium">Qualifying units</span> are those whose campus/service-line/room-type group currently meets the rule's trigger conditions (e.g. occupancy and competitor-variance thresholds) and matches the rule's filters.</p>
                 <p><span className="font-medium">Monthly impact</span> = expected move-ins per month for qualifying units × the rate change per unit. Move-ins/mo = qualifying units × the service line's move-in rate (trailing-3-month move-ins ÷ active units). New residents come in at the adjusted rate, so impact accrues at the pace of move-ins.</p>
-                <p><span className="font-medium">Annual impact</span> = Monthly impact × 12.</p>
+                <p><span className="font-medium">First-year impact</span> = Monthly impact × 78. Each month's move-in cohort keeps paying the rate change: month-1 move-ins pay it for 12 months, month-2 for 11, and so on (12+11+…+1 = 78 delta-months). In-house repricing rules are fully ramped immediately, so they use × 12.</p>
+                <p><span className="font-medium">Fully ramped</span> = Monthly impact × 144: after 12 months of cohorts have accumulated, the ongoing annual run-rate (assumes residents stay 12+ months).</p>
                 <p><span className="font-medium">HC &amp; HC/MC rates</span> are stored as daily rates in the system and are converted to monthly (× 30.4) before the calculation.</p>
                 <p><span className="font-medium">Lift</span> = total from rules that increase rates. <span className="font-medium">Concessions</span> = total from rules that reduce rates. <span className="font-medium">Net</span> = Lift + Concessions.</p>
               </div>
@@ -1239,7 +1249,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         {strategyOpen && activeRules.length > 0 && !isLoading && (
           <div className="flex sm:hidden gap-6 mt-3 pt-3 border-t border-slate-100">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Net Annual Impact</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">First-Year Net Impact</p>
               <p className={`text-2xl font-black leading-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
             </div>
           </div>
@@ -1332,7 +1342,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       )}
 
       {/* ══ COMPETITIVE POSITION SCATTER ══ */}
-      {compPositionData.length > 0 && (
+      {strategyOpen && compPositionData.length > 0 && (
         <>
           <div className={`px-6 border-b border-slate-100 ${scatterOpen ? 'py-4' : 'py-2'}`}>
             <div className={`flex items-center justify-between ${scatterOpen ? 'mb-3' : ''}`}>
@@ -1399,7 +1409,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       )}
 
       {/* ══ ACTIVE RULES ══ */}
-      {activeRules.length > 0 && (
+      {strategyOpen && activeRules.length > 0 && (
         <div className="px-6 py-5">
           {/* section label */}
           <div className="flex items-center justify-between mb-4">
@@ -1617,7 +1627,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   {/* KPI row */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
-                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">Annual Impact</p>
+                      <p className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5">First-Year Impact</p>
                       <p className={`text-lg font-bold ${annual >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
@@ -1720,7 +1730,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="text-base">Rule Coverage Map — {activeRules.length} Active Rules</DialogTitle>
-            <p className="text-xs text-slate-500 mt-1">Circle size = relative annual revenue impact. Solid border = additive. Dashed = exclusive/priority-based. Click any rule to view details.</p>
+            <p className="text-xs text-slate-500 mt-1">Circle size = relative first-year revenue impact. Solid border = additive. Dashed = exclusive/priority-based. Click any rule to view details.</p>
           </DialogHeader>
           <div className="bg-slate-50 rounded-xl p-4 grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(activeRules.length, 4)}, 1fr)` }}>
             {activeRules.map((rule: any, ri: number) => {
@@ -1874,14 +1884,14 @@ function CareLevel2RatesPanel() {
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <HeartPulse className="h-5 w-5 text-rose-500" />
-            <CardTitle className="text-lg">Level 2 Care Rates</CardTitle>
+            <HeartPulse className="h-4 w-4 text-rose-500" />
+            <span className="text-base font-semibold text-gray-900">Level 2 Care Rates</span>
           </div>
           <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${panelOpen ? '' : '-rotate-90'}`} />
         </div>
-        <CardDescription>
+        <p className="text-xs text-gray-500 mt-1">
           Set the posted Level 2 care rate per location and service line. These rates are used in the competitor adjustment formula (adjustedRate = base + theirCareL2 − ourCareL2 + …) so the pricing breakdown shows the correct "ours" value without re-uploading rent roll data.
-        </CardDescription>
+        </p>
       </CardHeader>
       {panelOpen && (
       <CardContent>

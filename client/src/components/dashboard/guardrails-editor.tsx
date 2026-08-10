@@ -195,21 +195,13 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
         className="flex items-center justify-between cursor-pointer select-none hover:opacity-80 transition-opacity mb-0"
         onClick={() => setPanelOpen(o => !o)}
       >
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center">
-            <Shield className="w-5 h-5 text-amber-500" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-[var(--dashboard-text)]">
-              Pricing Guardrails
-            </h3>
-            <p className="text-sm text-[var(--dashboard-muted)]">
-              Hard limits on proposed rates — guardrails always override pricing rules
-            </p>
-          </div>
+        <div className="flex items-center gap-2">
+          <Shield className="h-4 w-4 text-amber-500 shrink-0" />
+          <span className="text-base font-semibold text-gray-900">Pricing Guardrails</span>
         </div>
         <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 shrink-0 ${panelOpen ? '' : '-rotate-90'}`} />
       </div>
+      <p className="text-xs text-gray-500 mt-1">Hard limits on proposed rates — guardrails always override pricing rules</p>
 
       {panelOpen && <div className="space-y-6 mt-6">
         {/* Price Change Limits */}

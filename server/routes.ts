@@ -3761,10 +3761,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // For demo: replace REIT-based industry with a synthetic NIC-style curve.
-      // Models ~8 % YOY senior-living revenue growth with gentle sinusoidal variation,
-      // so the demo portfolio (Same Store ~8–10 %) appears to slightly beat the industry.
-      if (clientId === 'demo') {
+      // When real REIT market data is unavailable (no API key, rate-limited, or demo client),
+      // replace with a synthetic NIC-style senior-living industry curve.
+      // Models ~8 % YOY senior-living revenue growth with gentle sinusoidal variation.
+      if (!hasRealIndustryData) {
         const targetYoY = 0.082; // 8.2 % annual target
         for (let i = 0; i < months; i++) {
           const progress = months > 1 ? i / (months - 1) : 0;
@@ -14994,10 +14994,12 @@ Respond in JSON format:
       // deltas; street-rate rules use expected move-ins × rate change so the
       // number matches every other impact surface (rules list, Reference Data).
       const baseMonthly = directReprice ? naiveMonthly : mirMonthly;
+      // First-year cumulative: direct repricing is fully ramped (×12); move-in
+      // based street rules ramp cohort-by-cohort (Σ 12..1 = 78 delta-months).
       return {
         unitsImpacted: affected.length,
         monthlyImpact: Math.round(baseMonthly),
-        annualImpact: Math.round(baseMonthly * 12),
+        annualImpact: Math.round(baseMonthly * (directReprice ? 12 : 78)),
         elasticity: elWeight > 0 && wElasticity !== null ? wElasticity / elWeight : null,
         daysToSellAfter: daysWeight > 0 && wDaysAfter !== null ? wDaysAfter / daysWeight : null,
         predictedDaysToSellChange: predWeight > 0 && wPredDays !== null ? wPredDays / predWeight : null,
@@ -15906,6 +15908,7 @@ Respond in JSON format:
           avgRateChange: impact.avgRateChange,
           monthlyImpact: impact.monthlyImpact,
           annualImpact: impact.annualImpact,
+          steadyStateAnnualImpact: impact.steadyStateAnnualImpact,
           volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
           overlapExcludedUnits: impact.overlapExcludedUnits ?? 0,
         };
@@ -19633,10 +19636,12 @@ Return ONLY valid JSON, no markdown fences:
           hasManualOverride: manualRate !== null,
           proposedVarDollar: (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null,
           proposedVarPct: (effectiveProposed !== null && streetSpot !== null && streetSpot !== 0) ? (effectiveProposed - streetSpot) / streetSpot : null,
-          // Revenue impact: (proposed − street) × T3 move-ins/mo; annual = monthly × 12
+          // Revenue impact: (proposed − street) × T3 move-ins/mo; annual =
+          // first-year cumulative (monthly × 78, stacked move-in cohorts) so it
+          // matches the rules API / Strategy Report annualization.
           revT3MoveIns: t3MoveInsForImpact,
           revMonthlyImpact: monthlyImpact,
-          revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 12 : null,
+          revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 78 : null,
           // % impact: annual delta / current annual in-house revenue — comparable to Growth Target %
           revImpactPct: (monthlyImpact !== null && ihSpot !== null && ihSpot > 0 && (spot?.occupied ?? 0) > 0)
             ? monthlyImpact / (ihSpot * spot!.occupied)
@@ -20071,7 +20076,8 @@ Return ONLY valid JSON, no markdown fences:
             return {
               revT3MoveIns: unitT3,
               revMonthlyImpact: unitMonthly,
-              revAnnualImpact: unitMonthly !== null ? unitMonthly * 12 : null,
+              // First-year cumulative (× 78) — must match the grouped endpoint.
+              revAnnualImpact: unitMonthly !== null ? unitMonthly * 78 : null,
             };
           })(),
           // Elasticity-based revenue impact — group total distributed evenly per unit,
@@ -20083,7 +20089,8 @@ Return ONLY valid JSON, no markdown fences:
             const unitElMonthly = gElMonthly !== null ? gElMonthly / n : null;
             return {
               elasticityMonthlyImpact: unitElMonthly,
-              elasticityAnnualImpact: unitElMonthly !== null ? unitElMonthly * 12 : null,
+              // First-year cumulative (× 78) — matches calculateElasticityRevenueImpact.
+              elasticityAnnualImpact: unitElMonthly !== null ? unitElMonthly * 78 : null,
             };
           })(),
           // Raw elasticity / DTS metrics — group-level values repeated on each unit row,

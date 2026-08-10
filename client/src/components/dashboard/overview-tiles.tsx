@@ -378,26 +378,26 @@ export default function OverviewTiles() {
                   {/* Service Line Breakdown Content - Simplified Table View */}
                   {hasServiceLineBreakdown && isExpanded && (
                     <div className="mt-3 animate-in slide-in-from-top-1">
-                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-md p-2">
+                      <div className="bg-white/10 rounded-md p-2">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="border-b border-gray-200">
-                              <th className="text-left font-medium text-gray-700 pb-1">Service</th>
-                              <th className="text-center font-medium text-gray-700 pb-1">Units</th>
-                              <th className="text-right font-medium text-gray-700 pb-1">Occupancy</th>
+                            <tr className="border-b border-white/20">
+                              <th className="text-left font-medium text-white/70 pb-1">Service</th>
+                              <th className="text-center font-medium text-white/70 pb-1">Units</th>
+                              <th className="text-right font-medium text-white/70 pb-1">Occupancy</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-gray-200">
+                          <tbody className="divide-y divide-white/10">
                             {roomType.serviceLineBreakdown?.map((serviceLine) => (
-                              <tr key={serviceLine.serviceLine} className="hover:bg-gray-100 dark:hover:bg-gray-800">
-                                <td className="py-1.5 font-bold text-gray-900">
+                              <tr key={serviceLine.serviceLine} className="hover:bg-white/10">
+                                <td className="py-1.5 font-bold text-white">
                                   {serviceLine.serviceLine}
                                 </td>
-                                <td className="py-1.5 text-center font-medium text-gray-900">
+                                <td className="py-1.5 text-center font-medium text-white">
                                   {formatNumber(serviceLine.total)}
                                 </td>
                                 <td className="py-1.5 text-right">
-                                  <span className="font-bold text-teal-600">
+                                  <span className="font-bold text-teal-300">
                                     {formatPercentage(serviceLine.occupancyRate / 100, 0)}
                                   </span>
                                 </td>
@@ -405,11 +405,11 @@ export default function OverviewTiles() {
                             ))}
                           </tbody>
                         </table>
-                        
+
                         {/* Summary of occupied units */}
-                        <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between text-xs">
-                          <span className="text-gray-600">Total Occupied:</span>
-                          <span className="font-medium text-gray-900">
+                        <div className="mt-2 pt-2 border-t border-white/20 flex justify-between text-xs">
+                          <span className="text-white/60">Total Occupied:</span>
+                          <span className="font-medium text-white">
                             {formatNumber(roomType.serviceLineBreakdown?.reduce((sum, sl) => sum + sl.occupied, 0) || 0)} of {formatNumber(roomType.total)} units
                           </span>
                         </div>

@@ -58,14 +58,14 @@ function ReportHeader({ title, scope, onClose, onPrint }: {
           <span className="text-white font-black text-sm">M</span>
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Modulo Revenue Management</p>
-          <h1 className="text-xl font-black tracking-tight">{title}</h1>
-          <p className="text-[11px] text-slate-400 mt-0.5">{scope}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Modulo Revenue Management</p>
+          <h1 className="text-2xl font-black tracking-tight">{title}</h1>
+          <p className="text-sm text-slate-400 mt-0.5">{scope}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <div className="text-right mr-2 hidden print:block">
-          <p className="text-[10px] text-slate-400">Generated</p>
+          <p className="text-xs text-slate-400">Generated</p>
           <p className="text-xs font-semibold">{today}</p>
         </div>
         <Button size="sm" variant="outline"
@@ -94,9 +94,9 @@ function renderBold(text: string) {
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
   return (
     <div className="flex-1 min-w-[140px] bg-white rounded-xl border border-slate-200 px-5 py-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-1">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">{label}</p>
       <p className={`text-2xl font-black leading-none ${color}`}>{value}</p>
-      {sub && <p className="text-[11px] text-slate-400 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
     </div>
   );
 }
@@ -183,16 +183,16 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
         <div ref={printRef} className="report-printable flex-1 overflow-y-auto print:overflow-visible px-8 py-6 space-y-6">
           {/* Date line (screen only) */}
-          <p className="text-[11px] text-slate-400 print:hidden">Generated {today}</p>
+          <p className="text-xs text-slate-400 print:hidden">Generated {today}</p>
 
           {/* AI Summary — strategy of the upcoming pricing changes */}
           {commentary?.summary && (
             <div className="bg-white rounded-xl border border-slate-200 px-6 py-5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Pricing Strategy Summary</p>
-              <p className="text-base font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Pricing Strategy Summary</p>
+              <p className="text-lg font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
               {commentary.rulesSummary && (
-                <p className="text-sm text-slate-500 mt-3 leading-relaxed border-t border-slate-100 pt-3">
-                  <span className="font-semibold text-slate-700">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
+                <p className="text-sm text-slate-600 mt-3 leading-relaxed border-t border-slate-100 pt-3">
+                  <span className="font-semibold text-slate-800">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
                 </p>
               )}
             </div>
@@ -200,7 +200,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
           {/* KPI strip */}
           <div className="flex flex-wrap gap-3">
-            <KpiCard label="Net Annual Impact" value={fmt(totalNet)} color={totalNet >= 0 ? "text-emerald-600" : "text-red-600"} />
+            <KpiCard label="First-Year Net Impact" value={fmt(totalNet)} color={totalNet >= 0 ? "text-emerald-600" : "text-red-600"} />
             <KpiCard label="Concessions" value={fmt(conc)} color="text-red-600" />
             {statsData?.uniqueCampuses != null && (
               <KpiCard label="Campuses" value={String(statsData.uniqueCampuses)} color="text-slate-800" />
@@ -214,19 +214,19 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           {/* Rules table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-sm font-bold text-slate-800">Active Pricing Rules</p>
-              <p className="text-[11px] text-slate-400">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
+              <p className="text-base font-bold text-slate-800">Active Pricing Rules</p>
+              <p className="text-xs text-slate-400">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
             </div>
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-left">
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[22%]">Rule</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[9%]">Service Line</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[26%]">Condition</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[10%]">Units</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[14%]">Monthly Impact</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[14%]">Annual Impact</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[5%]"></th>
+                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[22%]">Rule</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[9%]">Service Line</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[26%]">Condition</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 text-right w-[10%]">Units</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 text-right w-[14%]">Monthly Impact</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 text-right w-[14%]">First-Year Impact</th>
+                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[5%]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -245,28 +245,28 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                           </span>
                         </div>
                         {rule.effectiveDate && (
-                          <p className="text-[10px] text-slate-400 mt-0.5 pl-0">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
                         )}
                         {aiStrategy && (
-                          <p className="text-[11px] text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
+                          <p className="text-xs text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
                             {renderBold(aiStrategy)}
                           </p>
                         )}
                         {rule.notes && (
-                          <p className="text-[10px] italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 leading-snug whitespace-pre-wrap" data-testid={`report-note-${rule.id}`}>
+                          <p className="text-xs italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 leading-snug whitespace-pre-wrap" data-testid={`report-note-${rule.id}`}>
                             {rule.notes}
                           </p>
                         )}
                       </td>
                       <td className="px-3 py-3.5">
                         {sl !== "—" ? (
-                          <span className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
+                          <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
                         ) : <span className="text-slate-400 text-xs">All</span>}
                       </td>
                       <td className="px-3 py-3.5 text-xs text-slate-500 leading-snug">{fmtTrigger(rule)}</td>
                       <td className="px-3 py-3.5 text-right">
                         <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
-                        {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
+                        {rule.affectedCampuses > 0 && <p className="text-xs text-slate-400">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
                       </td>
                       <td className="px-3 py-3.5 text-right">
                         <span className={`text-sm font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
@@ -295,7 +295,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           </div>
 
           {/* Footer */}
-          <p className="text-[10px] text-slate-400 text-center pb-2 print:block hidden">
+          <p className="text-xs text-slate-400 text-center pb-2 print:block hidden">
             Modulo Revenue Management · Confidential · Generated {today}
           </p>
         </div>
@@ -372,7 +372,7 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
         <div className="report-printable flex-1 overflow-y-auto print:overflow-visible px-8 py-6 space-y-6">
           {/* Date filter */}
           <div className="flex items-center justify-between print:hidden">
-            <p className="text-[11px] text-slate-400">Generated {today}</p>
+            <p className="text-xs text-slate-400">Generated {today}</p>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500 font-medium">Show changes since:</span>
               <input
@@ -381,7 +381,7 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
                 onChange={e => setFrom(e.target.value)}
                 className="h-8 text-xs px-2.5 border border-slate-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
-              {loading && <span className="text-[10px] text-slate-400">Loading…</span>}
+              {loading && <span className="text-xs text-slate-400">Loading…</span>}
             </div>
           </div>
 
@@ -412,17 +412,17 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
                     <Calendar className="h-4 w-4 text-slate-400" />
                     <p className="text-sm font-bold text-white">Effective {label}</p>
                   </div>
-                  <span className="text-[11px] font-semibold text-slate-400 bg-slate-800 rounded-full px-2.5 py-0.5">
+                  <span className="text-xs font-semibold text-slate-400 bg-slate-800 rounded-full px-2.5 py-0.5">
                     {rules.length} change{rules.length !== 1 ? "s" : ""}
                   </span>
                 </div>
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-left">
-                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[30%]">Campus</th>
-                      <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[10%]">Service Line</th>
-                      <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[12%]">Adjustment</th>
-                      <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Room Types</th>
+                      <th className="px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[30%]">Campus</th>
+                      <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[10%]">Service Line</th>
+                      <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[12%]">Adjustment</th>
+                      <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500">Room Types</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -440,13 +440,13 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
                           </td>
                           <td className="px-3 py-3">
                             {sl ? (
-                              <span className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
+                              <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
                             ) : <span className="text-slate-400 text-xs">All</span>}
                           </td>
                           <td className="px-3 py-3">
                             <span className={`text-sm font-black ${isPos ? "text-emerald-600" : "text-red-600"}`}>{val}</span>
                           </td>
-                          <td className="px-3 py-3 text-[11px] text-slate-500 leading-snug">{rts || "All room types"}</td>
+                          <td className="px-3 py-3 text-xs text-slate-500 leading-snug">{rts || "All room types"}</td>
                         </tr>
                       );
                     })}
@@ -456,7 +456,7 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
             );
           })}
 
-          <p className="text-[10px] text-slate-400 text-center pb-2">
+          <p className="text-xs text-slate-400 text-center pb-2">
             Modulo Revenue Management · Confidential · Generated {today}
           </p>
         </div>

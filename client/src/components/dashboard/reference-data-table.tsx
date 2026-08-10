@@ -249,7 +249,7 @@ const GROUPS: GroupDef[] = [
     label: "Revenue Impact",
     cols: [
       { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × expected move-ins per month (trailing 3-month average) — estimated monthly revenue change from new residents leasing at the proposed rate." },
-      { key: "revAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Monthly impact × 12 — estimated annual revenue change from expected move-ins at the proposed rate." },
+      { key: "revAnnualImpact", label: "First-Year", type: "moneysigned", w: 90, tip: "Monthly impact × 78 — first-year cumulative revenue change: each month's move-in cohort keeps paying the new rate (12+11+…+1 = 78 delta-months). Matches the rules' First-Year Impact." },
       { key: "revImpactPct", label: "% Impact", type: "pctfracsigned", w: 75, tip: "Annual revenue impact as a % of current in-house revenue — directly comparable to the Growth Target column." },
     ],
   },
@@ -276,7 +276,7 @@ const GROUPS: GroupDef[] = [
     label: "Elast. Rev. Impact",
     cols: [
       { key: "elasticityMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated monthly revenue change, accounting for the demand response to the proposed rate." },
-      { key: "elasticityAnnualImpact", label: "Annual", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated annual revenue change (monthly × 12)." },
+      { key: "elasticityAnnualImpact", label: "First-Year", type: "moneysigned", w: 90, tip: "Elasticity-adjusted first-year revenue change (monthly × 78, stacked move-in cohorts)." },
     ],
   },
   {
@@ -568,6 +568,7 @@ export default function ReferenceDataTable({
 }: ReferenceDataTableProps) {
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
   const [groupLevel, setGroupLevel] = useState<GroupLevel>("roomType");
   const { toast } = useToast();
   // Create-rule-from-view dialog state
@@ -1803,8 +1804,18 @@ export default function ReferenceDataTable({
   const headerBar = (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-2">
-        <Table2 className="h-4 w-4 text-primary" />
-        <CardTitle className="text-base">Reference Data</CardTitle>
+        <button
+          onClick={() => setSectionOpen(o => !o)}
+          className="flex items-center gap-2 group"
+          aria-expanded={sectionOpen}
+          data-testid="refdata-section-toggle"
+        >
+          <Table2 className="h-4 w-4 text-primary" />
+          <CardTitle className="text-base group-hover:text-slate-600 transition-colors">Reference Data</CardTitle>
+          {!isFullscreen && (
+            <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${sectionOpen ? '' : '-rotate-90'}`} />
+          )}
+        </button>
         {(isFetching || (groupLevel === "roomDetail" && unitFetching)) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
         {data?.spotMonth && (
           <span className="text-xs text-muted-foreground">
@@ -2102,15 +2113,17 @@ export default function ReferenceDataTable({
       {ruleDialog}
       {importResultDialog}
       <CardHeader className="pb-3">{headerBar}</CardHeader>
-      <CardContent>
-        {showLoading ? (
-          <div className="flex h-64 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          inner
-        )}
-      </CardContent>
+      {sectionOpen && (
+        <CardContent>
+          {showLoading ? (
+            <div className="flex h-64 items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            inner
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }

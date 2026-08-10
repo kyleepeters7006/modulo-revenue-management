@@ -845,8 +845,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
           data-testid="rule-designer-header"
         >
           <div className="flex items-start justify-between gap-3 flex-wrap">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Wand2 className="h-5 w-5 text-[var(--trilogy-teal)]" />
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <Wand2 className="h-4 w-4 text-[var(--trilogy-teal)]" />
               Rule Designer
               <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${designerOpen ? 'rotate-180' : ''}`} />
             </CardTitle>
@@ -867,7 +867,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
               </div>
             )}
           </div>
-          <CardDescription>
+          <CardDescription className="text-xs text-gray-500 mt-1">
             {locationName || serviceLine
               ? `Rules will apply to ${[locationName, serviceLine].filter(Boolean).join(' · ')} only. Preview math reflects this scope.`
               : 'Build pricing rules using natural language or structured IF / THEN logic.'}
@@ -1594,18 +1594,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
           }
         };
 
-        // Golden-angle spiral dots for bubble map
-        const genDots = (count: number, radius: number) => {
-          const n = Math.min(count, 64);
-          return Array.from({ length: n }, (_, i) => {
-            const theta = i * 2.39996; // golden angle
-            const r     = Math.sqrt((i + 0.5) / n) * (radius - 7);
-            return { x: Math.cos(theta) * r, y: Math.sin(theta) * r };
-          });
-        };
-
-        // Assign a unique hue per rule for the bubble map
-        const PALETTE = ['#0d9488','#0891b2','#d97706','#0284c7','#16a34a','#dc2626','#0e7490','#ea580c'];
+        // Professional boardroom colour palette — teal/navy/slate family with accent
+        const PALETTE = ['#0d9488','#0284c7','#4f46e5','#0891b2','#059669','#7c3aed','#0e7490','#d97706'];
 
         const STRATEGY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
           'Revenue Growth':       { bg: 'bg-green-100',  text: 'text-green-800',  border: 'border-green-200'  },
@@ -2380,177 +2370,175 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                 </DialogHeader>
 
                 {activeCount === 0 ? (
-                  <div className="py-12 text-center text-gray-400 dark:text-gray-500 text-sm">No active rules to display.</div>
+                  <div className="py-12 text-center text-gray-400 text-sm">No active rules to display.</div>
                 ) : (
-                  <div className="flex flex-wrap gap-6 p-4 bg-gray-50 dark:bg-gray-800/40 rounded-lg justify-center items-end mt-2">
+                  <div className="flex flex-wrap gap-5 p-6 bg-white rounded-xl border border-gray-100 justify-center items-end mt-2">
                     {(() => {
-                      // Pre-compute unit counts so we can normalize bubble sizes
+                      const impactCounts = sortedActive.map(r => {
+                        const bd = combinedStats?.breakdown.find(b => b.id === r.id);
+                        return Math.abs(bd ? bd.annualImpact : (r.annualImpact ?? 0));
+                      });
                       const unitCounts = sortedActive.map(r => {
                         const bd = combinedStats?.breakdown.find(b => b.id === r.id);
                         return bd ? bd.units : (r.affectedUnits ?? 0);
                       });
-                      const maxUnits = Math.max(...unitCounts, 1);
-                      const minUnits = Math.min(...unitCounts, 0);
-                      const unitRange = Math.max(maxUnits - minUnits, 1);
-                      const MIN_R = 36, MAX_R = 100;
+                      const maxImpact = Math.max(...impactCounts, 1);
+                      const MIN_R = 40, MAX_R = 96;
 
                       return sortedActive.map((rule, ri) => {
-                      // Use filtered stats from combinedStats.breakdown when available
-                      const breakdown  = combinedStats?.breakdown.find(b => b.id === rule.id);
-                      const units      = breakdown ? breakdown.units    : (rule.affectedUnits ?? 0);
-                      const monthly    = breakdown ? breakdown.monthlyImpact : (rule.monthlyImpact ?? 0);
-                      const annual     = breakdown ? breakdown.annualImpact  : (rule.annualImpact  ?? 0);
-                      const campuses   = breakdown ? breakdown.campuses  : (rule.affectedCampuses ?? 0);
-                      // Normalize radius: smallest rule → MIN_R, largest → MAX_R
-                      const t      = (units - minUnits) / unitRange;
-                      const radius = MIN_R + t * (MAX_R - MIN_R);
-                      const size   = Math.round(radius) * 2 + 8;
-                      const isAdditive = isRuleAdditive(rule.action as any);
-                      const color      = PALETTE[ri % PALETTE.length];
-                      const dots       = genDots(units, radius);
-                      const isHovered  = hoveredBubble === rule.id;
+                        const breakdown = combinedStats?.breakdown.find(b => b.id === rule.id);
+                        const units     = breakdown ? breakdown.units        : (rule.affectedUnits    ?? 0);
+                        const monthly   = breakdown ? breakdown.monthlyImpact: (rule.monthlyImpact   ?? 0);
+                        const annual    = breakdown ? breakdown.annualImpact : (rule.annualImpact     ?? 0);
+                        const campuses  = breakdown ? breakdown.campuses     : (rule.affectedCampuses ?? 0);
+                        const impact    = Math.abs(annual);
+                        const t         = Math.sqrt(impact / maxImpact); // sqrt for visual area scaling
+                        const radius    = MIN_R + t * (MAX_R - MIN_R);
+                        const size      = Math.round(radius) * 2 + 4;
+                        const isAdditive = isRuleAdditive(rule.action as any);
+                        const color      = PALETTE[ri % PALETTE.length];
+                        const isNeg      = annual < 0;
+                        const isHovered  = hoveredBubble === rule.id;
+                        const gradId     = `grad-${rule.id}`;
+                        const bubbleSI   = strategyAnalysis?.rules.find(s => s.id === rule.id);
+                        const bubbleSC   = bubbleSI ? (STRATEGY_COLORS[bubbleSI.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' }) : null;
+                        const showLabel  = radius >= 56;
 
-                      const bubbleSI = strategyAnalysis?.rules.find(s => s.id === rule.id);
-                      const bubbleSC = bubbleSI ? (STRATEGY_COLORS[bubbleSI.strategyGroup] || { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200' }) : null;
-
-                      return (
-                        <div
-                          key={rule.id}
-                          className="relative flex flex-col items-center gap-1.5"
-                          onMouseEnter={() => setHoveredBubble(rule.id)}
-                          onMouseLeave={() => setHoveredBubble(null)}
-                          onClick={() => { setBubbleMapOpen(false); setTimeout(() => setInfoRule(rule), 80); }}
-                          style={{ cursor: 'pointer' }}
-                          title="Click for AI strategy analysis"
-                        >
-                          <svg width={size} height={size} style={{ overflow: 'visible' }}>
-                            {/* Outer ring for exclusive rules */}
-                            {!isAdditive && (
+                        return (
+                          <div
+                            key={rule.id}
+                            className="relative flex flex-col items-center gap-2"
+                            onMouseEnter={() => setHoveredBubble(rule.id)}
+                            onMouseLeave={() => setHoveredBubble(null)}
+                            onClick={() => { setBubbleMapOpen(false); setTimeout(() => setInfoRule(rule), 80); }}
+                            style={{ cursor: 'pointer' }}
+                            title="Click for AI strategy analysis"
+                          >
+                            <svg width={size} height={size} style={{ overflow: 'visible' }}>
+                              <defs>
+                                <radialGradient id={gradId} cx="38%" cy="35%" r="65%">
+                                  <stop offset="0%"   stopColor={color} stopOpacity={isHovered ? 0.28 : 0.18} />
+                                  <stop offset="100%" stopColor={color} stopOpacity={isHovered ? 0.52 : 0.38} />
+                                </radialGradient>
+                              </defs>
+                              {/* Outer dashed ring for exclusive rules */}
+                              {!isAdditive && (
+                                <circle
+                                  cx={size / 2} cy={size / 2} r={radius + 5}
+                                  fill="none" stroke={color} strokeWidth={1.5}
+                                  strokeDasharray="5 4" opacity={0.35}
+                                />
+                              )}
+                              {/* Main bubble — solid fill with radial gradient */}
                               <circle
-                                cx={size / 2} cy={size / 2} r={radius + 4}
-                                fill="none"
+                                cx={size / 2} cy={size / 2} r={radius}
+                                fill={`url(#${gradId})`}
                                 stroke={color}
-                                strokeWidth={1}
-                                strokeDasharray="4 3"
-                                opacity={0.4}
+                                strokeWidth={isHovered ? 2.5 : 1.8}
                               />
-                            )}
-                            {/* Main circle */}
-                            <circle
-                              cx={size / 2} cy={size / 2} r={radius}
-                              fill={color}
-                              fillOpacity={0.1}
-                              stroke={color}
-                              strokeWidth={isHovered ? 2.5 : 2}
-                            />
-                            {/* Unit dots */}
-                            {dots.map((dot, di) => (
-                              <circle
-                                key={di}
-                                cx={size / 2 + dot.x}
-                                cy={size / 2 + dot.y}
-                                r={2}
-                                fill={color}
-                                opacity={0.55}
-                              />
-                            ))}
-                            {/* Priority number for exclusive */}
-                            {!isAdditive && (
-                              <text
-                                x={size / 2} y={size / 2 - radius + 14}
-                                textAnchor="middle"
-                                fontSize={11}
-                                fontWeight="bold"
-                                fill={color}
-                                opacity={0.8}
-                              >
-                                #{sortedActive.filter(r => (r.action as any)?.isAdditive === false).indexOf(rule) + 1}
-                              </text>
-                            )}
-                          </svg>
+                              {/* Impact label inside bubble (only when large enough) */}
+                              {showLabel && annual !== 0 && (
+                                <>
+                                  <text
+                                    x={size / 2} y={size / 2 - (bubbleSI ? 7 : 2)}
+                                    textAnchor="middle" dominantBaseline="middle"
+                                    fontSize={radius >= 70 ? 14 : 11}
+                                    fontWeight="700"
+                                    fill={color}
+                                  >
+                                    {isNeg ? '-' : '+'}{Math.abs(annual) >= 1000000
+                                      ? `$${(Math.abs(annual)/1000000).toFixed(1)}M`
+                                      : Math.abs(annual) >= 1000
+                                      ? `$${Math.round(Math.abs(annual)/1000)}K`
+                                      : `$${Math.round(Math.abs(annual))}`}
+                                  </text>
+                                  {bubbleSI && (
+                                    <text
+                                      x={size / 2} y={size / 2 + (radius >= 70 ? 16 : 12)}
+                                      textAnchor="middle" dominantBaseline="middle"
+                                      fontSize={9} fill={color} opacity={0.75}
+                                    >
+                                      {bubbleSI.strategyGroup}
+                                    </text>
+                                  )}
+                                </>
+                              )}
+                              {/* Effective-date badge for exclusive rules */}
+                              {!isAdditive && (
+                                <text
+                                  x={size / 2} y={size / 2 - radius + 13}
+                                  textAnchor="middle" fontSize={9} fontWeight="600"
+                                  fill={color} opacity={0.7}
+                                >
+                                  PRIORITY
+                                </text>
+                              )}
+                            </svg>
 
-                          {/* Label below */}
-                          <div className="text-center" style={{ maxWidth: Math.max(size, 80) }}>
-                            <p className="text-xs font-semibold text-gray-800 dark:text-white leading-tight" style={{ maxWidth: 110, wordBreak: 'break-word' }}>
-                              {rule.name}
-                            </p>
-                            <p className="text-[10px] text-gray-500 dark:text-gray-400">{units.toLocaleString()} units</p>
-                            {bubbleSI && bubbleSC && (
-                              <span className={`inline-block mt-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full border ${bubbleSC.bg} ${bubbleSC.text} ${bubbleSC.border}`}>
-                                {bubbleSI.strategyGroup}
-                              </span>
+                            {/* Label below bubble */}
+                            <div className="text-center" style={{ maxWidth: Math.max(size + 8, 90) }}>
+                              <p className="text-[11px] font-semibold text-gray-800 leading-tight line-clamp-2">
+                                {rule.name}
+                              </p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{units.toLocaleString()} units · {campuses} campus{campuses !== 1 ? 'es' : ''}</p>
+                            </div>
+
+                            {/* Hover tooltip */}
+                            {isHovered && (
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 pointer-events-none" style={{ minWidth: 200 }}>
+                                <div className="bg-white border border-gray-200 rounded-xl shadow-2xl p-4">
+                                  <div className="flex items-start justify-between gap-2 mb-2">
+                                    <p className="text-xs font-bold text-gray-900 leading-snug">{rule.name}</p>
+                                    {bubbleSC && bubbleSI && (
+                                      <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${bubbleSC.bg} ${bubbleSC.text} ${bubbleSC.border}`}>
+                                        {bubbleSI.strategyGroup}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {bubbleSI?.aiSummary && (
+                                    <p className="text-[10px] text-slate-500 italic mb-2 leading-snug border-l-2 border-teal-200 pl-2">{bubbleSI.aiSummary}</p>
+                                  )}
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mb-2">
+                                    <span className="text-gray-400">Units</span>
+                                    <span className="font-semibold text-gray-900 text-right">{units.toLocaleString()}</span>
+                                    <span className="text-gray-400">Campuses</span>
+                                    <span className="font-semibold text-gray-900 text-right">{campuses}</span>
+                                    <span className="text-gray-400">Monthly impact</span>
+                                    <span className={`font-semibold text-right ${monthly >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmt(monthly)}</span>
+                                    <span className="text-gray-400">First-year impact</span>
+                                    <span className={`font-bold text-right ${annual >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmt(annual)}</span>
+                                  </div>
+                                  <div className="pt-2 border-t border-gray-100 flex justify-between text-[10px]">
+                                    <span className="text-gray-400">Application mode</span>
+                                    <span className={`font-semibold ${isAdditive ? 'text-teal-700' : 'text-amber-700'}`}>
+                                      {isAdditive ? 'Additive' : 'Exclusive (priority)'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
+                                     style={{ borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: '7px solid #e5e7eb' }} />
+                              </div>
                             )}
                           </div>
-
-                          {/* Hover tooltip */}
-                          {isHovered && (
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none"
-                                 style={{ minWidth: 180 }}>
-                              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3">
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <p className="text-xs font-semibold text-gray-900 dark:text-white leading-snug">{rule.name}</p>
-                                  {bubbleSI && bubbleSC && (
-                                    <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${bubbleSC.bg} ${bubbleSC.text} ${bubbleSC.border}`}>
-                                      {bubbleSI.strategyGroup}
-                                    </span>
-                                  )}
-                                </div>
-                                {bubbleSI && (
-                                  <p className="text-[10px] text-sky-700 italic mb-1.5 leading-snug">{bubbleSI.aiSummary}</p>
-                                )}
-                                <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-2 leading-snug">{rule.description}</p>
-                                <div className="space-y-0.5 text-[11px]">
-                                  <div className="flex justify-between gap-4">
-                                    <span className="text-gray-500">Units</span>
-                                    <span className="font-medium text-gray-900 dark:text-white">{units.toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between gap-4">
-                                    <span className="text-gray-500">Campuses</span>
-                                    <span className="font-medium text-gray-900 dark:text-white">{campuses}</span>
-                                  </div>
-                                  <div className="flex justify-between gap-4">
-                                    <span className="text-gray-500">Monthly</span>
-                                    <span className={`font-semibold ${monthly >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(monthly)}</span>
-                                  </div>
-                                  <div className="flex justify-between gap-4">
-                                    <span className="text-gray-500">Annual</span>
-                                    <span className={`font-semibold ${annual >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(annual)}</span>
-                                  </div>
-                                  <div className="flex justify-between gap-4 pt-1 border-t border-gray-100 dark:border-gray-800 mt-1">
-                                    <span className="text-gray-500">Mode</span>
-                                    <span className={`font-medium ${isAdditive ? 'text-teal-700' : 'text-amber-700'}`}>
-                                      {isAdditive ? 'Stacks with others' : 'Exclusive (priority)'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              {/* Arrow */}
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
-                                   style={{ borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid #e5e7eb' }} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                      }); // closes sortedActive.map
-                    })()} {/* closes IIFE */}
+                        );
+                      });
+                    })()}
                   </div>
                 )}
 
                 {/* Legend */}
-                <div className="flex flex-wrap gap-4 text-[11px] text-gray-500 dark:text-gray-400 pt-1 px-1">
+                <div className="flex flex-wrap gap-5 text-[11px] text-gray-500 pt-1 px-1">
                   <span className="flex items-center gap-1.5">
                     <svg width={14} height={14}><circle cx={7} cy={7} r={6} fill="none" stroke="#0d9488" strokeWidth={1.5} /></svg>
-                    Stacks (additive)
+                    Additive — stacks with other rules
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <svg width={14} height={14}>
-                      <circle cx={7} cy={7} r={6} fill="none" stroke="#d97706" strokeWidth={1.5} strokeDasharray="3 2" />
-                    </svg>
-                    Exclusive — dashed ring, priority number inside
+                    <svg width={16} height={14}><circle cx={8} cy={7} r={6} fill="none" stroke="#d97706" strokeWidth={1.5} strokeDasharray="4 3" /></svg>
+                    Exclusive — dashed ring, claims units by priority
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <svg width={10} height={10}><circle cx={5} cy={5} r={3} fill="#6b7280" opacity={0.55} /></svg>
-                    Each dot ≈ 1 unit (up to 64 shown)
+                    <svg width={10} height={10}><circle cx={5} cy={5} r={4} fill="#0d9488" opacity={0.3} /></svg>
+                    Circle size ∝ first-year revenue impact
                   </span>
                 </div>
               </DialogContent>

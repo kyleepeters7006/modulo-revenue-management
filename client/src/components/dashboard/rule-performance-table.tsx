@@ -651,7 +651,7 @@ export function RulePerformanceTable({
   const [viewMode, setViewMode] = useState<"summary" | "detail" | "scatter">("scatter");
   const [groupBy, setGroupBy] = useState<"strategy" | "rule" | "serviceLine" | "campus">("strategy");
   const [calcOpen, setCalcOpen] = useState<{ title: string; metrics: PerfMetrics } | null>(null);
-  const [sectionOpen, setSectionOpen] = useState(true);
+  const [sectionOpen, setSectionOpen] = useState(false);
 
   // Scattergram controls: highlight + filters + zoom
   const [scatterHighlightSL, setScatterHighlightSL] = useState<string>("All");

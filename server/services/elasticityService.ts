@@ -403,10 +403,9 @@ export interface ElasticityImpact {
  *   Monthly = (MoveIns_monthly × ΔRate)
  *             − (ΔDaysToSell × DailyRate × MoveIns_monthly) ÷ 12
  *
- *   Annual  = (MoveIns_monthly × ΔRate × 12)
- *             − (ΔDaysToSell × DailyRate × MoveIns_annual)
- *
- * where MoveIns_annual = MoveIns_monthly × 12.
+ *   Annual  = Monthly × 78 — first-year cumulative: move-in cohorts stack, so
+ *   month-1 move-ins pay ΔRate for 12 months, month-2 for 11, … (Σ = 78
+ *   delta-months). Matches the annualization used by the rule-impact service.
  *
  * The first term is the added revenue from charging more per move-in; the
  * second term is the revenue lost while units sit vacant longer (slower sell).
@@ -419,12 +418,9 @@ export function calculateElasticityRevenueImpact(p: ElasticityImpactParams): Ela
   ) {
     return { monthly: null, annual: null };
   }
-  const moveInsAnnual = moveInsMonthly * 12;
   const monthly =
     moveInsMonthly * deltaRate -
     (deltaDaysToSell * dailyRate * moveInsMonthly) / 12;
-  const annual =
-    moveInsMonthly * deltaRate * 12 -
-    deltaDaysToSell * dailyRate * moveInsAnnual;
+  const annual = monthly * 78; // first-year cumulative (stacked cohorts)
   return { monthly, annual };
 }

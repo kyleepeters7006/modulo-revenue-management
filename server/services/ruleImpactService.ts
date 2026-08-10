@@ -67,7 +67,8 @@ export interface RuleImpactResult {
   avgStreetRate: number;           // weighted avg monthly rate across qualified units
   avgRateChange: number;           // move-in-weighted avg $ change per unit per month
   monthlyImpact: number;
-  annualImpact: number;
+  annualImpact: number;             // first-year cumulative impact (ramped move-in cohorts)
+  steadyStateAnnualImpact: number;  // full-year impact once fully ramped (12 months of cohorts)
   perCampus: RuleCampusImpact[];
   qualifiedUnitIds: Set<string>;
   overlapExcludedUnits: number;    // units this rule qualifies but already claimed by a higher-precedence rule
@@ -644,12 +645,22 @@ export function computeQualifiedRuleImpact(
     perCampus.set(key, c);
   }
 
+  // Annualization multipliers.
+  // In-house rules reprice current residents immediately (fully ramped from
+  // day one): first-year and steady-state are both monthly × 12.
+  // Street/care rules apply only to NEW move-ins, so cohorts stack: month-1
+  // move-ins pay the delta for 12 months, month-2 for 11, ... (Σ = 78 months
+  // of delta in year one). Once fully ramped, 12 cohorts each pay the delta
+  // for a full year: monthly × 144.
+  const firstYearMult = useInHouseRate ? 12 : 78;
+  const steadyMult = useInHouseRate ? 12 : 144;
+
   const campuses = Array.from(perCampus.values()).map(c => ({
     ...c,
     avgRate: Math.round(c.avgRate),
     moveInsPerMonth: Math.round(c.moveInsPerMonth * 10) / 10,
     monthlyImpact: Math.round(c.monthlyImpact),
-    annualImpact: Math.round(c.monthlyImpact * 12),
+    annualImpact: Math.round(c.monthlyImpact * firstYearMult),
   })).sort((a, b) => Math.abs(b.monthlyImpact) - Math.abs(a.monthlyImpact));
 
   return {
@@ -661,7 +672,8 @@ export function computeQualifiedRuleImpact(
       ? (affectedUnits ? Math.round((deltaWeighted / affectedUnits) * 100) / 100 : 0)
       : (moveInsTotal ? Math.round((deltaWeighted / moveInsTotal) * 100) / 100 : 0),
     monthlyImpact: Math.round(monthlyImpact),
-    annualImpact: Math.round(monthlyImpact * 12),
+    annualImpact: Math.round(monthlyImpact * firstYearMult),
+    steadyStateAnnualImpact: Math.round(monthlyImpact * steadyMult),
     perCampus: campuses,
     qualifiedUnitIds,
     overlapExcludedUnits,
