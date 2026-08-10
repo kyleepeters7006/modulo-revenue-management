@@ -157,7 +157,7 @@ export const IMPORT_DATASETS: DatasetDefinition[] = [
       { key: "month", label: "Month", type: "month", required: true, format: MONTH_FORMAT, description: "Reporting period (YYYY-MM; split into year and month numbers on import)", sample: "2026-06", aliases: ["Period", "Upload Month"] },
       { key: "locationName", label: "Location Name", type: "string", required: true, description: "Campus name", sample: "Maple Grove Senior Living", aliases: ["Location", "Campus", "Facility"] },
       { key: "division", label: "Division", type: "string", required: false, description: "Division name", sample: "North" },
-      { key: "serviceLine", label: "Service Line", type: "string", required: true, description: "Care service line (composite values like \"AL, MC\" allowed)", sample: "AL" },
+      { key: "serviceLine", label: "Service Line", type: "string", required: false, description: "Care service line (AL, HC, AL/MC, HC/MC, SL, VIL). Optional: when absent the import infers SL from a leading prefix in the Room Type name (e.g. \"AL Companion\" → AL). Rows where neither source provides an SL are stored with a blank service line.", sample: "AL" },
       { key: "rawRoomType", label: "Room Type", type: "string", required: true, description: "Raw room type; normalized on import", sample: "Studio Deluxe", aliases: ["Room Type", "Unit Type"] },
       { key: "occUnits", label: "Occupied Units", type: "number", required: true, description: "Average occupied units in the month", sample: "14.5", aliases: ["Occ Units", "Occupied"] },
       { key: "availableUnits", label: "Available Units", type: "integer", required: true, description: "Total available units", sample: "16", aliases: ["Available", "Total Units"] },

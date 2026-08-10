@@ -22,6 +22,22 @@ import {
 import { IMPORT_DATASETS, getDataset, type DatasetDefinition, type RegistryField } from "@shared/importRegistry";
 import { normalizeRoomType } from "@shared/roomTypes";
 
+// Infer a service-line family string from a raw room-type name prefix
+// ("AL Companion" → "AL", "HC Companion" → "HC").  Mirrors the same helper in
+// routes.ts so both import paths apply identical SL-disambiguation logic.
+function inferSlFamilyFromRoomType(rawRoomType: string): string {
+  const upper = rawRoomType.toUpperCase().trim();
+  if (upper.startsWith('HC/MC ') || upper.startsWith('HC/MC-')) return 'HC/MC';
+  if (upper.startsWith('AL/MC ') || upper.startsWith('AL/MC-')) return 'AL/MC';
+  if (upper.startsWith('HC ') || upper.startsWith('HC-')) return 'HC';
+  if (upper.startsWith('AL ') || upper.startsWith('AL-')) return 'AL';
+  if (upper.startsWith('VIL ') || upper.startsWith('VIL-')) return 'VIL';
+  if (upper.startsWith('SL ') || upper.startsWith('SL-')) return 'SL';
+  if (upper.startsWith('MC ') || upper.startsWith('MC-')) return 'AL/MC';
+  if (upper.startsWith('IL ') || upper.startsWith('IL-')) return 'VIL';
+  return '';
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface ColumnIssue {
@@ -534,16 +550,34 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
           inserted += 1;
         }
       } else if (datasetId === "room_type_occupancy") {
+        let slInferredCount = 0;
+        let slMissingCount = 0;
         const recs = validation.records.map((r) => {
           const [yearStr, monthStr] = String(r.month || period).split("-");
           const occUnits = r.occUnits ?? 0;
           const availableUnits = r.availableUnits ?? 0;
+          // When the uploaded file omits a Service Line column, infer the SL
+          // family from the room type name prefix ("AL Companion" → "AL",
+          // "HC Companion" → "HC"). Without this, rows for different SL
+          // families that normalise to the same room type collapse into a single
+          // history record, preventing the rtoRTMap collapse loop from separating
+          // AL from HC occupancy at read time.
+          let serviceLine = r.serviceLine || '';
+          if (!serviceLine) {
+            const inferred = inferSlFamilyFromRoomType(r.rawRoomType || '');
+            if (inferred) {
+              serviceLine = inferred;
+              slInferredCount++;
+            } else {
+              slMissingCount++;
+            }
+          }
           return {
             clientId,
             locationId: locMap.get((r.locationName || "").trim().toLowerCase()) || null,
             locationName: r.locationName,
             division: r.division,
-            serviceLine: r.serviceLine,
+            serviceLine,
             rawRoomType: r.rawRoomType,
             normalizedRoomType: normalizeRoomType(r.rawRoomType),
             month: parseInt(monthStr, 10),
@@ -553,6 +587,12 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
             occPercent: r.occPercent ?? (availableUnits > 0 ? (occUnits / availableUnits) * 100 : null),
           };
         });
+        if (slInferredCount > 0) {
+          console.warn(`[rto-import] ${slInferredCount} row(s) had no Service Line column — SL inferred from room type name prefix.`);
+        }
+        if (slMissingCount > 0) {
+          console.warn(`[rto-import] ${slMissingCount} row(s) had no Service Line and no recognisable room type prefix — stored with blank service line. These rows may not match RT-level occupancy lookups.`);
+        }
         const periodsToReplace = mode === "replace_period"
           ? Array.from(new Set(recs.map((r) => `${r.year}-${r.month}`)))
           : [];

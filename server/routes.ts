@@ -203,6 +203,27 @@ function purgeRuleCaches(clientId: string): Promise<void> {
     .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
 }
 
+// Infer a service-line family string (e.g. "AL", "HC", "AL/MC") from a raw
+// room-type name whose SL is encoded as a leading prefix ("AL Companion",
+// "HC Studio", etc.). Used by the RT occupancy history import handlers to
+// preserve SL disambiguation when the uploaded file omits a Service Line column.
+// Returns '' when no recognisable prefix is found so callers can decide the
+// fallback (keep empty, or use another source).
+function inferSlFamilyFromRoomType(rawRoomType: string): string {
+  const upper = rawRoomType.toUpperCase().trim();
+  // Check combined SLs before single-letter ones (longer prefix wins).
+  if (upper.startsWith('HC/MC ') || upper.startsWith('HC/MC-')) return 'HC/MC';
+  if (upper.startsWith('AL/MC ') || upper.startsWith('AL/MC-')) return 'AL/MC';
+  if (upper.startsWith('HC ') || upper.startsWith('HC-')) return 'HC';
+  if (upper.startsWith('AL ') || upper.startsWith('AL-')) return 'AL';
+  if (upper.startsWith('VIL ') || upper.startsWith('VIL-')) return 'VIL';
+  if (upper.startsWith('SL ') || upper.startsWith('SL-')) return 'SL';
+  // "MC Companion" is treated as AL/MC (memory care is an AL sub-line).
+  if (upper.startsWith('MC ') || upper.startsWith('MC-')) return 'AL/MC';
+  if (upper.startsWith('IL ') || upper.startsWith('IL-')) return 'VIL';
+  return '';
+}
+
 // Strategy category for an adjustment rule (push / hold / ensure / concession-*).
 // Shared by the rule-performance endpoint and the adjustment-rules list so the
 // Rule Administration and Rule Performance sections group rules identically.
@@ -7636,6 +7657,8 @@ ${campusOccLines.join('\n')}
 
       const records: any[] = [];
       let skipped = 0;
+      let slInferredCount = 0;
+      let slMissingCount = 0;
 
       for (const row of jsonData) {
         const monthRaw = row['Month'] || row['month'];
@@ -7648,7 +7671,22 @@ ${campusOccLines.join('\n')}
         const rawRoomType = (row['Room Type'] || row['room type'] || row['RoomType'] || row['roomType'] || '').toString().trim();
         if (!rawRoomType) { skipped++; continue; }
 
-        const serviceLine = (row['Service Line'] || row['service line'] || row['ServiceLine'] || row['serviceLine'] || '').toString().trim();
+        // When the uploaded file omits a Service Line column, try to infer the
+        // SL family from the room type name prefix ("AL Companion" → "AL",
+        // "HC Companion" → "HC"). Without this guard, rows for different SL
+        // families that share the same normalised room type (e.g. "Companion")
+        // would be merged into a single history row, making it impossible for
+        // the rtoRTMap collapse loop to separate AL from HC at read time.
+        let serviceLine = (row['Service Line'] || row['service line'] || row['ServiceLine'] || row['serviceLine'] || '').toString().trim();
+        if (!serviceLine) {
+          const inferred = inferSlFamilyFromRoomType(rawRoomType);
+          if (inferred) {
+            serviceLine = inferred;
+            slInferredCount++;
+          } else {
+            slMissingCount++;
+          }
+        }
         const division = (row['Division'] || row['division'] || '').toString().trim();
 
         const occUnitsRaw = row['Occ Units'] || row['occ units'] || row['OCC Units'] || row['Occupied Units'] || null;
@@ -7777,11 +7815,22 @@ ${campusOccLines.join('\n')}
       invalidateRefDataCache();
       warmRefDataCacheForClient(clientId);
 
+      const warnings: string[] = [];
+      if (slInferredCount > 0) {
+        warnings.push(`${slInferredCount} row(s) had no Service Line column — service line was inferred from the room type name prefix (e.g. "AL Companion" → AL).`);
+      }
+      if (slMissingCount > 0) {
+        warnings.push(`${slMissingCount} row(s) had no Service Line and no recognisable room type name prefix — these rows were stored with a blank service line and may not match room-type-level occupancy lookups. Add a "Service Line" column or prefix room type names (e.g. "AL Companion") to fix this.`);
+      }
+
       res.json({
         message: 'Upload successful',
         recordsProcessed: insertRecords.length,
         skipped,
         total: jsonData.length,
+        slInferredCount,
+        slMissingCount,
+        ...(warnings.length > 0 ? { warnings } : {}),
       });
 
     } catch (error) {
