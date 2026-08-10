@@ -855,9 +855,9 @@ export function buildGroupRulePreviewRates(
     if (specDiff !== 0) return specDiff;
     const priDiff = (b.priority || 0) - (a.priority || 0);
     if (priDiff !== 0) return priDiff;
-    const da = a.effective_date ?? '';
-    const db = b.effective_date ?? '';
-    return db.localeCompare(da);
+    const dateA = String(a.effective_date ?? '');
+    const dateB = String(b.effective_date ?? '');
+    return dateB.localeCompare(dateA);
   });
 
   for (const g of groups) {

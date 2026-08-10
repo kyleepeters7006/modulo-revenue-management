@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar } from "lucide-react";
+import inflectLogo from "@assets/Inflect_Logo_-_No_Text_Below_1781618481726.png";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) => {
@@ -52,21 +53,20 @@ function ReportHeader({ title, scope, onClose, onPrint }: {
 }) {
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   return (
-    <div className="report-header bg-slate-900 text-white px-8 py-5 flex items-start justify-between gap-4 print:bg-slate-900 print:text-white">
-      <div className="flex items-center gap-4">
-        <div className="h-8 w-8 rounded bg-teal-500 flex items-center justify-center shrink-0">
-          <span className="text-white font-black text-sm">M</span>
-        </div>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Modulo Revenue Management</p>
-          <h1 className="text-2xl font-black tracking-tight">{title}</h1>
-          <p className="text-sm text-slate-400 mt-0.5">{scope}</p>
+    <div className="report-header bg-slate-900 text-white px-8 py-6 flex items-center justify-between gap-4 print:bg-slate-900 print:text-white">
+      <div className="flex items-center gap-5">
+        {/* Logo — dark background matches the navy header */}
+        <img src={inflectLogo} alt="Inflect" className="h-10 w-auto rounded-md shrink-0" />
+        <div className="border-l border-slate-700 pl-5">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-0.5">Revenue Management</p>
+          <h1 className="text-2xl font-black tracking-tight leading-none">{title}</h1>
+          <p className="text-sm text-slate-400 mt-1">{scope}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <div className="text-right mr-2 hidden print:block">
-          <p className="text-xs text-slate-400">Generated</p>
-          <p className="text-xs font-semibold">{today}</p>
+        <div className="text-right mr-3 hidden print:block">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider">Generated</p>
+          <p className="text-sm font-semibold">{today}</p>
         </div>
         <Button size="sm" variant="outline"
           className="print:hidden border-slate-600 text-slate-200 hover:bg-slate-800 hover:text-white gap-1.5 h-8"
@@ -93,10 +93,10 @@ function renderBold(text: string) {
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
   return (
-    <div className="flex-1 min-w-[140px] bg-white rounded-xl border border-slate-200 px-5 py-4">
-      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">{label}</p>
-      <p className={`text-2xl font-black leading-none ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+    <div className="flex-1 min-w-[150px] bg-white rounded-xl border border-slate-200 px-6 py-5 shadow-sm">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2 leading-tight">{label}</p>
+      <p className={`text-3xl font-black leading-none ${color}`}>{value}</p>
+      {sub && <p className="text-[11px] text-slate-400 mt-2 leading-snug">{sub}</p>}
     </div>
   );
 }
@@ -188,14 +188,18 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
           {/* AI Summary — strategy of the upcoming pricing changes */}
           {commentary?.summary && (
-            <div className="bg-white rounded-xl border border-slate-200 px-6 py-5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Pricing Strategy Summary</p>
-              <p className="text-base font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
-              {commentary.rulesSummary && (
-                <p className="text-sm text-slate-500 mt-3 leading-relaxed border-t border-slate-100 pt-3">
-                  <span className="font-semibold text-slate-700">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
-                </p>
-              )}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="px-6 py-4 bg-gradient-to-r from-slate-900 to-slate-800 flex items-center gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-teal-400">Pricing Strategy Summary</p>
+              </div>
+              <div className="px-6 py-5">
+                <p className="text-base font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
+                {commentary.rulesSummary && (
+                  <p className="text-sm text-slate-600 mt-4 leading-relaxed border-t border-slate-100 pt-4">
+                    <span className="font-bold text-slate-700">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -214,22 +218,22 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           </div>
 
           {/* Rules table */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-sm font-bold text-slate-800">Active Pricing Rules</p>
-              <p className="text-[11px] text-slate-400">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between bg-slate-900">
+              <p className="text-base font-bold text-white tracking-tight">Active Pricing Rules</p>
+              <p className="text-xs font-medium text-slate-400 bg-slate-800 rounded-full px-3 py-1">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
             </div>
             <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-left">
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[22%]">Rule</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[9%]">Service Line</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[26%]">Condition</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[9%]">Units</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">Monthly Impact</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">First-Year Impact</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[12%]">Fully Ramped /yr</th>
-                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[5%]"></th>
+                <tr className="bg-slate-50 text-left border-b border-slate-200">
+                  <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[22%]">Rule</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[9%]">Service Line</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[26%]">Condition</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[9%]">Units</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">Monthly Impact</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">First-Year Impact</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[12%]">Fully Ramped /yr</th>
+                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[5%]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -239,19 +243,19 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                   const sl = rule.serviceLine || (rule.action?.filters?.serviceLine || [])[0] || "—";
                   const aiStrategy = (commentary?.rules || []).find((cr: any) => cr.name === rule.name)?.strategy;
                   return (
-                    <tr key={rule.id} className={`border-t border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-black ${isPos ? "text-emerald-600" : "text-red-600"}`}>{adj}</span>
-                          <span className="text-xs text-slate-700 font-medium leading-tight">
+                    <tr key={rule.id} className={`border-t border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"}`}>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className={`text-sm font-black ${isPos ? "text-emerald-600" : "text-red-600"}`}>{adj}</span>
+                          <span className="text-sm text-slate-800 font-semibold leading-tight">
                             {rule.name?.replace(/^[+-][^-]+ - /, "").split(" when ")[0] || rule.name}
                           </span>
                         </div>
                         {rule.effectiveDate && (
-                          <p className="text-[10px] text-slate-400 mt-0.5 pl-0">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
                         )}
                         {aiStrategy && (
-                          <p className="text-[11px] text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
+                          <p className="text-xs text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
                             {renderBold(aiStrategy)}
                           </p>
                         )}
@@ -261,27 +265,27 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                           </p>
                         )}
                       </td>
-                      <td className="px-3 py-3.5">
+                      <td className="px-3 py-4">
                         {sl !== "—" ? (
-                          <span className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
+                          <span className="inline-block text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
                         ) : <span className="text-slate-400 text-xs">All</span>}
                       </td>
-                      <td className="px-3 py-3.5 text-xs text-slate-500 leading-snug">{fmtTrigger(rule)}</td>
-                      <td className="px-3 py-3.5 text-right">
+                      <td className="px-3 py-4 text-xs text-slate-500 leading-snug">{fmtTrigger(rule)}</td>
+                      <td className="px-3 py-4 text-right">
                         <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
-                        {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
+                        {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400 mt-0.5">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
                       </td>
-                      <td className="px-3 py-3.5 text-right">
-                        <span className={`text-sm font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
+                      <td className="px-3 py-4 text-right">
+                        <span className={`text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
                       </td>
-                      <td className="px-3 py-3.5 text-right">
-                        <span className={`text-sm font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
+                      <td className="px-3 py-4 text-right">
+                        <span className={`text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
                       </td>
-                      <td className="px-3 py-3.5 text-right">
-                        <span className={`text-sm font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
-                        <p className="text-[9px] text-slate-400 mt-0.5">run-rate</p>
+                      <td className="px-3 py-4 text-right">
+                        <span className={`text-base font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">run-rate</p>
                       </td>
-                      <td className="px-3 py-3.5">
+                      <td className="px-3 py-4">
                         {isPos
                           ? <TrendingUp className="h-4 w-4 text-emerald-500 ml-auto" />
                           : <TrendingDown className="h-4 w-4 text-red-500 ml-auto" />}
@@ -290,12 +294,12 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                   );
                 })}
                 {/* Totals row */}
-                <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
-                  <td className="px-5 py-3 text-xs font-bold text-slate-700" colSpan={3}>Totals — {activeRules.length} active rule{activeRules.length !== 1 ? "s" : ""}</td>
-                  <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{statsData?.uniqueUnits ?? activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0)}</td>
-                  <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{fmt(activeRules.reduce((s: number, r: any) => s + (r.monthlyImpact || 0), 0))}</td>
-                  <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{fmt(totalNet)}</td>
-                  <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{fmt(totalSteadyState)}</td>
+                <tr className="border-t-2 border-slate-300 bg-slate-900">
+                  <td className="px-5 py-4 text-sm font-bold text-white" colSpan={3}>Portfolio Total — {activeRules.length} active rule{activeRules.length !== 1 ? "s" : ""}</td>
+                  <td className="px-3 py-4 text-right text-base font-black text-white">{statsData?.uniqueUnits ?? activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0)}</td>
+                  <td className="px-3 py-4 text-right text-base font-black text-emerald-400">{fmt(activeRules.reduce((s: number, r: any) => s + (r.monthlyImpact || 0), 0))}</td>
+                  <td className="px-3 py-4 text-right text-base font-black text-emerald-400">{fmt(totalNet)}</td>
+                  <td className="px-3 py-4 text-right text-base font-black text-emerald-400">{fmt(totalSteadyState)}</td>
                   <td />
                 </tr>
               </tbody>

@@ -2025,7 +2025,7 @@ function CareLevel2RatesPanel() {
   const filterableSLs = filterSL === "All" ? displayableSLs : [filterSL];
 
   return (
-    <Card data-testid="card-care-level-rates">
+    <Card data-testid="card-care-level-rates" className="w-full shadow-sm bg-white border border-gray-200">
       <CardHeader
         className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors"
         onClick={() => setPanelOpen(o => !o)}

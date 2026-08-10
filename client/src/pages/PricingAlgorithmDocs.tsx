@@ -58,7 +58,6 @@ export default function PricingAlgorithmDocs() {
           {[
             ["#overview", "Overview"],
             ["#workflow", "Workflow"],
-            ["#rules-rate", "Rules Rate"],
             ["#rule-designer", "Rule Designer"],
             ["#rule-exclusivity", "Exclusivity"],
             ["#ai-suggestions", "AI Suggestions"],
@@ -160,50 +159,6 @@ export default function PricingAlgorithmDocs() {
                 <span>
                   <strong className="text-[var(--trilogy-dark-blue)]">Rules are the only mechanism</strong> that moves a rate. There is no separate weighted-signal engine. Each unit's rate traces back to the exact rules that fired.
                 </span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── 3. RULES RATE ───────────────────────────────────────────── */}
-          <Card id="rules-rate" className="bg-white/95 backdrop-blur border-[var(--trilogy-grey)]/20">
-            <CardHeader>
-              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
-                <Calculator className="h-6 w-6 text-[var(--trilogy-teal)]" />
-                Rules Rate Calculation
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="font-mono text-sm bg-white p-3 rounded border border-gray-200">
-                  Rules Rate = Guardrails( Base Rate + matching rule adjustments )
-                </div>
-                <p className="text-sm mt-2">
-                  Adjustments can be a percentage change, fixed-dollar change, absolute set-to, or a discount applied / removed. Each matching rule modifies the running rate in priority order.
-                </p>
-                <p className="text-sm mt-1 text-[var(--trilogy-grey)]/80">
-                  The <strong>Base Rate</strong> is the unit's current street rate, which already includes any room attribute premiums or discounts — room attributes are part of the starting base, not a separate step.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-amber-50 rounded-lg p-4 border border-amber-200/60">
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
-                    <Lock className="h-4 w-4 text-amber-500" />
-                    When no rule applies
-                  </h4>
-                  <p className="text-sm">
-                    Modulo does <strong>not</strong> propose a rate — the field is left blank. To price a unit, author or accept a rule that covers it.
-                  </p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)] mb-2 flex items-center gap-2">
-                    <Home className="h-4 w-4 text-[var(--trilogy-teal)]" />
-                    Room attributes
-                  </h4>
-                  <p className="text-sm">
-                    Attribute ratings (view, size, floor, renovation) are reflected in the street rate already. Changing a rating on the <strong>Room Attributes</strong> page flows into the next calculation cycle automatically.
-                  </p>
-                </div>
               </div>
             </CardContent>
           </Card>

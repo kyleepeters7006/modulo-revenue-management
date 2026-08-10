@@ -839,9 +839,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
   return (
     <div className="space-y-6">
       {/* ── Rule Designer Card ── */}
-      <Card ref={designerCardRef} className="w-full shadow-sm">
+      <Card ref={designerCardRef} className="w-full shadow-sm bg-white border border-gray-200">
         <CardHeader
-          className={`cursor-pointer select-none hover:bg-gray-50/60 rounded-t-lg transition-colors ${designerOpen ? 'pb-4' : 'pb-6'}`}
+          className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors"
           onClick={() => setDesignerOpen(o => !o)}
           data-testid="rule-designer-header"
         >
@@ -1611,7 +1611,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
             <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
               <Card className="w-full shadow-sm bg-white border border-gray-200">
                 <CollapsibleTrigger asChild>
-                  <CardHeader className="pb-2 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors">
+                  <CardHeader className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <CheckCircle2 className="h-4 w-4 text-teal-600 shrink-0" />
@@ -2214,7 +2214,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
             <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
               <Card className="w-full shadow-sm bg-white border border-gray-200">
                 <CollapsibleTrigger asChild>
-                  <CardHeader className="pb-2 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors" data-testid="pricing-history-header">
+                  <CardHeader className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors" data-testid="pricing-history-header">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <History className="h-4 w-4 text-gray-500 shrink-0" />

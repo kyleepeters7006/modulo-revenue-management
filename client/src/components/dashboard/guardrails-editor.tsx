@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shield, ChevronDown } from "lucide-react";
+import { Card, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -190,20 +191,22 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
   };
 
   return (
-    <div className="dashboard-card">
-      <div
-        className="flex items-center justify-between cursor-pointer select-none hover:opacity-80 transition-opacity mb-0"
+    <Card className="w-full shadow-sm bg-white border border-gray-200">
+      <CardHeader
+        className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors"
         onClick={() => setPanelOpen(o => !o)}
       >
-        <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 text-amber-500 shrink-0" />
-          <span className="text-base font-semibold text-gray-900">Pricing Guardrails</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-amber-500 shrink-0" />
+            <span className="text-base font-semibold text-gray-900">Pricing Guardrails</span>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 shrink-0 ${panelOpen ? '' : '-rotate-90'}`} />
         </div>
-        <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 shrink-0 ${panelOpen ? '' : '-rotate-90'}`} />
-      </div>
-      <p className="text-xs text-gray-500 mt-1">Hard limits on proposed rates — guardrails always override pricing rules</p>
+        <p className="text-xs text-gray-500 mt-1">Hard limits on proposed rates — guardrails always override pricing rules</p>
+      </CardHeader>
 
-      {panelOpen && <div className="space-y-6 mt-6">
+      {panelOpen && <div className="space-y-6 px-6 pb-6">
         {/* Price Change Limits */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -298,6 +301,6 @@ export default function GuardrailsEditor({ locationId, serviceLine }: Guardrails
           {saveStatus}
         </div>
       </div>}
-    </div>
+    </Card>
   );
 }
