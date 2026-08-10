@@ -1382,7 +1382,7 @@ export default function DataManagement() {
             <CardHeader>
               <CardTitle>Move Ins &amp; Outs Upload</CardTitle>
               <CardDescription>
-                Upload the "Move Ins &amp; Outs Detail" workbook to track admissions and discharges
+                Upload a Move Ins or Move Outs export file (Export sheet) to track admissions and discharges
               </CardDescription>
               {uploadSummary?.move_in_out?.lastUploadAt && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">

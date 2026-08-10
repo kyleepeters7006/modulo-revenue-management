@@ -94,7 +94,7 @@ const dataCategories: DataCategory[] = [
   {
     id: 'move-ins-outs',
     category: 'Move Ins & Outs Detail',
-    description: 'Monthly move-in/move-out event workbook (Admissions + Discharges)',
+    description: 'Move-in or move-out export file (Export sheet with Move Ins / Move Outs columns)',
     fileType: '.xlsx',
     importEndpoint: '/api/import/move-ins-outs',
   },

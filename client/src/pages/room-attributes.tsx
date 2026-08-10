@@ -93,7 +93,7 @@ export default function RoomAttributes() {
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>(savedFilters?.serviceLine || "All");
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"]);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(savedFilters?.locations?.length > 0 ? savedFilters.locations : []);
 
   // Local editing state for base price inputs: { [roomType|serviceLine]: inputValue }
   const [editingBasePrices, setEditingBasePrices] = useState<Record<string, string>>({});

@@ -480,8 +480,17 @@ function aggregateRows(
     out.compVarPct = (out.compAdjusted !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.compAdjusted - out.streetSpot) / out.streetSpot : null;
     out.ihVarStreetDollar = (out.ihSpot !== null && out.streetSpot !== null) ? out.ihSpot - out.streetSpot : null;
     out.ihVarStreetPct = (out.ihSpot !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.ihSpot - out.streetSpot) / out.streetSpot : null;
-    out.proposedVarDollar = (out.proposedRule !== null && out.streetSpot !== null) ? out.proposedRule - out.streetSpot : null;
-    out.proposedVarPct = (out.proposedRule !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.proposedRule - out.streetSpot) / out.streetSpot : null;
+    // proposed Δ: computed as wavg of per-RT deltas over only rows where a rule fires.
+    // Computing (wavg_proposed − wavg_street) / wavg_street is wrong because proposedRule
+    // wavg excludes null entries (rooms with no active rule) while streetSpot covers all rooms,
+    // making the denominator artificially small and inflating the apparent %.
+    out.proposedVarDollar = wavg((r) =>
+      r.proposedRule !== null && r.streetSpot !== null ? Number(r.proposedRule) - Number(r.streetSpot) : null
+    );
+    out.proposedVarPct = wavg((r) =>
+      r.proposedRule !== null && r.streetSpot !== null && Number(r.streetSpot) !== 0
+        ? (Number(r.proposedRule) - Number(r.streetSpot)) / Number(r.streetSpot) : null
+    );
     // Rule rate columns (weighted avg of matching rows)
     const rr: Record<string, number | null> = {};
     for (const id of ruleIds) rr[id] = wavg((r) => (r.ruleRates as any)?.[id]);

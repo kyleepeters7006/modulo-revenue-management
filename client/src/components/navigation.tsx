@@ -189,7 +189,7 @@ export default function Navigation({ className }: NavigationProps) {
             <div className="flex items-center space-x-4 ml-auto">
               {/* Inflect link */}
               <a
-                href="https://inflect.replit.app"
+                href="https://Inflect.Work"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"

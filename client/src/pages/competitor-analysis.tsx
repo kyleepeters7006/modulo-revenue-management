@@ -48,7 +48,7 @@ export default function CompetitorAnalysis() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>(savedFilters?.regions || []);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(savedFilters?.divisions || []);
   const [selectedLocations, setSelectedLocations] = useState<string[]>(
-    urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : ["Albany - 215"])
+    urlLocation ? [urlLocation] : (savedFilters?.locations?.length > 0 ? savedFilters.locations : [])
   );
   // Support both URL param, savedFilters.serviceLines array, and singular serviceLine from other pages
   const initialServiceLines = urlServiceLine && urlServiceLine !== 'All' 

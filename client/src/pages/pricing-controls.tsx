@@ -606,6 +606,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [coverageRuleId, setCoverageRuleId] = useState<string | null>(null);
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [highlightedSL, setHighlightedSL] = useState<string | null>(null);
+  const [pinnedScatterPoint, setPinnedScatterPoint] = useState<any>(null);
+  const [scatterPopupPos, setScatterPopupPos] = useState<{ x: number; y: number } | null>(null);
 
   const qs = useMemo(() => {
     const params = new URLSearchParams();
@@ -666,6 +668,41 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     enabled: !!coverageRuleId,
     staleTime: 5 * 60 * 1000,
   });
+
+  const quickAdjustMutation = useMutation({
+    mutationFn: async ({ location, serviceLine, pct }: { location: string; serviceLine: string; pct: number }) => {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await fetch('/api/adjustment-rules/from-filters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adjustmentType: 'percentage',
+          adjustmentValue: pct,
+          effectiveDate: today,
+          scope: { serviceLines: [serviceLine], locations: [location] },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
+      toast({ title: `${vars.pct > 0 ? '+' : ''}${vars.pct}% rule created`, description: `${SL_DISPLAY[vars.serviceLine] || vars.serviceLine} at ${vars.location}` });
+      setPinnedScatterPoint(null);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Rule creation failed', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const handleScatterDotClick = (data: any, _index: number, event: any) => {
+    const pt = data;
+    if (!pt?.location) return;
+    const clientX = event?.clientX ?? event?.nativeEvent?.clientX ?? 0;
+    const clientY = event?.clientY ?? event?.nativeEvent?.clientY ?? 0;
+    setPinnedScatterPoint(pt);
+    setScatterPopupPos({ x: clientX, y: clientY });
+  };
 
   const activeRules = useMemo(() => (rulesData || []).filter((r: any) => r.isActive), [rulesData]);
   const activeRulesWithImpact = useMemo(() => activeRules.filter((r: any) => (r.affectedUnits ?? 0) > 0), [activeRules]);
@@ -813,7 +850,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           const color = SCATTER_SL_COLORS[sl] || '#64748b';
           const dimmed = highlightedSL !== null && highlightedSL !== sl;
           return (
-            <Scatter key={sl} name={sl} data={slData} fill={color}>
+            <Scatter key={sl} name={sl} data={slData} fill={color} onClick={handleScatterDotClick} style={{ cursor: 'pointer' }}>
               {slData.map((_: any, i: number) => <Cell key={i} fill={color} fillOpacity={dimmed ? 0.12 : 0.85} />)}
             </Scatter>
           );
@@ -1406,6 +1443,76 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             </DialogContent>
           </Dialog>
         </>
+      )}
+
+      {/* ══ SCATTER DOT POPUP ══ */}
+      {pinnedScatterPoint && scatterPopupPos && (
+        <div
+          style={{
+            position: 'fixed',
+            left: Math.min(scatterPopupPos.x + 10, window.innerWidth - 268),
+            top: Math.max(scatterPopupPos.y - 20, 8),
+            zIndex: 9999,
+          }}
+          className="bg-white border border-slate-200 rounded-xl shadow-2xl p-3 w-64 text-[11px]"
+        >
+          {/* header */}
+          <div className="flex items-start justify-between mb-1.5">
+            <p className="font-bold text-slate-800 text-xs leading-tight">{pinnedScatterPoint.location}</p>
+            <button
+              onClick={() => setPinnedScatterPoint(null)}
+              className="text-slate-400 hover:text-slate-700 ml-2 -mt-0.5 shrink-0"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* data rows */}
+          <p className="text-slate-500">{SL_DISPLAY[pinnedScatterPoint.serviceLine] || pinnedScatterPoint.serviceLine} · Occ: <strong>{pinnedScatterPoint.occupancy}%</strong></p>
+          <p className="text-slate-500">Our Rate: <strong>${pinnedScatterPoint.ourRate?.toLocaleString()}</strong></p>
+          <p className="text-slate-500">
+            Adj. Comp: <strong>${pinnedScatterPoint.compRate?.toLocaleString()}</strong>
+            {pinnedScatterPoint.rawCompRate && pinnedScatterPoint.rawCompRate !== pinnedScatterPoint.compRate && (
+              <span className="text-slate-400"> (base ${pinnedScatterPoint.rawCompRate?.toLocaleString()}{pinnedScatterPoint.careAdj ? `, care ${pinnedScatterPoint.careAdj > 0 ? '+' : ''}${pinnedScatterPoint.careAdj?.toLocaleString()}` : ''})</span>
+            )}
+          </p>
+          <p className={`font-bold mt-0.5 ${pinnedScatterPoint.marketPosition > 100 ? 'text-emerald-600' : pinnedScatterPoint.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
+            {pinnedScatterPoint.marketPosition}% of market
+          </p>
+
+          {/* quick rate adjust */}
+          <div className="mt-2.5 pt-2 border-t border-slate-100">
+            <p className="text-slate-400 text-[10px] font-semibold uppercase tracking-wide mb-1.5">
+              Quick adjust — {SL_DISPLAY[pinnedScatterPoint.serviceLine] || pinnedScatterPoint.serviceLine} rate
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => quickAdjustMutation.mutate({ location: pinnedScatterPoint.location, serviceLine: pinnedScatterPoint.serviceLine, pct: -1 })}
+                disabled={quickAdjustMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-0.5 py-1 rounded-md text-[11px] font-bold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-40"
+              >
+                <Minus className="h-2.5 w-2.5" />1%
+              </button>
+              <button
+                onClick={() => quickAdjustMutation.mutate({ location: pinnedScatterPoint.location, serviceLine: pinnedScatterPoint.serviceLine, pct: 1 })}
+                disabled={quickAdjustMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-0.5 py-1 rounded-md text-[11px] font-bold bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 transition-colors disabled:opacity-40"
+              >
+                +1%
+              </button>
+            </div>
+          </div>
+
+          {/* change prices link */}
+          <a
+            href={`/pricing-controls?location=${encodeURIComponent(pinnedScatterPoint.location)}&serviceLine=${encodeURIComponent(pinnedScatterPoint.serviceLine)}`}
+            onClick={() => setPinnedScatterPoint(null)}
+            className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-800 transition-colors"
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" />
+            Change prices for this location
+          </a>
+        </div>
       )}
 
       {/* ══ ACTIVE RULES ══ */}
