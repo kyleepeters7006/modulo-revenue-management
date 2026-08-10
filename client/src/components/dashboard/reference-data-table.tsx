@@ -1130,6 +1130,12 @@ export default function ReferenceDataTable({
       if (end > start) ws.mergeCells(1, start, 1, end);
       const gc = row1.getCell(start);
       gc.value = groupLabel;
+      if (g.ruleInfo?.notes) {
+        gc.note = {
+          texts: [{ text: `Note: ${g.ruleInfo.notes}` }],
+          margins: { insetmode: "auto" },
+        } as any;
+      }
       gc.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
       gc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: groupFills[gi % groupFills.length] } };
       gc.alignment = { horizontal: "center", vertical: "middle" };
