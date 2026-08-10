@@ -961,15 +961,15 @@ export function RulePerformanceTable({
 
   return (
     <Card data-testid="card-rule-performance">
-      <CardHeader className="pb-3">
+      <CardHeader className="py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-emerald-600" />
-              <CardTitle className="text-lg">Rule Performance Over Time</CardTitle>
+              <TrendingUp className="h-4 w-4 text-emerald-600" />
+              <CardTitle className="text-base">Rule Performance Over Time</CardTitle>
               {isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
-            <CardDescription className="mt-1">
+            <CardDescription className="mt-0.5 text-xs">
               Pricing rule results grouped by {groupBy === "strategy" ? "strategy" : groupBy === "rule" ? "rule" : groupBy === "serviceLine" ? "service line" : "campus"} — units impacted, move-ins, and revenue impact.
             </CardDescription>
           </div>
@@ -1054,7 +1054,7 @@ export function RulePerformanceTable({
         </div>
       </CardHeader>
 
-      {sectionOpen && <CardContent>
+      {sectionOpen && <CardContent className="pt-0 pb-4">
         {isLoading ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading rule performance…
@@ -1067,21 +1067,21 @@ export function RulePerformanceTable({
         ) : (
           <>
             {/* Summary strip */}
-            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Rules Applied</div>
-                <div className="text-lg font-semibold">{rows.length}</div>
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Rules Applied</div>
+                <div className="text-base font-semibold">{rows.length}</div>
               </div>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Units Impacted</div>
-                <div className="text-lg font-semibold">{totals.unitsImpacted.toLocaleString()}</div>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Units Impacted</div>
+                <div className="text-base font-semibold">{totals.unitsImpacted.toLocaleString()}</div>
               </div>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">New Move-ins</div>
-                <div className="text-lg font-semibold">{totals.unitsSold.toLocaleString()}</div>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">New Move-ins</div>
+                <div className="text-base font-semibold">{totals.unitsSold.toLocaleString()}</div>
                 <div className="text-[10px] text-muted-foreground">admitted after rule applied</div>
               </div>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 flex flex-col gap-1">
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-1.5 flex flex-col gap-1">
                 <div className="flex items-center justify-between gap-1">
                   <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground">
                     <Trophy className="h-3 w-3" />Win Rate
@@ -1107,7 +1107,7 @@ export function RulePerformanceTable({
                   disabled={winRate == null || historicalRules.length === 0}
                   title={winRate != null ? "Click to see rule-by-rule breakdown" : undefined}
                 >
-                  <div className={`text-4xl font-black leading-none tabular-nums ${winRate == null ? "text-muted-foreground" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
+                  <div className={`text-2xl font-black leading-none tabular-nums ${winRate == null ? "text-muted-foreground" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
                     {winRate == null ? "–" : `${winRate.pct}%`}
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-1">

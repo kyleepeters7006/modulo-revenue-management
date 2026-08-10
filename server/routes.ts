@@ -16840,7 +16840,7 @@ OVERALL: ${overallOcc}% occupancy, ${totalVacant} of ${totalUnits} units vacant
 
 Instructions — return a JSON object with exactly these 4 keys:
 
-1. "summary": One sentence covering occupancy and revenue trends at the service-line level. Use real numbers. Bold key figures.
+1. "summary": One to two sentences summarizing the STRATEGY of the upcoming pricing changes from the active rules — what direction rates are moving (increases/decreases), by how much, in which service lines, and when they take effect (use the rules' effective dates). Lead with the pricing strategy, not occupancy; you may add a brief occupancy justification at the end. Use real numbers from the ACTIVE PRICING RULES data. Bold key figures. If there are no active rules, fall back to one sentence on occupancy and revenue trends.
 
 2. "pricingTrend": One to two sentences describing street rate and occupancy changes over the last 6 months across service lines. Be specific about direction and magnitude. Bold key changes.
 
