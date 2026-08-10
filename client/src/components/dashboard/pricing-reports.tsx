@@ -84,6 +84,13 @@ function ReportHeader({ title, scope, onClose, onPrint }: {
 }
 
 // ─── KPI strip ────────────────────────────────────────────────────────────────
+// Render **bold** markers from AI text as <strong> elements
+function renderBold(text: string) {
+  return String(text).split(/\*\*(.+?)\*\*/g).map((part, i) =>
+    i % 2 === 1 ? <strong key={i} className="font-bold text-slate-900">{part}</strong> : part
+  );
+}
+
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
   return (
     <div className="flex-1 min-w-[140px] bg-white rounded-xl border border-slate-200 px-5 py-4">
@@ -178,14 +185,14 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           {/* Date line (screen only) */}
           <p className="text-[11px] text-slate-400 print:hidden">Generated {today}</p>
 
-          {/* AI Summary */}
+          {/* AI Summary — strategy of the upcoming pricing changes */}
           {commentary?.summary && (
             <div className="bg-white rounded-xl border border-slate-200 px-6 py-5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Executive Summary</p>
-              <p className="text-base font-semibold text-slate-800 leading-relaxed">{commentary.summary}</p>
-              {commentary.pricingTrend && (
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Pricing Strategy Summary</p>
+              <p className="text-base font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
+              {commentary.rulesSummary && (
                 <p className="text-sm text-slate-500 mt-3 leading-relaxed border-t border-slate-100 pt-3">
-                  <span className="font-semibold text-slate-700">6-Month Trend: </span>{commentary.pricingTrend}
+                  <span className="font-semibold text-slate-700">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
                 </p>
               )}
             </div>
@@ -227,6 +234,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                   const adj = fmtAdj(rule);
                   const isPos = (rule.annualImpact || 0) >= 0;
                   const sl = rule.serviceLine || (rule.action?.filters?.serviceLine || [])[0] || "—";
+                  const aiStrategy = (commentary?.rules || []).find((cr: any) => cr.name === rule.name)?.strategy;
                   return (
                     <tr key={rule.id} className={`border-t border-slate-100 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}>
                       <td className="px-5 py-3.5">
@@ -238,6 +246,11 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                         </div>
                         {rule.effectiveDate && (
                           <p className="text-[10px] text-slate-400 mt-0.5 pl-0">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+                        )}
+                        {aiStrategy && (
+                          <p className="text-[11px] text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
+                            {renderBold(aiStrategy)}
+                          </p>
                         )}
                         {rule.notes && (
                           <p className="text-[10px] italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 leading-snug whitespace-pre-wrap" data-testid={`report-note-${rule.id}`}>
