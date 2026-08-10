@@ -15187,6 +15187,92 @@ Respond in JSON format:
         }
       }
 
+      // ── Competitor benchmark: care-adjusted survey averages ─────────────────
+      // Same methodology as the Competitive Position scatter: average survey
+      // monthly_rate_avg per location + competitor type (normalized), then apply
+      // the care adjustment (their care L2 − ours + their med mgmt). Averaging
+      // the per-unit blended competitor_final_rate instead overstates the
+      // premium (room-mix blending drags the denominator down).
+      const SUGGEST_SL_TO_COMP: Record<string, string[]> = {
+        AL: ['AL'], 'AL/MC': ['AL/MC'], HC: ['HC'], 'HC/MC': ['HC/MC', 'SMC'], SL: ['IL_IL'], VIL: ['IL_Villa'],
+      };
+      const [suggestCompRows, suggestCareRows] = await Promise.all([
+        pool.query(`
+          SELECT keystats_location, competitor_type,
+            ROUND(AVG(
+              CASE
+                WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                  CASE WHEN monthly_rate_avg > 800 THEN monthly_rate_avg / 30.0
+                       WHEN monthly_rate_avg < 50  THEN NULL ELSE monthly_rate_avg END
+                ELSE
+                  CASE WHEN monthly_rate_avg < 500 OR monthly_rate_avg > 25000 THEN NULL
+                       ELSE monthly_rate_avg END
+              END
+            )::numeric, 0) AS comp_rate,
+            ROUND(AVG(
+              CASE
+                WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                  CASE WHEN care_level_2_rate > 200 THEN care_level_2_rate / 30.0
+                       WHEN care_level_2_rate > 0   THEN care_level_2_rate
+                       ELSE NULL END
+                ELSE
+                  CASE WHEN care_level_2_rate BETWEEN 1 AND 5000 THEN care_level_2_rate ELSE NULL END
+              END
+            )::numeric, 0) AS comp_care_l2,
+            ROUND(AVG(
+              CASE
+                WHEN competitor_type IN ('HC','HC/MC','SMC') THEN
+                  CASE WHEN medication_management_fee > 200 THEN medication_management_fee / 30.0
+                       WHEN medication_management_fee > 0   THEN medication_management_fee
+                       ELSE NULL END
+                ELSE
+                  CASE WHEN medication_management_fee BETWEEN 1 AND 2000 THEN medication_management_fee ELSE NULL END
+              END
+            )::numeric, 0) AS comp_med_mgmt
+          FROM competitive_survey_data
+          WHERE client_id=$1 AND monthly_rate_avg > 0
+          GROUP BY keystats_location, competitor_type
+        `, [clientId]),
+        pool.query(`
+          SELECT l.name AS location_name, clr.service_line, clr.level2_rate
+          FROM care_level_rates clr
+          JOIN locations l ON clr.location_id = l.id
+          WHERE clr.client_id = $1
+        `, [clientId]),
+      ]);
+      const suggestCompMap = new Map<string, { baseRate: number; careL2: number; medMgmt: number }>();
+      for (const row of suggestCompRows.rows) {
+        if (Number(row.comp_rate) > 0) {
+          suggestCompMap.set(`${row.keystats_location}|||${row.competitor_type}`, {
+            baseRate: Number(row.comp_rate) || 0,
+            careL2: Number(row.comp_care_l2) || 0,
+            medMgmt: Number(row.comp_med_mgmt) || 0,
+          });
+        }
+      }
+      const suggestOurCareMap = new Map<string, number>();
+      for (const row of suggestCareRows.rows) {
+        suggestOurCareMap.set(`${row.location_name}|||${row.service_line}`, Number(row.level2_rate) || 0);
+      }
+      // Care-adjusted comp rate for one location+SL, or null when no survey coverage.
+      // Care L2 differential applies only to care-bearing service lines (matches
+      // the transform used elsewhere); SL/VIL get no care differential.
+      const SUGGEST_CARE_L2_APPLIES: Record<string, boolean> = {
+        'HC': true, 'HC/MC': true, 'AL': true, 'AL/MC': true, 'SL': false, 'VIL': false,
+      };
+      const adjustedCompFor = (location: string, sl: string): number | null => {
+        for (const ct of SUGGEST_SL_TO_COMP[sl] || [sl]) {
+          const v = suggestCompMap.get(`${location}|||${ct}`);
+          if (v && v.baseRate > 0) {
+            const careAdj = SUGGEST_CARE_L2_APPLIES[sl]
+              ? (v.careL2 - (suggestOurCareMap.get(`${location}|||${sl}`) || 0))
+              : 0;
+            return Math.max(v.baseRate + careAdj + v.medMgmt, 1);
+          }
+        }
+        return null;
+      };
+
       // Per-service-line metric blocks for the AI prompt.
       const slBlocks: string[] = [];
       const slContexts: any[] = [];
@@ -15210,8 +15296,31 @@ Respond in JSON format:
           : (scoped.length ? (scoped.filter((u: any) => u.occupiedYN).length / scoped.length) * 100 : 0);
         const streetRates = scoped.map((u: any) => u.streetRate).filter((r: number) => r > 0);
         const avgStreet = streetRates.length ? streetRates.reduce((a: number, b: number) => a + b, 0) / streetRates.length : 0;
-        const compRates = scoped.map((u: any) => u.competitorFinalRate).filter((r: number) => r > 0);
-        const avgComp = compRates.length ? compRates.reduce((a: number, b: number) => a + b, 0) / compRates.length : null;
+        // Competitor benchmark: unit-weighted, care-adjusted survey average per
+        // location (same methodology as the Competitive Position scatter).
+        // Fall back to the blended per-unit competitor_final_rate average only
+        // when there is no survey coverage for the scoped locations.
+        const unitsByLoc = new Map<string, { cnt: number; units: any[] }>();
+        for (const u of scoped) {
+          const loc = u.location || '';
+          if (!loc) continue;
+          const e = unitsByLoc.get(loc) || { cnt: 0, units: [] };
+          e.cnt += 1; e.units.push(u);
+          unitsByLoc.set(loc, e);
+        }
+        let compWeighted = 0, compWeight = 0;
+        for (const [loc, e] of unitsByLoc) {
+          // Survey benchmark for this location; per-location fallback to the
+          // stored competitor_final_rate average so multi-location scopes are
+          // not biased toward survey-covered campuses.
+          let locComp = adjustedCompFor(loc, sl);
+          if (locComp === null) {
+            const rates = e.units.map((u: any) => u.competitorFinalRate).filter((r: number) => r > 0);
+            locComp = rates.length ? rates.reduce((a: number, b: number) => a + b, 0) / rates.length : null;
+          }
+          if (locComp !== null) { compWeighted += locComp * e.cnt; compWeight += e.cnt; }
+        }
+        const avgComp: number | null = compWeight > 0 ? compWeighted / compWeight : null;
         const dvArr = scoped.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant);
         const avgDaysVacant = dvArr.length ? dvArr.reduce((a: number, b: number) => a + b, 0) / dvArr.length : 0;
         const segElasticities = Array.from(elasticityMap.values())
@@ -15228,7 +15337,8 @@ Respond in JSON format:
           `Occupied: ${occupied} (${occPct.toFixed(1)}% occupancy)\n` +
           `Vacant: ${vacant}\n` +
           `Average street rate: $${Math.round(avgStreet)}\n` +
-          `Average competitor rate: ${avgComp !== null ? '$' + Math.round(avgComp) : 'unknown'}\n` +
+          `Average competitor rate (care-adjusted market benchmark): ${avgComp !== null ? '$' + Math.round(avgComp) : 'unknown'}\n` +
+          `Street rate premium vs market: ${avgComp !== null && avgStreet > 0 ? (((avgStreet / avgComp) - 1) * 100).toFixed(1) + '%' : 'unknown'}\n` +
           `Average days vacant: ${Math.round(avgDaysVacant)}\n` +
           `Average price elasticity (Δdays-to-sell / Δrate): ${avgElasticity !== null ? avgElasticity.toFixed(3) : 'unknown'}\n` +
           `Room types: ${roomTypes.join(', ') || 'unknown'}`);

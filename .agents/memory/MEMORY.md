@@ -16,3 +16,4 @@
 - [Excel round-trip rule import](excel-roundtrip-import.md) — identical import descriptions merge into one scoped rule; exact rates go through manual_rate_overrides, never synthetic adjust rules.
 - [AI rule-suggestion pipeline](ai-rule-suggest-pipeline.md) — one Opus call, 10-rule cap, prompt must mirror parser grammar exactly; days_vacant is raw days evaluated per unit in both engines.
 - [Reference Data grouping & rule scope](refdata-grouping-scope.md) — aggregated views must map back to detail rows for rule scope; sum ratio components, never average %s; rule filters must reach both impact calculators.
+- [Competitor benchmark methods](comp-benchmark-methods.md) — never average competitor_final_rate for premiums (room-mix distortion); use care-adjusted survey benchmark, care-L2 gate excludes SL/VIL.
