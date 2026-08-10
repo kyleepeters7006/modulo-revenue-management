@@ -22,5 +22,8 @@ method: survey `monthly_rate_avg` averaged per location + competitor type
 gated to HC, HC/MC, AL, AL/MC only (never SL/VIL). SL→IL_IL, VIL→IL_Villa,
 HC/MC→[HC/MC, SMC]. For multi-location scopes, unit-weight per location and
 fall back per-location (not globally) to competitor_final_rate averages where
-survey coverage is missing. The AI rule-suggest endpoint replicates this
-inline; a shared service is proposed as a follow-up task.
+survey coverage is missing. This methodology now lives in a shared service
+(`compBenchmark` in server/services) used by both the Competitive Position
+scatter and the AI rule-suggest endpoint — always reuse it for new premium
+displays instead of re-implementing. The strategy overview's top-comp max
+method and legacy /api/compare style raw averages are separate, older methods.
