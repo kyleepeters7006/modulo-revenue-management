@@ -117,6 +117,7 @@ interface AdjustmentRule {
   affectedCampuses?: number;
   monthlyImpact?: number;
   annualImpact?: number;
+  steadyStateAnnualImpact?: number;
   volumeAdjustedAnnualImpact?: number;
   trigger?: unknown;
   action?: unknown;
@@ -1794,7 +1795,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                             <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Rule Detail</th>
                             <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Service Line</th>
                             <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Units Impacted</th>
-                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Monthly Revenue Impact</th>
+                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Revenue Impact</th>
                             <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Actions</th>
                           </tr>
                         </thead>
@@ -2033,7 +2034,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                   })()}
                                 </td>
 
-                                {/* Monthly Revenue Impact */}
+                                {/* Revenue Impact */}
                                 <td className="py-2.5 px-2 align-top text-right">
                                   {monthly !== 0 ? (
                                     <span className={`inline-flex items-center gap-1 text-sm font-semibold tabular-nums ${
@@ -2046,7 +2047,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
                                     <span className="text-xs text-gray-400">—</span>
                                   )}
                                   {annual !== 0 && (
-                                    <span className="block text-[10px] text-gray-400">{fmt(annual)}/yr</span>
+                                    <span className="block text-[10px] text-gray-400 tabular-nums">{fmt(annual)} first-yr</span>
+                                  )}
+                                  {(rule.steadyStateAnnualImpact ?? 0) !== 0 && (
+                                    <span className="block text-[10px] text-gray-400 tabular-nums">{fmt(rule.steadyStateAnnualImpact ?? 0)} ramped</span>
                                   )}
                                 </td>
 

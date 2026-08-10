@@ -250,6 +250,7 @@ const GROUPS: GroupDef[] = [
     cols: [
       { key: "revMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "(Proposed rate − current street rate) × expected move-ins per month (trailing 3-month average) — estimated monthly revenue change from new residents leasing at the proposed rate." },
       { key: "revAnnualImpact", label: "First-Year", type: "moneysigned", w: 90, tip: "Monthly impact × 78 — first-year cumulative revenue change: each month's move-in cohort keeps paying the new rate (12+11+…+1 = 78 delta-months). Matches the rules' First-Year Impact." },
+      { key: "revSteadyStateImpact", label: "Fully Ramped", type: "moneysigned", w: 100, tip: "Monthly impact × 144 — fully-ramped annual run-rate once 12 full cohorts are paying the new rate year-round (12×12 = 144 delta-months). The steady-state ceiling for this rule." },
       { key: "revImpactPct", label: "% Impact", type: "pctfracsigned", w: 75, tip: "Annual revenue impact as a % of current in-house revenue — directly comparable to the Growth Target column." },
     ],
   },
@@ -277,6 +278,7 @@ const GROUPS: GroupDef[] = [
     cols: [
       { key: "elasticityMonthlyImpact", label: "Monthly", type: "moneysigned", w: 90, tip: "Elasticity-adjusted estimated monthly revenue change, accounting for the demand response to the proposed rate." },
       { key: "elasticityAnnualImpact", label: "First-Year", type: "moneysigned", w: 90, tip: "Elasticity-adjusted first-year revenue change (monthly × 78, stacked move-in cohorts)." },
+      { key: "elasticitySteadyStateImpact", label: "Fully Ramped", type: "moneysigned", w: 100, tip: "Elasticity-adjusted fully-ramped annual run-rate (monthly × 144) — the steady-state ceiling once demand has fully adjusted to the new rate." },
     ],
   },
   {
@@ -344,7 +346,8 @@ function campusColsForLevel(level: GroupLevel): ColDef[] {
 const AGG_SUM_KEYS = [
   "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
   "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
-  "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
+  "revMonthlyImpact", "revAnnualImpact", "revSteadyStateImpact",
+  "elasticityMonthlyImpact", "elasticityAnnualImpact", "elasticitySteadyStateImpact",
 ];
 // Inquiry/tour counts live at the campus+SL level and are duplicated on every
 // room-type row — sum them once per unique campus||SL, not per row.

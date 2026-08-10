@@ -159,6 +159,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
   const activeRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
   const totalNet = activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
+  const totalSteadyState = activeRules.reduce((s: number, r: any) => s + (r.steadyStateAnnualImpact || 0), 0);
   const lift = activeRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
   const conc = activeRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
 
@@ -183,16 +184,16 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
         <div ref={printRef} className="report-printable flex-1 overflow-y-auto print:overflow-visible px-8 py-6 space-y-6">
           {/* Date line (screen only) */}
-          <p className="text-xs text-slate-400 print:hidden">Generated {today}</p>
+          <p className="text-[11px] text-slate-400 print:hidden">Generated {today}</p>
 
           {/* AI Summary — strategy of the upcoming pricing changes */}
           {commentary?.summary && (
             <div className="bg-white rounded-xl border border-slate-200 px-6 py-5">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Pricing Strategy Summary</p>
-              <p className="text-lg font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2">Pricing Strategy Summary</p>
+              <p className="text-base font-semibold text-slate-800 leading-relaxed">{renderBold(commentary.summary)}</p>
               {commentary.rulesSummary && (
-                <p className="text-sm text-slate-600 mt-3 leading-relaxed border-t border-slate-100 pt-3">
-                  <span className="font-semibold text-slate-800">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
+                <p className="text-sm text-slate-500 mt-3 leading-relaxed border-t border-slate-100 pt-3">
+                  <span className="font-semibold text-slate-700">Rule Strategy: </span>{renderBold(commentary.rulesSummary)}
                 </p>
               )}
             </div>
@@ -200,7 +201,8 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
           {/* KPI strip */}
           <div className="flex flex-wrap gap-3">
-            <KpiCard label="First-Year Net Impact" value={fmt(totalNet)} color={totalNet >= 0 ? "text-emerald-600" : "text-red-600"} />
+            <KpiCard label="First-Year Net Impact" value={fmt(totalNet)} color={totalNet >= 0 ? "text-emerald-600" : "text-red-600"} sub="Yr 1 cumulative (× 78)" />
+            <KpiCard label="Fully Ramped /yr" value={fmt(totalSteadyState)} color={totalSteadyState >= 0 ? "text-emerald-600" : "text-red-600"} sub="Steady-state run-rate (× 144)" />
             <KpiCard label="Concessions" value={fmt(conc)} color="text-red-600" />
             {statsData?.uniqueCampuses != null && (
               <KpiCard label="Campuses" value={String(statsData.uniqueCampuses)} color="text-slate-800" />
@@ -214,19 +216,20 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           {/* Rules table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-base font-bold text-slate-800">Active Pricing Rules</p>
-              <p className="text-xs text-slate-400">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
+              <p className="text-sm font-bold text-slate-800">Active Pricing Rules</p>
+              <p className="text-[11px] text-slate-400">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
             </div>
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-left">
-                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[22%]">Rule</th>
-                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[9%]">Service Line</th>
-                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[26%]">Condition</th>
-                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 text-right w-[10%]">Units</th>
-                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 text-right w-[14%]">Monthly Impact</th>
-                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 text-right w-[14%]">First-Year Impact</th>
-                  <th className="px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 w-[5%]"></th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[22%]">Rule</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[9%]">Service Line</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[26%]">Condition</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[9%]">Units</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">Monthly Impact</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">First-Year Impact</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right w-[12%]">Fully Ramped /yr</th>
+                  <th className="px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 w-[5%]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -245,34 +248,38 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                           </span>
                         </div>
                         {rule.effectiveDate && (
-                          <p className="text-xs text-slate-400 mt-0.5">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5 pl-0">Since {new Date(rule.effectiveDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
                         )}
                         {aiStrategy && (
-                          <p className="text-xs text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
+                          <p className="text-[11px] text-slate-500 mt-1 leading-snug" data-testid={`report-strategy-${rule.id}`}>
                             {renderBold(aiStrategy)}
                           </p>
                         )}
                         {rule.notes && (
-                          <p className="text-xs italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 leading-snug whitespace-pre-wrap" data-testid={`report-note-${rule.id}`}>
+                          <p className="text-[10px] italic text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-1 leading-snug whitespace-pre-wrap" data-testid={`report-note-${rule.id}`}>
                             {rule.notes}
                           </p>
                         )}
                       </td>
                       <td className="px-3 py-3.5">
                         {sl !== "—" ? (
-                          <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
+                          <span className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: SL_BG[sl] || "#f1f5f9", color: SL_FG[sl] || "#475569" }}>{sl}</span>
                         ) : <span className="text-slate-400 text-xs">All</span>}
                       </td>
                       <td className="px-3 py-3.5 text-xs text-slate-500 leading-snug">{fmtTrigger(rule)}</td>
                       <td className="px-3 py-3.5 text-right">
                         <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
-                        {rule.affectedCampuses > 0 && <p className="text-xs text-slate-400">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
+                        {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
                       </td>
                       <td className="px-3 py-3.5 text-right">
                         <span className={`text-sm font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
                       </td>
                       <td className="px-3 py-3.5 text-right">
                         <span className={`text-sm font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
+                      </td>
+                      <td className="px-3 py-3.5 text-right">
+                        <span className={`text-sm font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
+                        <p className="text-[9px] text-slate-400 mt-0.5">run-rate</p>
                       </td>
                       <td className="px-3 py-3.5">
                         {isPos
@@ -288,6 +295,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                   <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{statsData?.uniqueUnits ?? activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0)}</td>
                   <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{fmt(activeRules.reduce((s: number, r: any) => s + (r.monthlyImpact || 0), 0))}</td>
                   <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{fmt(totalNet)}</td>
+                  <td className="px-3 py-3 text-right text-sm font-bold text-slate-800">{fmt(totalSteadyState)}</td>
                   <td />
                 </tr>
               </tbody>
@@ -295,7 +303,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
           </div>
 
           {/* Footer */}
-          <p className="text-xs text-slate-400 text-center pb-2 print:block hidden">
+          <p className="text-[10px] text-slate-400 text-center pb-2 print:block hidden">
             Modulo Revenue Management · Confidential · Generated {today}
           </p>
         </div>

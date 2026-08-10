@@ -16945,7 +16945,7 @@ Return ONLY valid JSON, no markdown fences:
       // Collect all data rows first
       interface DataRow {
         ruleName: string; active: string; campus: string; serviceLine: string;
-        units: number; monthly: number; annual: number; threeMonth: number; sixMonth: number;
+        units: number; monthly: number; firstYear: number; steadyState: number; threeMonth: number; sixMonth: number;
       }
       const dataRows: DataRow[] = [];
 
@@ -16997,7 +16997,8 @@ Return ONLY valid JSON, no markdown fences:
               serviceLine: row.service_line ?? '',
               units: row.unit_count,
               monthly: Math.round(m),
-              annual: Math.round(m * 12),
+              firstYear: Math.round(m * 78),
+              steadyState: Math.round(m * 144),
               threeMonth: Math.round(m * 3),
               sixMonth: Math.round(m * 6),
             });
@@ -17012,15 +17013,16 @@ Return ONLY valid JSON, no markdown fences:
       const ws = wb.addWorksheet('Rules Impact');
 
       ws.columns = [
-        { key: 'ruleName',    header: 'Rule Name',           width: 32 },
-        { key: 'active',      header: 'Active',              width: 9  },
-        { key: 'campus',      header: 'Campus',              width: 28 },
-        { key: 'serviceLine', header: 'Service Line',        width: 16 },
-        { key: 'units',       header: 'Units Affected',      width: 15 },
-        { key: 'monthly',     header: 'Monthly Impact ($)',  width: 19 },
-        { key: 'annual',      header: 'Annual Impact ($)',   width: 18 },
-        { key: 'threeMonth',  header: '3-Month ($)',         width: 14 },
-        { key: 'sixMonth',    header: '6-Month ($)',         width: 14 },
+        { key: 'ruleName',    header: 'Rule Name',                    width: 32 },
+        { key: 'active',      header: 'Active',                       width: 9  },
+        { key: 'campus',      header: 'Campus',                       width: 28 },
+        { key: 'serviceLine', header: 'Service Line',                 width: 16 },
+        { key: 'units',       header: 'Units Affected',               width: 15 },
+        { key: 'monthly',     header: 'Monthly Impact ($)',           width: 19 },
+        { key: 'firstYear',   header: 'First-Year Impact ($)',        width: 22 },
+        { key: 'steadyState', header: 'Fully Ramped /yr ($)',         width: 22 },
+        { key: 'threeMonth',  header: '3-Month ($)',                  width: 14 },
+        { key: 'sixMonth',    header: '6-Month ($)',                  width: 14 },
       ];
 
       // Style header row
@@ -19642,6 +19644,7 @@ Return ONLY valid JSON, no markdown fences:
           revT3MoveIns: t3MoveInsForImpact,
           revMonthlyImpact: monthlyImpact,
           revAnnualImpact: monthlyImpact !== null ? monthlyImpact * 78 : null,
+          revSteadyStateImpact: monthlyImpact !== null ? monthlyImpact * 144 : null,
           // % impact: annual delta / current annual in-house revenue — comparable to Growth Target %
           revImpactPct: (monthlyImpact !== null && ihSpot !== null && ihSpot > 0 && (spot?.occupied ?? 0) > 0)
             ? monthlyImpact / (ihSpot * spot!.occupied)
@@ -20078,11 +20081,13 @@ Return ONLY valid JSON, no markdown fences:
               revMonthlyImpact: unitMonthly,
               // First-year cumulative (× 78) — must match the grouped endpoint.
               revAnnualImpact: unitMonthly !== null ? unitMonthly * 78 : null,
+              // Fully ramped / steady-state (× 144) — 12 full cohorts paying all year.
+              revSteadyStateImpact: unitMonthly !== null ? unitMonthly * 144 : null,
             };
           })(),
           // Elasticity-based revenue impact — group total distributed evenly per unit,
           // matching the parity guarantee used for revMonthlyImpact above.
-          ...((): { elasticityMonthlyImpact: number | null; elasticityAnnualImpact: number | null } => {
+          ...((): { elasticityMonthlyImpact: number | null; elasticityAnnualImpact: number | null; elasticitySteadyStateImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
             const n = groupUnitCount.get(key) || 1;
             const gElMonthly = groupElasticityMonthlyImpactMap.get(key) ?? null;
@@ -20091,6 +20096,8 @@ Return ONLY valid JSON, no markdown fences:
               elasticityMonthlyImpact: unitElMonthly,
               // First-year cumulative (× 78) — matches calculateElasticityRevenueImpact.
               elasticityAnnualImpact: unitElMonthly !== null ? unitElMonthly * 78 : null,
+              // Fully ramped / steady-state (× 144).
+              elasticitySteadyStateImpact: unitElMonthly !== null ? unitElMonthly * 144 : null,
             };
           })(),
           // Raw elasticity / DTS metrics — group-level values repeated on each unit row,
