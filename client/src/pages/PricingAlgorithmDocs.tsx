@@ -349,7 +349,11 @@ export default function PricingAlgorithmDocs() {
             </CardHeader>
             <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
               <p>
-                Set a <strong className="text-[var(--trilogy-dark-blue)]">target annual revenue growth %</strong> per campus + service line on Pricing Controls. Modulo analyzes the portfolio and generates suggested rules designed to reach that target. You review each one and <strong>Accept</strong> or <strong>Deny</strong>. Accepted suggestions become ordinary adjustment rules in the Rule Designer — identical to hand-authored rules.
+                Set a <strong className="text-[var(--trilogy-dark-blue)]">target annual revenue growth %</strong> per campus + service line on Pricing Controls. Modulo analyzes the portfolio and generates suggested rules designed to reach that target. You review each one and <strong>Accept</strong>, <strong>Edit</strong>, or <strong>Deny</strong>. Accepted suggestions become ordinary adjustment rules in the Rule Designer — identical to hand-authored rules.
+              </p>
+
+              <p>
+                <strong className="text-[var(--trilogy-dark-blue)]">The generator learns from your decisions.</strong> Every Accept, Edit, and Deny is logged as a training signal. On each new run, the AI reviews your recent decision history — favoring the styles, triggers, and adjustment magnitudes you have accepted, and steering away from rule logic you have denied. The more you use it, the better calibrated the suggestions become to your portfolio strategy.
               </p>
 
               <div className="bg-[var(--trilogy-teal)]/5 rounded-lg p-4 border border-[var(--trilogy-teal)]/20">
@@ -358,8 +362,9 @@ export default function PricingAlgorithmDocs() {
                     { label: "Set Growth Target", sub: "% per campus + service line" },
                     { label: "Generate Suggestions", sub: "AI proposes candidate rules" },
                     { label: "Review Each", sub: "intent, units, revenue, elasticity" },
-                    { label: "Accept / Deny", sub: "your decision" },
+                    { label: "Accept / Edit / Deny", sub: "your decision" },
                     { label: "Becomes a Rule", sub: "added to Rule Designer" },
+                    { label: "AI Learns", sub: "decisions calibrate future runs" },
                   ].map((step, i, arr) => (
                     <div key={i} className="flex items-center gap-2 flex-shrink-0">
                       <div className="bg-white rounded-lg border border-[var(--trilogy-teal)]/30 px-3 py-2 text-center">
@@ -391,7 +396,7 @@ export default function PricingAlgorithmDocs() {
 
               <div className="bg-[var(--trilogy-dark-blue)]/5 rounded-lg p-3 border border-[var(--trilogy-dark-blue)]/20 text-sm flex items-start gap-2">
                 <Target className="h-4 w-4 text-[var(--trilogy-dark-blue)] mt-0.5 flex-shrink-0" />
-                <span>Nothing changes until you Accept. Accepted suggestions participate in exclusivity, priority, and guardrails exactly like any other rule — and can be edited or toggled any time.</span>
+                <span>Nothing changes until you Accept. Accepted suggestions participate in exclusivity, priority, and guardrails exactly like any other rule — and can be edited or toggled any time. Denied suggestions won't be re-proposed: the learning loop remembers what you rejected.</span>
               </div>
             </CardContent>
           </Card>

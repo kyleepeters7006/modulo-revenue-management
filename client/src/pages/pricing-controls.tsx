@@ -177,15 +177,32 @@ export default function PricingControls() {
               Configure pricing rules and guardrails for the Rules Rate engine
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setStrategyReportOpen(true)}
-            className="shrink-0 gap-1.5 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-teal-700 hover:border-teal-300"
-          >
-            <FileBarChart className="h-4 w-4" />
-            Strategy Report
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+            <Button
+              size="sm"
+              onClick={() => {
+                if (designerHelpersRef.current) {
+                  designerHelpersRef.current.showAiGenerator();
+                } else {
+                  document.getElementById('rule-designer-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              className="gap-1.5 bg-teal-600 hover:bg-teal-700 text-white"
+              data-testid="button-generate-pricing-rules"
+            >
+              <Sparkles className="h-4 w-4" />
+              Generate Pricing Rules
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStrategyReportOpen(true)}
+              className="gap-1.5 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-teal-700 hover:border-teal-300"
+            >
+              <FileBarChart className="h-4 w-4" />
+              Strategy Report
+            </Button>
+          </div>
         </div>
 
         <StrategyReportModal

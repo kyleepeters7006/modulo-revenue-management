@@ -375,6 +375,31 @@ app.use((req, res, next) => {
     log(`[migration] ai_suggestion_runs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: feedback log of user decisions on AI rule suggestions
+  // (accepted / denied / edited). This is the learning signal fed back into the
+  // AI suggestion prompt so future suggestions improve with use.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS ai_suggestion_feedback (
+        id serial PRIMARY KEY,
+        client_id text NOT NULL,
+        suggestion_id text,
+        name text,
+        description text,
+        service_line text,
+        verdict text NOT NULL CHECK (verdict IN ('accepted','denied','edited')),
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_ai_suggestion_feedback_client
+        ON ai_suggestion_feedback (client_id, created_at DESC)
+    `);
+    log("[migration] ai_suggestion_feedback table ensured");
+  } catch (migErr) {
+    log(`[migration] ai_suggestion_feedback migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules

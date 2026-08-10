@@ -219,6 +219,7 @@ export default function AiRuleGenerator({
   const acceptSuggestionMutation = useMutation({
     mutationFn: async (s: RuleSuggestion) => {
       const response = await apiRequest("/api/adjustment-rules/suggestions/accept", "POST", {
+        suggestionId: s.suggestionId,
         name: s.name,
         description: s.description,
         locationId: s.locationId ?? locationId ?? null,
@@ -273,7 +274,7 @@ export default function AiRuleGenerator({
           <h4 className="font-semibold text-foreground text-sm">Target Annual Revenue Growth</h4>
         </div>
         <p className="text-xs text-muted-foreground">
-          Set your target annual revenue growth percentage for each service line. AI will suggest pricing rules to help achieve these targets.
+          Set your target annual revenue growth percentage for each service line. AI will suggest pricing rules to help achieve these targets — and it learns from your Accept/Edit/Deny decisions, so suggestions get better over time.
         </p>
       </div>
 
@@ -382,6 +383,7 @@ export default function AiRuleGenerator({
           </div>
           <p className="text-xs text-gray-500 mb-3">
             Each suggestion becomes an adjustment rule when accepted. Estimated impact is based on price elasticity.
+            The AI learns from every Accept, Edit, and Deny — future suggestions are calibrated to your past decisions.
           </p>
           <div className="space-y-3">
             {suggestions.map((s) => {
@@ -411,7 +413,15 @@ export default function AiRuleGenerator({
                         size="sm"
                         variant="outline"
                         className="h-8 gap-1.5 text-gray-600 flex-1 sm:flex-none"
-                        onClick={() => onEditSuggestion({ description: s.description, serviceLines: s.serviceLines ?? (s.serviceLine ? s.serviceLine.split(',').map(x => x.trim()).filter(Boolean) : undefined) })}
+                        onClick={() => {
+                          // Learning signal (fire-and-forget): editing means the
+                          // suggestion was close but needed tweaks.
+                          apiRequest("/api/adjustment-rules/suggestions/feedback", "POST", {
+                            suggestionId: s.suggestionId,
+                            verdict: "edited",
+                          }).catch(() => {});
+                          onEditSuggestion({ description: s.description, serviceLines: s.serviceLines ?? (s.serviceLine ? s.serviceLine.split(',').map(x => x.trim()).filter(Boolean) : undefined) });
+                        }}
                         disabled={busy}
                         data-testid={`button-edit-${s.suggestionId}`}
                       >
