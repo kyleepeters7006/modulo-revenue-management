@@ -34,6 +34,7 @@ import {
   Trash2,
   Plus,
   Upload,
+  StickyNote,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -1307,10 +1308,18 @@ export default function ReferenceDataTable({
                       <span className="flex items-center gap-1">
                         {g.label}
                         <Info className="h-2.5 w-2.5 opacity-60" />
+                        {g.ruleInfo.notes && (
+                          <StickyNote className="h-2.5 w-2.5 text-amber-300" data-testid={`rule-note-indicator-${g.ruleInfo.id}`} />
+                        )}
                       </span>
                       <span className="max-w-[120px] truncate text-[9px] font-normal normal-case tracking-normal text-white/80">
                         {g.ruleInfo.name}
                       </span>
+                      {g.ruleInfo.notes && (
+                        <span className="max-w-[120px] truncate text-[9px] font-normal normal-case italic tracking-normal text-amber-200" title={g.ruleInfo.notes}>
+                          {g.ruleInfo.notes}
+                        </span>
+                      )}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent className="w-72 p-3" align="center">
