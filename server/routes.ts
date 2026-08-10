@@ -15097,6 +15097,61 @@ Respond in JSON format:
       const { getElasticityMap } = await import('./services/elasticityService');
       const elasticityMap = await getElasticityMap(clientId);
 
+      // ── Authoritative SL occupancy from Room Type Occupancy History ─────────
+      // Rent-roll occupied_yn undercounts occupancy; the RTO history table is the
+      // source of truth. Combined-SL rows (e.g. "AL, AL/MC") are split using
+      // B-bed-excluded rent-roll unit weights (same approach as strategy overview).
+      // Some history rows lack location_id — also match by the location's name.
+      const rohScopeWhere = locationId
+        ? ` AND (roh.location_id = $2 OR roh.location_name = (SELECT name FROM locations WHERE id = $2 AND client_id = $1))`
+        : '';
+      const rohScopeParams = locationId ? [clientId, locationId] : [clientId];
+      const rohSuggestRes = await pool.query(`
+        WITH deduped AS (
+          SELECT DISTINCT ON (
+              roh.client_id, roh.location_name, roh.service_line,
+              roh.normalized_room_type, roh.month, roh.year
+            )
+            roh.service_line, roh.occ_units, roh.available_units
+          FROM room_type_occupancy_history roh
+          WHERE roh.client_id = $1
+            AND (roh.year * 100 + roh.month) = (
+              SELECT MAX(roh2.year * 100 + roh2.month)
+              FROM room_type_occupancy_history roh2
+              WHERE roh2.client_id = $1
+                AND roh2.available_units IS NOT NULL AND roh2.available_units > 0${rohScopeWhere.replace(/roh\./g, 'roh2.')}
+            )${rohScopeWhere}
+          ORDER BY roh.client_id, roh.location_name, roh.service_line,
+                   roh.normalized_room_type, roh.month, roh.year,
+                   roh.uploaded_at DESC
+        )
+        SELECT service_line, SUM(occ_units) AS occ, SUM(available_units) AS avail
+        FROM deduped GROUP BY service_line
+      `, rohScopeParams);
+      // Split weights from rent roll (scoped), excluding /B beds for weighted SLs.
+      const suggestWeights: Record<string, SlWeight> = {};
+      for (const u of allUnits as any[]) {
+        if (locationId && u.locationId !== locationId) continue;
+        if (!isSlWeightUnit(u.serviceLine, u.roomNumber)) continue;
+        const w = suggestWeights[u.serviceLine] || { units: 0, occupied: 0 };
+        w.units += 1;
+        if (u.occupiedYN) w.occupied += 1;
+        suggestWeights[u.serviceLine] = w;
+      }
+      const rohOccBySL: Record<string, { occ: number; avail: number }> = {};
+      for (const r of rohSuggestRes.rows) {
+        const occ = parseFloat(r.occ || '0');
+        const avail = parseFloat(r.avail || '0');
+        const tokens = String(r.service_line || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        const parts = splitCombinedSl(tokens, occ, avail, (sl) =>
+          suggestWeights[sl] || { units: 0, occupied: 0 });
+        for (const p of parts) {
+          const e = rohOccBySL[p.sl] || { occ: 0, avail: 0 };
+          e.occ += p.occ; e.avail += p.avail;
+          rohOccBySL[p.sl] = e;
+        }
+      }
+
       // Per-service-line metric blocks for the AI prompt.
       const slBlocks: string[] = [];
       const slContexts: any[] = [];
@@ -15109,10 +15164,15 @@ Respond in JSON format:
         validSLs.push(sl);
         campusName = campusName || scoped[0]?.location || '';
 
-        const total = scoped.length;
-        const occupied = scoped.filter((u: any) => u.occupiedYN).length;
-        const vacant = total - occupied;
-        const occPct = total ? (occupied / total) * 100 : 0;
+        // Occupancy: prefer authoritative RTO history; fall back to rent roll.
+        const roh = rohOccBySL[sl];
+        const hasRoh = !!roh && roh.avail > 0;
+        const total = hasRoh ? Math.round(roh.avail) : scoped.length;
+        const occupied = hasRoh ? Math.round(roh.occ) : scoped.filter((u: any) => u.occupiedYN).length;
+        const vacant = Math.max(0, total - occupied);
+        const occPct = hasRoh
+          ? (roh.occ / roh.avail) * 100
+          : (scoped.length ? (scoped.filter((u: any) => u.occupiedYN).length / scoped.length) * 100 : 0);
         const streetRates = scoped.map((u: any) => u.streetRate).filter((r: number) => r > 0);
         const avgStreet = streetRates.length ? streetRates.reduce((a: number, b: number) => a + b, 0) / streetRates.length : 0;
         const compRates = scoped.map((u: any) => u.competitorFinalRate).filter((r: number) => r > 0);
