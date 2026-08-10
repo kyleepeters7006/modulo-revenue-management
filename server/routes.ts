@@ -19508,6 +19508,34 @@ Return ONLY valid JSON, no markdown fences:
           // numbers sum correctly. Falls back to rent-roll when history is absent.
           ...((): { vacantSpot: number|null; vacantT3: number|null; vacantT6: number|null; vacantT12: number|null } => {
             const physMap = rtoPhysRT.get(`${c.campus}||${c.roomType}`);
+            // DIAG-444: temporary diagnostic logging for Princeton-117 AL Companion overcounting
+            const isDiagTarget = c.campus === 'Princeton - 117' && c.roomType === 'Companion';
+            if (isDiagTarget) {
+              const physKey = `${c.campus}||${c.roomType}`;
+              const spotEntry = physMap?.get(rtoSpotWindow[rtoSpotWindow.length - 1] ?? spotMonth);
+              const rtTotal444 = campusRTSpotUnits.get(physKey) ?? 0;
+              const share444 = (rtTotal444 > 0 && spot?.total) ? spot.total / rtTotal444 : 1;
+              const rawSpotVac = physMap ? physVacWindow(physMap, rtoSpotWindow) : null;
+              const rawT3Vac   = physMap ? physVacWindow(physMap, t3Months)     : null;
+              const rawT12Vac  = physMap ? physVacWindow(physMap, t12Months)    : null;
+              console.log('[DIAG-444] Princeton-117 Companion vacancy diagnosis:');
+              console.log('  physKey:', physKey);
+              console.log('  physMap present:', !!physMap);
+              console.log('  physMap spotMonth entry (rtoSpotWindow last):', spotEntry);
+              console.log('  all physMap months:', physMap ? [...physMap.entries()].sort().map(([k,v]) => `${k}: avail=${v.avail} occ=${v.occ} vac=${+(v.avail-v.occ).toFixed(2)}`).join(', ') : 'n/a');
+              console.log('  campusRTSpotUnits (rtTotal):', rtTotal444);
+              console.log('  spot.total (SL rent-roll units):', spot?.total);
+              console.log('  share:', share444);
+              console.log('  rawSpotVac (before applyShare):', rawSpotVac);
+              console.log('  rawT3Vac   (before applyShare):', rawT3Vac);
+              console.log('  rawT12Vac  (before applyShare):', rawT12Vac);
+              const applyShare444 = (v: number | null) => v !== null ? Math.round(v * share444 * 10) / 10 : null;
+              console.log('  vacantSpot (after applyShare):', applyShare444(rawSpotVac));
+              console.log('  vacantT3   (after applyShare):', applyShare444(rawT3Vac));
+              console.log('  vacantT12  (after applyShare):', applyShare444(rawT12Vac));
+              console.log('  code path: physMap present =>', !!physMap, '→', physMap ? 'RTO path' : 'rent-roll fallback path');
+            }
+            // END DIAG-444
             if (!physMap) {
               return {
                 vacantSpot: spot ? spot.total - spot.occupied : null,
