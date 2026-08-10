@@ -55,6 +55,8 @@ interface AiRuleGeneratorProps {
   selectedLocations: string[];
   /** Load a suggestion into the Rule Designer's Natural Language editor for tweaking. */
   onEditSuggestion?: (s: { description: string; serviceLines?: string[] }) => void;
+  /** Called after a suggestion is accepted and its rule created — lets the host refresh non-React-Query rule lists (e.g. Rule Administration). */
+  onRuleAccepted?: () => void;
   /** When set, auto-generate suggestions focused on this recommendation text. */
   focus?: string | null;
   /** Called once the focus request has been kicked off (so the parent can clear it). */
@@ -68,6 +70,7 @@ export default function AiRuleGenerator({
   selectedDivisions,
   selectedLocations,
   onEditSuggestion,
+  onRuleAccepted,
   focus,
   onFocusHandled,
 }: AiRuleGeneratorProps) {
@@ -273,6 +276,7 @@ export default function AiRuleGenerator({
       setSuggestions(prev => prev.filter(x => x.suggestionId !== s.suggestionId));
       removeFromLastRunCache(s.suggestionId);
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
+      onRuleAccepted?.();
       toast({
         title: "Rule created",
         description: `"${s.name}" was added to your rules.`,

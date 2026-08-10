@@ -15536,6 +15536,10 @@ Respond in JSON format:
         volumeAdjustedAnnualImpact: impact.annualImpact != null ? Math.round(impact.annualImpact * 1.05) : 0,
       });
 
+      // Bust the cached rules list so Rule Administration immediately shows the
+      // new rule as active (GET /api/adjustment-rules is cached for 2 min).
+      purgeRuleCaches(clientId);
+
       // Learning signal: log the acceptance so future AI runs favor similar rules.
       await recordSuggestionFeedback(clientId, 'accepted', {
         suggestionId: req.body?.suggestionId ? String(req.body.suggestionId) : null,

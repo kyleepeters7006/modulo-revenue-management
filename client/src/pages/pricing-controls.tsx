@@ -511,6 +511,7 @@ export default function PricingControls() {
                   selectedDivisions={selectedDivisions}
                   selectedLocations={selectedLocations}
                   onEditSuggestion={helpers.editSuggestion}
+                  onRuleAccepted={helpers.refreshRules}
                   focus={ruleFocus}
                   onFocusHandled={() => setRuleFocus(null)}
                 />

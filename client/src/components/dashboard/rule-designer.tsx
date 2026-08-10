@@ -216,6 +216,8 @@ export interface RuleDesignerHelpers {
   editSuggestion: (s: SuggestionToEdit) => void;
   /** Open the designer on the AI generator tab and scroll it into view. */
   showAiGenerator: () => void;
+  /** Re-fetch the rules list (Rule Administration) — call after creating a rule outside the designer, e.g. accepting an AI suggestion. */
+  refreshRules: () => void;
 }
 
 interface RuleDesignerProps {
@@ -279,8 +281,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
     setTimeout(() => designerCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }, []);
 
+  // Stable indirection to fetchRules (defined below) so the helpers object can
+  // be built here without a temporal-dead-zone reference.
+  const fetchRulesRef = useRef<() => void>(() => {});
+  const refreshRules = useCallback(() => fetchRulesRef.current(), []);
+
   const aiGenerator = typeof aiGeneratorProp === 'function'
-    ? aiGeneratorProp({ editSuggestion, showAiGenerator })
+    ? aiGeneratorProp({ editSuggestion, showAiGenerator, refreshRules })
     : aiGeneratorProp;
 
   // Rule Administration filters (mirrors the Rule Performance section)
@@ -365,6 +372,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       if (res.ok) setRules(await res.json());
     } catch { /* silent */ }
   }, [locationId, serviceLine, showHistoryRules]);
+  fetchRulesRef.current = fetchRules;
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
 
