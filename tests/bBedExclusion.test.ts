@@ -33,9 +33,10 @@ console.log('\n=== B-bed exclusion predicate ===\n');
 
 // --- Senior housing SLs: letter-suffixed rooms are excluded ---
 for (const sl of ['AL', 'AL/MC', 'SL', 'VIL']) {
-  assert(`${sl} 101/B excluded`, isBBedRow(sl, '101/B'), true);
-  assert(`${sl} 101/A excluded (any letter suffix is a companion row)`, isBBedRow(sl, '101/A'), true);
-  assert(`${sl} 205/BB excluded (multi-letter suffix)`, isBBedRow(sl, '205/BB'), true);
+  assert(`${sl} 101/B excluded (companion B-bed)`, isBBedRow(sl, '101/B'), true);
+  assert(`${sl} 101/b excluded (lowercase companion)`, isBBedRow(sl, '101/b'), true);
+  assert(`${sl} 101/A kept (primary bed — Princeton regression)`, isBBedRow(sl, '101/A'), false);
+  assert(`${sl} 205/BB kept (multi-letter suffix, no match)`, isBBedRow(sl, '205/BB'), false);
   assert(`${sl} plain room 101 kept`, isBBedRow(sl, '101'), false);
 }
 

@@ -10,12 +10,15 @@
  * so their averages are intentionally unchanged.
  *
  * The SQL equivalent of this predicate is:
- *   NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number ~ '/[A-Za-z]+$')
+ *   NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number ~* '/[B-Zb-z]$')
+ *
+ * Only non-A letter suffixes are excluded (e.g. "101/B" is companion; "101/A"
+ * is the primary bed and must remain in the average).
  */
 
 export const SENIOR_HOUSING_SLS: ReadonlySet<string> = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
 
-export const B_BED_ROOM_RE = /\/[A-Za-z]+$/;
+export const B_BED_ROOM_RE = /\/[B-Zb-z]$/;
 
 /**
  * Returns true when the row is a companion-bed row that must be excluded

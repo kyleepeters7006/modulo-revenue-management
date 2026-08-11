@@ -701,7 +701,7 @@ export class DatabaseStorage implements IStorage {
       // For senior housing, skip B-bed companion rows (room_number ending in /letter)
       if (seniorHousingServiceLines.includes(serviceLine)) {
         const roomNumber = unit.roomNumber || '';
-        if (/\/[A-Za-z]+$/.test(roomNumber)) {
+        if (/\/[B-Zb-z]$/.test(roomNumber)) {
           return acc; // Skip this unit
         }
       }
@@ -2203,7 +2203,7 @@ export class DatabaseStorage implements IStorage {
     const unitsForOccupancy = units.filter(unit => {
       if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
         const roomNumber = unit.roomNumber || '';
-        if (/\/[A-Za-z]+$/.test(roomNumber)) {
+        if (/\/[B-Zb-z]$/.test(roomNumber)) {
           return false; // Exclude B-bed companion rows from occupancy calculation
         }
       }
