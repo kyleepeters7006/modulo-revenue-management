@@ -18225,11 +18225,15 @@ Return ONLY valid JSON, no markdown fences:
           GROUP BY rr.service_line, rr.room_type
         `, baseParams),
         pool.query(`
-          SELECT DISTINCT ON (name) name, action, trigger, service_line, service_lines, location_id, effective_date, is_active
+          SELECT DISTINCT ON (name) id, name, action, trigger, service_line, service_lines, location_id, effective_date, created_at, is_active, priority
           FROM adjustment_rules
           WHERE is_historical IS NOT TRUE
+            AND (
+              (location_id IS NOT NULL AND location_id IN (SELECT id FROM locations WHERE client_id = $1))
+              OR (location_id IS NULL AND client_id = $1)
+            )
           ORDER BY name
-        `),
+        `, [clientId]),
       ]);
 
       // ---- Rule category map (push / hold / concession-al / concession-sl) ----
@@ -18844,6 +18848,103 @@ Return ONLY valid JSON, no markdown fences:
               calc: null,
               detail: [],
             });
+          }
+        }
+      }
+
+      // ---- Attach suppressedByRules for active blanket rules -------------------
+      // Mirrors the same dedup logic in /api/adjustment-rules so the Rule
+      // Performance table can name the specific targeted rule that is suppressing
+      // a blanket rule, rather than just showing a generic badge.
+      // The claim pass and "would-be" impact are both scoped to the same
+      // location/region/division/serviceLine filters as the performance rows so
+      // suppression is only reported when it occurs within the active view.
+      {
+        const activeByName = new Map<string, any>();
+        for (const ar of activeRuleMetaRes.rows) {
+          if (ar.is_active) activeByName.set(ar.name, ar);
+        }
+        // Identify performance rows that correspond to active blanket rules (specificity 0)
+        const blanketRows = rows.filter(r => {
+          const ar = activeByName.get(r.ruleName);
+          if (!ar) return false;
+          return ruleSpecificityScore({ locationId: ar.location_id, serviceLine: ar.service_line, serviceLines: ar.service_lines, action: ar.action }) === 0;
+        });
+        if (blanketRows.length > 0) {
+          // Resolve the page filters to location IDs (same approach as /api/adjustment-rules)
+          // so that suppression is evaluated within the same scope the user sees.
+          let perfScopeLocationIds: string[] | null = null;
+          if (locations.length || regions.length || divisions.length) {
+            const locRows = await pool.query(
+              `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
+              [clientId]
+            );
+            perfScopeLocationIds = locRows.rows
+              .filter((l: any) =>
+                (!locations.length || locations.includes(l.name)) &&
+                (!regions.length   || (l.region   && regions.includes(l.region))) &&
+                (!divisions.length || (l.division && divisions.includes(l.division))))
+              .map((l: any) => l.id);
+          }
+          const perfScope = (serviceLine || perfScopeLocationIds)
+            ? { serviceLine: serviceLine ?? undefined, locationIds: perfScopeLocationIds ?? undefined }
+            : undefined;
+
+          const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+          let impactCtx = getCachedAnalytics(ctxCacheKey);
+          if (!impactCtx) {
+            impactCtx = await buildRuleImpactContext(clientId);
+            if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
+          }
+          if (impactCtx) {
+            // Run dedup pass (targeted first) scoped to the active filters.
+            // Sort order mirrors the authoritative adjustment-rules dedup:
+            // specificity DESC → priority DESC → effectiveDate DESC → createdAt DESC.
+            const allActive = activeRuleMetaRes.rows.filter((ar: any) => ar.is_active);
+            const sorted = [...allActive].sort((a: any, b: any) => {
+              const rA = { locationId: a.location_id, serviceLine: a.service_line, serviceLines: a.service_lines, action: a.action };
+              const rB = { locationId: b.location_id, serviceLine: b.service_line, serviceLines: b.service_lines, action: b.action };
+              const specDiff = ruleSpecificityScore(rB) - ruleSpecificityScore(rA);
+              if (specDiff !== 0) return specDiff;
+              const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
+              if (priDiff !== 0) return priDiff;
+              const da = a.effective_date ? new Date(a.effective_date).toISOString() : '';
+              const db = b.effective_date ? new Date(b.effective_date).toISOString() : '';
+              if (da !== db) return db.localeCompare(da);
+              const ca = a.created_at ? new Date(a.created_at).toISOString() : '';
+              const cb = b.created_at ? new Date(b.created_at).toISOString() : '';
+              return cb.localeCompare(ca);
+            });
+            const claimedIds = new Set<string>();
+            const unitClaimerMap = new Map<string, { id: string; name: string; specificity: number }>();
+            for (const ar of sorted) {
+              const ruleObj = { action: ar.action, trigger: ar.trigger, serviceLine: ar.service_line || null, serviceLines: ar.service_lines || null, locationId: ar.location_id || null };
+              const spec = ruleSpecificityScore(ruleObj);
+              const impact = computeQualifiedRuleImpact(impactCtx, ruleObj, perfScope, claimedIds);
+              for (const id of Array.from(impact.qualifiedUnitIds ?? [])) {
+                if (!claimedIds.has(id as string)) {
+                  unitClaimerMap.set(id as string, { id: ar.id || ar.name, name: ar.name, specificity: spec });
+                }
+                claimedIds.add(id as string);
+              }
+            }
+            // For each blanket row, compute which targeted rules suppress it within scope
+            for (const row of blanketRows) {
+              const ar = activeByName.get(row.ruleName);
+              if (!ar) continue;
+              const ruleObj = { action: ar.action, trigger: ar.trigger, serviceLine: ar.service_line || null, serviceLines: ar.service_lines || null, locationId: ar.location_id || null };
+              const wouldBeImpact = computeQualifiedRuleImpact(impactCtx, ruleObj, perfScope);
+              const claimerById = new Map<string, { id: string; name: string }>();
+              for (const uid of Array.from(wouldBeImpact.qualifiedUnitIds ?? [])) {
+                const claimer = unitClaimerMap.get(uid as string);
+                if (claimer && claimer.specificity > 0 && claimer.id !== (ar.id || ar.name)) {
+                  claimerById.set(claimer.id, { id: claimer.id, name: claimer.name });
+                }
+              }
+              if (claimerById.size > 0) {
+                (row as any).suppressedByRules = Array.from(claimerById.values());
+              }
+            }
           }
         }
       }

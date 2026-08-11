@@ -185,6 +185,7 @@ interface SummaryRow extends PerfMetrics {
   ruleName: string;
   category: string;
   isHistorical?: boolean;
+  suppressedByRules?: Array<{ id: string; name: string }>;
   detail: DetailRow[];
 }
 
@@ -497,13 +498,23 @@ function buildTableRows({
             onClick={() => onToggleRow(rowKey)}
           >
             <td className={`${tdCls} font-medium pl-8`}>
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 flex-wrap">
                 {open
                   ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
                 <span className="whitespace-normal text-sm">
                   {r.isHistorical && !/^Historical:/i.test(r.ruleName) ? `Historical: ${r.ruleName}` : r.ruleName}
                 </span>
+                {r.suppressedByRules && r.suppressedByRules.length > 0 && (
+                  <span
+                    className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 shrink-0"
+                    title={`Suppressed by: ${r.suppressedByRules.map(s => s.name).join(', ')}`}
+                  >
+                    {r.suppressedByRules.length === 1
+                      ? `Suppressed by: ${r.suppressedByRules[0].name}`
+                      : `Suppressed by ${r.suppressedByRules.length} targeted rules`}
+                  </span>
+                )}
               </span>
             </td>
             <td className={tdCls}>{fmtDate(r.dateApplied)}</td>
