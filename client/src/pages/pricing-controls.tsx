@@ -816,15 +816,28 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     if (trigger.type === 'immediate') return 'Always active';
     const conditions = trigger.conditions || (trigger.condition ? [trigger.condition] : []);
     if (!conditions.length) return 'Conditional';
-    const c = conditions[0];
     const fieldMap: Record<string, string> = {
       service_line_occupancy: 'SL occ', room_type_occupancy: 'RT occ',
-      campus_occupancy: 'Campus occ', days_vacant: 'Days vacant',
+      campus_occupancy: 'Campus occ', days_vacant: 'Days vacant', occupancy: 'Occ',
     };
+    // Prefer a more-specific condition over the generic legacy `occupancy` field
+    const specificFields = ['room_type_occupancy', 'service_line_occupancy', 'campus_occupancy', 'days_vacant'];
+    let c = conditions[0];
+    if (c.field === 'occupancy' && conditions.length > 1) {
+      const specific = conditions.find((cond: any) => specificFields.includes(cond.field));
+      if (specific) c = specific;
+    }
+    // If conditions span multiple domains, show a neutral indicator
+    const uniqueFields = new Set(conditions.map((cond: any) => cond.field));
+    const hasOccupancy = conditions.some((cond: any) => cond.field?.includes('occupancy'));
+    const hasDaysVacant = conditions.some((cond: any) => cond.field === 'days_vacant');
+    if (conditions.length > 1 && hasOccupancy && hasDaysVacant) {
+      return 'Multiple conditions';
+    }
     const field = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
     const val = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.value;
     const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
-    const extra = conditions.length > 1 ? ` +${conditions.length - 1}` : '';
+    const extra = conditions.length > 1 && uniqueFields.size === 1 ? ` +${conditions.length - 1}` : '';
     return `${field} ${op} ${val}${extra}`;
   };
 
