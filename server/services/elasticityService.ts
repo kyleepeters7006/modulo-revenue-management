@@ -31,6 +31,15 @@ const DAYS_PER_MONTH = 30.44;
 // Minimum |%Δrate| required for a meaningful elasticity (avoids divide-by-near-zero).
 const MIN_RATE_CHANGE_PCT = 0.005; // 0.5%
 
+// Cap applied to days_vacant before computing DTS / elasticity metrics.
+// Units vacant longer than this (offline renovations, legal holds, etc.) would
+// inflate DTS and drive elasticity artificially negative. 180 days is the
+// configurable default; override by setting ELASTICITY_MAX_DAYS_VACANT env var.
+const MAX_DAYS_VACANT: number =
+  process.env.ELASTICITY_MAX_DAYS_VACANT
+    ? Math.max(1, parseInt(process.env.ELASTICITY_MAX_DAYS_VACANT, 10))
+    : 180;
+
 export interface ElasticityRecord {
   clientId: string;
   locationId: string | null;
@@ -196,12 +205,12 @@ export async function computeAndStoreElasticity(clientId: string): Promise<{ upd
         rr.room_type                                                    AS room_type,
         rr.upload_month                                                 AS month,
         mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0) AS avg_street,
-        AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0)    AS avg_days_to_sell
+        AVG(LEAST(rr.days_vacant, $3)) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0)    AS avg_days_to_sell
      FROM rent_roll_data rr
      LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
      WHERE rr.client_id = $1 AND rr.upload_month = ANY($2)
      GROUP BY loc.id, rr.location, rr.service_line, rr.room_type, rr.upload_month`,
-    [clientId, months]
+    [clientId, months, MAX_DAYS_VACANT]
   );
 
   // 3) Group by segment.
