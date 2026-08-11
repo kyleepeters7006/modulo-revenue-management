@@ -232,6 +232,16 @@ export class StudioCompBenchmark {
     private ourCareMap: Map<string, number>,
   ) {}
 
+  /** All unique location names that have any survey coverage. */
+  allLocations(): Set<string> {
+    const locs = new Set<string>();
+    for (const key of Array.from(this.compMap.keys())) {
+      const parts = key.split('|||');
+      if (parts[0]) locs.add(parts[0]);
+    }
+    return locs;
+  }
+
   benchmarkFor(location: string, serviceLine: string): StudioCompResult | null {
     // Collect candidates across ALL mapped competitor types (e.g. HC/MC + legacy
     // SMC) before picking top/average — a first-type-wins early return would hide

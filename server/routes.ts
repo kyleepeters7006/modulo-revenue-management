@@ -16629,7 +16629,7 @@ Return ONLY valid JSON with no markdown fences:
         ? `AND (service_line = '${serviceLine.replace(/'/g, "''")}' OR service_line IS NULL OR (service_lines IS NOT NULL AND '${serviceLine.replace(/'/g, "''")}' = ANY(service_lines)))`
         : '';
 
-      const [snapshotBySLRes, trendRes, rulesRes, rohRes, competitorRes, rohTrendRes] = await Promise.all([
+      const [snapshotBySLRes, trendRes, rulesRes, rohRes, competitorRes, rohTrendRes, studioBenchmark] = await Promise.all([
         // Per-service-line rate snapshot (latest month) — occupancy comes from rohRes below
         pool.query(`
           SELECT rrd.service_line,
@@ -16745,6 +16745,9 @@ Return ONLY valid JSON with no markdown fences:
           GROUP BY roh.year, roh.month, roh.service_line
           ORDER BY roh.year, roh.month, roh.service_line
         `, rohParams),
+
+        // Care-adjusted per-competitor benchmark (same methodology as Competitive Position panel)
+        loadStudioCompBenchmark(pool, clientId),
       ]);
 
       const slRows = snapshotBySLRes.rows;
@@ -16911,10 +16914,94 @@ Return ONLY valid JSON with no markdown fences:
       const directCompCount = parseInt(c?.comp_count || '0');
       const surveyCompCount = parseInt(c?.survey_comp_count || '0');
       const totalCompCount = directCompCount + surveyCompCount;
-      const compAvgRate = parseInt(c?.avg_comp_rate || c?.survey_avg_rate || '0');
-      const compInfo = totalCompCount > 0
-        ? `${totalCompCount.toLocaleString()} competitors tracked${surveyCompCount > 0 ? ' (incl. competitive survey data)' : ''}, avg market rate $${compAvgRate.toLocaleString()}/mo`
-        : 'no competitors configured';
+
+      // ── Scoped care-adjusted competitor figures (matches Competitive Position panel) ──
+      // Aggregate StudioCompBenchmark data using the SAME eligible location+SL population
+      // that the Competitive Position panel renders: every location+SL pair that has a
+      // positive Studio street rate (identical ILIKE 'studio%' filter the panel uses for
+      // our_rate) AND falls within the active location/region/division/SL filter scope.
+      //
+      // This guarantees that compAvgRate and topCompetitor in the AI commentary match
+      // the avgCompRate and topCompetitor shown in the Competitive Position panel for
+      // any filter combination — no more portfolio-blended, care-unadjusted mismatches.
+      //
+      // Region and division filters are applied with AND semantics (each is an additional
+      // WHERE clause), matching how the panel's ourRates query stacks them.
+      const eligParams: any[] = [clientId];
+      let eligWhere = `rr.client_id = $1 AND rr.upload_month = ${maxMonthSubquery} AND rr.street_rate > 0`;
+      if (locations.length > 0) {
+        eligParams.push(locations);
+        eligWhere += ` AND rr.location = ANY($${eligParams.length})`;
+      }
+      if (regions.length > 0) {
+        eligParams.push(regions);
+        eligWhere += ` AND loc.region = ANY($${eligParams.length})`;
+      }
+      if (divisions.length > 0) {
+        eligParams.push(divisions);
+        eligWhere += ` AND loc.division = ANY($${eligParams.length})`;
+      }
+      if (serviceLine && serviceLine !== 'All') {
+        eligParams.push(serviceLine);
+        eligWhere += ` AND rr.service_line = $${eligParams.length}`;
+      }
+
+      // Fetch the eligible location+SL set with their Studio rates — same query shape
+      // as the panel's ourRates query so the eligible population is identical.
+      const eligRes = await pool.query(`
+        SELECT rr.location, rr.service_line,
+          ROUND(AVG(rr.street_rate) FILTER (WHERE
+            COALESCE(rtg.group_name, rr.room_type) ILIKE 'studio%'
+            AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+          )::numeric, 0) AS our_rate
+        FROM rent_roll_data rr
+        LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+        LEFT JOIN room_type_groupings rtg
+          ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+         AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+        WHERE ${eligWhere}
+        GROUP BY rr.location, rr.service_line
+      `, eligParams);
+
+      // Aggregate benchmark across eligible location+SL pairs that have a positive
+      // Studio rate (same guard the panel applies: `if (!(ourRate > 0)) return null`).
+      let weightedAvgSum = 0;
+      let weightTotal = 0;
+      let bestTopRate = 0;
+      let bestTopName: string | null = null;
+
+      for (const row of eligRes.rows) {
+        if (!(Number(row.our_rate) > 0)) continue; // no Studio units — panel skips this point
+        const result = studioBenchmark.benchmarkFor(row.location, row.service_line);
+        if (!result || result.compCount <= 0) continue;
+        weightedAvgSum += result.avgAdjusted * result.compCount;
+        weightTotal   += result.compCount;
+        if (result.topAdjusted > bestTopRate) {
+          bestTopRate = result.topAdjusted;
+          bestTopName = result.topName;
+        }
+      }
+
+      const compAvgRate  = weightTotal > 0 ? Math.round(weightedAvgSum / weightTotal) : 0;
+      const topCompName  = weightTotal > 0 ? bestTopName  : null;
+      const topCompRate  = weightTotal > 0 ? Math.round(bestTopRate) : null;
+      const hasBenchmark = weightTotal > 0;
+
+      // Build the compInfo string passed to both AI prompts.
+      // When we have a named top competitor, include it so the model doesn't need
+      // to guess or hallucinate a figure, matching the Competitive Position tooltip.
+      let compInfo: string;
+      if (totalCompCount > 0 && hasBenchmark) {
+        const dataSource = surveyCompCount > 0 ? ' (competitive survey data)' : '';
+        const topStr = (topCompName && topCompRate)
+          ? `, top comp ${topCompName} at $${topCompRate.toLocaleString()}/mo`
+          : '';
+        compInfo = `${totalCompCount.toLocaleString()} competitor${totalCompCount !== 1 ? 's' : ''} tracked${dataSource}${topStr}, market avg $${compAvgRate.toLocaleString()}/mo`;
+      } else if (totalCompCount > 0) {
+        compInfo = `${totalCompCount.toLocaleString()} competitor${totalCompCount !== 1 ? 's' : ''} tracked, no care-adjusted rate available for this scope`;
+      } else {
+        compInfo = 'no competitors configured';
+      }
 
       // ── Portfolio-wide breakdowns (unfiltered view only) ──────────────────
       // All occupancy stats come from room_type_occupancy_history (authoritative).
