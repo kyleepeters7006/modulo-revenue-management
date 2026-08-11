@@ -625,7 +625,7 @@ export function computeQualifiedRuleImpact(
     if (scope?.locationIds && !scope.locationIds.includes(locId)) continue; // empty list = match nothing
     if (!groupPassesTrigger(ctx, rule, locId, sl, rt)) continue;
 
-    const passing = groupUnits.filter(u => unitPasses(rule, u));
+    const passing = groupUnits.filter(u => unitPasses(rule, u) && !isBBedRow(sl, u.room_number));
     const qualified = excludeUnitIds ? passing.filter(u => !excludeUnitIds.has(u.id)) : passing;
     overlapExcludedUnits += passing.length - qualified.length;
     if (!qualified.length) continue;

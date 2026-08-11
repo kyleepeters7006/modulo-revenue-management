@@ -133,6 +133,7 @@ import { matchAndAdjustCompetitor } from "./services/competitorLookup";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { startCompetitorRateJob, getJobStatus, getJobsForMonth, resumeInterruptedJobs } from "./services/competitorRateJobService";
 import { normalizeRoomType } from "@shared/roomTypes";
+import { isBBedRow } from "@shared/bBed";
 import { getGitHubUser, listRepositories, createRepository, getRepository } from "./github-export";
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
@@ -14422,6 +14423,13 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           }
         }
         
+        // Exclude B-bed companion rows from unit counts and impact math:
+        // companion rooms produce two rent-roll rows per physical unit, so
+        // counting both would double the affected-unit and impact figures.
+        if (isAffected && isBBedRow(unit.serviceLine, unit.roomNumber)) {
+          isAffected = false;
+        }
+
         if (isAffected) {
           affectedUnits++;
           
