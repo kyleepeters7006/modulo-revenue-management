@@ -18828,7 +18828,16 @@ Return ONLY valid JSON, no markdown fences:
             };
             const impact = computeQualifiedRuleImpact(impactCtx, ruleObj, undefined, claimedIds);
             for (const id of Array.from(impact.qualifiedUnitIds ?? [])) claimedIds.add(id as string);
-            if (impact.affectedUnits === 0) continue;
+            if (impact.affectedUnits === 0) {
+              // A blanket rule whose units are all claimed by targeted rules is
+              // fully suppressed. Still emit a zero-impact projected row so the
+              // suppressor-badge pass below can attach suppressedByRules and the
+              // rule stays visible in the Rule Performance table.
+              const isBlanket = ruleSpecificityScore(ruleObj) === 0;
+              if (!isBlanket) continue;
+              const wouldBe = computeQualifiedRuleImpact(impactCtx, ruleObj);
+              if (wouldBe.affectedUnits === 0) continue;
+            }
 
             const effDate = ar.effective_date ? new Date(ar.effective_date) : null;
             rows.push({
