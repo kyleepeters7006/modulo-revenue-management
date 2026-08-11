@@ -2600,7 +2600,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
 
               return (
                 <Dialog open={!!infoRule} onOpenChange={open => { if (!open) setInfoRule(null); }}>
-                  <DialogContent className="max-w-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
+                  <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto overscroll-contain bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700">
                     <button
                       onClick={() => setInfoRule(null)}
                       className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-2 -mt-1"
