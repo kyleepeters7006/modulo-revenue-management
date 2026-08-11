@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
 const saveFiltersToStorage = (filters: any) => {
   try {
@@ -841,6 +842,29 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     return `${field} ${op} ${val}${extra}`;
   };
 
+  const formatConditionLines = (rule: any): string[] => {
+    const triggerObj = rule.trigger || {};
+    const conditions: any[] = triggerObj.conditions || (triggerObj.condition ? [triggerObj.condition] : []);
+    if (!conditions.length) return [];
+    const fieldMap: Record<string, string> = {
+      service_line_occupancy: 'SL occupancy',
+      room_type_occupancy: 'Room type occupancy',
+      campus_occupancy: 'Campus occupancy',
+      days_vacant: 'Days vacant',
+      street_to_comp_var: 'Street vs top comp',
+      vacant_units: 'Vacant units',
+      occupancy: 'Occupancy',
+    };
+    return conditions.map((c: any) => {
+      const fn = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
+      const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : String(c.operator);
+      const val = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%`
+        : c.field === 'street_to_comp_var' ? `${c.value}%`
+        : String(c.value);
+      return `${fn} ${op} ${val}`;
+    });
+  };
+
   const getSLs = (rule: any): string[] => {
     const f = rule.action?.filters || {};
     return (f.serviceLine || []).slice(0, 3);
@@ -1159,7 +1183,25 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           )}
                                           {isDupe && !isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
                                         </div>
-                                        <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>
+                                        <div className="text-[11px] text-slate-400 mt-0.5">
+                                          {adjDisp} · {triggerLabel === 'Multiple conditions' ? (
+                                            <TooltipProvider delayDuration={200}>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <span className="underline decoration-dotted cursor-help">{triggerLabel}</span>
+                                                </TooltipTrigger>
+                                                <TooltipContent className="max-w-[220px]">
+                                                  <p className="text-[11px] font-semibold mb-1">All conditions (AND):</p>
+                                                  <ul className="text-[11px] space-y-0.5">
+                                                    {condLabels.map((cl: string, ci: number) => (
+                                                      <li key={ci}>✓ {cl}</li>
+                                                    ))}
+                                                  </ul>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            </TooltipProvider>
+                                          ) : triggerLabel}
+                                        </div>
                                       </div>
                                       <div className="text-right shrink-0 pl-2">
                                         <div className={`text-sm font-bold tabular-nums ${isSuperseded ? 'text-slate-400 line-through' : isPos ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(annual)}</div>
@@ -1769,7 +1811,25 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                           {/* Trigger */}
                           <div className="hidden md:flex items-center gap-1 shrink-0 text-xs text-slate-400">
                             <Zap className="h-3 w-3 text-slate-300 shrink-0" />
-                            <span className="whitespace-nowrap">{trigger}</span>
+                            {trigger === 'Multiple conditions' ? (
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="whitespace-nowrap underline decoration-dotted cursor-help">{trigger}</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-[220px]">
+                                    <p className="text-[11px] font-semibold mb-1">All conditions (AND):</p>
+                                    <ul className="text-[11px] space-y-0.5">
+                                      {formatConditionLines(rep).map((cl: string, ci: number) => (
+                                        <li key={ci}>✓ {cl}</li>
+                                      ))}
+                                    </ul>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            ) : (
+                              <span className="whitespace-nowrap">{trigger}</span>
+                            )}
                           </div>
 
                           {/* Impact */}
