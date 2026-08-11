@@ -1065,6 +1065,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                               {groupRules.map((rule: any) => {
                                 const isExpanded = expandedImpactRow === rule.id;
                                 const isDupe     = duplicateIds.has(rule.id);
+                                // Blanket rules (no campus/SL/RT scope) suppressed by a more-targeted rule
+                                // are a distinct case from same-tier priority overlap — show separate badge.
+                                const isBlanketSuppressed = isDupe && clientSpecScore(rule) === 0;
                                 const annual  = rule.annualImpact  || 0;
                                 const monthly = rule.monthlyImpact || 0;
                                 const isPos   = annual >= 0;
@@ -1113,7 +1116,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className={`text-[13px] font-medium leading-tight ${isSuperseded ? 'line-through text-slate-400' : 'text-slate-800'}`}>{rule.name || 'Unnamed rule'}</span>
                                           <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
                                           {isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">superseded</span>}
-                                          {isDupe && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
+                                          {isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">suppressed by targeted rule</span>}
+                                          {isDupe && !isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>
                                       </div>
@@ -1182,13 +1186,23 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                         <p className="text-[11px] text-slate-400 leading-relaxed">
                                           Only new move-ins pay the adjusted rate, so impact = qualifying units × the service line's move-in rate (trailing-3-month move-ins ÷ active units) × the rate change.
                                         </p>
-                                        {/* Overlap warning for this specific rule */}
-                                        {isDupe && (
-                                          <div className="flex items-start gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
-                                            <span className="text-amber-500 shrink-0">⚠</span>
-                                            <span>{(rule.overlapExcludedUnits || 0).toLocaleString()} unit{(rule.overlapExcludedUnits || 0) !== 1 ? 's' : ''} this rule qualifies {(rule.overlapExcludedUnits || 0) !== 1 ? 'are' : 'is'} already covered by a newer rule and counted there instead — this rule's numbers include only the remaining units, so nothing is double-counted.</span>
-                                          </div>
-                                        )}
+                                        {/* Overlap / suppression warning for this specific rule */}
+                                        {isDupe && (() => {
+                                          const n = rule.overlapExcludedUnits || 0;
+                                          const noun = n !== 1 ? 'units' : 'unit';
+                                          const verb = n !== 1 ? 'are' : 'is';
+                                          return isBlanketSuppressed ? (
+                                            <div className="flex items-start gap-2 rounded bg-violet-50 border border-violet-200 px-2 py-1.5 text-[11px] text-violet-800">
+                                              <span className="text-violet-500 shrink-0">⊘</span>
+                                              <span>{n.toLocaleString()} {noun} this rule qualifies {verb} already governed by a more targeted (campus- or service-line-scoped) rule and counted there instead — the targeted rule takes priority for those units so nothing is double-counted.</span>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-start gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1.5 text-[11px] text-amber-800">
+                                              <span className="text-amber-500 shrink-0">⚠</span>
+                                              <span>{n.toLocaleString()} {noun} this rule qualifies {verb} already covered by a higher-priority rule in the same scope tier and counted there instead — this rule's numbers include only the remaining units, so nothing is double-counted.</span>
+                                            </div>
+                                          );
+                                        })()}
                                         {rule.description && (
                                           <p className="text-[11px] text-slate-400 italic border-t border-slate-200 pt-2 leading-relaxed">{rule.description}</p>
                                         )}
