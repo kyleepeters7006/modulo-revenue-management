@@ -14581,6 +14581,48 @@ Respond in JSON format:
     }
   });
 
+  // Expand room-type display groups (room_type_groupings.group_name) into every
+  // spelling that must match units: the group names themselves, the groupings'
+  // source room types, AND the rent roll's actual room_type values for those
+  // sources. The last set matters because rent_roll_data.room_type can differ
+  // from both the group name and source_room_type (e.g. group "Studio", source
+  // "Studio - Private", rent-roll room_type "Studio Dlx") — rule filters match
+  // unit.room_type, so missing those spellings makes a rule affect 0 units.
+  async function expandRoomTypeGroups(clientId: string, groupNames: string[], locationNames?: string[], serviceLines?: string[]): Promise<string[]> {
+    const set = new Set<string>(groupNames);
+    const locFilter = locationNames?.length ? locationNames : null;
+    const slFilter = serviceLines?.length ? serviceLines : null;
+    const rtgRes = await pool.query<{ source_room_type: string }>(
+      `SELECT DISTINCT source_room_type FROM room_type_groupings
+       WHERE client_id = $1 AND group_name = ANY($2)
+         AND ($3::text[] IS NULL OR location = ANY($3))
+         AND ($4::text[] IS NULL OR service_line = ANY($4))`,
+      [clientId, groupNames, locFilter, slFilter]
+    );
+    for (const r of rtgRes.rows) if (r.source_room_type) set.add(r.source_room_type);
+    // Rent-roll spellings, restricted to the LATEST upload month (the same basis the
+    // impact model and pricing engine match on) and EXCLUDING any spelling that also
+    // maps to a group outside the target set within the same scope. A flat roomType
+    // list cannot express "Companion counts as Studio at campus A but not campus B",
+    // so ambiguous spellings are left out rather than over-matching other groups' units.
+    const rrRes = await pool.query<{ room_type: string }>(
+      `SELECT rr.room_type
+       FROM rent_roll_data rr
+       JOIN room_type_groupings rtg
+         ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+        AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+       WHERE rr.client_id = $1 AND rr.room_type IS NOT NULL
+         AND rr.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
+         AND ($3::text[] IS NULL OR rr.location = ANY($3))
+         AND ($4::text[] IS NULL OR rr.service_line = ANY($4))
+       GROUP BY rr.room_type
+       HAVING bool_and(rtg.group_name = ANY($2))`,
+      [clientId, groupNames, locFilter, slFilter]
+    );
+    for (const r of rrRes.rows) if (r.room_type) set.add(r.room_type);
+    return Array.from(set);
+  }
+
   // POST /api/adjustment-rules/from-filters
   // Structured rule creation from the Reference Data table's current filter scope.
   // Body: { adjustmentType: 'percentage'|'absolute', adjustmentValue, effectiveDate?,
@@ -14609,17 +14651,11 @@ Respond in JSON format:
       const roomTypes: string[] = Array.isArray(scope?.roomTypes) ? scope.roomTypes.filter(Boolean) : [];
 
       // Room types in the Reference Data table are display groups (room_type_groupings.group_name).
-      // Rule filters match raw unit.roomType, so expand any group names to their source room types.
+      // Rule filters match raw unit.roomType, so expand any group names to every spelling
+      // the rent roll actually carries.
       let expandedRoomTypes: string[] | undefined;
       if (roomTypes.length) {
-        const set = new Set<string>(roomTypes);
-        const rtgRes = await pool.query<{ source_room_type: string }>(
-          `SELECT DISTINCT source_room_type FROM room_type_groupings
-           WHERE client_id = $1 AND group_name = ANY($2)`,
-          [clientId, roomTypes]
-        );
-        for (const r of rtgRes.rows) if (r.source_room_type) set.add(r.source_room_type);
-        expandedRoomTypes = Array.from(set);
+        expandedRoomTypes = await expandRoomTypeGroups(clientId, roomTypes, locationNames.length ? locationNames : undefined, serviceLines.length ? serviceLines : undefined);
       }
 
       const action: any = {
@@ -14772,22 +14808,14 @@ Respond in JSON format:
           continue;
         }
 
-        // Expand room-type display groups to raw source room types (same as from-filters)
+        // Expand room-type display groups to raw room types (same as from-filters)
         const rts = Array.from(g.rts);
-        let expandedRoomTypes: string[] | undefined;
-        if (rts.length) {
-          const set = new Set<string>(rts);
-          const rtgRes = await pool.query<{ source_room_type: string }>(
-            `SELECT DISTINCT source_room_type FROM room_type_groupings
-             WHERE client_id = $1 AND group_name = ANY($2)`,
-            [clientId, rts]
-          );
-          for (const row of rtgRes.rows) if (row.source_room_type) set.add(row.source_room_type);
-          expandedRoomTypes = Array.from(set);
-        }
-
         const sls = Array.from(g.sls);
         const campuses = Array.from(g.campuses);
+        let expandedRoomTypes: string[] | undefined;
+        if (rts.length) {
+          expandedRoomTypes = await expandRoomTypeGroups(clientId, rts, campuses.length ? campuses : undefined, sls.length ? sls : undefined);
+        }
         parsedRule.action = {
           ...parsedRule.action,
           isAdditive: false,
@@ -15842,17 +15870,21 @@ Respond in JSON format:
 
       // Resolve page location/region/division filters to location IDs (client-scoped)
       let scopeLocationIds: string[] | null = null;
+      let scopeLocationNames: Set<string> | null = null;
       if (fLocations.length || fRegions.length || fDivisions.length) {
         const locRes = await pool.query(
           `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
           [clientId]
         );
-        scopeLocationIds = locRes.rows
+        const matched = locRes.rows
           .filter((l: any) =>
             (!fLocations.length || fLocations.includes(l.name)) &&
             (!fRegions.length   || (l.region   && fRegions.includes(l.region))) &&
-            (!fDivisions.length || (l.division && fDivisions.includes(l.division))))
-          .map((l: any) => l.id);
+            (!fDivisions.length || (l.division && fDivisions.includes(l.division))));
+        scopeLocationIds = matched.map((l: any) => l.id);
+        // Names matter too: rules created from the Reference Data view store
+        // their location scope as names in action.filters.location (locationId null).
+        scopeLocationNames = new Set<string>([...matched.map((l: any) => l.name), ...fLocations]);
       }
 
       // Short-lived cache (2 min) so repeat page loads are instant.
@@ -15891,7 +15923,40 @@ Respond in JSON format:
         query = query.where(and(...conditions)) as any;
       }
       
-      const rules = await query;
+      let rules = await query;
+
+      // ── Page-filter scoping of the rules LIST (Rule Administration) ──
+      // When the page is filtered to locations/regions/divisions, show only rules
+      // that apply within that scope: rules explicitly targeting a scoped campus
+      // (by locationId or by name in action.filters.location — how "Create Rule
+      // from View" stores its scope) plus portfolio-wide rules (no location scope),
+      // which apply everywhere. Rules targeting only other campuses are hidden.
+      if (scopeLocationIds) {
+        const idSet = new Set(scopeLocationIds);
+        const nameSet = scopeLocationNames ?? new Set<string>();
+        rules = rules.filter((r: any) => {
+          const filterLocs: string[] = Array.isArray((r.action as any)?.filters?.location)
+            ? (r.action as any).filters.location : [];
+          const hasLocScope = !!r.locationId || filterLocs.length > 0;
+          if (!hasLocScope) return true; // portfolio-wide → applies to any scope
+          if (r.locationId && idSet.has(r.locationId)) return true;
+          return filterLocs.some((n) => nameSet.has(n));
+        });
+      }
+      // Service-line scoping: the SQL condition only checks the serviceLine column
+      // (NULL passes). Also honor the serviceLines array and action.filters.serviceLine
+      // used by rules created from the Reference Data view.
+      if (serviceLine) {
+        rules = rules.filter((r: any) => {
+          if (r.serviceLine) return r.serviceLine === serviceLine; // column already matched in SQL, keep explicit
+          const slArr: string[] = Array.isArray(r.serviceLines) ? r.serviceLines : [];
+          if (slArr.length) return slArr.includes(serviceLine as string);
+          const filterSls: string[] = Array.isArray((r.action as any)?.filters?.serviceLine)
+            ? (r.action as any).filters.serviceLine : [];
+          if (filterSls.length) return filterSls.includes(serviceLine as string);
+          return true; // no SL scope at all → applies to every service line
+        });
+      }
 
       // Scope impact numbers to the page filter when set
       const scope = (locationId || serviceLine || scopeLocationIds)
@@ -16040,6 +16105,26 @@ Respond in JSON format:
     try {
       const clientId = req.clientId || 'demo';
       const { locationId, serviceLine } = req.query;
+      const toArrCS = (v: any): string[] => Array.isArray(v) ? v : (v ? [v] : []);
+      const csLocations = toArrCS(req.query.locations);
+      const csRegions   = toArrCS(req.query.regions);
+      const csDivisions = toArrCS(req.query.divisions);
+
+      // Resolve page locations/regions/divisions to ids + names (same as the list endpoint)
+      let csScopeIds: Set<string> | null = null;
+      let csScopeNames: Set<string> | null = null;
+      if (csLocations.length || csRegions.length || csDivisions.length) {
+        const locRes = await pool.query(
+          `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
+          [clientId]
+        );
+        const matched = locRes.rows.filter((l: any) =>
+          (!csLocations.length || csLocations.includes(l.name)) &&
+          (!csRegions.length   || (l.region   && csRegions.includes(l.region))) &&
+          (!csDivisions.length || (l.division && csDivisions.includes(l.division))));
+        csScopeIds = new Set(matched.map((l: any) => l.id));
+        csScopeNames = new Set<string>([...matched.map((l: any) => l.name), ...csLocations]);
+      }
 
       const latestRes = await pool.query(
         `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
@@ -16059,9 +16144,26 @@ Respond in JSON format:
       // Scope to the page filters: drop rules pinned to a different campus or service line
       const activeRules = allActiveRules.filter(rule => {
         if (locationId && rule.locationId && rule.locationId !== locationId) return false;
+        if (csScopeIds) {
+          // Same predicate as the list endpoint: rules explicitly targeting a scoped
+          // campus (by id or by name in action.filters.location) plus portfolio-wide rules.
+          const filterLocs: string[] = Array.isArray((rule.action as any)?.filters?.location)
+            ? (rule.action as any).filters.location : [];
+          const hasLocScope = !!rule.locationId || filterLocs.length > 0;
+          if (hasLocScope) {
+            const idOk = rule.locationId ? csScopeIds.has(rule.locationId) : false;
+            const nameOk = filterLocs.some(n => csScopeNames!.has(n));
+            if (!idOk && !nameOk) return false;
+          }
+        }
         if (serviceLine) {
           const ruleSLs = (rule.serviceLines?.length ? rule.serviceLines : (rule.serviceLine ? [rule.serviceLine] : []));
           if (ruleSLs.length && !ruleSLs.includes(serviceLine as string)) return false;
+          if (!ruleSLs.length) {
+            const filterSls: string[] = Array.isArray((rule.action as any)?.filters?.serviceLine)
+              ? (rule.action as any).filters.serviceLine : [];
+            if (filterSls.length && !filterSls.includes(serviceLine as string)) return false;
+          }
         }
         return true;
       });
@@ -16084,6 +16186,7 @@ Respond in JSON format:
       const pageScope = {
         locationId: (locationId as string) || null,
         serviceLine: (serviceLine as string) || null,
+        locationIds: csScopeIds ? Array.from(csScopeIds) : undefined,
       };
 
       // ── Specificity-ordered dedup: targeted rules claim units first ──

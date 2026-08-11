@@ -472,6 +472,7 @@ export default function PricingControls() {
           selectedRegions={selectedRegions}
           selectedDivisions={selectedDivisions}
           selectedLocationId={selectedLocationId}
+          onRuleCreated={() => designerHelpersRef.current?.refreshRules()}
           onDraftRule={(text) => {
             setRuleFocus(text);
             if (designerHelpersRef.current) {
@@ -496,6 +497,7 @@ export default function PricingControls() {
             selectedRegions={selectedRegions}
             selectedDivisions={selectedDivisions}
             selectedLocations={selectedLocations}
+            onRuleCreated={() => designerHelpersRef.current?.refreshRules()}
           />
 
           <div id="rule-designer-section" className="scroll-mt-4">
@@ -503,6 +505,9 @@ export default function PricingControls() {
             locationId={selectedLocationId}
             serviceLine={selectedServiceLine === "All" ? undefined : selectedServiceLine}
             locationName={selectedLocations.length === 1 ? selectedLocations[0] : undefined}
+            selectedLocations={selectedLocations}
+            selectedRegions={selectedRegions}
+            selectedDivisions={selectedDivisions}
             aiGenerator={(helpers) => {
               designerHelpersRef.current = helpers;
               return (
@@ -589,6 +594,8 @@ interface StrategyOverviewData {
 
 interface PricingCommentaryCardProps {
   onDraftRule?: (recommendationText: string) => void;
+  /** Called after a rule is created from this card (quick adjust) so non-React-Query rule lists refresh. */
+  onRuleCreated?: () => void;
   selectedServiceLine: string;
   selectedLocations: string[];
   selectedRegions: string[];
@@ -606,7 +613,7 @@ function clientSpecScore(r: any): number {
   if (Array.isArray(rt) && rt.length > 0) score += 1;
   return score;
 }
-function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId, onDraftRule }: PricingCommentaryCardProps) {
+function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId, onDraftRule, onRuleCreated }: PricingCommentaryCardProps) {
   const [, setLocation] = useLocation();
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
@@ -701,6 +708,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     },
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
+      onRuleCreated?.();
       toast({ title: `${vars.pct > 0 ? '+' : ''}${vars.pct}% rule created`, description: `${SL_DISPLAY[vars.serviceLine] || vars.serviceLine} at ${vars.location}` });
       setPinnedScatterPoint(null);
     },
@@ -1864,7 +1872,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                         </p>
                         <button
                           className="text-[11px] text-teal-600 hover:underline flex items-center gap-1"
-                          onClick={() => setLocation('/pricing-algorithm#revenue-measurement')}
+                          onClick={() => setLocation('/pricing-algorithm#measurement')}
                         >
                           <Info className="h-3 w-3" /> How impact is measured →
                         </button>

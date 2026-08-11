@@ -225,11 +225,15 @@ interface RuleDesignerProps {
   locationId?: string;
   serviceLine?: string;
   locationName?: string;
+  /** Page-level filters — Rule Administration shows only rules applying within this scope. */
+  selectedLocations?: string[];
+  selectedRegions?: string[];
+  selectedDivisions?: string[];
   /** Either a ReactNode, or a render function receiving helpers (e.g. to load an AI suggestion into the Natural Language editor). */
   aiGenerator?: React.ReactNode | ((helpers: RuleDesignerHelpers) => React.ReactNode);
 }
 
-export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerator: aiGeneratorProp }: RuleDesignerProps) {
+export function RuleDesigner({ locationId, serviceLine, locationName, selectedLocations, selectedRegions, selectedDivisions, aiGenerator: aiGeneratorProp }: RuleDesignerProps) {
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured' | 'ai-generator'>('structured');
@@ -369,10 +373,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       if (locationId) params.set('locationId', locationId);
       if (serviceLine) params.set('serviceLine', serviceLine);
       if (showHistoryRules) params.set('includeHistorical', 'true');
+      (selectedLocations ?? []).forEach(l => params.append('locations', l));
+      (selectedRegions ?? []).forEach(r => params.append('regions', r));
+      (selectedDivisions ?? []).forEach(d => params.append('divisions', d));
       const res = await fetch(`/api/adjustment-rules${params.toString() ? `?${params}` : ''}`);
       if (res.ok) setRules(await res.json());
     } catch { /* silent */ }
-  }, [locationId, serviceLine, showHistoryRules]);
+  }, [locationId, serviceLine, showHistoryRules, selectedLocations, selectedRegions, selectedDivisions]);
   fetchRulesRef.current = fetchRules;
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
@@ -440,10 +447,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, aiGenerato
       const params = new URLSearchParams();
       if (locationId) params.set('locationId', locationId);
       if (serviceLine) params.set('serviceLine', serviceLine);
+      (selectedLocations ?? []).forEach(l => params.append('locations', l));
+      (selectedRegions ?? []).forEach(r => params.append('regions', r));
+      (selectedDivisions ?? []).forEach(d => params.append('divisions', d));
       const res = await fetch(`/api/adjustment-rules/combined-stats${params.toString() ? `?${params}` : ''}`);
       if (res.ok) setCombinedStats(await res.json());
     } catch { /* silent */ }
-  }, [rules, locationId, serviceLine]);
+  }, [rules, locationId, serviceLine, selectedLocations, selectedRegions, selectedDivisions]);
 
   useEffect(() => { fetchCombinedStats(); }, [fetchCombinedStats]);
 

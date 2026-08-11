@@ -570,6 +570,8 @@ interface ReferenceDataTableProps {
   selectedRegions?: string[];
   selectedDivisions?: string[];
   selectedLocations?: string[];
+  /** Called after a rule is created from this table (Create Rule from View / Excel import) so non-React-Query rule lists (e.g. Rule Administration) can refresh. */
+  onRuleCreated?: () => void;
 }
 
 export default function ReferenceDataTable({
@@ -577,6 +579,7 @@ export default function ReferenceDataTable({
   selectedRegions,
   selectedDivisions,
   selectedLocations,
+  onRuleCreated,
 }: ReferenceDataTableProps) {
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1079,6 +1082,7 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ["/api/reference-data"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
+      onRuleCreated?.();
       toast({
         title: "Rule created",
         description: `${result?.rule?.name ?? "New rule"} — est. ${result?.annualImpact != null ? `$${Math.round(result.annualImpact).toLocaleString()}/yr impact` : "impact pending"}`,
@@ -1283,13 +1287,14 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/manual-rate-overrides"] });
+      onRuleCreated?.();
     } catch (err: any) {
       toast({ title: "Import failed", description: err?.message ?? "Could not read the file.", variant: "destructive" });
     } finally {
       setImportBusy(false);
       if (importFileRef.current) importFileRef.current.value = "";
     }
-  }, [queryClient, toast]);
+  }, [queryClient, toast, onRuleCreated]);
 
   // ── shared cell styling ──
   const groupBg = (gid: string, idx: number) =>
