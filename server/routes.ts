@@ -7335,6 +7335,20 @@ ${campusOccLines.join('\n')}
       warmRefDataCacheForClient(clientId);
       console.log(`[upload/rent-roll] ref-data cache invalidated and re-warmed for client ${clientId} after import`);
 
+      // Clear all analytics cache entries that are computed from rent roll data for
+      // this client so the next request for the Competitive Position scatter chart,
+      // Vacancy scatter, and Overview tiles returns fresh DB data instead of the
+      // previously-cached (potentially stale / $0-rate) result.
+      const analyticsRentRollPrefixes = [
+        `comp-position:${clientId}:`,
+        `vacancy-scatter:${clientId}:`,
+        `overview_${clientId}`,
+      ];
+      for (const key of Array.from(analyticsCache.keys())) {
+        if (analyticsRentRollPrefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
+      }
+      console.log(`[upload/rent-roll] analytics cache cleared for client ${clientId} (comp-position, vacancy-scatter, overview)`);
+
       // Auto-trigger competitor rate matching using the job-based system
       // This is resumable and won't be interrupted by server restarts.
       // Scope to the uploading client so only their units/survey data are processed.
