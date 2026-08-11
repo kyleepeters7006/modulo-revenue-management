@@ -303,6 +303,21 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
          FROM competitive_survey_data
          WHERE client_id = $1
          GROUP BY keystats_location
+       ),
+       studio_presence AS (
+         -- Flag whether each competitor has at least one Studio-type row in the
+         -- latest month. "Studio%" matches Studio, Studio Dlx, Studio Suite, etc.
+         -- This drives Studio-preference: when a competitor has Studio rows we use
+         -- only those (so the chart matches the Competitors tab rate); when they
+         -- have none we fall back to all room types so the competitor still appears.
+         SELECT csd.keystats_location, csd.competitor_name, csd.competitor_type,
+                MAX(CASE WHEN csd.room_type ILIKE 'studio%' THEN 1 ELSE 0 END) AS has_studio
+         FROM competitive_survey_data csd
+         JOIN latest_months lm
+           ON lm.keystats_location = csd.keystats_location
+          AND lm.latest_month      = csd.survey_month
+         WHERE csd.client_id = $1 AND csd.monthly_rate_avg > 0
+         GROUP BY csd.keystats_location, csd.competitor_name, csd.competitor_type
        )
        SELECT csd.keystats_location, csd.competitor_type, csd.competitor_name,
               csd.monthly_rate_avg, csd.care_level_2_rate, csd.medication_management_fee
@@ -310,7 +325,18 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
        JOIN latest_months lm
          ON lm.keystats_location = csd.keystats_location
         AND lm.latest_month      = csd.survey_month
-       WHERE csd.client_id = $1 AND csd.monthly_rate_avg > 0`,
+       JOIN studio_presence sp
+         ON sp.keystats_location = csd.keystats_location
+        AND sp.competitor_name   = csd.competitor_name
+        AND sp.competitor_type   = csd.competitor_type
+       WHERE csd.client_id = $1 AND csd.monthly_rate_avg > 0
+         AND (
+           -- Prefer Studio-type rows when available — these match the Competitors tab
+           (sp.has_studio = 1 AND csd.room_type ILIKE 'studio%')
+           OR
+           -- Fall back to all room types only when the competitor has no Studio rows
+           (sp.has_studio = 0)
+         )`,
       [clientId],
     ),
     pool.query(
