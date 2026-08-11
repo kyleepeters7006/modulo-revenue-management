@@ -1220,6 +1220,7 @@ export async function importMatrixCareRentRollCSV(
 
                 // Parse rates - HC/HC-MC are daily, others are monthly
                 // Store as-is without conversion (mixed storage model)
+                const baseRate1 = parseCurrency(row['BaseRate1']);
                 const roomRate = parseCurrency(row['Room_Rate']);
                 const locRate = parseCurrency(row['LOC_Rate']);
                 const finalRate = parseCurrency(row['FinalRate']);
@@ -1247,8 +1248,8 @@ export async function importMatrixCareRentRollCSV(
                   viewRating,
                   renovationRating: null,
                   amenityRating: null,
-                  streetRate: roomRate,
-                  inHouseRate: billedRate || roomRate,
+                  streetRate: baseRate1 || roomRate,
+                  inHouseRate: finalRate || billedRate || roomRate,
                   discountToStreetRate: null,
                   careLevel: (() => {
                     // Prefer LOCDescription if it identifies Level 2 (covers the case where the
