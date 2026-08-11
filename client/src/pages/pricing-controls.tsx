@@ -612,6 +612,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [fullMapOpen, setFullMapOpen] = useState(false);
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
   const [expandedImpactRow, setExpandedImpactRow] = useState<string | null>(null);
+  const ruleRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [scatterExpanded, setScatterExpanded] = useState(false);
   const [recsOpen, setRecsOpen] = useState(false);
   const [scatterOpen, setScatterOpen] = useState(false);
@@ -1102,7 +1103,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                 });
                                 const isSuperseded = supersededIds.has(rule.id);
                                 return (
-                                  <div key={rule.id}>
+                                  <div key={rule.id} ref={el => { ruleRowRefs.current[rule.id] = el; }}>
                                     {/* Collapsed row — click to expand */}
                                     <button
                                       className={`w-full text-left px-3 py-2 hover:bg-slate-50/70 transition-colors flex items-start gap-3
@@ -1218,6 +1219,31 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                             </div>
                                           );
                                         })()}
+                                        {isBlanketSuppressed && rule.suppressedByRules?.length > 0 && (
+                                          <div className="flex items-start gap-2 rounded bg-violet-50 border border-violet-200 px-2 py-1.5 text-[11px] text-violet-800 border-t border-slate-200">
+                                            <span className="text-violet-500 shrink-0 mt-0.5">⊘</span>
+                                            <div>
+                                              <span className="font-semibold">Suppressed by targeted rule{rule.suppressedByRules.length > 1 ? 's' : ''}:</span>{' '}
+                                              {rule.suppressedByRules.map((sr: any, si: number) => (
+                                                <span key={sr.id ?? si}>
+                                                  {si > 0 && <span className="text-violet-500">, </span>}
+                                                  <button
+                                                    className="underline decoration-dotted font-semibold hover:text-violet-900 transition-colors"
+                                                    onClick={() => {
+                                                      setExpandedImpactRow(sr.id);
+                                                      setTimeout(() => {
+                                                        const el = ruleRowRefs.current[sr.id];
+                                                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                                      }, 50);
+                                                    }}
+                                                  >
+                                                    {sr.name || 'Unnamed rule'}
+                                                  </button>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
                                         {rule.description && (
                                           <p className="text-[11px] text-slate-400 italic border-t border-slate-200 pt-2 leading-relaxed">{rule.description}</p>
                                         )}
