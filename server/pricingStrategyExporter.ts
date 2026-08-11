@@ -227,7 +227,7 @@ export async function generateExcelBuffer(
       sl,
       type:        adjType === "fixed" ? "Fixed ($)" : "Percentage (%)",
       value:       adjType === "fixed" ? `$${adjValue}` : `${adjValue}%`,
-      units:       rule.execution_count || 0,
+      units:       rule._affectedUnits ?? rule.execution_count ?? 0,
       campuses:    "-",
       monthly:     monthly ? `$${Math.round(monthly).toLocaleString()}` : "$0",
       annual:      annual  ? `$${Math.round(annual).toLocaleString()}`  : "$0",

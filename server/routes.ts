@@ -5079,6 +5079,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       const activeRules = rulesRes.rows;
 
+      // Annotate each rule with the correctly computed affectedUnits count
+      // (excludes B-bed companion rows, matching the on-screen Rule Administration
+      // panel), so the exported "Affected Units" column is consistent with the UI.
+      try {
+        const exportImpactCtx = await buildRuleImpactContext(clientId);
+        if (exportImpactCtx) {
+          const claimedIds = new Set<string>();
+          // Sort by specificity so targeted rules claim units first (same as UI).
+          const sorted = [...activeRules].sort(
+            (a, b) => ruleSpecificityScore(b) - ruleSpecificityScore(a),
+          );
+          const impactById = new Map<string, number>();
+          for (const rule of sorted) {
+            const impact = computeQualifiedRuleImpact(exportImpactCtx, rule, undefined, claimedIds);
+            impact.qualifiedUnitIds.forEach((id) => claimedIds.add(id));
+            impactById.set(rule.id, impact.affectedUnits);
+          }
+          for (const rule of activeRules) {
+            rule._affectedUnits = impactById.get(rule.id) ?? rule.execution_count ?? 0;
+          }
+        }
+      } catch (impactErr) {
+        console.error('[pricing-strategy] export affectedUnits computation failed:', impactErr);
+        // Fall back: keep execution_count; _affectedUnits will be undefined
+      }
+
       // Portfolio stats for AI prompt
       const statsRes = await pool.query(
         `SELECT COUNT(DISTINCT location) AS locations,
