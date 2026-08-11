@@ -1116,7 +1116,22 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           <span className={`text-[13px] font-medium leading-tight ${isSuperseded ? 'line-through text-slate-400' : 'text-slate-800'}`}>{rule.name || 'Unnamed rule'}</span>
                                           <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${SL_COLORS[sl] || 'bg-slate-100 text-slate-600'}`}>{sl}</span>
                                           {isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">superseded</span>}
-                                          {isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">suppressed by targeted rule</span>}
+                                          {isBlanketSuppressed && !isSuperseded && (
+                                            <span
+                                              className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700"
+                                              title={
+                                                rule.suppressedByRules?.length
+                                                  ? `Suppressed by: ${rule.suppressedByRules.map((r: any) => r.name).join(', ')}`
+                                                  : 'Suppressed by a more-targeted rule'
+                                              }
+                                            >
+                                              {rule.suppressedByRules?.length === 1
+                                                ? `Suppressed by: ${rule.suppressedByRules[0].name}`
+                                                : rule.suppressedByRules?.length > 1
+                                                  ? `Suppressed by ${rule.suppressedByRules.length} targeted rules`
+                                                  : 'suppressed by targeted rule'}
+                                            </span>
+                                          )}
                                           {isDupe && !isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">{adjDisp} · {triggerLabel}</div>

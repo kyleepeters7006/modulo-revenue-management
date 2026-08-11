@@ -15886,10 +15886,20 @@ Respond in JSON format:
           return cb.localeCompare(ca);
         });
       const claimedUnitIds = new Set<string>();
+      // Track which rule (id + name + specificity) claimed each unit so blanket
+      // rules can report the specific TARGETED rule that suppressed them.
+      // Specificity is stored so callers can filter to targeted-only claimers.
+      const unitClaimerMap = new Map<string, { id: string; name: string; specificity: number }>();
       const dedupedImpactById = new Map<string, any>();
       for (const rule of dedupOrder) {
+        const ruleSpec = ruleSpecificityScore(rule);
         const impact = computeQualifiedRuleImpact(impactCtx, rule, scope, claimedUnitIds);
-        for (const id of Array.from(impact.qualifiedUnitIds)) claimedUnitIds.add(id);
+        for (const id of Array.from(impact.qualifiedUnitIds)) {
+          if (!claimedUnitIds.has(id)) {
+            unitClaimerMap.set(id, { id: rule.id, name: rule.name || 'Unnamed rule', specificity: ruleSpec });
+          }
+          claimedUnitIds.add(id);
+        }
         dedupedImpactById.set(rule.id, impact);
       }
 
@@ -15910,6 +15920,32 @@ Respond in JSON format:
           }).catch(() => {});
         }
 
+        // For blanket rules (specificity 0) that were fully displaced by targeted
+        // rules (specificity > 0), identify which specific targeted rule(s) claimed
+        // their units so the UI can name the suppressor instead of just saying
+        // "targeted rule". Blanket-vs-blanket overlap is not named here — that
+        // case is handled separately as "overlap — units counted once".
+        let suppressedByRules: Array<{ id: string; name: string }> | undefined;
+        const isFullySuppressed = impact.affectedUnits === 0 && ruleSpecificityScore(rule) === 0;
+        if (isFullySuppressed) {
+          // Compute what units this blanket rule would have claimed without dedup.
+          const wouldBeImpact = computeQualifiedRuleImpact(impactCtx, rule, scope);
+          if (wouldBeImpact.qualifiedUnitIds.size > 0) {
+            const claimerById = new Map<string, { id: string; name: string }>();
+            for (const uid of Array.from(wouldBeImpact.qualifiedUnitIds)) {
+              const claimer = unitClaimerMap.get(uid);
+              // Only attribute to targeted (specificity > 0) claimers — blanket-
+              // vs-blanket overlap uses the existing "overlap" badge path.
+              if (claimer && claimer.specificity > 0 && claimer.id !== rule.id && !claimerById.has(claimer.id)) {
+                claimerById.set(claimer.id, { id: claimer.id, name: claimer.name });
+              }
+            }
+            if (claimerById.size > 0) {
+              suppressedByRules = Array.from(claimerById.values());
+            }
+          }
+        }
+
         return {
           ...rule,
           affectedUnits: impact.affectedUnits,
@@ -15922,6 +15958,7 @@ Respond in JSON format:
           steadyStateAnnualImpact: impact.steadyStateAnnualImpact,
           volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
           overlapExcludedUnits: impact.overlapExcludedUnits ?? 0,
+          ...(suppressedByRules ? { suppressedByRules } : {}),
         };
       });
 
