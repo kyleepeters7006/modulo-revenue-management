@@ -199,6 +199,7 @@ function purgeRuleCaches(clientId: string): Promise<void> {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
   }
   // Also purge the persistent commentary cache so post-rule-change commentary regenerates
+  invalidateRefDataCache();
   return pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
     .then(() => undefined)
     .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
