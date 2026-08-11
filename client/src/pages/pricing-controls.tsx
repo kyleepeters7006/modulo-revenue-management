@@ -857,15 +857,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[11px]">
         <p className="font-bold text-slate-800 mb-0.5">{d.location}</p>
         <p className="text-slate-500">{SL_DISPLAY[d.serviceLine] || d.serviceLine} · Occ: <strong>{d.occupancy}%</strong></p>
-        <p className="text-slate-500">Our Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
+        <p className="text-slate-500">Our Studio Rate: <strong>${d.ourRate?.toLocaleString()}</strong></p>
         <p className="text-slate-500">
-          Adj. Comp: <strong>${d.compRate?.toLocaleString()}</strong>
+          Top Comp{d.topCompetitor ? ` (${d.topCompetitor})` : ''}: <strong>${d.compRate?.toLocaleString()}</strong>
           {d.rawCompRate && d.rawCompRate !== d.compRate && (
             <span className="text-slate-400"> (base ${d.rawCompRate?.toLocaleString()}{d.careAdj ? `, care ${d.careAdj > 0 ? '+' : ''}${d.careAdj?.toLocaleString()}` : ''})</span>
           )}
         </p>
+        {d.avgCompRate != null && (
+          <p className="text-slate-500">Market Avg: <strong>${d.avgCompRate?.toLocaleString()}</strong>{d.compCount ? <span className="text-slate-400"> · {d.compCount} comps</span> : null}</p>
+        )}
         <p className={`font-bold mt-0.5 ${d.marketPosition > 100 ? 'text-emerald-600' : d.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
-          {d.marketPosition}% of market
+          {d.marketPosition}% of top competitor
         </p>
       </div>
     );
@@ -1500,7 +1503,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               </button>
               {scatterOpen && (
                 <div className="flex items-center gap-3">
-                  <span className="hidden sm:inline text-[11px] text-slate-400 italic">X = occupancy · Y = rate vs market</span>
+                  <span className="hidden sm:inline text-[11px] text-slate-400 italic">X = occupancy · Y = Studio rate vs top competitor</span>
                   <button
                     onClick={() => setScatterExpanded(true)}
                     className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
@@ -1535,7 +1538,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {compPositionData.length} location/SL combinations · X = occupancy · Y = rate vs market
+                  {compPositionData.length} location/SL combinations · X = occupancy · Y = Studio rate vs top competitor
                 </p>
               </DialogHeader>
               <div className="flex-1 px-6 pt-4 pb-2 min-h-0">
@@ -1573,15 +1576,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
           {/* data rows */}
           <p className="text-slate-500">{SL_DISPLAY[pinnedScatterPoint.serviceLine] || pinnedScatterPoint.serviceLine} · Occ: <strong>{pinnedScatterPoint.occupancy}%</strong></p>
-          <p className="text-slate-500">Our Rate: <strong>${pinnedScatterPoint.ourRate?.toLocaleString()}</strong></p>
+          <p className="text-slate-500">Our Studio Rate: <strong>${pinnedScatterPoint.ourRate?.toLocaleString()}</strong></p>
           <p className="text-slate-500">
-            Adj. Comp: <strong>${pinnedScatterPoint.compRate?.toLocaleString()}</strong>
+            Top Comp{pinnedScatterPoint.topCompetitor ? ` (${pinnedScatterPoint.topCompetitor})` : ''}: <strong>${pinnedScatterPoint.compRate?.toLocaleString()}</strong>
             {pinnedScatterPoint.rawCompRate && pinnedScatterPoint.rawCompRate !== pinnedScatterPoint.compRate && (
               <span className="text-slate-400"> (base ${pinnedScatterPoint.rawCompRate?.toLocaleString()}{pinnedScatterPoint.careAdj ? `, care ${pinnedScatterPoint.careAdj > 0 ? '+' : ''}${pinnedScatterPoint.careAdj?.toLocaleString()}` : ''})</span>
             )}
           </p>
+          {pinnedScatterPoint.avgCompRate != null && (
+            <p className="text-slate-500">Market Avg: <strong>${pinnedScatterPoint.avgCompRate?.toLocaleString()}</strong>{pinnedScatterPoint.compCount ? <span className="text-slate-400"> · {pinnedScatterPoint.compCount} comps</span> : null}</p>
+          )}
           <p className={`font-bold mt-0.5 ${pinnedScatterPoint.marketPosition > 100 ? 'text-emerald-600' : pinnedScatterPoint.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
-            {pinnedScatterPoint.marketPosition}% of market
+            {pinnedScatterPoint.marketPosition}% of top competitor
           </p>
 
           {/* quick rate adjust */}

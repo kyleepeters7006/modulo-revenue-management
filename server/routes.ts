@@ -139,7 +139,7 @@ import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope } from "./services/adjustmentRulesService";
 import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
-import { loadCompBenchmark, unitWeightedBenchmark } from "./services/compBenchmark";
+import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark } from "./services/compBenchmark";
 import { 
   getRevenuePerformanceForScope, 
   calculateGapAnalysis, 
@@ -16352,7 +16352,7 @@ Return ONLY valid JSON with no markdown fences:
       const slFilter: string = (req.query.serviceLine as string) || 'All';
 
       const filterKey = [[...locations].sort().join(','), [...regions].sort().join(','), [...divisions].sort().join(','), slFilter].join('|');
-      const compPosCacheKey = `comp-position:${clientId}:${filterKey}`;
+      const compPosCacheKey = `comp-position-studio:${clientId}:${filterKey}`;
       const compPosCached = getCachedAnalytics(compPosCacheKey);
       if (compPosCached) return res.json(compPosCached);
 
@@ -16386,10 +16386,19 @@ Return ONLY valid JSON with no markdown fences:
       const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
           SELECT rr.location, rr.service_line,
-            ROUND(AVG(rr.street_rate) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$'))::numeric, 0) AS our_rate,
+            -- Studio-only street rate: units whose grouped room type is a Studio
+            -- group (room_type_groupings) or whose raw room_type starts with
+            -- "Studio" when ungrouped. B beds excluded as everywhere else.
+            ROUND(AVG(rr.street_rate) FILTER (WHERE
+              COALESCE(rtg.group_name, rr.room_type) ILIKE 'studio%'
+              AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+            )::numeric, 0) AS our_rate,
             ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          LEFT JOIN room_type_groupings rtg
+            ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+           AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
           WHERE ${whereClause}
           GROUP BY rr.location, rr.service_line
         `, params),
@@ -16457,18 +16466,19 @@ Return ONLY valid JSON with no markdown fences:
         if (e.avail > 0) rtoOccMap.set(key, Math.round(Math.min(e.occ / e.avail, 1) * 1000) / 10);
       }
 
-      // Shared care-adjusted competitor benchmark (compBenchmark.ts) — the same
-      // methodology used by the AI rule-suggest endpoint, so premiums match.
-      const scatterBenchmark = await loadCompBenchmark(pool, clientId);
+      // Studio-only, per-competitor care-adjusted benchmark (compBenchmark.ts).
+      // Position is measured against the TOP-priced competitor's adjusted Studio
+      // rate; the market average across competitors is included for the tooltip.
+      const scatterBenchmark = await loadStudioCompBenchmark(pool, clientId);
 
       const points = ourRates.rows.map((row: any) => {
         const sl = row.service_line as string;
         const bench = scatterBenchmark.benchmarkFor(row.location, sl);
         if (!bench) return null;
-        const { adjusted: adjustedCompRate, base: rawBaseRate, careAdj } = bench;
 
         const ourRate = Number(row.our_rate);
-        const marketPosition = Math.round((ourRate / adjustedCompRate) * 100);
+        if (!(ourRate > 0)) return null; // no Studio units at this location/SL
+        const marketPosition = Math.round((ourRate / bench.topAdjusted) * 100);
         // Per-service-line occupancy: prefer authoritative RTO history (physical
         // rooms, no B-bed inflation) distributed to this location+SL; fall back
         // to the rent-roll count when history has no coverage for this SL.
@@ -16478,9 +16488,12 @@ Return ONLY valid JSON with no markdown fences:
           location: row.location,
           serviceLine: sl,
           ourRate,
-          compRate: Math.round(adjustedCompRate),
-          rawCompRate: rawBaseRate,
-          careAdj: Math.round(careAdj),
+          compRate: Math.round(bench.topAdjusted),
+          rawCompRate: Math.round(bench.topBase),
+          careAdj: Math.round(bench.topCareAdj),
+          topCompetitor: bench.topName,
+          avgCompRate: Math.round(bench.avgAdjusted),
+          compCount: bench.compCount,
           marketPosition,
           occupancy: rtoOccPct,
         };

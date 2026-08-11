@@ -199,6 +199,116 @@ export async function loadCompBenchmark(pool: Pool, clientId: string): Promise<C
   return new CompBenchmark(aggregateSurveyRows(surveyRes.rows as SurveyRow[]), ourCareMap);
 }
 
+export interface StudioCompResult {
+  /** Highest care-adjusted Studio rate among surveyed competitors. */
+  topAdjusted: number;
+  /** Name of that competitor. */
+  topName: string;
+  /** That competitor's raw (unadjusted) averaged Studio base rate. */
+  topBase: number;
+  /** Care adjustment applied to the top competitor's base. */
+  topCareAdj: number;
+  /** Average care-adjusted Studio rate across all surveyed competitors. */
+  avgAdjusted: number;
+  /** Number of competitors with usable Studio rates. */
+  compCount: number;
+  /** Competitor type the rates came from. */
+  compType: string;
+}
+
+/**
+ * Studio-only, per-competitor care-adjusted benchmark. Same normalization and
+ * care-adjustment methodology as CompBenchmark, but restricted to Studio survey
+ * rows and resolved per competitor so callers can compare against the
+ * top-priced competitor as well as the market average.
+ */
+export class StudioCompBenchmark {
+  constructor(
+    /** `${location}|||${compType}|||${competitorName}` → entry */
+    private compMap: Map<string, CompBenchmarkEntry>,
+    private ourCareMap: Map<string, number>,
+  ) {}
+
+  benchmarkFor(location: string, serviceLine: string): StudioCompResult | null {
+    // Collect candidates across ALL mapped competitor types (e.g. HC/MC + legacy
+    // SMC) before picking top/average — a first-type-wins early return would hide
+    // higher-priced competitors recorded under a legacy type. If the same
+    // competitor name appears under multiple types, keep its highest adjusted rate.
+    const byName = new Map<string, { name: string; base: number; careAdj: number; adjusted: number; compType: string }>();
+    for (const ct of SL_TO_COMP[serviceLine] || [serviceLine]) {
+      const prefix = `${location}|||${ct}|||`;
+      for (const [key, v] of this.compMap) {
+        if (!key.startsWith(prefix) || v.baseRate <= 0) continue;
+        const careDiff = CARE_L2_APPLIES[serviceLine]
+          ? v.careL2 - (this.ourCareMap.get(`${location}|||${serviceLine}`) || 0)
+          : 0;
+        const careAdj = careDiff + v.medMgmt;
+        const cand = {
+          name: key.slice(prefix.length),
+          base: v.baseRate,
+          careAdj,
+          adjusted: Math.max(v.baseRate + careAdj, 1),
+          compType: ct,
+        };
+        const existing = byName.get(cand.name);
+        if (!existing || cand.adjusted > existing.adjusted) byName.set(cand.name, cand);
+      }
+    }
+    const comps = Array.from(byName.values());
+    if (!comps.length) return null;
+    const top = comps.reduce((a, b) => (b.adjusted > a.adjusted ? b : a));
+    const avgAdjusted = comps.reduce((s, c) => s + c.adjusted, 0) / comps.length;
+    return {
+      topAdjusted: top.adjusted,
+      topName: top.name,
+      topBase: top.base,
+      topCareAdj: top.careAdj,
+      avgAdjusted,
+      compCount: comps.length,
+      compType: top.compType,
+    };
+  }
+}
+
+/** Load Studio-only survey rows keyed per competitor plus our care rates. */
+export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Promise<StudioCompBenchmark> {
+  const [surveyRes, careRes] = await Promise.all([
+    pool.query(
+      `SELECT keystats_location, competitor_type, competitor_name,
+              monthly_rate_avg, care_level_2_rate, medication_management_fee
+       FROM competitive_survey_data
+       WHERE client_id = $1 AND monthly_rate_avg > 0 AND room_type ILIKE 'studio%'`,
+      [clientId],
+    ),
+    pool.query(
+      `SELECT l.name AS location_name, clr.service_line, clr.level2_rate
+       FROM care_level_rates clr
+       JOIN locations l ON clr.location_id = l.id
+       WHERE clr.client_id = $1`,
+      [clientId],
+    ),
+  ]);
+  // Reuse aggregateSurveyRows by folding the competitor name into the
+  // keystats_location key, then unfolding into the per-competitor map.
+  const folded = surveyRes.rows.map((r: any) => ({
+    ...r,
+    keystats_location: `${r.keystats_location}|||${r.competitor_type}|||${r.competitor_name}`,
+    competitor_type: r.competitor_type,
+  }));
+  const aggregated = aggregateSurveyRows(folded as SurveyRow[]);
+  const compMap = new Map<string, CompBenchmarkEntry>();
+  for (const [key, v] of aggregated) {
+    // key = loc|||type|||name|||type — drop the trailing duplicate type segment
+    const parts = key.split("|||");
+    compMap.set(parts.slice(0, 3).join("|||"), v);
+  }
+  const ourCareMap = new Map<string, number>();
+  for (const row of careRes.rows) {
+    ourCareMap.set(`${row.location_name}|||${row.service_line}`, Number(row.level2_rate) || 0);
+  }
+  return new StudioCompBenchmark(compMap, ourCareMap);
+}
+
 export interface LocationUnits {
   location: string;
   unitCount: number;
