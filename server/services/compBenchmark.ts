@@ -217,10 +217,13 @@ export interface StudioCompResult {
 }
 
 /**
- * Studio-only, per-competitor care-adjusted benchmark. Same normalization and
- * care-adjustment methodology as CompBenchmark, but restricted to Studio survey
- * rows and resolved per competitor so callers can compare against the
- * top-priced competitor as well as the market average.
+ * Per-competitor care-adjusted benchmark used for the Competitive Position
+ * scatter chart. Loads from the LATEST survey month per location (matching the
+ * Competitors tab) using ALL room types for the competitor's rate, so that any
+ * competitor visible in the Competitors tab can appear as a benchmark even if
+ * that competitor has no Studio-specific survey rows. Our rate on the Y-axis
+ * remains Studio-only (computed in the route); only the competitor benchmark
+ * side is all-room-type.
  */
 export class StudioCompBenchmark {
   constructor(
@@ -270,14 +273,44 @@ export class StudioCompBenchmark {
   }
 }
 
-/** Load Studio-only survey rows keyed per competitor plus our care rates. */
+/**
+ * Load per-competitor benchmark data for the Competitive Position chart.
+ *
+ * Key differences from the generic loadCompBenchmark:
+ * - Keyed per competitor name (not just location+type) so callers can identify
+ *   the top competitor and compute an average across all competitors.
+ * - Restricted to the LATEST survey month per keystats_location, matching the
+ *   data the Competitors tab shows. This prevents stale competitor rows from
+ *   older months from winning the "top competitor" ranking.
+ * - Loads ALL room types (not Studio-only). Our rate on the chart Y-axis is
+ *   Studio-only (computed in the route); the competitor benchmark uses all room
+ *   types so that any competitor visible in the Competitors tab can appear as a
+ *   benchmark even when that competitor has no Studio-specific survey rows.
+ */
 export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Promise<StudioCompBenchmark> {
   const [surveyRes, careRes] = await Promise.all([
+    // Use a CTE to restrict to the latest survey month per keystats_location,
+    // matching the filtering the Competitors tab applies. Rows from older months
+    // are excluded so that a competitor recorded in November but absent (or with
+    // an implausible rate) in December cannot win the "top competitor" ranking.
     pool.query(
-      `SELECT keystats_location, competitor_type, competitor_name,
-              monthly_rate_avg, care_level_2_rate, medication_management_fee
-       FROM competitive_survey_data
-       WHERE client_id = $1 AND monthly_rate_avg > 0 AND room_type ILIKE 'studio%'`,
+      `WITH latest_months AS (
+         -- Determine the latest survey month per location from ALL client-scoped rows
+         -- (no rate filter here) so that a newest upload with no positive rates still
+         -- marks that month as the latest, preventing older months from silently
+         -- winning. The rate filter is applied in the outer query only.
+         SELECT keystats_location, MAX(survey_month) AS latest_month
+         FROM competitive_survey_data
+         WHERE client_id = $1
+         GROUP BY keystats_location
+       )
+       SELECT csd.keystats_location, csd.competitor_type, csd.competitor_name,
+              csd.monthly_rate_avg, csd.care_level_2_rate, csd.medication_management_fee
+       FROM competitive_survey_data csd
+       JOIN latest_months lm
+         ON lm.keystats_location = csd.keystats_location
+        AND lm.latest_month      = csd.survey_month
+       WHERE csd.client_id = $1 AND csd.monthly_rate_avg > 0`,
       [clientId],
     ),
     pool.query(

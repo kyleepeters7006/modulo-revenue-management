@@ -93,10 +93,10 @@ function renderBold(text: string) {
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
   return (
-    <div className="flex-1 min-w-[150px] bg-white rounded-xl border border-slate-200 px-6 py-5 shadow-sm">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-2 leading-tight">{label}</p>
-      <p className={`text-3xl font-black leading-none ${color}`}>{value}</p>
-      {sub && <p className="text-[11px] text-slate-400 mt-2 leading-snug">{sub}</p>}
+    <div className="flex-1 min-w-[110px] bg-white rounded-xl border border-slate-200 px-4 py-4 shadow-sm">
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-1.5 leading-tight">{label}</p>
+      <p className={`text-2xl font-black leading-none whitespace-nowrap ${color}`}>{value}</p>
+      {sub && <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">{sub}</p>}
     </div>
   );
 }
@@ -219,12 +219,17 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
           {/* Rules table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between bg-slate-900">
-              <p className="text-base font-bold text-white tracking-tight">Active Pricing Rules</p>
-              <p className="text-xs font-medium text-slate-400 bg-slate-800 rounded-full px-3 py-1">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
-            </div>
             <table className="w-full text-sm border-collapse">
               <thead>
+                {/* Section title row — lives in thead so it repeats on every printed page */}
+                <tr className="bg-slate-900">
+                  <td colSpan={8} className="px-6 py-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-base font-bold text-white tracking-tight">Active Pricing Rules</p>
+                      <p className="text-xs font-medium text-slate-400 bg-slate-800 rounded-full px-3 py-1">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
+                    </div>
+                  </td>
+                </tr>
                 <tr className="bg-slate-50 text-left border-b border-slate-200">
                   <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[22%]">Rule</th>
                   <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[9%]">Service Line</th>
