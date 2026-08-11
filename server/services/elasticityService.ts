@@ -204,7 +204,9 @@ export async function computeAndStoreElasticity(clientId: string): Promise<{ upd
         rr.service_line                                                 AS service_line,
         rr.room_type                                                    AS room_type,
         rr.upload_month                                                 AS month,
-        mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0) AS avg_street,
+        mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0
+          AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$')
+        ) AS avg_street,
         AVG(LEAST(rr.days_vacant, $3)) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0)    AS avg_days_to_sell
      FROM rent_roll_data rr
      LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location

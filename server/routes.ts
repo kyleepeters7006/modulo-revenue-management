@@ -5083,7 +5083,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `SELECT COUNT(DISTINCT location) AS locations,
                 COUNT(*)                 AS units,
                 AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
-                AVG(street_rate) FILTER (WHERE street_rate > 0)         AS avg_rate
+                AVG(street_rate) FILTER (WHERE street_rate > 0
+                  AND NOT (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number ~ '/[A-Za-z]+$')
+                ) AS avg_rate
          FROM rent_roll_data
          WHERE client_id = $1 AND upload_month = (
            SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
@@ -5148,7 +5150,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pool.query(
           `SELECT COUNT(DISTINCT location) AS locations, COUNT(*) AS units,
                   AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
-                  AVG(street_rate) FILTER (WHERE street_rate > 0) AS avg_rate
+                  AVG(street_rate) FILTER (WHERE street_rate > 0
+                    AND NOT (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number ~ '/[A-Za-z]+$')
+                  ) AS avg_rate
            FROM rent_roll_data
            WHERE client_id = $1 AND upload_month = (
              SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
@@ -6092,7 +6096,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const vacantUnits   = hasRTO ? Math.round(rtoAvail - rtoOcc)   : totalUnits - occupiedUnits;
       const occupancyRate = hasRTO ? rtoOcc / rtoAvail               : (totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).length / totalUnits : 0);
 
-      const avgStreet = filteredData.reduce((s, u) => s + (u.streetRate || 0), 0) / totalUnits;
+      const SH_SLS_AI = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+      const primaryUnits = filteredData.filter(u => !(SH_SLS_AI.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')));
+      const avgStreet = primaryUnits.length > 0 ? primaryUnits.reduce((s, u) => s + (u.streetRate || 0), 0) / primaryUnits.length : 0;
       const avgInHouse = filteredData.reduce((s, u) => s + (u.inHouseRate || 0), 0) / totalUnits;
 
       // ── Modulo & AI rates already generated ───────────────────────────────
@@ -6311,7 +6317,9 @@ Focus areas (in order):
 
       const totalUnits = filteredData.length;
       const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
-      const avgStreet = totalUnits > 0 ? filteredData.reduce((s, u) => s + (u.streetRate || 0), 0) / totalUnits : 0;
+      const SH_SLS_CHAT = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+      const primaryDataChat = filteredData.filter(u => !(SH_SLS_CHAT.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')));
+      const avgStreet = primaryDataChat.length > 0 ? primaryDataChat.reduce((s, u) => s + (u.streetRate || 0), 0) / primaryDataChat.length : 0;
 
       const withModulo = filteredData.filter(u => u.moduloSuggestedRate && u.moduloSuggestedRate > 0);
       const withAI = filteredData.filter(u => u.aiSuggestedRate && u.aiSuggestedRate > 0);
@@ -8189,10 +8197,15 @@ ${campusOccLines.join('\n')}
 
       const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
         const roomTypeUnits = rentRollDataFiltered.filter(u => u.roomType === roomType);
+        const SH_SLS_OVW = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+        // Exclude B-bed companion rows for SH SLs so the street rate average
+        // reflects primary (single-occupant) units only.
+        const primaryRoomTypeUnits = roomTypeUnits.filter(u =>
+          !(SH_SLS_OVW.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')));
         
         // Calculate overall stats for the room type — HC rates converted to monthly equivalent
-        const avgRate = roomTypeUnits.length > 0 ? 
-          roomTypeUnits.reduce((sum, u) => sum + toMonthly(u.streetRate || u.inHouseRate || 0, u.serviceLine), 0) / roomTypeUnits.length : 0;
+        const avgRate = primaryRoomTypeUnits.length > 0 ? 
+          primaryRoomTypeUnits.reduce((sum, u) => sum + toMonthly(u.streetRate || u.inHouseRate || 0, u.serviceLine), 0) / primaryRoomTypeUnits.length : 0;
         
         // Competitor rate — same monthly-equivalent normalisation as avgRate
         let avgCompetitorRate = 0;
@@ -8231,8 +8244,11 @@ ${campusOccLines.join('\n')}
         // All rates normalised to monthly equivalent (HC daily × 30.44)
         const serviceLineBreakdown = Object.entries(stats.byServiceLine).map(([serviceLine, slStats]: [string, any]) => {
           const slUnits = roomTypeUnits.filter(u => u.serviceLine === serviceLine);
-          const slAvgRate = slUnits.length > 0 ?
-            slUnits.reduce((sum, u) => sum + toMonthly(u.streetRate || u.inHouseRate || 0, serviceLine), 0) / slUnits.length : 0;
+          const SH_SLS_SL = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+          const primarySlUnits = slUnits.filter(u =>
+            !(SH_SLS_SL.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')));
+          const slAvgRate = primarySlUnits.length > 0 ?
+            primarySlUnits.reduce((sum, u) => sum + toMonthly(u.streetRate || u.inHouseRate || 0, serviceLine), 0) / primarySlUnits.length : 0;
           // Competitor rate — monthly-equivalent normalisation
           let slAvgCompetitorRate = 0;
           if (slUnits.length > 0) {
@@ -8307,7 +8323,7 @@ ${campusOccLines.join('\n')}
       const serviceLineStats = allRentRollData.reduce((acc: any, unit: any) => {
         // For senior housing, skip B-beds
         const isSeniorHousing = seniorHousingServiceLines.includes(unit.serviceLine);
-        const isBBed = unit.roomNumber && unit.roomNumber.endsWith('/B');
+        const isBBed = unit.roomNumber && /\/[A-Za-z]+$/.test(unit.roomNumber);
         
         if (isSeniorHousing && isBBed) {
           // Skip B-beds for senior housing
@@ -8329,8 +8345,8 @@ ${campusOccLines.join('\n')}
         const isSeniorHousing = seniorHousingServiceLines.includes(serviceLine);
         const serviceLineUnits = allRentRollData.filter(u => {
           if (u.serviceLine !== serviceLine) return false;
-          // For senior housing, exclude B-beds
-          if (isSeniorHousing && u.roomNumber && u.roomNumber.endsWith('/B')) {
+          // For senior housing, exclude B-bed companion rows (room_number ending in /letter)
+          if (isSeniorHousing && u.roomNumber && /\/[A-Za-z]+$/.test(u.roomNumber)) {
             return false;
           }
           return true;
@@ -8470,8 +8486,8 @@ ${campusOccLines.join('\n')}
       // Senior Housing rates
       const shUnits = allRentRollData.filter((u: any) => {
         if (!seniorServiceLines.includes(u.serviceLine)) return false;
-        // Exclude B beds for senior housing
-        if (u.roomNumber && u.roomNumber.endsWith('/B')) return false;
+        // Exclude B-bed companion rows for senior housing (room_number ending in /letter)
+        if (u.roomNumber && /\/[A-Za-z]+$/.test(u.roomNumber)) return false;
         return true;
       });
       
@@ -10746,9 +10762,13 @@ ${campusOccLines.join('\n')}
     const unitsOver30DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 30).length;
     const unitsOver60DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 60).length;
     
-    // Calculate average rates
-    const avgPortfolioRate = scopeUnits.length > 0 
-      ? scopeUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / scopeUnits.length 
+    // Calculate average rates — exclude B-bed companion rows for SH SLs so the
+    // average reflects primary (single-occupant) units only.
+    const SH_SLS_SCOPE = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+    const primaryScopeUnits = scopeUnits.filter(u =>
+      !(SH_SLS_SCOPE.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')));
+    const avgPortfolioRate = primaryScopeUnits.length > 0 
+      ? primaryScopeUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / primaryScopeUnits.length 
       : 0;
     
     // Filter competitors by location and service line
@@ -11361,20 +11381,26 @@ IMPORTANT:
       const unitsOver60DaysVacant = vacantUnitsList.filter(u => (u.daysVacant || 0) > 60).length;
       
       // Calculate service line breakdown from ALL units (not filtered by service line)
-      const serviceLineStats: Record<string, { total: number; occupied: number; avgRate: number; avgDaysVacant: number }> = {};
+      const SH_SLS_TARG = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+      const serviceLineStats: Record<string, { total: number; occupied: number; avgRate: number; rateCount: number; avgDaysVacant: number }> = {};
       units.forEach(u => {
         const sl = u.serviceLine || 'Unknown';
         if (!serviceLineStats[sl]) {
-          serviceLineStats[sl] = { total: 0, occupied: 0, avgRate: 0, avgDaysVacant: 0 };
+          serviceLineStats[sl] = { total: 0, occupied: 0, avgRate: 0, rateCount: 0, avgDaysVacant: 0 };
         }
         serviceLineStats[sl].total++;
         if (u.occupiedYN) serviceLineStats[sl].occupied++;
-        serviceLineStats[sl].avgRate += u.streetRate || 0;
+        // Exclude B-bed rows for SH SLs from the street rate average
+        if (!(SH_SLS_TARG.has(sl) && /\/[A-Za-z]+$/.test(u.roomNumber || ''))) {
+          serviceLineStats[sl].avgRate += u.streetRate || 0;
+          serviceLineStats[sl].rateCount++;
+        }
         if (!u.occupiedYN) serviceLineStats[sl].avgDaysVacant += u.daysVacant || 0;
       });
       Object.keys(serviceLineStats).forEach(sl => {
         if (serviceLineStats[sl].total > 0) {
-          serviceLineStats[sl].avgRate = serviceLineStats[sl].avgRate / serviceLineStats[sl].total;
+          serviceLineStats[sl].avgRate = serviceLineStats[sl].rateCount > 0
+            ? serviceLineStats[sl].avgRate / serviceLineStats[sl].rateCount : 0;
           const vacantCount = serviceLineStats[sl].total - serviceLineStats[sl].occupied;
           if (vacantCount > 0) {
             serviceLineStats[sl].avgDaysVacant = serviceLineStats[sl].avgDaysVacant / vacantCount;
@@ -11435,8 +11461,11 @@ IMPORTANT:
       }
       
       // Build the Claude→GPT-5.4 prompt with comprehensive portfolio data
-      const avgPortfolioRate = filteredUnits.length > 0 
-        ? filteredUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / filteredUnits.length 
+      const SH_SLS_PORT = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+      const primaryPortfolioUnits = filteredUnits.filter(u =>
+        !(SH_SLS_PORT.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')));
+      const avgPortfolioRate = primaryPortfolioUnits.length > 0 
+        ? primaryPortfolioUnits.reduce((sum, u) => sum + (u.streetRate || 0), 0) / primaryPortfolioUnits.length 
         : 0;
       
       const prompt = `You are an expert senior living revenue management AI. Analyze the data for "${scopeLabel}" and target revenue growth, then suggest optimal pricing settings for ALL pricing controls.
@@ -12163,15 +12192,14 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         const trilogyData = await db.select({
           serviceLine: rentRollData.serviceLine,
           roomType: rentRollData.roomType,
-          avgRate: sql<number>`AVG(${rentRollData.streetRate})`
+          avgRate: sql<number>`AVG(CASE WHEN NOT (${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$') THEN ${rentRollData.streetRate} ELSE NULL END)`
         })
           .from(rentRollData)
           .where(and(
             eq(rentRollData.clientId, clientId),
             eq(rentRollData.uploadMonth, latestMonth),
             eq(rentRollData.location, locationName),
-            gt(rentRollData.streetRate, 0),
-            sql`NOT (${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'IL') AND ${rentRollData.roomNumber} LIKE '%/B')`
+            gt(rentRollData.streetRate, 0)
           ))
           .groupBy(rentRollData.serviceLine, rentRollData.roomType);
         
@@ -12945,11 +12973,12 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       //   base_rate = avg(street_rate) / avg(multiplier) — accounts for attribute premiums.
       const segRows = await pool.query(
         `SELECT rr.service_line, rr.room_type,
-           AVG(rr.street_rate) / NULLIF(AVG(1 + (
-             COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
-             COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
-             COALESCE(ar_am.adjustment_percent, 0)
-           ) / 100.0), 0) AS base_rate,
+           AVG(rr.street_rate) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$'))
+             / NULLIF(AVG(1 + (
+               COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
+               COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
+               COALESCE(ar_am.adjustment_percent, 0)
+             ) / 100.0) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$')), 0) AS base_rate,
            COUNT(*) AS unit_count
          FROM rent_roll_data rr
          LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = rr.size_rating
@@ -12981,11 +13010,12 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const updateResult = await pool.query(
         `WITH base_rates AS (
            SELECT rr.service_line, rr.room_type,
-             AVG(rr.street_rate) / NULLIF(AVG(1 + (
-               COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
-               COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
-               COALESCE(ar_am.adjustment_percent, 0)
-             ) / 100.0), 0) AS base_rate
+             AVG(rr.street_rate) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$'))
+               / NULLIF(AVG(1 + (
+                 COALESCE(ar_sz.adjustment_percent, 0) + COALESCE(ar_vw.adjustment_percent, 0) +
+                 COALESCE(ar_rv.adjustment_percent, 0) + COALESCE(ar_lc.adjustment_percent, 0) +
+                 COALESCE(ar_am.adjustment_percent, 0)
+               ) / 100.0) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$')), 0) AS base_rate
            FROM rent_roll_data rr
            LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = rr.size_rating
            LEFT JOIN attribute_ratings ar_vw ON ar_vw.attribute_type = 'view'       AND ar_vw.rating_level = rr.view_rating
@@ -13389,7 +13419,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           unitsWithDiscount: sql<number>`SUM(CASE WHEN ${rentRollData.promotionAllowance} < 0 THEN 1 ELSE 0 END)::int`,
           totalDiscountAmount: sql<number>`ABS(SUM(COALESCE(${rentRollData.promotionAllowance}, 0)))`,
           avgDiscount: sql<number>`ABS(AVG(CASE WHEN ${rentRollData.promotionAllowance} < 0 THEN ${rentRollData.promotionAllowance} END))`,
-          avgStreetRate: sql<number>`AVG(${rentRollData.streetRate})`,
+          avgStreetRate: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.streetRate} END)`,
           avgInHouseRate: sql<number>`AVG(${rentRollData.inHouseRate})`,
         })
         .from(rentRollData)
@@ -15228,7 +15258,10 @@ Respond in JSON format:
         const occPct = hasRoh
           ? (roh.occ / roh.avail) * 100
           : (scoped.length ? (scoped.filter((u: any) => u.occupiedYN).length / scoped.length) * 100 : 0);
-        const streetRates = scoped.map((u: any) => u.streetRate).filter((r: number) => r > 0);
+        const SH_SLS_SUGGEST = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+        const streetRates = scoped
+          .filter((u: any) => !(SH_SLS_SUGGEST.has(u.serviceLine) && /\/[A-Za-z]+$/.test(u.roomNumber || '')))
+          .map((u: any) => u.streetRate).filter((r: number) => r > 0);
         const avgStreet = streetRates.length ? streetRates.reduce((a: number, b: number) => a + b, 0) / streetRates.length : 0;
         // Competitor benchmark: unit-weighted, care-adjusted survey average per
         // location (same methodology as the Competitive Position scatter).
@@ -16236,7 +16269,7 @@ Return ONLY valid JSON with no markdown fences:
       const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
           SELECT rr.location, rr.service_line,
-            ROUND(AVG(rr.street_rate)::numeric, 0) AS our_rate,
+            ROUND(AVG(rr.street_rate) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$'))::numeric, 0) AS our_rate,
             ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
@@ -16440,7 +16473,9 @@ Return ONLY valid JSON with no markdown fences:
             COUNT(*) AS total,
             COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rrd.')}) AS weight_cnt,
             COUNT(*) FILTER (WHERE rrd.occupied_yn AND ${slWeightSqlPredicate('rrd.')}) AS weight_occ_cnt,
-            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
+              AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~ '/[A-Za-z]+$')
+            )) AS avg_street_rate,
             ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
             ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
           FROM rent_roll_data rrd
@@ -16455,7 +16490,9 @@ Return ONLY valid JSON with no markdown fences:
         // 6-month street rate trend per service line (rates only — occ comes from rohTrendRes)
         pool.query(`
           SELECT rrd.upload_month, rrd.service_line,
-            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
+              AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~ '/[A-Za-z]+$')
+            )) AS avg_street_rate,
             ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate
           FROM rent_roll_data rrd
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
@@ -16739,7 +16776,9 @@ Return ONLY valid JSON with no markdown fences:
         // Street rate trend (rent_roll_data) for region/division/class
         const rrdRateGroupQuery = (groupExpr: string) => pool.query(`
           SELECT ${groupExpr} AS grp, rrd.upload_month,
-            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0)) AS avg_street_rate,
+            ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
+              AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~ '/[A-Za-z]+$')
+            )) AS avg_street_rate,
             COUNT(*) AS units
           FROM rent_roll_data rrd
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
@@ -17664,7 +17703,7 @@ Return ONLY valid JSON, no markdown fences:
            AND in_house_rate > 0
            AND street_rate > 0
            AND (
-             (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_type != 'Companion')
+             (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number !~ '/[A-Za-z]+$')
              OR
              (service_line IN ('HC', 'HC/MC') AND UPPER(COALESCE(payor_type, '')) LIKE '%PRIVATE%')
            )`,
@@ -17863,10 +17902,10 @@ Return ONLY valid JSON, no markdown fences:
 
       // Fetch all units for the latest month
       const unitsRes = await pool.query<{
-        service_line: string; room_type: string; occupied_yn: boolean;
+        service_line: string; room_type: string; room_number: string; occupied_yn: boolean;
         days_vacant: number; street_rate: number; competitor_final_rate: number; payor_type: string;
       }>(
-        `SELECT service_line, room_type, occupied_yn, days_vacant,
+        `SELECT service_line, room_type, room_number, occupied_yn, days_vacant,
                 street_rate, competitor_final_rate, payor_type
          FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
         [locationId, clientId, latestMonth]
@@ -17897,7 +17936,12 @@ Return ONLY valid JSON, no markdown fences:
         const vacDays = group.filter(u => !u.occupied_yn && (u.days_vacant || 0) > 0).map(u => u.days_vacant);
         if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
 
-        const compUnits = group.filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100);
+        const SH_SLS_SNAP = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+        // Apply consistent B-bed exclusion to both sides of the competitor variance
+        // so the street rate and competitor rate averages compare identical populations.
+        const compUnits = group
+          .filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100)
+          .filter(u => !(SH_SLS_SNAP.has(u.service_line) && /\/[A-Za-z]+$/.test(u.room_number || '')));
         if (compUnits.length) {
           const avgSt = avgArr(compUnits.map(u => u.street_rate));
           const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));
@@ -19200,7 +19244,9 @@ Return ONLY valid JSON, no markdown fences:
             -- per room type. Use the mode (most common value) rather than AVG so that
             -- second-occupant entries and data-entry anomalies (e.g. a stray $159 on a Studio
             -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
-            mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0)  AS avg_street,
+            mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0
+              AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~ '/[A-Za-z]+$')
+            ) AS avg_street,
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
             AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
             AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
@@ -20032,10 +20078,14 @@ Return ONLY valid JSON, no markdown fences:
       // the same mode as the grouped endpoint, not a simple average.
       const groupModeStreet = new Map<string, number>();
       {
+        const SH_SLS_MODE = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
         const freq = new Map<string, Map<number, number>>();
         for (const r of unitsRes.rows as any[]) {
           const st = Number(r.street_rate) || 0;
           if (st <= 0) continue;
+          // Exclude B-bed companion rows for senior housing SLs so the mode
+          // reflects only the primary (single-occupant) unit rate.
+          if (SH_SLS_MODE.has(r.service_line) && /\/[A-Za-z]+$/.test(r.room_number || '')) continue;
           const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
           if (!freq.has(key)) freq.set(key, new Map());
           const m = freq.get(key)!;

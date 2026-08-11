@@ -698,11 +698,10 @@ export class DatabaseStorage implements IStorage {
     const serviceLineStats = units.reduce((acc: any, unit: any) => {
       const serviceLine = unit.serviceLine || 'AL'; // Default to AL if not specified
       
-      // For senior housing, skip B beds (roomNumber ending with /B or B)
+      // For senior housing, skip B-bed companion rows (room_number ending in /letter)
       if (seniorHousingServiceLines.includes(serviceLine)) {
         const roomNumber = unit.roomNumber || '';
-        // Skip if room number ends with /B or just B (e.g., "501/B" or "501B")
-        if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
+        if (/\/[A-Za-z]+$/.test(roomNumber)) {
           return acc; // Skip this unit
         }
       }
@@ -2204,8 +2203,8 @@ export class DatabaseStorage implements IStorage {
     const unitsForOccupancy = units.filter(unit => {
       if (seniorHousingServiceLines.includes(unit.serviceLine || '')) {
         const roomNumber = unit.roomNumber || '';
-        if (roomNumber.endsWith('/B') || roomNumber.endsWith('B')) {
-          return false; // Exclude B beds from occupancy calculation
+        if (/\/[A-Za-z]+$/.test(roomNumber)) {
+          return false; // Exclude B-bed companion rows from occupancy calculation
         }
       }
       return true;

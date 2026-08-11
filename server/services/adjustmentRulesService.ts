@@ -3,6 +3,7 @@ import { pool } from "../db";
 import type { AdjustmentRules } from "@shared/schema";
 import { isRuleExclusive, applyRuleAdjustmentStep } from "@shared/ruleStacking";
 import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
+import { isBBedRow } from "@shared/bBed";
 
 // ---------------------------------------------------------------------------
 // In-memory cache for IH-to-Street variance metric
@@ -99,11 +100,11 @@ async function recalculateAndPreloadCampusMetrics(
 
     // Fetch all units for the latest month
     const unitsRes = await pool.query<{
-      service_line: string; room_type: string; occupied_yn: boolean;
+      service_line: string; room_type: string; room_number: string; occupied_yn: boolean;
       days_vacant: number; street_rate: number; in_house_rate: number;
       competitor_final_rate: number; payor_type: string;
     }>(
-      `SELECT service_line, room_type, occupied_yn, days_vacant,
+      `SELECT service_line, room_type, room_number, occupied_yn, days_vacant,
               street_rate, in_house_rate, competitor_final_rate, payor_type
        FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
       [locationId, clientId, latestMonth]
@@ -136,18 +137,24 @@ async function recalculateAndPreloadCampusMetrics(
       if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
 
       // IH-to-street variance % for single-occupant occupied units (mirrors
-      // the ih-street-variance recalculate endpoint: SH excludes Companion,
-      // HC counts private-pay only; HC daily rates converted to monthly).
+      // the ih-street-variance recalculate endpoint: SH excludes B-bed companion
+      // rows (room_number ending in /letter); HC counts private-pay only;
+      // HC daily rates converted to monthly).
       const HC_DAILY = new Set(['HC', 'HC/MC']);
+      // B-bed companion rows for SH SLs are excluded consistently from both
+      // sides of every comparative metric so populations always match.
+      const isBBed = (u: any) => isBBedRow(u.service_line, u.room_number);
       const ihUnits = group.filter(u => {
         if (!u.occupied_yn) return false;
+        if (isBBed(u)) return false; // exclude B-bed companion rows for SH SLs
         const daily = HC_DAILY.has(u.service_line || '');
         const st = u.street_rate || 0, ih = (u as any).in_house_rate || 0;
         if (daily) {
           return st > 0 && ih > 0 && (u.payor_type || '').toUpperCase().includes('PRIVATE');
         }
-        return st > 100 && ih > 100 && u.room_type !== 'Companion';
+        return st > 100 && ih > 100;
       });
+
       if (ihUnits.length) {
         const mult = (u: any) => HC_DAILY.has(u.service_line || '') ? 30.44 : 1;
         const avgSt = avgArr(ihUnits.map(u => (u.street_rate || 0) * mult(u)));
@@ -157,7 +164,11 @@ async function recalculateAndPreloadCampusMetrics(
         }
       }
 
-      const compUnits = group.filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100);
+      // Apply consistent B-bed exclusion to both sides of the competitor variance
+      // so the street rate and competitor rate averages compare identical populations.
+      const compUnits = group
+        .filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100)
+        .filter(u => !isBBed(u));
       if (compUnits.length) {
         const avgSt = avgArr(compUnits.map(u => u.street_rate));
         const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));

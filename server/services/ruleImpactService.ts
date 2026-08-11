@@ -1,4 +1,5 @@
 import { pool } from "../db";
+import { isBBedRow } from "@shared/bBed";
 
 // ---------------------------------------------------------------------------
 // Qualified rule impact — the single source of truth for "how many units does
@@ -23,6 +24,7 @@ export interface UnitRow {
   location: string | null;
   service_line: string | null;
   room_type: string | null;
+  room_number: string | null;
   street_rate: number;
   care_rate: number;
   in_house_rate: number;
@@ -276,7 +278,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   if (!latestMonth) return null;
 
   const { rows } = await pool.query(
-    `SELECT id, location_id, location, service_line, room_type,
+    `SELECT id, location_id, location, service_line, room_type, room_number,
             street_rate::float AS street_rate, care_rate::float AS care_rate,
             in_house_rate::float AS in_house_rate,
             occupied_yn, days_vacant, competitor_final_rate::float AS competitor_final_rate,
@@ -296,19 +298,22 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     if (u.occupied_yn) g.occupied++;
     const st = Number(u.street_rate) || 0;
     const comp = Number(u.competitor_final_rate) || 0;
-    if (st > 100) { g.stSum += st; g.stN++; }
-    if (st > 100 && comp > 100) { g.compStSum += st; g.compCSum += comp; g.compN++; }
+    const sl = u.service_line || "";
+    // Exclude B-bed companion rows (room_number ending in /letter) for SH SLs
+    // so street rate averages reflect primary (single-occupant) units only.
+    const isBBedUnit = isBBedRow(sl, u.room_number);
+    if (st > 100 && !isBBedUnit) { g.stSum += st; g.stN++; }
+    if (st > 100 && comp > 100 && !isBBedUnit) { g.compStSum += st; g.compCSum += comp; g.compN++; }
     // IH-to-street variance inputs: occupied single-occupant units with both
     // rates present (mirrors the ih-street-variance recalculate endpoint:
-    // SH excludes Companion rooms; HC counts private-pay only). HC daily
+    // SH excludes B-bed companion rows; HC counts private-pay only). HC daily
     // rates are converted to monthly so campus-level blending is consistent.
     const ih = Number(u.in_house_rate) || 0;
-    const sl = u.service_line || "";
     const isDaily = DAILY_SLS.has(sl);
     const rateOk = isDaily ? (st > 0 && ih > 0) : (st > 100 && ih > 100);
     const singleOcc = isDaily
       ? ((u.payor_type || "").toUpperCase().includes("PRIVATE"))
-      : (u.room_type !== "Companion");
+      : !isBBedUnit;
     if (u.occupied_yn && rateOk && singleOcc) {
       const mult = isDaily ? DAYS_PER_MONTH : 1;
       g.ihStSum += st * mult;
@@ -630,7 +635,12 @@ export function computeQualifiedRuleImpact(
     // and the impact is direct (occupied units × Δrate), not move-in based.
     const impactUnits = useInHouseRate ? qualified.filter(u => u.occupied_yn) : qualified;
     if (useInHouseRate && !impactUnits.length) continue;
-    const rates = impactUnits
+    // Exclude B-bed companion rows for SH SLs when computing the street-rate
+    // baseline so the average reflects primary (single-occupant) units only.
+    const rateBaseUnits = (!useCareRate && !useInHouseRate)
+      ? impactUnits.filter(u => !isBBedRow(sl, u.room_number))
+      : impactUnits;
+    const rates = rateBaseUnits
       .map(u => toMonthlyRate(Number(
         useCareRate ? u.care_rate : useInHouseRate ? u.in_house_rate : u.street_rate) || 0, sl))
       .filter(r => r > 0);

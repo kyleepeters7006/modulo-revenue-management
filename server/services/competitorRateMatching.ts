@@ -689,10 +689,10 @@ export async function getCompetitorRateSummary(uploadMonth?: string, clientId: s
           location: rentRollData.location,
           serviceLine: rentRollData.serviceLine,
           roomType: rentRollData.roomType,
-          avgStreetRate: sql<number>`AVG(${rentRollData.streetRate})`,
-          avgCompetitorRate: sql<number>`AVG(${rentRollData.competitorRate})`,
-          avgDifference: sql<number>`AVG(${rentRollData.competitorRate} - ${rentRollData.streetRate})`,
-          count: sql<number>`COUNT(*)`,
+          avgStreetRate: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.streetRate} END)`,
+          avgCompetitorRate: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.competitorRate} END)`,
+          avgDifference: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.competitorRate} - ${rentRollData.streetRate} END)`,
+          count: sql<number>`COUNT(*) FILTER (WHERE NOT (${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$'))`,
         })
         .from(rentRollData)
         .where(and(
@@ -704,10 +704,10 @@ export async function getCompetitorRateSummary(uploadMonth?: string, clientId: s
           location: rentRollData.location,
           serviceLine: rentRollData.serviceLine,
           roomType: rentRollData.roomType,
-          avgStreetRate: sql<number>`AVG(${rentRollData.streetRate})`,
-          avgCompetitorRate: sql<number>`AVG(${rentRollData.competitorRate})`,
-          avgDifference: sql<number>`AVG(${rentRollData.competitorRate} - ${rentRollData.streetRate})`,
-          count: sql<number>`COUNT(*)`,
+          avgStreetRate: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.streetRate} END)`,
+          avgCompetitorRate: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.competitorRate} END)`,
+          avgDifference: sql<number>`AVG(CASE WHEN ${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$' THEN NULL ELSE ${rentRollData.competitorRate} - ${rentRollData.streetRate} END)`,
+          count: sql<number>`COUNT(*) FILTER (WHERE NOT (${rentRollData.serviceLine} IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${rentRollData.roomNumber} ~ '/[A-Za-z]+$'))`,
         })
         .from(rentRollData)
         .where(and(...baseConditions))

@@ -4,6 +4,7 @@ import type {
   Guardrails,
   RentRollData 
 } from "@shared/schema";
+import { isBBedRow } from "@shared/bBed";
 
 interface StrategyDocumentation {
   campus: string;
@@ -98,7 +99,12 @@ function groupDataByCampusAndServiceLine(
 function calculateMetrics(units: RentRollData[]) {
   const occupied = units.filter(u => u.occupancyStatus === 'Occupied').length;
   const total = units.length;
-  const avgRate = units.reduce((sum, u) => sum + (u.streetRate || 0), 0) / total;
+  // Exclude B-bed companion rows for senior housing SLs so the average reflects
+  // primary (single-occupant) units only.
+  const primaryUnitsGen = units.filter(u => !isBBedRow(u.serviceLine, (u as any).roomNumber));
+  const avgRate = primaryUnitsGen.length > 0
+    ? primaryUnitsGen.reduce((sum, u) => sum + (u.streetRate || 0), 0) / primaryUnitsGen.length
+    : 0;
   
   return {
     occupancy: total > 0 ? (occupied / total) : 0,
