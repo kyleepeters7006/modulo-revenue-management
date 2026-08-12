@@ -4,6 +4,7 @@ import type { AdjustmentRules } from "@shared/schema";
 import { isRuleExclusive, applyRuleAdjustmentStep } from "@shared/ruleStacking";
 import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
 import { isBBedRow } from "@shared/bBed";
+import { loadCompBenchmark } from "./compBenchmark";
 
 // ---------------------------------------------------------------------------
 // In-memory cache for IH-to-Street variance metric
@@ -112,6 +113,14 @@ async function recalculateAndPreloadCampusMetrics(
     const units = unitsRes.rows;
     if (!units.length) return;
 
+    // Load survey-based competitor benchmark (same source as the scatter chart)
+    // and resolve the location name needed for benchmark lookups.
+    const [compBenchmark, locNameRes] = await Promise.all([
+      loadCompBenchmark(pool, clientId),
+      pool.query<{ name: string }>(`SELECT name FROM locations WHERE id=$1`, [locationId]),
+    ]);
+    const locationName = locNameRes.rows[0]?.name ?? '';
+
     // Fetch inquiry/tour volume from inquiry_metrics
     const inqRes = await pool.query<{ service_line: string; inq: string; tour: string }>(
       `SELECT service_line, SUM(inquiry_count) AS inq, SUM(tour_count) AS tour
@@ -135,6 +144,13 @@ async function recalculateAndPreloadCampusMetrics(
 
       const vacDays = group.filter(u => !u.occupied_yn && (u.days_vacant || 0) > 0).map(u => u.days_vacant);
       if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
+
+      // Group-average days_vacant over ALL units (occupied units contribute 0).
+      // Matches the ruleImpactService.evalGroupCondition semantics for the
+      // conditions-array trigger format, where the intent is "fire on every
+      // unit in the group when the group average exceeds the threshold."
+      const allDvAvg = group.reduce((s, u) => s + (Number(u.days_vacant) || 0), 0) / group.length;
+      metrics.push({ sl, rt, name: 'days_vacant_group_avg', val: allDvAvg });
 
       // IH-to-street variance % for single-occupant occupied units (mirrors
       // the ih-street-variance recalculate endpoint: SH excludes B-bed companion
@@ -164,17 +180,24 @@ async function recalculateAndPreloadCampusMetrics(
         }
       }
 
-      // Apply consistent B-bed exclusion to both sides of the competitor variance
-      // so the street rate and competitor rate averages compare identical populations.
-      const compUnits = group
-        .filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100)
-        .filter(u => !isBBed(u));
-      if (compUnits.length) {
-        const avgSt = avgArr(compUnits.map(u => u.street_rate));
-        const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));
-        if (avgC > 0) {
-          metrics.push({ sl, rt, name: 'competitor_variance_pct', val: (avgSt - avgC) / avgC * 100 });
-          metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: (avgSt - avgC) / avgC * 100 });
+      // Use the survey-based competitor benchmark (same source as the competitive
+      // position scatter chart) for street_to_comp_var_pct. The stale
+      // competitor_final_rate field in the rent roll holds legacy import values
+      // that are far below actual market rates for VIL, causing variance triggers
+      // like "street < comp by 3%" to never fire.
+      // Benchmark is per location+SL; skip at campus level (sl=null) since we
+      // cannot blend SLs into a single coherent comp rate.
+      if (sl && locationName) {
+        const bench = compBenchmark.benchmarkFor(locationName, sl);
+        if (bench && bench.adjusted > 0) {
+          // Street rate: average of non-B-bed units with a valid street rate.
+          const stUnits = group.filter(u => (u.street_rate || 0) > 100 && !isBBed(u));
+          if (stUnits.length > 0) {
+            const avgSt = avgArr(stUnits.map(u => u.street_rate));
+            const pct = (avgSt - bench.adjusted) / bench.adjusted * 100;
+            metrics.push({ sl, rt, name: 'competitor_variance_pct', val: pct });
+            metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: pct });
+          }
         }
       }
 
@@ -384,11 +407,35 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
       const condOperator: string = (trigger.conditionOperator || 'AND').toUpperCase();
       const conditions = trigger.conditions as Array<{ field: string; operator: string; value: number }>;
 
+      // For the array format, days_vacant is evaluated as a group-level average
+      // (same as ruleImpactService.evalGroupCondition), not per-unit. The intent
+      // is "fire on every unit in the group when the group average exceeds the
+      // threshold." Use the days_vacant_group_avg metric computed in
+      // recalculateAndPreloadCampusMetrics which averages over ALL units.
+      const evalArrayCond = (c: { field: string; operator: string; value: number }): boolean => {
+        if (c.field === 'days_vacant') {
+          const sl: string | null = unit.serviceLine || null;
+          const rt: string | null = unit.roomType    || null;
+          const avg = _lookupCampusMetric(clientId, unit.locationId, sl, rt, 'days_vacant_group_avg');
+          if (avg === null) return false;
+          const { operator, value } = c;
+          switch (operator) {
+            case '<':  return avg < value;
+            case '<=': return avg <= value;
+            case '>':  return avg > value;
+            case '>=': return avg >= value;
+            case '=': case '==': case '===': return Math.abs(avg - value) < 0.01;
+            default: return false;
+          }
+        }
+        return evaluateSingleCondition(c, unit, clientId);
+      };
+
       if (condOperator === 'OR') {
-        return conditions.some(c => evaluateSingleCondition(c, unit, clientId));
+        return conditions.some(c => evalArrayCond(c));
       }
       // Default: AND — all conditions must pass
-      return conditions.every(c => evaluateSingleCondition(c, unit, clientId));
+      return conditions.every(c => evalArrayCond(c));
     }
 
     // ── Singular trigger.condition format ─────────────────────────────────

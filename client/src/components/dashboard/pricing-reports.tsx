@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar, ChevronUp, ChevronDown, ChevronsUpDown, HelpCircle } from "lucide-react";
 import moduloLogo from "@assets/modulo_glass_v2_1784404625887.png";
+import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) => {

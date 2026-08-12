@@ -1,5 +1,6 @@
 import { pool } from "../db";
 import { isBBedRow } from "@shared/bBed";
+import { loadCompBenchmark, type CompBenchmark } from "./compBenchmark";
 
 // ---------------------------------------------------------------------------
 // Qualified rule impact — the single source of truth for "how many units does
@@ -51,6 +52,8 @@ export interface RuleImpactContext {
   metrics: Map<string, GroupAgg>;            // `${locId}`, `${locId}|${sl}`, `${locId}|${sl}|${rt}`
   moveMap: Map<string, number>;              // `${locationName}||${sl}||${rt}` -> t3 move-ins / month
   slMoveInRate: Map<string, number>;         // service line -> t3 move-ins / month / active unit
+  compBenchmark: CompBenchmark;              // survey-based competitor benchmark (correct source for street_to_comp_var_pct)
+  locIdToName: Map<string, string>;          // location_id → location name for benchmark lookup
 }
 
 export interface RuleCampusImpact {
@@ -343,6 +346,18 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     bump(gKey, u);
   }
 
+  // Build locId → location name map from the units themselves (needed for
+  // benchmark lookups which are keyed by location name, not ID).
+  const locIdToName = new Map<string, string>();
+  for (const u of units) {
+    if (u.location_id && u.location) locIdToName.set(u.location_id, u.location);
+  }
+
+  // Load the survey-based competitor benchmark (same source as the competitive
+  // position scatter chart). This replaces the stale competitor_final_rate field
+  // from the rent roll for street_to_comp_var_pct trigger evaluation.
+  const compBenchmark = await loadCompBenchmark(pool, clientId);
+
   const moveMap = await getT3MoveInsMap(clientId);
 
   // Portfolio-wide move-in rate per service line: trailing-3-month move-in
@@ -403,7 +418,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     if (total > 0) slMoveInRate.set(r.service_line, (Number(r.per_month) || 0) / total);
   }
 
-  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate };
+  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName };
 }
 
 /** Metric lookup with SL+RT → SL → campus fallback (mirrors the rate engine). */
@@ -419,11 +434,18 @@ function lookupMetric(
     if (metric === "occupancy_pct") return (g.occupied / g.total) * 100;
     if (metric === "vacant_units") return g.total - g.occupied;
     if (metric === "street_to_comp_var_pct") {
-      if (g.compN === 0) continue; // fall back to broader scope
-      const avgSt = g.compStSum / g.compN;
-      const avgC = g.compCSum / g.compN;
-      if (avgC <= 0) continue;
-      return ((avgSt - avgC) / avgC) * 100;
+      // Use the survey-based benchmark (same source as the competitive position
+      // scatter chart) instead of the stale competitor_final_rate from the rent
+      // roll. For VIL locations the rent-roll field holds legacy values far below
+      // actual market rates, causing the variance to appear falsely positive and
+      // preventing triggers like "street < comp by 3%" from ever firing.
+      const locName = ctx.locIdToName.get(locId);
+      if (!locName) continue; // no name mapping — try broader scope (shouldn't happen)
+      const bench = ctx.compBenchmark.benchmarkFor(locName, sl);
+      if (!bench || bench.adjusted <= 0) continue; // no survey coverage for this SL — try broader scope
+      if (g.stN === 0) continue; // no street-rate data in this group — try broader scope
+      const avgSt = g.stSum / g.stN;
+      return ((avgSt - bench.adjusted) / bench.adjusted) * 100;
     }
     if (metric === "ih_street_var_pct") {
       if (g.ihN === 0) continue; // fall back to broader scope
@@ -452,11 +474,18 @@ function cmp(val: number | null, op: string, threshold: number): boolean {
 
 const OCC_FIELDS = new Set(["occupancy", "campus_occupancy", "service_line_occupancy", "room_type_occupancy"]);
 
-/** Evaluate one metric-based trigger condition at the campus/SL/RT group level. */
+/** Evaluate one metric-based trigger condition at the campus/SL/RT group level.
+ *
+ * @param isArrayFormat  true when called from a `trigger.conditions[]` block
+ *   (group-average gate for days_vacant — every unit fires if the group avg
+ *   meets the threshold); false when called from a singular `trigger.condition`
+ *   (defer days_vacant to the unit-level `unitPasses` predicate instead).
+ */
 function evalGroupCondition(
   ctx: RuleImpactContext,
   cond: { field: string; operator: string; value: number },
   locId: string, sl: string, rt: string,
+  isArrayFormat = true,
 ): boolean {
   const { field, operator } = cond;
   // Occupancy trigger values are often stored as fractions (0.93 = 93%);
@@ -489,10 +518,13 @@ function evalGroupCondition(
     const v = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
     return cmp(lookupMetric(ctx, locId, sl, rt, "ih_street_var_pct"), operator, v);
   }
-  // days_vacant: evaluate as group average (avg days vacant across all units
-  // in this locId|sl|rt group) so that "average days vacant > 30" fires on
-  // every unit in the group, not just the individually vacant ones.
+  // days_vacant semantics depend on trigger format:
+  //   conditions[] array format → group-average gate: every unit in the group
+  //     fires when the group average meets the threshold (isArrayFormat=true).
+  //   Singular trigger.condition format → defer to unitPasses() which filters
+  //     each unit individually (isArrayFormat=false → return true here).
   if (field === "days_vacant") {
+    if (!isArrayFormat) return true; // singular condition: per-unit eval deferred to unitPasses()
     const g = ctx.metrics.get(`${locId}|${sl}|${rt}`);
     const avg = g && g.dvN ? g.dvSum / g.dvN : 0;
     return cmp(avg, operator, Number(cond.value));
@@ -514,12 +546,14 @@ function groupPassesTrigger(
   if (Array.isArray(trigger.conditions)) {
     const conds = trigger.conditions as Array<{ field: string; operator: string; value: number }>;
     const op = (trigger.conditionOperator || "AND").toUpperCase();
+    // isArrayFormat=true: days_vacant evaluated as group average in this path.
     return op === "OR"
-      ? conds.some(c => evalGroupCondition(ctx, c, locId, sl, rt))
-      : conds.every(c => evalGroupCondition(ctx, c, locId, sl, rt));
+      ? conds.some(c => evalGroupCondition(ctx, c, locId, sl, rt, true))
+      : conds.every(c => evalGroupCondition(ctx, c, locId, sl, rt, true));
   }
   if (trigger.condition?.field) {
-    return evalGroupCondition(ctx, trigger.condition, locId, sl, rt);
+    // isArrayFormat=false: singular condition defers days_vacant to unitPasses().
+    return evalGroupCondition(ctx, trigger.condition, locId, sl, rt, false);
   }
   // Legacy object format: unit-level conditions handled by the unit predicate
   return true;
