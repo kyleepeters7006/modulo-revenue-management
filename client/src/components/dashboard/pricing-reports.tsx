@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar, ChevronUp, ChevronDown, ChevronsUpDown, HelpCircle } from "lucide-react";
 import moduloLogo from "@assets/modulo_glass_v2_1784404625887.png";
-import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) => {
@@ -31,10 +30,19 @@ const fmtTrigger = (rule: any) => {
   const fieldMap: Record<string, string> = {
     service_line_occupancy: "SL occ", room_type_occupancy: "RT occ",
     campus_occupancy: "Campus occ", days_vacant: "Days vacant",
+    street_to_comp_var: "St vs comp", ih_street_variance: "IH-to-street var",
+    competitor_variance: "Comp var", inquiry_volume: "Inq vol",
   };
+  // Fields whose stored value is a fraction (0–1) representing a percentage
+  const pctFractionFields = new Set(["service_line_occupancy", "room_type_occupancy", "campus_occupancy", "occupancy", "ih_street_variance"]);
   return conditions.map((c: any) => {
     const field = fieldMap[c.field] || (c.field || "").replace(/_/g, " ");
-    const val = c.field?.includes("occupancy") ? `${Math.round((c.value || 0) * 100)}%` : c.value;
+    const raw = c.value;
+    const val = pctFractionFields.has(c.field) && typeof raw === "number" && Math.abs(raw) <= 1
+      ? `${Math.round(raw * 100)}%`
+      : c.field === "street_to_comp_var"
+        ? `${raw}%`
+        : raw;
     const op = { ">=": "≥", "<=": "≤", "<": "<", ">": ">" }[c.operator as string] ?? c.operator;
     return `${field} ${op} ${val}`;
   }).join(" & ");
@@ -223,6 +231,38 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   const handlePrint = () => {
+    const printable = printRef.current;
+    if (!printable) return;
+
+    // Clone the full modal (header + scrollable content) into a plain body div
+    // so no Radix portal, overlay, or transform can interfere with printing.
+    let printRoot = document.getElementById('modulo-print-root');
+    if (!printRoot) {
+      printRoot = document.createElement('div');
+      printRoot.id = 'modulo-print-root';
+      document.body.appendChild(printRoot);
+    }
+
+    const modal = printable.closest('.report-modal') as HTMLElement | null;
+    printRoot.innerHTML = '';
+    if (modal) {
+      const clone = modal.cloneNode(true) as HTMLElement;
+      // Strip inline styles that would carry over screen-only constraints
+      clone.removeAttribute('style');
+      const cloneContent = clone.querySelector('.report-printable') as HTMLElement | null;
+      if (cloneContent) {
+        cloneContent.style.overflow = 'visible';
+        cloneContent.style.maxHeight = 'none';
+        cloneContent.style.height = 'auto';
+      }
+      printRoot.appendChild(clone);
+    }
+
+    document.body.classList.add('report-printing');
+    window.addEventListener('afterprint', () => {
+      document.body.classList.remove('report-printing');
+      if (printRoot) printRoot.innerHTML = '';
+    }, { once: true });
     window.print();
   };
 
@@ -605,7 +645,36 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
     return { val, rts, campus };
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    const modal = document.querySelector('.report-modal') as HTMLElement | null;
+
+    let printRoot = document.getElementById('modulo-print-root');
+    if (!printRoot) {
+      printRoot = document.createElement('div');
+      printRoot.id = 'modulo-print-root';
+      document.body.appendChild(printRoot);
+    }
+
+    printRoot.innerHTML = '';
+    if (modal) {
+      const clone = modal.cloneNode(true) as HTMLElement;
+      clone.removeAttribute('style');
+      const cloneContent = clone.querySelector('.report-printable') as HTMLElement | null;
+      if (cloneContent) {
+        cloneContent.style.overflow = 'visible';
+        cloneContent.style.maxHeight = 'none';
+        cloneContent.style.height = 'auto';
+      }
+      printRoot.appendChild(clone);
+    }
+
+    document.body.classList.add('report-printing');
+    window.addEventListener('afterprint', () => {
+      document.body.classList.remove('report-printing');
+      if (printRoot) printRoot.innerHTML = '';
+    }, { once: true });
+    window.print();
+  };
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>

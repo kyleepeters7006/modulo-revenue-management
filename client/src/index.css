@@ -266,21 +266,32 @@ input[type="range"]::-moz-range-thumb {
 
 /* ── Report print styles ─────────────────────────────────────────────────── */
 @media print {
-  /* Portrait, all content fills one page width */
   @page { margin: 0.5in; size: portrait; }
 
-  /* Hide everything by default */
-  body > * { display: none !important; }
+  /* Preserve all background colours, images, and shadows everywhere */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
 
-  /* Show only the report modal overlay when printing */
-  body .report-modal,
-  body .report-modal * { display: revert !important; }
+  /* handlePrint() clones the modal into #modulo-print-root (a plain body div)
+     before calling window.print(), so no Radix portal / overlay / transform
+     can interfere.  Hide everything else; show only the clone. */
+  body.report-printing > *:not(#modulo-print-root) { display: none !important; }
 
-  /* Clean up dialog chrome for print */
-  .report-modal {
-    position: fixed !important;
-    inset: 0 !important;
-    max-width: 100vw !important;
+  #modulo-print-root {
+    display: block !important;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+  }
+
+  /* The cloned modal is a plain div — reset all dialog chrome */
+  #modulo-print-root .report-modal {
+    position: static !important;
+    transform: none !important;
+    max-width: 100% !important;
     max-height: none !important;
     width: 100% !important;
     border: none !important;
@@ -289,51 +300,44 @@ input[type="range"]::-moz-range-thumb {
     overflow: visible !important;
     display: flex !important;
     flex-direction: column !important;
+    background-color: #f8fafc !important;
   }
 
-  /* Report header is fixed so it repeats at the top of every printed page */
-  .report-modal .report-header {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    z-index: 9999 !important;
+  /* Header: normal flow so content starts directly below it, not behind it */
+  #modulo-print-root .report-header {
+    position: static !important;
+    transform: none !important;
   }
 
-  /* Push printable content below the fixed header (~76px tall) */
-  .report-modal .report-printable {
+  /* Content: expand to full height, no artificial top margin needed */
+  #modulo-print-root .report-printable {
     overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
     flex: 1 !important;
-    margin-top: 80px !important;
+    margin-top: 0 !important;
   }
 
-  /* thead (which now includes the "Active Pricing Rules" title row + column
-     headers) repeats automatically on each page via browser default rendering */
+  /* Tables: allow page breaks between rows, keep each row intact */
   thead { display: table-header-group; }
-
-  /* Allow the rules table to span multiple pages; keep each data row intact */
   table { page-break-inside: auto; width: 100%; }
   tr    { page-break-inside: avoid; }
 
-  /* KPI card strip: no wrapping, tighter spacing so all 6 fit on one row */
-  .report-modal .flex-wrap {
+  /* KPI strip: one row, no wrapping */
+  #modulo-print-root .flex-wrap {
     flex-wrap: nowrap !important;
     gap: 6px !important;
   }
 
-  /* Compact table cells to fit all 8 columns in portrait width */
-  .report-modal table th,
-  .report-modal table td {
+  /* Compact table cells for portrait width */
+  #modulo-print-root table th,
+  #modulo-print-root table td {
     font-size: 9px !important;
     padding: 5px 6px !important;
     line-height: 1.3 !important;
   }
-  .report-modal table th:first-child,
-  .report-modal table td:first-child {
+  #modulo-print-root table th:first-child,
+  #modulo-print-root table td:first-child {
     padding-left: 10px !important;
   }
-
-  /* Preserve background colours when printing */
-  .bg-slate-900 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  [class*="bg-"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

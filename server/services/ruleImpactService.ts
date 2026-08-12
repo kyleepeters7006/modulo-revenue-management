@@ -434,18 +434,29 @@ function lookupMetric(
     if (metric === "occupancy_pct") return (g.occupied / g.total) * 100;
     if (metric === "vacant_units") return g.total - g.occupied;
     if (metric === "street_to_comp_var_pct") {
-      // Use the survey-based benchmark (same source as the competitive position
-      // scatter chart) instead of the stale competitor_final_rate from the rent
-      // roll. For VIL locations the rent-roll field holds legacy values far below
-      // actual market rates, causing the variance to appear falsely positive and
-      // preventing triggers like "street < comp by 3%" from ever firing.
+      // Prefer the survey-based benchmark (same source as the competitive position
+      // scatter chart) over the stale competitor_final_rate from the rent roll.
+      // For VIL locations the rent-roll field holds legacy values far below actual
+      // market rates, causing the variance to appear falsely positive.
+      // When no survey coverage exists for this location (e.g. a location whose
+      // survey data has not yet been uploaded), fall back to the rent-roll
+      // competitor_final_rate so that street_to_comp_var trigger conditions can
+      // still be evaluated using whatever comp data is available.
       const locName = ctx.locIdToName.get(locId);
-      if (!locName) continue; // no name mapping — try broader scope (shouldn't happen)
-      const bench = ctx.compBenchmark.benchmarkFor(locName, sl);
-      if (!bench || bench.adjusted <= 0) continue; // no survey coverage for this SL — try broader scope
-      if (g.stN === 0) continue; // no street-rate data in this group — try broader scope
-      const avgSt = g.stSum / g.stN;
-      return ((avgSt - bench.adjusted) / bench.adjusted) * 100;
+      const bench = locName ? ctx.compBenchmark.benchmarkFor(locName, sl) : null;
+      if (bench && bench.adjusted > 0) {
+        // Survey path — preferred when available.
+        if (g.stN === 0) continue; // no street-rate data in this group — try broader scope
+        const avgSt = g.stSum / g.stN;
+        return ((avgSt - bench.adjusted) / bench.adjusted) * 100;
+      }
+      // Fallback: use paired rent-roll competitor_final_rate values when no
+      // survey benchmark is available for this SL at this location.
+      if (g.compN === 0) continue; // no comp data at all — try broader scope
+      const avgSt = g.compStSum / g.compN;
+      const avgComp = g.compCSum / g.compN;
+      if (avgComp <= 0) continue;
+      return ((avgSt - avgComp) / avgComp) * 100;
     }
     if (metric === "ih_street_var_pct") {
       if (g.ihN === 0) continue; // fall back to broader scope

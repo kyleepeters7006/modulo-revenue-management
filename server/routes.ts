@@ -1542,7 +1542,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             AND loc.location_code IS NOT NULL
             AND loc.location_code != ''
             AND lpad(substring(rrh.location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
-            AND (rrh.client_id = loc.client_id OR loc.client_id IS NULL)
           RETURNING rrh.id
         )
         SELECT count(*)::int AS rows_updated FROM updated
@@ -14583,23 +14582,42 @@ Respond in JSON format:
         });
       }
       
-      // Create the rule in database
-      const rule = await storage.createAdjustmentRule({
-        locationId: locationId || null,
-        serviceLine: storeServiceLine,
-        serviceLines: storeServiceLines,
-        name: parsedRule.name,
-        description: parsedRule.description,
-        trigger: parsedRule.trigger,
-        action: parsedRule.action,
-        isActive: !isHistorical,
-        isHistorical: !!isHistorical,
-        effectiveDate: effectiveDate || null,
-        createdBy: 'user',
-        monthlyImpact: Math.round(monthlyImpact),
-        annualImpact: Math.round(annualImpact),
-        volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
-      } as any);
+      // Create the rule in database — retry with a numeric suffix if the
+      // generated name already exists for this location/service-line scope.
+      let rule: any;
+      {
+        const baseRulePayload = {
+          locationId: locationId || null,
+          serviceLine: storeServiceLine,
+          serviceLines: storeServiceLines,
+          description: parsedRule.description,
+          trigger: parsedRule.trigger,
+          action: parsedRule.action,
+          isActive: !isHistorical,
+          isHistorical: !!isHistorical,
+          effectiveDate: effectiveDate || null,
+          createdBy: 'user',
+          monthlyImpact: Math.round(monthlyImpact),
+          annualImpact: Math.round(annualImpact),
+          volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
+        };
+        let attempt = 0;
+        while (true) {
+          const candidateName = attempt === 0
+            ? parsedRule.name
+            : `${parsedRule.name} (${attempt + 1})`;
+          try {
+            rule = await storage.createAdjustmentRule({ ...baseRulePayload, name: candidateName } as any);
+            break;
+          } catch (dupErr: any) {
+            if (dupErr?.code === '23505' && attempt < 9) {
+              attempt++;
+              continue;
+            }
+            throw dupErr;
+          }
+        }
+      }
       
       res.json({
         rule,
