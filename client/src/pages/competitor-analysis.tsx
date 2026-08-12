@@ -285,7 +285,7 @@ export default function CompetitorAnalysis() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
+                  <PopoverContent className="w-full p-0 z-[1001]">
                     <div className="p-4 space-y-2">
                       {selectedRegions.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
@@ -345,7 +345,7 @@ export default function CompetitorAnalysis() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
+                  <PopoverContent className="w-full p-0 z-[1001]">
                     <div className="p-4 space-y-2">
                       {selectedDivisions.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
@@ -405,7 +405,7 @@ export default function CompetitorAnalysis() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
+                  <PopoverContent className="w-full p-0 z-[1001]">
                     <div className="p-4 space-y-2 max-h-60 overflow-y-auto">
                       {selectedLocations.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
@@ -465,7 +465,7 @@ export default function CompetitorAnalysis() {
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
+                  <PopoverContent className="w-full p-0 z-[1001]">
                     <div className="p-4 space-y-2">
                       {selectedServiceLines.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
