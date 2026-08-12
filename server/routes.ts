@@ -138,7 +138,7 @@ import { getGitHubUser, listRepositories, createRepository, getRepository } from
 import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } from "./pricingOrchestrator";
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
-import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope } from "./services/adjustmentRulesService";
+import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
 import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark } from "./services/compBenchmark";
 import { 
@@ -492,6 +492,37 @@ async function checkAndInitializeDatabase() {
 
     // Location sync is now only done when rent roll data is uploaded, not on every startup
     // This saves 50+ seconds on startup by avoiding 544+ database queries
+
+    // One-time backfill: populate campus_metrics for every location that has
+    // competitive survey data but is not yet represented in campus_metrics.
+    // This runs in the background so it doesn't delay server startup.
+    (async () => {
+      try {
+        const missingRes = await pool.query<{ location_id: string; client_id: string }>(
+          `SELECT DISTINCT rr.location_id, rr.client_id
+           FROM rent_roll_data rr
+           WHERE EXISTS (
+             SELECT 1 FROM competitive_survey_data csd
+             WHERE csd.client_id = rr.client_id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM campus_metrics cm
+             WHERE cm.location_id = rr.location_id AND cm.client_id = rr.client_id
+           )`
+        );
+        if (missingRes.rows.length === 0) {
+          console.log('[campus_metrics backfill] All locations already populated — skipping.');
+          return;
+        }
+        console.log(`[campus_metrics backfill] Backfilling ${missingRes.rows.length} location(s) missing from campus_metrics...`);
+        for (const { location_id, client_id } of missingRes.rows) {
+          await recalculateAndPreloadCampusMetrics(client_id, location_id);
+        }
+        console.log('[campus_metrics backfill] Backfill complete.');
+      } catch (backfillErr) {
+        console.warn('[campus_metrics backfill] Error during backfill:', backfillErr);
+      }
+    })();
   } catch (error) {
     console.error('Error checking/initializing database:', error);
   }
@@ -7471,6 +7502,22 @@ ${campusOccLines.join('\n')}
       }).catch(error => {
         console.error('❌ Error starting competitor rate job:', error);
       });
+
+      // Auto-populate campus_metrics for every location in this upload so that
+      // comp-var rule conditions evaluate correctly without requiring a manual
+      // recalculate trigger.  Runs in the background — does not block the response.
+      const uploadedLocationIds = [...new Set(
+        processedRecords.map((r: any) => r.locationId).filter(Boolean)
+      )] as string[];
+      if (uploadedLocationIds.length > 0) {
+        (async () => {
+          console.log(`[upload/rent-roll] Refreshing campus_metrics for ${uploadedLocationIds.length} location(s)...`);
+          for (const locId of uploadedLocationIds) {
+            await recalculateAndPreloadCampusMetrics(clientId, locId);
+          }
+          console.log(`[upload/rent-roll] campus_metrics refresh complete for client ${clientId}`);
+        })().catch(err => console.warn('[upload/rent-roll] campus_metrics refresh error:', err));
+      }
 
       res.json({
         message: 'Upload successful',
@@ -21802,6 +21849,7 @@ Return ONLY valid JSON, no markdown fences:
       // If this is the most recent month, sync history → rent_roll_data (the final DB write).
       // The cache must be invalidated AFTER this write so it reflects the committed data.
       const currentMonth = new Date().toISOString().slice(0, 7);
+
       if (uploadMonth === currentMonth) {
         const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth);
         // All DB writes are now complete — invalidate and re-warm so /api/reference-data
@@ -21809,6 +21857,25 @@ Return ONLY valid JSON, no markdown fences:
         invalidateRefDataCache();
         warmRefDataCacheForClient(importClientId);
         console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after current-month sync`);
+
+        // Refresh campus_metrics for every location that was in this import.
+        // rent_roll_history has no client_id column, so we query it directly by
+        // upload_month (the import just populated those rows). recalculateAndPreloadCampusMetrics
+        // then reads from rent_roll_data (already synced above) using the tenant clientId.
+        pool.query<{ location_id: string }>(
+          `SELECT DISTINCT location_id FROM rent_roll_history WHERE upload_month=$1 AND location_id IS NOT NULL`,
+          [uploadMonth]
+        ).then(({ rows }) => {
+          if (!rows.length) return;
+          console.log(`[import/rent-roll] Refreshing campus_metrics for ${rows.length} location(s) (client: ${importClientId})...`);
+          return rows.reduce(
+            (p, { location_id }) => p.then(() => recalculateAndPreloadCampusMetrics(importClientId, location_id)),
+            Promise.resolve() as Promise<void>
+          );
+        }).then(() => {
+          console.log(`[import/rent-roll] campus_metrics refresh complete for client ${importClientId}`);
+        }).catch(err => console.warn('[import/rent-roll] campus_metrics refresh error:', err));
+
         return res.json({
           ...importStats,
           syncedToCurrent: true,
@@ -21816,7 +21883,9 @@ Return ONLY valid JSON, no markdown fences:
         });
       }
 
-      // Non-current-month: importRentRollCSV/importMatrixCareRentRollCSV was the final write.
+      // Non-current-month: data was written to rent_roll_history only — no sync to
+      // rent_roll_data occurred, so recalculateAndPreloadCampusMetrics (which reads
+      // rent_roll_data) would compute the same result it already has. Skip the refresh.
       invalidateRefDataCache();
       warmRefDataCacheForClient(importClientId);
       console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after import`);
