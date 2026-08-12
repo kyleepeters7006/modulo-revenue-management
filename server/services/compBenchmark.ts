@@ -224,12 +224,22 @@ export interface StudioCompResult {
  * that competitor has no Studio-specific survey rows. Our rate on the Y-axis
  * remains Studio-only (computed in the route); only the competitor benchmark
  * side is all-room-type.
+ *
+ * Top competitor selection mirrors the Competitors tab: highest-weight
+ * competitor wins (weight > 0 required); ties broken by nearest distance.
+ * When no competitor has a positive weight for a location/SL, falls back to
+ * the 5 nearest unique competitors by distance_miles.
  */
 export class StudioCompBenchmark {
   constructor(
     /** `${location}|||${compType}|||${competitorName}` → entry */
     private compMap: Map<string, CompBenchmarkEntry>,
     private ourCareMap: Map<string, number>,
+    /**
+     * `${location}|||${compType}|||${competitorName}` → { weight, distanceMiles }
+     * Weight parsed from notes JSON; first occurrence per competitor name wins.
+     */
+    private weightDistMap: Map<string, { weight: number; distanceMiles: number | null }>,
   ) {}
 
   /** All unique location names that have any survey coverage. */
@@ -247,7 +257,7 @@ export class StudioCompBenchmark {
     // SMC) before picking top/average — a first-type-wins early return would hide
     // higher-priced competitors recorded under a legacy type. If the same
     // competitor name appears under multiple types, keep its highest adjusted rate.
-    const byName = new Map<string, { name: string; base: number; careAdj: number; adjusted: number; compType: string }>();
+    const byName = new Map<string, { name: string; base: number; careAdj: number; adjusted: number; compType: string; weightDistKey: string }>();
     for (const ct of SL_TO_COMP[serviceLine] || [serviceLine]) {
       const prefix = `${location}|||${ct}|||`;
       for (const [key, v] of this.compMap) {
@@ -262,6 +272,7 @@ export class StudioCompBenchmark {
           careAdj,
           adjusted: Math.max(v.baseRate + careAdj, 1),
           compType: ct,
+          weightDistKey: key, // full `loc|||ct|||name` key for weight lookup
         };
         const existing = byName.get(cand.name);
         if (!existing || cand.adjusted > existing.adjusted) byName.set(cand.name, cand);
@@ -269,7 +280,22 @@ export class StudioCompBenchmark {
     }
     const comps = Array.from(byName.values());
     if (!comps.length) return null;
-    const top = comps.reduce((a, b) => (b.adjusted > a.adjusted ? b : a));
+
+    // Select top competitor by highest weight; break ties by nearest distance.
+    // This mirrors server/storage.ts:1907-1918 (the weight-pass used by the
+    // individual rate-card endpoint). Rate is still used for the market average
+    // across all competitors; only the "which one is top" decision uses weight.
+    const getWD = (key: string) =>
+      this.weightDistMap.get(key) ?? { weight: 0, distanceMiles: null };
+    const top = comps.reduce((a, b) => {
+      const wa = getWD(a.weightDistKey);
+      const wb = getWD(b.weightDistKey);
+      if (wb.weight !== wa.weight) return wb.weight > wa.weight ? b : a;
+      const da = wa.distanceMiles ?? Infinity;
+      const db = wb.distanceMiles ?? Infinity;
+      return db < da ? b : a;
+    });
+
     const avgAdjusted = comps.reduce((s, c) => s + c.adjusted, 0) / comps.length;
     return {
       topAdjusted: top.adjusted,
@@ -297,6 +323,15 @@ export class StudioCompBenchmark {
  *   types so that any competitor visible in the Competitors tab can appear as a
  *   benchmark even when that competitor has no Studio-specific survey rows.
  */
+/** Parse the weight value stored as JSON in the `notes` column. */
+function parseNoteWeight(notes: string | null): number {
+  if (!notes) return 0;
+  try {
+    const parsed = typeof notes === 'string' ? JSON.parse(notes) : notes;
+    return parseFloat(String(parsed?.weight ?? '0')) || 0;
+  } catch { return 0; }
+}
+
 export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Promise<StudioCompBenchmark> {
   const [surveyRes, careRes] = await Promise.all([
     // Use a CTE to restrict to the latest survey month per keystats_location,
@@ -330,7 +365,8 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
          GROUP BY csd.keystats_location, csd.competitor_name, csd.competitor_type
        )
        SELECT csd.keystats_location, csd.competitor_type, csd.competitor_name,
-              csd.monthly_rate_avg, csd.care_level_2_rate, csd.medication_management_fee
+              csd.monthly_rate_avg, csd.care_level_2_rate, csd.medication_management_fee,
+              csd.notes, csd.distance_miles
        FROM competitive_survey_data csd
        JOIN latest_months lm
          ON lm.keystats_location = csd.keystats_location
@@ -357,9 +393,71 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
       [clientId],
     ),
   ]);
+
+  // ── Weight + distance metadata ────────────────────────────────────────────
+  // Build per-competitor weight/distance map (first occurrence per unique
+  // loc|||type|||name key wins, mirroring storage.ts:1870-1888).
+  // Key: `${keystats_location}|||${competitor_type}|||${competitor_name}`
+  const weightDistMap = new Map<string, { weight: number; distanceMiles: number | null }>();
+  for (const r of surveyRes.rows as any[]) {
+    const key = `${r.keystats_location}|||${r.competitor_type}|||${r.competitor_name}`;
+    if (!weightDistMap.has(key)) {
+      weightDistMap.set(key, {
+        weight: parseNoteWeight(r.notes),
+        distanceMiles: r.distance_miles != null ? Number(r.distance_miles) : null,
+      });
+    }
+  }
+
+  // ── Weight-based filtering per (keystats_location, competitor_type) group ──
+  // Mirrors the Competitors tab logic (server/routes.ts:12389-12403):
+  //   • Keep only competitors with weight > 0 when any exist for the group.
+  //   • Fall back to the 5 nearest unique competitors by distance when none
+  //     have a positive weight.
+  const keepCompetitor = new Set<string>(); // `loc|||type|||name` keys to retain
+
+  // Group unique competitor names by (location, type)
+  const groupToNames = new Map<string, Set<string>>(); // `loc|||type` → names
+  for (const [key] of weightDistMap) {
+    const parts = key.split('|||');
+    const groupKey = `${parts[0]}|||${parts[1]}`;
+    if (!groupToNames.has(groupKey)) groupToNames.set(groupKey, new Set());
+    groupToNames.get(groupKey)!.add(parts[2]);
+  }
+
+  for (const [groupKey, names] of groupToNames) {
+    const weightedNames = [...names].filter(name => {
+      const meta = weightDistMap.get(`${groupKey}|||${name}`);
+      return meta && meta.weight > 0;
+    });
+
+    if (weightedNames.length > 0) {
+      // Retain only positive-weight competitors for this group
+      for (const name of weightedNames) {
+        keepCompetitor.add(`${groupKey}|||${name}`);
+      }
+    } else {
+      // Fallback: 5 nearest unique competitors by distance_miles
+      const sorted = [...names].sort((a, b) => {
+        const da = weightDistMap.get(`${groupKey}|||${a}`)?.distanceMiles ?? 999;
+        const db = weightDistMap.get(`${groupKey}|||${b}`)?.distanceMiles ?? 999;
+        return da - db;
+      });
+      for (const name of sorted.slice(0, 5)) {
+        keepCompetitor.add(`${groupKey}|||${name}`);
+      }
+    }
+  }
+
+  // Filter survey rows to only the retained competitors before rate aggregation
+  const filteredRows = (surveyRes.rows as any[]).filter(r =>
+    keepCompetitor.has(`${r.keystats_location}|||${r.competitor_type}|||${r.competitor_name}`)
+  );
+
+  // ── Rate aggregation ─────────────────────────────────────────────────────
   // Reuse aggregateSurveyRows by folding the competitor name into the
   // keystats_location key, then unfolding into the per-competitor map.
-  const folded = surveyRes.rows.map((r: any) => ({
+  const folded = filteredRows.map((r: any) => ({
     ...r,
     keystats_location: `${r.keystats_location}|||${r.competitor_type}|||${r.competitor_name}`,
     competitor_type: r.competitor_type,
@@ -375,7 +473,7 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
   for (const row of careRes.rows) {
     ourCareMap.set(`${row.location_name}|||${row.service_line}`, Number(row.level2_rate) || 0);
   }
-  return new StudioCompBenchmark(compMap, ourCareMap);
+  return new StudioCompBenchmark(compMap, ourCareMap, weightDistMap);
 }
 
 export interface LocationUnits {

@@ -16750,7 +16750,13 @@ Return ONLY valid JSON with no markdown fences:
 
       const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
-          SELECT rr.location, rr.service_line,
+          SELECT rr.location,
+            -- Use the canonical KeyStats location name from the locations table
+            -- (matched via location_id) so benchmarkFor() finds the survey rows
+            -- keyed by keystats_location. Falls back to rr.location when the
+            -- location_id FK is not populated.
+            COALESCE(loc.name, rr.location) AS location_name,
+            rr.service_line,
             -- Studio-only street rate for AL/HC/SL service lines; VIL (villa/
             -- independent living) has no Studio product so all room types are
             -- used instead — this matches the competitor benchmark which already
@@ -16761,12 +16767,15 @@ Return ONLY valid JSON with no markdown fences:
             )::numeric, 0) AS our_rate,
             ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
           FROM rent_roll_data rr
-          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          -- Join via location_id (FK) to get the canonical KeyStats name that
+          -- matches competitive_survey_data.keystats_location. The region/division
+          -- filters below use loc.region / loc.division from this same join.
+          LEFT JOIN locations loc ON loc.id = rr.location_id
           LEFT JOIN room_type_groupings rtg
             ON rtg.client_id = rr.client_id AND rtg.location = rr.location
            AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
           WHERE ${whereClause}
-          GROUP BY rr.location, rr.service_line
+          GROUP BY rr.location, loc.name, rr.service_line
         `, params),
         // Authoritative occupancy per location + (possibly combined) service line grouping
         // (physical rooms, no B-bed inflation). Combined SL strings like "AL, AL/MC, HC"
@@ -16839,7 +16848,11 @@ Return ONLY valid JSON with no markdown fences:
 
       const points = ourRates.rows.map((row: any) => {
         const sl = row.service_line as string;
-        const bench = scatterBenchmark.benchmarkFor(row.location, sl);
+        // Use the canonical KeyStats location name (loc.name via location_id join)
+        // so the lookup matches competitive_survey_data.keystats_location keys.
+        // Falls back to rr.location when location_id wasn't populated.
+        const canonicalLocation: string = row.location_name ?? row.location;
+        const bench = scatterBenchmark.benchmarkFor(canonicalLocation, sl);
         if (!bench) return null;
 
         const ourRate = Number(row.our_rate);
