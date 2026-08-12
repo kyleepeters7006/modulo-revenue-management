@@ -826,27 +826,20 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     };
     // Fields whose values are already percentages (displayed with % suffix)
     const pctFields = new Set(['street_to_comp_var', 'competitor_variance', 'ih_street_variance', 'street_to_ih_var']);
-    // Prefer a more-specific condition over the generic legacy `occupancy` field
-    const specificFields = ['room_type_occupancy', 'service_line_occupancy', 'campus_occupancy', 'days_vacant'];
-    let c = conditions[0];
-    if (c.field === 'occupancy' && conditions.length > 1) {
-      const specific = conditions.find((cond: any) => specificFields.includes(cond.field));
-      if (specific) c = specific;
-    }
-    // If conditions span multiple field domains, show a neutral indicator
-    const uniqueFields = new Set(conditions.map((cond: any) => cond.field));
-    if (conditions.length > 1 && uniqueFields.size > 1) {
-      return 'Multiple conditions';
-    }
-    const field = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
-    const val = c.field?.includes('occupancy')
-      ? `${Math.round((c.value || 0) * 100)}%`
-      : pctFields.has(c.field)
-        ? `${c.value}%`
-        : c.value;
-    const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
-    const extra = conditions.length > 1 && uniqueFields.size === 1 ? ` +${conditions.length - 1}` : '';
-    return `${field} ${op} ${val}${extra}`;
+    // Format a single condition as a compact token
+    const formatOne = (c: any): string => {
+      const field = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
+      const val = c.field?.includes('occupancy')
+        ? `${Math.round((c.value || 0) * 100)}%`
+        : pctFields.has(c.field)
+          ? `${c.value}%`
+          : c.value;
+      const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : String(c.operator);
+      return `${field} ${op} ${val}`;
+    };
+    // Join all conditions with a mid-dot separator; truncate with ellipsis if very long
+    const label = conditions.map(formatOne).join(' · ');
+    return label.length > 60 ? label.slice(0, 57) + '…' : label;
   };
 
   const formatConditionLines = (rule: any): string[] => {
@@ -1191,7 +1184,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                           {isDupe && !isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">
-                                          {adjDisp} · {triggerLabel === 'Multiple conditions' ? (
+                                          {adjDisp} · {condLabels.length > 1 ? (
                                             <TooltipProvider delayDuration={200}>
                                               <Tooltip>
                                                 <TooltipTrigger asChild>
@@ -1818,7 +1811,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                           {/* Trigger */}
                           <div className="hidden md:flex items-center gap-1 shrink-0 text-xs text-slate-400">
                             <Zap className="h-3 w-3 text-slate-300 shrink-0" />
-                            {trigger === 'Multiple conditions' ? (
+                            {formatConditionLines(rep).length > 1 ? (
                               <TooltipProvider delayDuration={200}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
