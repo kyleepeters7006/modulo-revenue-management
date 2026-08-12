@@ -1465,11 +1465,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // location name but a null location_id, attempt to match the name against the locations
   // table and update the row. This ensures group-average days-vacant keys are ID-based
   // (stable) rather than name-string-based (fragile across name variations).
-  app.post('/api/admin/backfill-location-ids', async (req, res) => {
+  // This is a global cross-tenant maintenance operation; restrict to the platform
+  // seed secret only so no tenant-scoped admin can trigger cross-tenant writes.
+  app.post('/api/admin/backfill-location-ids', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    if (!seedSecret || seedSecret !== process.env.SEED_SECRET) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
     try {
       console.log('Running location_id backfill for rent_roll_data and rent_roll_history...');
 
-      const preCheckResult = await db.execute(sql`
+      const preCheckResult = await pool.query(`
         SELECT
           (SELECT count(*)::int FROM rent_roll_data    WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS data_null_pre,
           (SELECT count(*)::int FROM rent_roll_history WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS history_null_pre
@@ -1477,81 +1483,160 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const preCheck = preCheckResult.rows[0] as any;
       console.log(`Pre-backfill: rent_roll_data=${preCheck?.data_null_pre}, rent_roll_history=${preCheck?.history_null_pre}`);
 
-      // Pass 1: exact name match
-      const dataResult = await db.execute(sql`
-        WITH updated AS (
-          UPDATE rent_roll_data rrd
-          SET location_id = loc.id
-          FROM locations loc
-          WHERE rrd.location_id IS NULL
-            AND rrd.location IS NOT NULL
-            AND rrd.location != ''
-            AND lower(rrd.location) = lower(loc.name)
-            AND (rrd.client_id = loc.client_id OR loc.client_id IS NULL)
-          RETURNING rrd.id
-        )
-        SELECT count(*)::int AS rows_updated FROM updated
-      `);
+      // All four passes run inside a single transaction so that a failure in any
+      // pass rolls back all changes, preventing a partial backfill.
+      const client = await pool.connect();
+      let dataUpdated = 0, historyUpdated = 0, dataCodeUpdated = 0, historyCodeUpdated = 0;
+      try {
+        await client.query('BEGIN');
 
-      const historyResult = await db.execute(sql`
-        WITH updated AS (
-          UPDATE rent_roll_history rrh
-          SET location_id = loc.id
-          FROM locations loc
-          WHERE rrh.location_id IS NULL
-            AND rrh.location IS NOT NULL
-            AND rrh.location != ''
-            AND lower(rrh.location) = lower(loc.name)
-          RETURNING rrh.id
-        )
-        SELECT count(*)::int AS rows_updated FROM updated
-      `);
+        // Pass 1: exact name match for rent_roll_data (has client_id → scope directly).
+        const dataResult = await client.query(`
+          WITH updated AS (
+            UPDATE rent_roll_data rrd
+            SET location_id = loc.id
+            FROM locations loc
+            WHERE rrd.location_id IS NULL
+              AND rrd.location IS NOT NULL
+              AND rrd.location != ''
+              AND lower(rrd.location) = lower(loc.name)
+              AND (rrd.client_id = loc.client_id OR loc.client_id IS NULL)
+            RETURNING rrd.id
+          )
+          SELECT count(*)::int AS rows_updated FROM updated
+        `);
+        dataUpdated = dataResult.rows[0]?.rows_updated ?? 0;
 
-      const dataUpdated = (dataResult.rows[0] as any)?.rows_updated ?? 0;
-      const historyUpdated = (historyResult.rows[0] as any)?.rows_updated ?? 0;
-      console.log(`Pass 1 (name match): rent_roll_data=${dataUpdated}, rent_roll_history=${historyUpdated}`);
+        // Pass 1: exact name match for rent_roll_history.
+        // rent_roll_history has no client_id column; prove ownership by joining to
+        // rent_roll_data on three immutable keys (upload_month + location + room_number)
+        // to obtain the authoritative client_id, then match locations on name + client_id.
+        // The ownership CTE carries rrh_location so it is available to the candidates CTE
+        // without a second join back to rent_roll_history.
+        // Fail-closed: only update rows where exactly ONE client owns the history row AND
+        // that client maps to exactly ONE location — both checks are required.
+        const historyResult = await client.query(`
+          WITH raw_ownership AS (
+            SELECT rrh.id AS rrh_id, rrd.client_id, rrh.location AS rrh_location
+            FROM rent_roll_history rrh
+            JOIN rent_roll_data rrd
+              ON rrd.upload_month = rrh.upload_month
+             AND lower(rrd.location) = lower(rrh.location)
+             AND rrd.room_number = rrh.room_number
+            WHERE rrh.location_id IS NULL
+              AND rrh.location IS NOT NULL
+              AND rrh.location != ''
+          ),
+          ownership AS (
+            -- Require exactly one distinct client_id per history row; rows matched
+            -- by multiple tenants are left unresolved (ownership is ambiguous).
+            SELECT rrh_id, MIN(client_id) AS client_id, MIN(rrh_location) AS rrh_location
+            FROM raw_ownership
+            GROUP BY rrh_id
+            HAVING COUNT(DISTINCT client_id) = 1
+          ),
+          candidates AS (
+            SELECT o.rrh_id, loc.id AS loc_id
+            FROM ownership o
+            JOIN locations loc
+              ON lower(loc.name) = lower(o.rrh_location)
+             AND loc.client_id = o.client_id
+          ),
+          unique_candidates AS (
+            SELECT rrh_id, MIN(loc_id) AS loc_id
+            FROM candidates
+            GROUP BY rrh_id
+            HAVING COUNT(DISTINCT loc_id) = 1
+          ),
+          updated AS (
+            UPDATE rent_roll_history rrh
+            SET location_id = uc.loc_id
+            FROM unique_candidates uc
+            WHERE rrh.id = uc.rrh_id
+            RETURNING rrh.id
+          )
+          SELECT count(*)::int AS rows_updated FROM updated
+        `);
+        historyUpdated = historyResult.rows[0]?.rows_updated ?? 0;
+        console.log(`Pass 1 (name match): rent_roll_data=${dataUpdated}, rent_roll_history=${historyUpdated}`);
 
-      // Pass 2: location-code match — extract embedded numeric code from location strings
-      // e.g. "Sylvania KSL-0560" -> "0560" (or 3-digit variant "KSL-560" -> "0560")
-      // then match against locations.location_code (stored as zero-padded 4 digits)
-      const dataCodeResult = await db.execute(sql`
-        WITH updated AS (
-          UPDATE rent_roll_data rrd
-          SET location_id = loc.id
-          FROM locations loc
-          WHERE rrd.location_id IS NULL
-            AND rrd.location IS NOT NULL
-            AND rrd.location != ''
-            AND loc.location_code IS NOT NULL
-            AND loc.location_code != ''
-            AND lpad(substring(rrd.location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
-            AND (rrd.client_id = loc.client_id OR loc.client_id IS NULL)
-          RETURNING rrd.id
-        )
-        SELECT count(*)::int AS rows_updated FROM updated
-      `);
+        // Pass 2: location-code match for rent_roll_data.
+        // e.g. "Sylvania KSL-0560" -> "0560"; match against locations.location_code.
+        const dataCodeResult = await client.query(`
+          WITH updated AS (
+            UPDATE rent_roll_data rrd
+            SET location_id = loc.id
+            FROM locations loc
+            WHERE rrd.location_id IS NULL
+              AND rrd.location IS NOT NULL
+              AND rrd.location != ''
+              AND loc.location_code IS NOT NULL
+              AND loc.location_code != ''
+              AND lpad(substring(rrd.location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
+              AND (rrd.client_id = loc.client_id OR loc.client_id IS NULL)
+            RETURNING rrd.id
+          )
+          SELECT count(*)::int AS rows_updated FROM updated
+        `);
+        dataCodeUpdated = dataCodeResult.rows[0]?.rows_updated ?? 0;
 
-      const historyCodeResult = await db.execute(sql`
-        WITH updated AS (
-          UPDATE rent_roll_history rrh
-          SET location_id = loc.id
-          FROM locations loc
-          WHERE rrh.location_id IS NULL
-            AND rrh.location IS NOT NULL
-            AND rrh.location != ''
-            AND loc.location_code IS NOT NULL
-            AND loc.location_code != ''
-            AND lpad(substring(rrh.location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
-          RETURNING rrh.id
-        )
-        SELECT count(*)::int AS rows_updated FROM updated
-      `);
+        // Pass 2: location-code match for rent_roll_history.
+        // Same ownership proof pattern with the double fail-closed guard:
+        // exactly one client_id inferred AND exactly one candidate location found.
+        const historyCodeResult = await client.query(`
+          WITH raw_ownership AS (
+            SELECT rrh.id AS rrh_id, rrd.client_id, rrh.location AS rrh_location
+            FROM rent_roll_history rrh
+            JOIN rent_roll_data rrd
+              ON rrd.upload_month = rrh.upload_month
+             AND lower(rrd.location) = lower(rrh.location)
+             AND rrd.room_number = rrh.room_number
+            WHERE rrh.location_id IS NULL
+              AND rrh.location IS NOT NULL
+              AND rrh.location != ''
+          ),
+          ownership AS (
+            SELECT rrh_id, MIN(client_id) AS client_id, MIN(rrh_location) AS rrh_location
+            FROM raw_ownership
+            GROUP BY rrh_id
+            HAVING COUNT(DISTINCT client_id) = 1
+          ),
+          candidates AS (
+            SELECT o.rrh_id, loc.id AS loc_id
+            FROM ownership o
+            JOIN locations loc
+              ON loc.client_id = o.client_id
+             AND loc.location_code IS NOT NULL
+             AND loc.location_code != ''
+             AND lpad(substring(o.rrh_location from '[A-Za-z]+-(\d{3,4})'), 4, '0') = loc.location_code
+          ),
+          unique_candidates AS (
+            SELECT rrh_id, MIN(loc_id) AS loc_id
+            FROM candidates
+            GROUP BY rrh_id
+            HAVING COUNT(DISTINCT loc_id) = 1
+          ),
+          updated AS (
+            UPDATE rent_roll_history rrh
+            SET location_id = uc.loc_id
+            FROM unique_candidates uc
+            WHERE rrh.id = uc.rrh_id
+            RETURNING rrh.id
+          )
+          SELECT count(*)::int AS rows_updated FROM updated
+        `);
+        historyCodeUpdated = historyCodeResult.rows[0]?.rows_updated ?? 0;
+        console.log(`Pass 2 (location-code match): rent_roll_data=${dataCodeUpdated}, rent_roll_history=${historyCodeUpdated}`);
 
-      const dataCodeUpdated = (dataCodeResult.rows[0] as any)?.rows_updated ?? 0;
-      const historyCodeUpdated = (historyCodeResult.rows[0] as any)?.rows_updated ?? 0;
-      console.log(`Pass 2 (location-code match): rent_roll_data=${dataCodeUpdated}, rent_roll_history=${historyCodeUpdated}`);
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
 
-      const postCheckResult = await db.execute(sql`
+      const postCheckResult = await pool.query(`
         SELECT
           (SELECT count(*)::int FROM rent_roll_data    WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS data_null_post,
           (SELECT count(*)::int FROM rent_roll_history WHERE location_id IS NULL AND location IS NOT NULL AND location != '') AS history_null_post

@@ -54,6 +54,7 @@ export interface RuleImpactContext {
   slMoveInRate: Map<string, number>;         // service line -> t3 move-ins / month / active unit
   compBenchmark: CompBenchmark;              // survey-based competitor benchmark (correct source for street_to_comp_var_pct)
   locIdToName: Map<string, string>;          // location_id → location name for benchmark lookup
+  campusStreetToCompVar: Map<string, number>; // `${locId}|${sl}` → pre-computed street_to_comp_var_pct from campus_metrics
 }
 
 export interface RuleCampusImpact {
@@ -418,7 +419,26 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     if (total > 0) slMoveInRate.set(r.service_line, (Number(r.per_month) || 0) / total);
   }
 
-  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName };
+  // Load pre-computed street_to_comp_var_pct from campus_metrics as a fallback
+  // for locations where neither survey benchmark data nor paired rent-roll
+  // competitor_final_rate values are available. campus_metrics is populated
+  // during the reference-data calculation from survey data, so it has the
+  // correct value even when competitor_final_rate is blank in the rent roll.
+  const campusMetricsRes = await pool.query(
+    `SELECT location_id, service_line, value
+     FROM campus_metrics
+     WHERE client_id = $1 AND metric_name = 'street_to_comp_var_pct'
+       AND service_line IS NOT NULL AND room_type IS NULL`,
+    [clientId],
+  );
+  const campusStreetToCompVar = new Map<string, number>();
+  for (const r of campusMetricsRes.rows as any[]) {
+    if (r.location_id && r.service_line) {
+      campusStreetToCompVar.set(`${r.location_id}|${r.service_line}`, Number(r.value));
+    }
+  }
+
+  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar };
 }
 
 /** Metric lookup with SL+RT → SL → campus fallback (mirrors the rate engine). */
@@ -467,6 +487,15 @@ function lookupMetric(
       // (avg in-house − avg street) / avg street × 100
       return ((avgIH - avgSt) / avgSt) * 100;
     }
+  }
+  // Final fallback for street_to_comp_var_pct: use the pre-computed value from
+  // campus_metrics (populated from survey data during reference-data calculation).
+  // This covers locations where competitor_final_rate is blank in the rent roll
+  // and no live survey benchmark is available via compBenchmark.
+  if (metric === "street_to_comp_var_pct") {
+    const cmKey = `${locId}|${sl}`;
+    const precomputed = ctx.campusStreetToCompVar.get(cmKey);
+    if (precomputed !== undefined) return precomputed;
   }
   return null;
 }
