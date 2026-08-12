@@ -189,7 +189,11 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     else { setSortKey(key); setSortDir("desc"); }
   };
 
-  const rawActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical && (r.affectedUnits ?? 0) > 0);
+  // Include all active, non-historical rules regardless of affectedUnits.
+  // Rows with 0 affected units render "—" cells (see lines ~389+) and show a
+  // muted badge so users know the condition couldn't be evaluated rather than
+  // the rule silently disappearing.
+  const rawActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
   // Fraction of the calendar year remaining from today through Dec 31.
   // Used for the "Rest of Year" column: same ramp assumptions as First-Year
   // impact, just prorated to the remaining months of the current year.
@@ -537,7 +541,11 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                       </td>
                       <td className="px-3 py-4 text-xs text-slate-500 leading-snug">{fmtTrigger(rule)}</td>
                       <td className="px-3 py-4 text-right">
-                        <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
+                        {(rule.affectedUnits ?? 0) === 0 ? (
+                          <span className="inline-block text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5" title="Condition could not be evaluated — no matching data found">0 units</span>
+                        ) : (
+                          <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
+                        )}
                         {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400 mt-0.5">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
                       </td>
                       <td className="px-3 py-4 text-right">

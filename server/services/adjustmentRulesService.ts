@@ -86,7 +86,7 @@ function _lookupCampusMetric(
  * Called fresh on every Rules Rate run (no module-level dedup cache) so
  * metrics are always current at evaluation time.
  */
-async function recalculateAndPreloadCampusMetrics(
+export async function recalculateAndPreloadCampusMetrics(
   clientId: string,
   locationId: string
 ): Promise<void> {

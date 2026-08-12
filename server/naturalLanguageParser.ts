@@ -302,13 +302,15 @@ function parseTrigger(input: string): ParsedTrigger | null {
   }
 
   // ── Multi-condition detection ─────────────────────────────────────────
-  // The structured rule designer emits descriptions like:
-  //   "If Service Line Occupancy (Current Month) is greater than or equal to 93 AND
-  //    Room Type Occupancy (Current Spot) is less than 95, increase rate by 5%..."
-  // Extract the "If ..." clause up to the action verb (comma).
-  const ifMatch = input.match(/^if\s+(.+?)(?:,\s*(?:increase|decrease|reduce|raise|lower|set|apply|remove|cap|boost|add|adjust))/i);
-  if (ifMatch) {
-    const ifClause = ifMatch[1];
+  // Two supported forms:
+  //   Form 1 (leading If): "If SL occ < 80%, decrease rate by 3%..."
+  //     — "If" starts the string and the clause ends at a comma+action verb.
+  //   Form 2 (trailing If): "Decrease 3% - Studio If SL occ < 80% AND RT occ < 90%"
+  //     — "If" appears anywhere after the action and the clause runs to end-of-string.
+  //
+  // Both forms share the same splitConditionPhrases / parseSingleConditionPhrase logic.
+
+  function resolveIfClause(ifClause: string) {
     const { parts, operator } = splitConditionPhrases(ifClause);
 
     if (parts.length >= 2) {
@@ -318,22 +320,39 @@ function parseTrigger(input: string): ParsedTrigger | null {
 
       if (parsedConditions.length >= 2) {
         return {
-          type: 'condition',
+          type: 'condition' as const,
           conditions: parsedConditions,
           conditionOperator: operator,
         };
       }
 
-      // Only one parsed — fall through to single-condition path below
       if (parsedConditions.length === 1) {
-        return { type: 'condition', condition: parsedConditions[0] };
+        return { type: 'condition' as const, condition: parsedConditions[0] };
       }
     }
 
-    // Single-condition if clause
     if (parts.length === 1) {
       const single = parseSingleConditionPhrase(parts[0]);
-      if (single) return { type: 'condition', condition: single };
+      if (single) return { type: 'condition' as const, condition: single };
+    }
+
+    return null;
+  }
+
+  // Form 1: "If <clause>, <action verb>..."
+  const ifMatchLeading = input.match(/^if\s+(.+?)(?:,\s*(?:increase|decrease|reduce|raise|lower|set|apply|remove|cap|boost|add|adjust))/i);
+  if (ifMatchLeading) {
+    const result = resolveIfClause(ifMatchLeading[1]);
+    if (result) return result;
+  }
+
+  // Form 2: "<action description> If <clause>" — "if" anywhere, clause to end of string.
+  // Only attempt when Form 1 didn't match (i.e. "if" is not at start of string).
+  if (!ifMatchLeading) {
+    const ifMatchTrailing = input.match(/\bif\s+(.+)$/i);
+    if (ifMatchTrailing) {
+      const result = resolveIfClause(ifMatchTrailing[1]);
+      if (result) return result;
     }
   }
 
