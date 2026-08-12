@@ -17,4 +17,8 @@
 - [AI rule-suggestion pipeline](ai-rule-suggest-pipeline.md) — one Opus call, 10-rule cap, prompt must mirror parser grammar exactly; days_vacant is raw days evaluated per unit in both engines.
 - [Reference Data grouping & rule scope](refdata-grouping-scope.md) — aggregated views must map back to detail rows for rule scope; sum ratio components, never average %s; rule filters must reach both impact calculators.
 - [B-bed street-rate exclusion](bbed-street-rate-exclusion.md) — SH SLs exclude companion rows from every street-rate aggregate (both sides + denominator); shared predicate in shared/bBed.ts; HC/HC-MC keep all beds.
+- [days_vacant trigger semantics](days-vacant-trigger-semantics.md) — conditions-array format = group average gate (all units affected); singular condition format = per-unit filter; wrong mode gave 4 instead of 7 impacted units.
 - [Competitor benchmark methods](comp-benchmark-methods.md) — never average competitor_final_rate for premiums (room-mix distortion); use care-adjusted survey benchmark, care-L2 gate excludes SL/VIL.
+- [YoY rate movement metric](yoy-rate-movement-metric.md) — proposed % is weighted by affected units, blended % by total units; null YoY lines must leave the roll-up, not count as 0.
+- [Rule impact: rate vs occupancy](rule-impact-rate-vs-occupancy.md) — realized impact must attribute the rate effect only; census swings dominate and invert the sign. Keep win-rate, column and total on one basis.
+- [Scoped filters matching nothing](scoped-filter-zero-match.md) — a requested filter resolving to zero locations must emit `AND FALSE`; skipping the predicate silently returns portfolio-wide numbers.

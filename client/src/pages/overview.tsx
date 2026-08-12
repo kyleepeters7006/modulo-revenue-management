@@ -11,13 +11,14 @@ export default function Overview() {
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Main Logo Header */}
-        <div className="w-full mb-3 sm:mb-6 py-2 sm:py-4 text-center">
+        <div className="w-full mb-2 sm:mb-3 py-0 text-center">
           <img 
-            src="/attached_assets/modulo_glass_v2_1784404625887.png" 
+            src="/attached_assets/modulo_flat_blue_1786491120146.png" 
             alt="Modulo Revenue Management" 
-            className="mx-auto h-60 sm:h-68 md:h-80 object-contain rounded-2xl"
+            className="mx-auto object-contain rounded-3xl"
             style={{ 
-              objectPosition: 'center center',
+              height: '260px',
+              width: '260px',
               display: 'block'
             }}
           />

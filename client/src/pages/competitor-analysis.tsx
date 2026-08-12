@@ -526,8 +526,8 @@ export default function CompetitorAnalysis() {
         </div>
         
         {/* Desktop: Side by side */}
-        <div className="hidden lg:grid lg:grid-cols-3 lg:gap-12">
-          <div className="lg:col-span-2">
+        <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
+          <div className="lg:col-span-2 min-w-0">
             <CompetitorMap 
               selectedRegions={selectedRegions}
               selectedDivisions={selectedDivisions}
@@ -535,7 +535,7 @@ export default function CompetitorAnalysis() {
               selectedServiceLines={selectedServiceLines}
             />
           </div>
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 min-w-0 overflow-hidden">
             <CompetitorForm 
               selectedRegions={selectedRegions}
               selectedDivisions={selectedDivisions}

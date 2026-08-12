@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  ExternalLink,
   TrendingUp,
   TrendingDown,
   ArrowUpRight,
@@ -164,6 +165,7 @@ interface PerfMetrics {
   calc?: {
     t3Before: number;
     t3After: number;
+    occupancyEffect?: number | null;
     occBefore: number;
     occAfter: number;
     monthsBefore: number;
@@ -801,18 +803,11 @@ export function RulePerformanceTable({
     return t;
   }, [rows]);
 
-  // Occupancy-adjusted pricing result: holds occupancy constant at the
-  // pre-change level (revenue-per-occupied-unit after × occupied units before)
-  // so a rule isn't blamed or credited for occupancy swings unrelated to the
-  // pricing change itself. Falls back to raw monthly impact when the T3
-  // occupancy breakdown isn't available.
-  const occAdjustedDelta = (r: PerfMetrics): number | null => {
-    const c = r.calc;
-    if (c && c.occBefore > 0 && c.occAfter > 0) {
-      return (c.t3After / c.occAfter) * c.occBefore - c.t3Before;
-    }
-    return r.monthlyRevenueImpact;
-  };
+  // Pricing result for a rule. The server now attributes only the RATE effect to a
+  // rule (occupancy is held constant at the pre-change level), so the impact figure
+  // is already occupancy-adjusted — re-adjusting it here would double-count and made
+  // the win-rate header disagree with the impact column and total.
+  const occAdjustedDelta = (r: PerfMetrics): number | null => r.monthlyRevenueImpact;
 
   // Win Rate — two modes: revenue (occupancy-adjusted) or move-ins (T3 after vs before)
   const [winRateMode, setWinRateMode] = useState<'revenue' | 'moveins'>('revenue');
@@ -974,10 +969,15 @@ export function RulePerformanceTable({
     <Card data-testid="card-rule-performance">
       <CardHeader className="py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
+          <div
+            className="cursor-pointer group/title select-none"
+            onClick={() => setSectionOpen(o => !o)}
+            title={sectionOpen ? "Collapse" : "Expand"}
+          >
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-emerald-600" />
-              <CardTitle className="text-base">Rule Performance Over Time</CardTitle>
+              <CardTitle className="text-base group-hover/title:text-primary transition-colors">Rule Performance Over Time</CardTitle>
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover/title:opacity-100 transition-opacity" />
               {isFetching && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
             </div>
             <CardDescription className="mt-0.5 text-xs">
@@ -1406,8 +1406,8 @@ export function RulePerformanceTable({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">
-                      Avg monthly revenue after
-                      <span className="block text-[10px]">{calcOpen.metrics.calc.monthsAfter} month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} after{calcOpen.metrics.calc.extrapolated ? " (all available so far)" : ""} · avg {calcOpen.metrics.calc.occAfter.toFixed(1)} occupied units</span>
+                      Avg monthly revenue after <span className="text-[10px]">(at before-occupancy)</span>
+                      <span className="block text-[10px]">{calcOpen.metrics.calc.monthsAfter} month{calcOpen.metrics.calc.monthsAfter === 1 ? "" : "s"} after{calcOpen.metrics.calc.extrapolated ? " (all available so far)" : ""} · avg {calcOpen.metrics.calc.occAfter.toFixed(1)} occupied units, restated at {calcOpen.metrics.calc.occBefore.toFixed(1)}</span>
                     </span>
                     <span className="font-medium tabular-nums">{fmtMoney(calcOpen.metrics.calc.t3After)}</span>
                   </div>
@@ -1415,12 +1415,12 @@ export function RulePerformanceTable({
                     <div className="flex items-start gap-1.5 rounded bg-sky-50 border border-sky-200 px-2 py-1.5 text-[11px] text-sky-800">
                       <span className="shrink-0">ℹ</span>
                       <span>
-                        Occupied units changed from <span className="font-semibold">{calcOpen.metrics.calc.occBefore.toFixed(1)}</span> → <span className="font-semibold">{calcOpen.metrics.calc.occAfter.toFixed(1)}</span> ({calcOpen.metrics.calc.occAfter > calcOpen.metrics.calc.occBefore ? "+" : ""}{(calcOpen.metrics.calc.occAfter - calcOpen.metrics.calc.occBefore).toFixed(1)} units). {calcOpen.metrics.calc.occAfter < calcOpen.metrics.calc.occBefore ? "The revenue decline is likely driven by occupancy loss, not the rate change." : "Occupancy improved alongside the pricing change."}
+                        Occupied units changed from <span className="font-semibold">{calcOpen.metrics.calc.occBefore.toFixed(1)}</span> → <span className="font-semibold">{calcOpen.metrics.calc.occAfter.toFixed(1)}</span> ({calcOpen.metrics.calc.occAfter > calcOpen.metrics.calc.occBefore ? "+" : ""}{(calcOpen.metrics.calc.occAfter - calcOpen.metrics.calc.occBefore).toFixed(1)} units){calcOpen.metrics.calc.occupancyEffect != null ? <>, worth about <span className="font-semibold">{fmtMoney(calcOpen.metrics.calc.occupancyEffect)}</span>/mo</> : null}. That census swing is <span className="font-semibold">excluded</span> from the impact below, which reflects the rate change only.
                       </span>
                     </div>
                   )}
                   <div className="flex items-center justify-between border-t border-border pt-2">
-                    <span className="font-medium">Monthly revenue impact (after − before)</span>
+                    <span className="font-medium">Monthly revenue impact (rate effect, occupancy held constant)</span>
                     <span className={`font-semibold tabular-nums ${(calcOpen.metrics.monthlyRevenueImpact ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {fmtMoney(calcOpen.metrics.monthlyRevenueImpact)}
                     </span>

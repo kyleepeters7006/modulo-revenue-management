@@ -618,6 +618,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [, setLocation] = useLocation();
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
+  const [hoveredBubbleMap, setHoveredBubbleMap] = useState<string | null>(null);
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
   const [expandedImpactRow, setExpandedImpactRow] = useState<string | null>(null);
   const ruleRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -820,7 +821,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     const fieldMap: Record<string, string> = {
       service_line_occupancy: 'SL occ', room_type_occupancy: 'RT occ',
       campus_occupancy: 'Campus occ', days_vacant: 'Days vacant', occupancy: 'Occ',
+      street_to_comp_var: 'St vs comp', competitor_variance: 'Comp var',
+      ih_street_variance: 'IH vs St', street_to_ih_var: 'IH vs St',
     };
+    // Fields whose values are already percentages (displayed with % suffix)
+    const pctFields = new Set(['street_to_comp_var', 'competitor_variance', 'ih_street_variance', 'street_to_ih_var']);
     // Prefer a more-specific condition over the generic legacy `occupancy` field
     const specificFields = ['room_type_occupancy', 'service_line_occupancy', 'campus_occupancy', 'days_vacant'];
     let c = conditions[0];
@@ -828,15 +833,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       const specific = conditions.find((cond: any) => specificFields.includes(cond.field));
       if (specific) c = specific;
     }
-    // If conditions span multiple domains, show a neutral indicator
+    // If conditions span multiple field domains, show a neutral indicator
     const uniqueFields = new Set(conditions.map((cond: any) => cond.field));
-    const hasOccupancy = conditions.some((cond: any) => cond.field?.includes('occupancy'));
-    const hasDaysVacant = conditions.some((cond: any) => cond.field === 'days_vacant');
-    if (conditions.length > 1 && hasOccupancy && hasDaysVacant) {
+    if (conditions.length > 1 && uniqueFields.size > 1) {
       return 'Multiple conditions';
     }
     const field = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
-    const val = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.value;
+    const val = c.field?.includes('occupancy')
+      ? `${Math.round((c.value || 0) * 100)}%`
+      : pctFields.has(c.field)
+        ? `${c.value}%`
+        : c.value;
     const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
     const extra = conditions.length > 1 && uniqueFields.size === 1 ? ` +${conditions.length - 1}` : '';
     return `${field} ${op} ${val}${extra}`;
@@ -1558,7 +1565,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               </button>
               {scatterOpen && (
                 <div className="flex items-center gap-3">
-                  <span className="hidden sm:inline text-[11px] text-slate-400 italic">X = occupancy · Y = Studio rate vs top competitor</span>
+                  <span className="hidden sm:inline text-[11px] text-slate-400 italic">X = occupancy · Y = Studio rate vs top competitor (overall rate for VIL)</span>
                   <button
                     onClick={() => setScatterExpanded(true)}
                     className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
@@ -1593,7 +1600,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {compPositionData.length} location/SL combinations · X = occupancy · Y = Studio rate vs top competitor
+                  {compPositionData.length} location/SL combinations · X = occupancy · Y = Studio rate vs top competitor (overall rate for VIL)
                 </p>
               </DialogHeader>
               <div className="flex-1 px-6 pt-4 pb-2 min-h-0">
@@ -2017,43 +2024,130 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ── Full bubble map dialog ── */}
       <Dialog open={fullMapOpen} onOpenChange={setFullMapOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
           <DialogHeader>
-            <DialogTitle className="text-base">Rule Coverage Map — {activeRules.length} Active Rules</DialogTitle>
-            <p className="text-xs text-slate-500 mt-1">Circle size = relative first-year revenue impact. Solid border = additive. Dashed = exclusive/priority-based. Click any rule to view details.</p>
+            <DialogTitle className="text-gray-900 text-base">Rule Coverage — Bubble Map</DialogTitle>
+            <p className="text-xs text-gray-500 mt-1">Each circle represents one rule. Circle size is proportional to units affected. Hover for metrics — click any circle to view details.</p>
           </DialogHeader>
-          <div className="bg-slate-50 rounded-xl p-4 grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(activeRules.length, 4)}, 1fr)` }}>
-            {activeRules.map((rule: any, ri: number) => {
-              const color = PALETTE[ri % PALETTE.length];
-              const maxImpact = Math.max(...activeRules.map((r: any) => Math.abs(r.annualImpact || 0)), 1);
-              const t = Math.sqrt(Math.abs(rule.annualImpact || 0) / maxImpact);
-              const MIN_R = 22, MAX_R = 46;
-              const radius = Math.round(MIN_R + t * (MAX_R - MIN_R));
-              const size = radius * 2 + 8;
-              const units = rule.affectedUnits || 0;
-              const dots = genMiniDots(units, radius);
-              const positive = (rule.annualImpact || 0) >= 0;
-              return (
-                <div key={rule.id} className="flex flex-col items-center gap-1.5 cursor-pointer hover:bg-white rounded-lg p-2 transition-colors" onClick={() => { setFullMapOpen(false); setTimeout(() => setSelectedRule(rule), 80); }}>
-                  <svg width={size} height={size} style={{ overflow: 'visible' }}>
-                    <circle cx={size/2} cy={size/2} r={radius} fill={color} fillOpacity={0.12} stroke={color} strokeWidth={positive ? 2 : 1.5} strokeDasharray={positive ? 'none' : '4 3'} />
-                    {dots.map((d, di) => <circle key={di} cx={size/2 + d.x} cy={size/2 + d.y} r={1.5} fill={color} opacity={0.5} />)}
-                    <text x={size/2} y={size/2 + 4} textAnchor="middle" fontSize={10} fontWeight="bold" fill={color} opacity={0.9}>
-                      {fmtImpact(rule.annualImpact || 0)}
-                    </text>
-                  </svg>
-                  <div className="text-center w-full">
-                    <p className="text-[11px] font-semibold text-slate-700 leading-tight text-center line-clamp-2">{rule.name}</p>
-                    <p className="text-[11px] text-slate-400">{units.toLocaleString()} units</p>
-                    {rule.effectiveDate && (
-                      <p className="text-[11px] text-slate-400">
-                        Start: {new Date(rule.effectiveDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+
+          {activeRules.length === 0 ? (
+            <div className="py-12 text-center text-gray-400 text-sm">No active rules to display.</div>
+          ) : (
+            <div className="flex flex-wrap gap-5 p-6 bg-white rounded-xl border border-gray-100 justify-center items-end mt-2">
+              {(() => {
+                const maxImpact = Math.max(...activeRules.map((r: any) => Math.abs(r.annualImpact || 0)), 1);
+                const MIN_R = 40, MAX_R = 96;
+                return activeRules.map((rule: any, ri: number) => {
+                  const impact  = Math.abs(rule.annualImpact || 0);
+                  const t       = Math.sqrt(impact / maxImpact);
+                  const radius  = MIN_R + t * (MAX_R - MIN_R);
+                  const size    = Math.round(radius) * 2 + 4;
+                  const annual  = rule.annualImpact || 0;
+                  const monthly = rule.monthlyImpact || 0;
+                  const isNeg   = annual < 0;
+                  const color   = PALETTE[ri % PALETTE.length];
+                  const gradId  = `fullmap-grad-${rule.id}`;
+                  const isAdditive = (rule.action?.applicationMode ?? 'additive') === 'additive';
+                  const showLabel  = radius >= 56;
+                  const isHov      = hoveredBubbleMap === rule.id;
+                  const units      = rule.affectedUnits || 0;
+                  const campuses   = rule.affectedCampuses || 0;
+
+                  return (
+                    <div key={rule.id}
+                      className="relative flex flex-col items-center gap-2"
+                      onMouseEnter={() => setHoveredBubbleMap(rule.id)}
+                      onMouseLeave={() => setHoveredBubbleMap(null)}
+                      onClick={() => { setFullMapOpen(false); setTimeout(() => setSelectedRule(rule), 80); }}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to view rule details"
+                    >
+                      <svg width={size} height={size} style={{ overflow: 'visible' }}>
+                        <defs>
+                          <radialGradient id={gradId} cx="38%" cy="35%" r="65%">
+                            <stop offset="0%"   stopColor={color} stopOpacity={isHov ? 0.28 : 0.18} />
+                            <stop offset="100%" stopColor={color} stopOpacity={isHov ? 0.52 : 0.38} />
+                          </radialGradient>
+                        </defs>
+                        {!isAdditive && (
+                          <circle cx={size/2} cy={size/2} r={radius + 5}
+                            fill="none" stroke={color} strokeWidth={1.5}
+                            strokeDasharray="5 4" opacity={0.35} />
+                        )}
+                        <circle cx={size/2} cy={size/2} r={radius}
+                          fill={`url(#${gradId})`}
+                          stroke={color}
+                          strokeWidth={isHov ? 2.5 : 1.8} />
+                        {showLabel && annual !== 0 && (
+                          <text x={size/2} y={size/2 + 2}
+                            textAnchor="middle" dominantBaseline="middle"
+                            fontSize={radius >= 70 ? 14 : 11} fontWeight="700" fill={color}>
+                            {isNeg ? '-' : '+'}{Math.abs(annual) >= 1_000_000
+                              ? `$${(Math.abs(annual)/1_000_000).toFixed(1)}M`
+                              : Math.abs(annual) >= 1_000
+                              ? `$${Math.round(Math.abs(annual)/1_000)}K`
+                              : `$${Math.round(Math.abs(annual))}`}
+                          </text>
+                        )}
+                        {!isAdditive && (
+                          <text x={size/2} y={size/2 - radius + 13}
+                            textAnchor="middle" fontSize={9} fontWeight="600"
+                            fill={color} opacity={0.7}>PRIORITY</text>
+                        )}
+                      </svg>
+
+                      <div className="text-center" style={{ maxWidth: Math.max(size + 8, 90) }}>
+                        <p className="text-[11px] font-semibold text-gray-800 leading-tight line-clamp-2">{rule.name}</p>
+                        {(units > 0 || campuses > 0) && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">{units.toLocaleString()} units · {campuses} campus{campuses !== 1 ? 'es' : ''}</p>
+                        )}
+                      </div>
+
+                      {isHov && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 pointer-events-none" style={{ minWidth: 200 }}>
+                          <div className="bg-white border border-gray-200 rounded-xl shadow-2xl p-4">
+                            <p className="text-xs font-bold text-gray-900 leading-snug mb-2">{rule.name}</p>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mb-2">
+                              <span className="text-gray-400">Units</span>
+                              <span className="font-semibold text-gray-900 text-right">{units.toLocaleString()}</span>
+                              <span className="text-gray-400">Campuses</span>
+                              <span className="font-semibold text-gray-900 text-right">{campuses}</span>
+                              <span className="text-gray-400">Monthly impact</span>
+                              <span className={`font-semibold text-right ${monthly >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmtImpact(monthly)}</span>
+                              <span className="text-gray-400">First-year impact</span>
+                              <span className={`font-bold text-right ${annual >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmtImpact(annual)}</span>
+                            </div>
+                            <div className="pt-2 border-t border-gray-100 flex justify-between text-[10px]">
+                              <span className="text-gray-400">Application mode</span>
+                              <span className={`font-semibold ${isAdditive ? 'text-teal-700' : 'text-amber-700'}`}>
+                                {isAdditive ? 'Additive' : 'Exclusive (priority)'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
+                            style={{ borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: '7px solid #e5e7eb' }} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-5 text-[11px] text-gray-500 pt-1 px-1">
+            <span className="flex items-center gap-1.5">
+              <svg width={14} height={14}><circle cx={7} cy={7} r={6} fill="none" stroke="#0d9488" strokeWidth={1.5} /></svg>
+              Additive — stacks with other rules
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg width={16} height={14}><circle cx={8} cy={7} r={6} fill="none" stroke="#d97706" strokeWidth={1.5} strokeDasharray="4 3" /></svg>
+              Exclusive — dashed ring, claims units by priority
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg width={10} height={10}><circle cx={5} cy={5} r={4} fill="#0d9488" opacity={0.3} /></svg>
+              Circle size ∝ first-year revenue impact
+            </span>
           </div>
         </DialogContent>
       </Dialog>

@@ -194,6 +194,7 @@ function purgeRuleCaches(clientId: string): Promise<void> {
     `latestMonth:${clientId}`,
     `ruleImpactCtx:${clientId}`,
     `rule-perf:${clientId}:`,
+    `yoy-rate-analysis:${clientId}:`,
   ];
   for (const key of Array.from(analyticsCache.keys())) {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
@@ -16279,6 +16280,232 @@ Respond in JSON format:
     }
   });
 
+  // ── Year-over-year rate movement + proposed lift ────────────────────────────
+  // Answers "how much have street rates actually moved in the last 12 months,
+  // and what will the active rule set add on top of that?"
+  //
+  //   • Historical YoY  — avg street rate this month vs the same month a year
+  //     ago, B-bed companion rows excluded (same predicate as every other
+  //     street-rate aggregate on the platform).
+  //   • Proposed lift   — weighted average % rate change the active rules apply
+  //     to the units they actually claim, using the same specificity-ordered
+  //     dedup as /api/adjustment-rules/combined-stats so a unit matched by
+  //     several rules is only counted once.
+  app.get("/api/pricing-controls/yoy-rate-analysis", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLine } = req.query;
+      const toArr = (v: any): string[] => Array.isArray(v) ? v : (v ? [v] : []);
+      const qLocations = toArr(req.query.locations);
+      const qRegions   = toArr(req.query.regions);
+      const qDivisions = toArr(req.query.divisions);
+
+      // The proposed-lift half runs the impact engine once per (rule × service
+      // line), so cache the assembled response per filter combination.
+      const yoyCacheKey = `yoy-rate-analysis:${clientId}:${locationId || ''}:${serviceLine || ''}:` +
+        `${qLocations.slice().sort().join('|')}:${qRegions.slice().sort().join('|')}:${qDivisions.slice().sort().join('|')}`;
+      const yoyCached = getCachedAnalytics(yoyCacheKey);
+      if (yoyCached) return res.json(yoyCached);
+
+      // Resolve page filters → location ids + names (same as combined-stats)
+      let scopeIds: Set<string> | null = null;
+      let scopeNames: Set<string> | null = null;
+      if (qLocations.length || qRegions.length || qDivisions.length) {
+        const locRes = await pool.query(
+          `SELECT id, name, region, division FROM locations WHERE client_id = $1`, [clientId]);
+        const matched = locRes.rows.filter((l: any) =>
+          (!qLocations.length || qLocations.includes(l.name)) &&
+          (!qRegions.length   || (l.region   && qRegions.includes(l.region))) &&
+          (!qDivisions.length || (l.division && qDivisions.includes(l.division))));
+        scopeIds   = new Set(matched.map((l: any) => l.id));
+        scopeNames = new Set<string>([...matched.map((l: any) => l.name), ...qLocations]);
+      }
+
+      // Available months, newest first — used to resolve the prior-year anchor.
+      const monthsRes = await pool.query(
+        `SELECT DISTINCT upload_month FROM rent_roll_data WHERE client_id = $1 ORDER BY upload_month DESC`,
+        [clientId]);
+      const months: string[] = monthsRes.rows.map((r: any) => r.upload_month);
+      if (!months.length) return res.json({ available: false, byServiceLine: [] });
+
+      const currentMonth = months[0];
+      // Same month a year earlier; if that exact month wasn't uploaded, fall
+      // back to the nearest earlier month so the comparison still works.
+      const [cy, cm] = currentMonth.split('-').map(Number);
+      const targetPrior = `${cy - 1}-${String(cm).padStart(2, '0')}`;
+      const priorMonth = months.includes(targetPrior)
+        ? targetPrior
+        : months.filter(m => m < targetPrior).sort().reverse()[0]
+          ?? months.filter(m => m < currentMonth).sort()[0];
+      if (!priorMonth || priorMonth === currentMonth) {
+        return res.json({ available: false, currentMonth, byServiceLine: [] });
+      }
+
+      // ── Historical YoY street-rate movement, B-beds excluded ──
+      const params: any[] = [clientId, currentMonth, priorMonth];
+      let locFilter = '';
+      if (scopeIds) {
+        // Filters were requested. If they resolved to zero locations the scope
+        // genuinely matches nothing — emit a false predicate rather than
+        // silently falling through to portfolio-wide totals, which would leave
+        // the historical half inconsistent with the (correctly empty) proposal half.
+        if (!scopeIds.size) {
+          locFilter = ' AND FALSE';
+        } else {
+          params.push(Array.from(scopeIds), Array.from(scopeNames || []));
+          locFilter = ` AND (location_id = ANY($${params.length - 1}::text[]) OR location = ANY($${params.length}::text[]))`;
+        }
+      } else if (locationId) {
+        params.push(locationId);
+        locFilter = ` AND location_id = $${params.length}`;
+      }
+      if (serviceLine && serviceLine !== 'All') {
+        params.push(serviceLine);
+        locFilter += ` AND service_line = $${params.length}`;
+      }
+
+      const yoyRes = await pool.query(`
+        SELECT service_line,
+               AVG(street_rate) FILTER (WHERE upload_month = $2) AS cur_rate,
+               AVG(street_rate) FILTER (WHERE upload_month = $3) AS prior_rate,
+               COUNT(*)         FILTER (WHERE upload_month = $2) AS cur_units
+        FROM rent_roll_data
+        WHERE client_id = $1
+          AND upload_month IN ($2, $3)
+          AND street_rate > 0
+          AND NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number ~* '/[B-Zb-z]$')
+          ${locFilter}
+        GROUP BY service_line
+        ORDER BY service_line`, params);
+
+      // ── Proposed lift from the active rule set ──
+      const allActiveRules = await db.select().from(adjustmentRules)
+        .where(and(eq(adjustmentRules.isActive, true), sql`${adjustmentRules.isHistorical} IS NOT TRUE`));
+
+      const activeRules = allActiveRules.filter(rule => {
+        if (locationId && rule.locationId && rule.locationId !== locationId) return false;
+        if (scopeIds) {
+          const filterLocs: string[] = Array.isArray((rule.action as any)?.filters?.location)
+            ? (rule.action as any).filters.location : [];
+          const hasLocScope = !!rule.locationId || filterLocs.length > 0;
+          if (hasLocScope) {
+            const idOk   = rule.locationId ? scopeIds.has(rule.locationId) : false;
+            const nameOk = filterLocs.some(n => scopeNames!.has(n));
+            if (!idOk && !nameOk) return false;
+          }
+        }
+        return true;
+      });
+
+      const ctxCacheKey = `ruleImpactCtx:${clientId}`;
+      let impactCtx = getCachedAnalytics(ctxCacheKey);
+      if (!impactCtx) {
+        impactCtx = await buildRuleImpactContext(clientId);
+        if (impactCtx) setCachedAnalytics(ctxCacheKey, impactCtx);
+      }
+
+      // serviceLine → { unitsWeightedPct, units }
+      const proposedBySL = new Map<string, { pctWeighted: number; units: number }>();
+      if (impactCtx) {
+        const sortedForDedup = [...activeRules].sort((a, b) => {
+          const specDiff = ruleSpecificityScore(b) - ruleSpecificityScore(a);
+          if (specDiff !== 0) return specDiff;
+          const priDiff = ((b as any).priority ?? 0) - ((a as any).priority ?? 0);
+          if (priDiff !== 0) return priDiff;
+          const da = (a as any).effectiveDate ? new Date((a as any).effectiveDate).toISOString() : '';
+          const dbb = (b as any).effectiveDate ? new Date((b as any).effectiveDate).toISOString() : '';
+          return dbb.localeCompare(da);
+        });
+
+        const slUniverse = yoyRes.rows.map((r: any) => r.service_line);
+        // Dedup must run once across all SLs so a unit claimed by a targeted
+        // rule isn't re-counted by a broader one in the same service line.
+        const claimed = new Set<string>();
+        for (const rule of sortedForDedup) {
+          const action: any = rule.action || {};
+          if (!action.adjustmentValue) continue;
+          for (const sl of slUniverse) {
+            const impact = computeQualifiedRuleImpact(impactCtx, rule, {
+              locationId: (locationId as string) || null,
+              serviceLine: sl,
+              locationIds: scopeIds ? Array.from(scopeIds) : undefined,
+            }, claimed);
+            if (!impact.affectedUnits) continue;
+            // % this rule moves the rate for the units it claims
+            const deltaPct = action.adjustmentType === 'percentage'
+              ? Number(action.adjustmentValue)
+              : (impact.avgStreetRate > 0 ? (Number(action.adjustmentValue) / impact.avgStreetRate) * 100 : 0);
+            const e = proposedBySL.get(sl) || { pctWeighted: 0, units: 0 };
+            e.pctWeighted += deltaPct * impact.affectedUnits;
+            e.units       += impact.affectedUnits;
+            proposedBySL.set(sl, e);
+            for (const id of Array.from(impact.qualifiedUnitIds)) claimed.add(id);
+          }
+        }
+      }
+
+      // Raw (unrounded) per-SL figures — the roll-up below is computed from
+      // these so rounding is applied once, at presentation time only.
+      const rawRows = yoyRes.rows.map((r: any) => {
+        const cur   = Number(r.cur_rate)   || 0;
+        const prior = Number(r.prior_rate) || 0;
+        const totalUnits = Number(r.cur_units) || 0;
+        // null (not 0) when there is no prior-year rate to compare against, so
+        // an incomparable line is excluded from the roll-up rather than
+        // dragging it toward zero.
+        const yoyPct = prior > 0 ? ((cur - prior) / prior) * 100 : null;
+        const p = proposedBySL.get(r.service_line);
+        const affectedUnits = p?.units ?? 0;
+        const proposedPct   = affectedUnits ? p!.pctWeighted / affectedUnits : 0;
+        const coverage      = totalUnits > 0 ? affectedUnits / totalUnits : 0;
+        return { serviceLine: r.service_line, cur, prior, totalUnits, yoyPct, proposedPct, affectedUnits, coverage };
+      });
+
+      const r1 = (n: number) => Math.round(n * 10) / 10;
+
+      const byServiceLine = rawRows.map(r => ({
+        serviceLine:  r.serviceLine,
+        currentRate:  Math.round(r.cur),
+        priorRate:    Math.round(r.prior),
+        yoyPct:       r.yoyPct == null ? null : r1(r.yoyPct),
+        totalUnits:   r.totalUnits,
+        affectedUnits: r.affectedUnits,
+        coveragePct:  Math.round(r.coverage * 1000) / 10,
+        proposedPct:  r1(r.proposedPct),
+        // Effective lift across the whole service line once coverage is
+        // taken into account (a +5% rule touching 30% of units ≈ +1.5%).
+        blendedPct:   r1(r.proposedPct * r.coverage),
+      }));
+
+      // Portfolio roll-up, unit-weighted so big service lines dominate correctly.
+      // YoY only counts lines that actually have a prior-year comparison.
+      const totalUnitsAll = rawRows.reduce((s, r) => s + r.totalUnits, 0);
+      const comparable    = rawRows.filter(r => r.yoyPct != null);
+      const cmpUnits      = comparable.reduce((s, r) => s + r.totalUnits, 0);
+      const affectedAll   = rawRows.reduce((s, r) => s + r.affectedUnits, 0);
+      const overall = {
+        currentMonth, priorMonth,
+        yoyPct: cmpUnits ? r1(comparable.reduce((s, r) => s + (r.yoyPct as number) * r.totalUnits, 0) / cmpUnits) : null,
+        // Average lift seen by the units the rules actually claim
+        proposedPct: affectedAll ? r1(rawRows.reduce((s, r) => s + r.proposedPct * r.affectedUnits, 0) / affectedAll) : 0,
+        // Same lift spread across every unit in scope
+        blendedPct: totalUnitsAll ? r1(rawRows.reduce((s, r) => s + r.proposedPct * r.affectedUnits, 0) / totalUnitsAll) : 0,
+        totalUnits: totalUnitsAll,
+        affectedUnits: affectedAll,
+        // Number of service lines lacking a prior-year comparison, so the UI can
+        // qualify the headline instead of implying full coverage.
+        incomparableServiceLines: rawRows.length - comparable.length,
+      };
+
+      const yoyPayload = { available: true, currentMonth, priorMonth, overall, byServiceLine };
+      setCachedAnalytics(yoyCacheKey, yoyPayload);
+      res.json(yoyPayload);
+    } catch (error) {
+      console.error('Error computing YoY rate analysis:', error);
+      res.status(500).json({ error: 'Failed to compute YoY rate analysis' });
+    }
+  });
+
   // ── AI Strategy Analysis — per-rule strategic grouping ──────────────────────
   app.get("/api/adjustment-rules/strategy-analysis", async (req: any, res) => {
     try {
@@ -16421,11 +16648,12 @@ Return ONLY valid JSON with no markdown fences:
       const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
           SELECT rr.location, rr.service_line,
-            -- Studio-only street rate: units whose grouped room type is a Studio
-            -- group (room_type_groupings) or whose raw room_type starts with
-            -- "Studio" when ungrouped. B beds excluded as everywhere else.
+            -- Studio-only street rate for AL/HC/SL service lines; VIL (villa/
+            -- independent living) has no Studio product so all room types are
+            -- used instead — this matches the competitor benchmark which already
+            -- aggregates all room types. B beds excluded as everywhere else.
             ROUND(AVG(rr.street_rate) FILTER (WHERE
-              COALESCE(rtg.group_name, rr.room_type) ILIKE 'studio%'
+              (rr.service_line = 'VIL' OR COALESCE(rtg.group_name, rr.room_type) ILIKE 'studio%')
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
             )::numeric, 0) AS our_rate,
             ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
@@ -18653,7 +18881,7 @@ Return ONLY valid JSON, no markdown fences:
         const tot = before.reduce((s, p) => s + p.total, 0);
         return tot > 0 ? (occ / tot) * 100 : null;
       };
-      type T3 = { before: number; after: number; occBefore: number; occAfter: number; occAdjusted: boolean; monthsBefore: number; monthsAfter: number; delta: number; extrapolated: boolean };
+      type T3 = { before: number; after: number; occBefore: number; occAfter: number; occAdjusted: boolean; occEffect: number; monthsBefore: number; monthsAfter: number; delta: number; extrapolated: boolean };
       // T3 delta for a group: avg monthly revenue over the last 3 snapshot months
       // strictly BEFORE the applied month vs. avg over the (up to) first 3 snapshot
       // months FROM the applied month onward. If fewer than 3 post-change months
@@ -18672,12 +18900,29 @@ Return ONLY valid JSON, no markdown fences:
         const avgOcc = (a: { occ: number }[]) => a.reduce((s, p) => s + p.occ, 0) / a.length;
         const b = avg(before), rawAft = avg(after);
         const occB = avgOcc(before), occA = avgOcc(after);
-        // +1 unit buffer: only for active (forward-looking) rules where occupancy declined.
-        // Historical rules show raw actuals — no adjustments to what already happened.
-        const occAdjusted = !isHistorical && occA < occB && occA > 0;
-        const unitRate = occA > 0 ? rawAft / occA : 0;
-        const aft = occAdjusted ? rawAft + unitRate : rawAft;
-        return { before: b, after: aft, occBefore: occB, occAfter: occA, occAdjusted, monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
+        // Decompose the revenue swing into a RATE effect and an OCCUPANCY effect and
+        // attribute ONLY the rate effect to the rule. A pricing rule changes what a room
+        // sells for, not how many rooms fill; census/turnover swings are worth far more
+        // than any rate move, so a raw total-revenue delta measures occupancy, not pricing.
+        // (That is why a concession rule could show a large gain and an increase rule a
+        // large loss.) Holding occupancy constant at the pre-change level isolates price:
+        //   rate effect = (revenue-per-occupied-unit after - before) x occupied units before
+        // This matches the occupancy-adjusted basis the win-rate header already uses, so
+        // the headline win rate and the impact column can no longer disagree.
+        // If either window has no occupied units there is no realized rate to compare,
+        // so no rate effect can be measured. Returning the raw revenue delta here would
+        // silently reintroduce the occupancy-contaminated number this decomposition
+        // exists to remove (a zero-before group would book every newly occupied unit as
+        // "rate impact"; a zero-after group would book the whole vacancy loss). Report no
+        // T3 result instead and let the caller fall back to the projected rate delta.
+        if (occB <= 0 || occA <= 0) return null;
+        const rateBefore = b / occB;
+        const rateAfter  = rawAft / occA;
+        // "after" is expressed at constant occupancy so that after - before == rate effect
+        // and the before/after figures in the calc dialog reconcile with the impact shown.
+        const aft = rateAfter * occB;
+        const occEffect = (occA - occB) * rateAfter;
+        return { before: b, after: aft, occBefore: occB, occAfter: occA, occAdjusted: false, occEffect, monthsBefore: before.length, monthsAfter: after.length, delta: aft - b, extrapolated: after.length < 3 };
       };
 
       // Build service-line move-in rates: only new admissions pay the adjusted rate,
@@ -18976,8 +19221,8 @@ Return ONLY valid JSON, no markdown fences:
 
       // T3 revenue impact per (rule, group): group's T3 delta × the rule's
       // proportional share of the group's impacted units.
-      type Calc = { monthly: number; t3Before: number; t3After: number; occBefore: number; occAfter: number; miBefore: number; miAfter: number; hasMi: boolean; occPctNum: number; occPctDen: number; monthsBefore: number; monthsAfter: number; extrapolated: boolean; hasData: boolean };
-      const newCalc = (): Calc => ({ monthly: 0, t3Before: 0, t3After: 0, occBefore: 0, occAfter: 0, miBefore: 0, miAfter: 0, hasMi: false, occPctNum: 0, occPctDen: 0, monthsBefore: 3, monthsAfter: 3, extrapolated: false, hasData: false });
+      type Calc = { monthly: number; occEffect: number; t3Before: number; t3After: number; occBefore: number; occAfter: number; miBefore: number; miAfter: number; hasMi: boolean; occPctNum: number; occPctDen: number; monthsBefore: number; monthsAfter: number; extrapolated: boolean; hasData: boolean };
+      const newCalc = (): Calc => ({ monthly: 0, occEffect: 0, t3Before: 0, t3After: 0, occBefore: 0, occAfter: 0, miBefore: 0, miAfter: 0, hasMi: false, occPctNum: 0, occPctDen: 0, monthsBefore: 3, monthsAfter: 3, extrapolated: false, hasData: false });
       const summaryCalc = new Map<string, Calc>();
       const detailCalc = new Map<string, Calc>(); // ruleName|groupKey
       for (const [rgKey, rg] of Array.from(ruleGroupWeight.entries())) {
@@ -18993,7 +19238,7 @@ Return ONLY valid JSON, no markdown fences:
         const frac = rg.weight / total;
         const impact = t3.delta * frac;
         const dc = detailCalc.get(rgKey) || newCalc();
-        dc.monthly += impact; dc.t3Before += t3.before * frac; dc.t3After += t3.after * frac;
+        dc.monthly += impact; dc.occEffect += t3.occEffect * frac; dc.t3Before += t3.before * frac; dc.t3After += t3.after * frac;
         // Occupied counts: show the actual group count (not fractional) so the
         // user can see real unit numbers in the before/after dialog.
         dc.occBefore += t3.occBefore; dc.occAfter += t3.occAfter;
@@ -19003,7 +19248,7 @@ Return ONLY valid JSON, no markdown fences:
         dc.extrapolated = dc.extrapolated || t3.extrapolated; dc.hasData = true;
         detailCalc.set(rgKey, dc);
         const sc = summaryCalc.get(rn) || newCalc();
-        sc.monthly += impact; sc.t3Before += t3.before * frac; sc.t3After += t3.after * frac;
+        sc.monthly += impact; sc.occEffect += t3.occEffect * frac; sc.t3Before += t3.before * frac; sc.t3After += t3.after * frac;
         sc.occBefore += t3.occBefore; sc.occAfter += t3.occAfter;
         if (mi) { sc.miBefore += mi.before * frac; sc.miAfter += mi.after * frac; sc.hasMi = true; }
         if (occPct != null) { const w = t3.occBefore > 0 ? t3.occBefore : 1; sc.occPctNum += occPct * w; sc.occPctDen += w; }
@@ -19053,6 +19298,9 @@ Return ONLY valid JSON, no markdown fences:
           calc: has ? {
             t3Before: Math.round(c!.t3Before),
             t3After: Math.round(c!.t3After),
+            // Revenue swing caused by occupancy change over the same window. Reported
+            // for context only — deliberately NOT part of the rule's attributed impact.
+            occupancyEffect: Math.round(c!.occEffect),
             occBefore: Math.round(c!.occBefore * 10) / 10,
             occAfter: Math.round(c!.occAfter * 10) / 10,
             monthsBefore: c!.monthsBefore,

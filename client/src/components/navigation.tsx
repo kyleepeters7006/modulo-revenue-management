@@ -111,7 +111,7 @@ export default function Navigation({ className }: NavigationProps) {
                 <img 
                   src="/attached_assets/image_1756817717051.png" 
                   alt="Modulo" 
-                  className="h-16 md:h-20 w-auto rounded-lg"
+                  className="h-20 md:h-28 w-auto rounded-lg"
                 />
               </Link>
             </div>

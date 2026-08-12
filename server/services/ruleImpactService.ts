@@ -40,6 +40,7 @@ interface GroupAgg {
   stSum: number; stN: number;        // street rates (raw) where > 100
   compStSum: number; compCSum: number; compN: number; // paired street/comp where both > 100
   ihStSum: number; ihISum: number; ihN: number; // paired street/in-house (monthly) for occupied single-occupant units
+  dvSum: number; dvN: number;        // days_vacant accumulator for group-average trigger evaluation
 }
 
 export interface RuleImpactContext {
@@ -293,7 +294,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   const metrics = new Map<string, GroupAgg>();
   const bump = (key: string, u: UnitRow) => {
     let g = metrics.get(key);
-    if (!g) { g = { total: 0, occupied: 0, stSum: 0, stN: 0, compStSum: 0, compCSum: 0, compN: 0, ihStSum: 0, ihISum: 0, ihN: 0 }; metrics.set(key, g); }
+    if (!g) { g = { total: 0, occupied: 0, stSum: 0, stN: 0, compStSum: 0, compCSum: 0, compN: 0, ihStSum: 0, ihISum: 0, ihN: 0, dvSum: 0, dvN: 0 }; metrics.set(key, g); }
     g.total++;
     if (u.occupied_yn) g.occupied++;
     const st = Number(u.street_rate) || 0;
@@ -320,6 +321,13 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
       g.ihISum += ih * mult;
       g.ihN++;
     }
+    // Accumulate days_vacant for group-average trigger evaluation.
+    // Include all units (occupied and vacant) so the average reflects the
+    // full group; B-bed rows are included because they contribute to the
+    // actual average vacancy experience of the room type.
+    const dv = Number(u.days_vacant) || 0;
+    g.dvSum += dv;
+    g.dvN++;
   };
 
   for (const u of units) {
@@ -481,9 +489,14 @@ function evalGroupCondition(
     const v = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
     return cmp(lookupMetric(ctx, locId, sl, rt, "ih_street_var_pct"), operator, v);
   }
-  // Unit-level days vacant — cannot be decided at the group level; defer to
-  // the unit predicate (unitPasses evaluates days_vacant conditions per unit).
-  if (field === "days_vacant") return true;
+  // days_vacant: evaluate as group average (avg days vacant across all units
+  // in this locId|sl|rt group) so that "average days vacant > 30" fires on
+  // every unit in the group, not just the individually vacant ones.
+  if (field === "days_vacant") {
+    const g = ctx.metrics.get(`${locId}|${sl}|${rt}`);
+    const avg = g && g.dvN ? g.dvSum / g.dvN : 0;
+    return cmp(avg, operator, Number(cond.value));
+  }
   // Metrics we can't compute here (inquiry volume, …) — treat as
   // not passing, same as the rate engine does when the metric is missing.
   return false;
@@ -525,21 +538,19 @@ function unitPasses(rule: any, u: UnitRow): boolean {
     if (!cmp(Number(u.days_vacant) || 0, operator, days)) return false;
   }
   const trigger = rule.trigger || {};
-  // Unit-level days_vacant trigger conditions (raw day counts) — group-level
-  // evaluation deferred them here so each unit is tested individually.
-  if (trigger.type === "condition") {
-    const condList = Array.isArray(trigger.conditions)
-      ? trigger.conditions
-      : trigger.condition?.field ? [trigger.condition] : [];
+  // days_vacant in the `conditions` array format is evaluated at the group
+  // level as an average (see evalGroupCondition), so we do NOT re-filter
+  // individual units — the intent is "apply to all units in the group when
+  // the average vacancy exceeds the threshold".
+  // Only apply per-unit days_vacant filtering for the legacy singular
+  // `condition` format, where the intent is to target individually-vacant units.
+  if (trigger.type === "condition" && !Array.isArray(trigger.conditions)) {
+    const condList = trigger.condition?.field ? [trigger.condition] : [];
     const dvConds = condList.filter((c: any) => c?.field === "days_vacant");
     if (dvConds.length) {
       const op = (trigger.conditionOperator || "AND").toUpperCase();
       const dv = Number(u.days_vacant) || 0;
       const results = dvConds.map((c: any) => cmp(dv, c.operator, Number(c.value)));
-      // Under AND every days_vacant condition must hold for this unit;
-      // under OR the group-level pass already satisfied the disjunction only
-      // if some condition passed — keep units where at least one dv cond holds
-      // OR another (non-dv) condition exists that could have passed.
       if (op === "OR") {
         const hasOtherConds = condList.length > dvConds.length;
         if (!hasOtherConds && !results.some(Boolean)) return false;

@@ -2337,7 +2337,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                       <tbody>
                         {combinedStats.breakdown.map((row, i) => (
                           <tr key={row.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
-                            <td className="px-3 py-2.5 font-medium text-gray-800 max-w-[200px] truncate">{row.name}</td>
+                            <td className="px-3 py-2.5 font-medium text-gray-800">{row.name}</td>
                             <td className={`px-3 py-2.5 text-right tabular-nums text-gray-700 ${statsDialogFocus === 'campuses' ? 'font-semibold text-teal-700 bg-teal-50/50' : ''}`}>{row.campuses.toLocaleString()}</td>
                             <td className={`px-3 py-2.5 text-right tabular-nums text-gray-700 ${statsDialogFocus === 'units' ? 'font-semibold text-teal-700 bg-teal-50/50' : ''}`}>{row.units.toLocaleString()}</td>
                             <td className={`px-3 py-2.5 text-right tabular-nums ${statsDialogFocus === 'monthly' ? 'font-semibold bg-teal-50/50' : ''} ${row.monthlyImpact >= 0 ? 'text-green-700' : 'text-red-700'}`}>{fmt(row.monthlyImpact)}</td>
@@ -2369,7 +2369,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
 
             {/* ── Bubble Map Dialog ── */}
             <Dialog open={bubbleMapOpen} onOpenChange={setBubbleMapOpen}>
-              <DialogContent className="max-w-2xl bg-white border border-gray-200">
+              <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
                 <DialogHeader>
                   <DialogTitle className="text-gray-900 text-base">Rule Coverage — Bubble Map</DialogTitle>
                   <p className="text-xs text-gray-500 mt-1">

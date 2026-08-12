@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar } from "lucide-react";
-import inflectLogo from "@assets/Inflect_Logo_-_No_Text_Below_1781618481726.png";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { Printer, X, Building2, TrendingUp, TrendingDown, Calendar, ChevronUp, ChevronDown, ChevronsUpDown, HelpCircle } from "lucide-react";
+import moduloLogo from "@assets/modulo_glass_v2_1784404625887.png";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v: number) => {
@@ -53,10 +54,10 @@ function ReportHeader({ title, scope, onClose, onPrint }: {
 }) {
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   return (
-    <div className="report-header bg-slate-900 text-white px-8 py-6 flex items-center justify-between gap-4 print:bg-slate-900 print:text-white">
+    <div className="report-header bg-slate-900 text-white px-8 py-3 flex items-center justify-between gap-4 print:bg-slate-900 print:text-white">
       <div className="flex items-center gap-5">
         {/* Logo — dark background matches the navy header */}
-        <img src={inflectLogo} alt="Inflect" className="h-10 w-auto rounded-md shrink-0" />
+        <img src={moduloLogo} alt="Modulo" className="h-36 w-auto rounded-md shrink-0" />
         <div className="border-l border-slate-700 pl-5">
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400 mb-0.5">Revenue Management</p>
           <h1 className="text-2xl font-black tracking-tight leading-none">{title}</h1>
@@ -69,7 +70,7 @@ function ReportHeader({ title, scope, onClose, onPrint }: {
           <p className="text-sm font-semibold">{today}</p>
         </div>
         <Button size="sm" variant="outline"
-          className="print:hidden border-slate-600 text-slate-200 hover:bg-slate-800 hover:text-white gap-1.5 h-8"
+          className="print:hidden border-slate-500 bg-white/10 text-slate-100 hover:bg-white hover:text-slate-900 hover:border-white gap-1.5 h-8"
           onClick={onPrint}>
           <Printer className="h-3.5 w-3.5" /> Export PDF
         </Button>
@@ -157,7 +158,54 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     staleTime: 2 * 60 * 1000,
   });
 
-  const activeRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
+  // Year-over-year street-rate movement + the lift the active rules will add
+  const { data: yoyData } = useQuery<any>({
+    queryKey: ["/api/pricing-controls/yoy-rate-analysis", selectedLocationId ?? "", selectedServiceLine ?? "", (selectedLocations || []).join(",")],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      if (selectedLocationId) p.set("locationId", selectedLocationId);
+      if (selectedServiceLine && selectedServiceLine !== "All") p.set("serviceLine", selectedServiceLine);
+      (selectedLocations || []).forEach(l => p.append("locations", l));
+      return fetch(`/api/pricing-controls/yoy-rate-analysis${p.toString() ? "?" + p.toString() : ""}`).then(r => r.json());
+    },
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  const rawActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical && (r.affectedUnits ?? 0) > 0);
+  // Fraction of the calendar year remaining from today through Dec 31.
+  // Used for the "Rest of Year" column: same ramp assumptions as First-Year
+  // impact, just prorated to the remaining months of the current year.
+  const restOfYearFraction = (() => {
+    const now = new Date();
+    const endOfYear = new Date(now.getFullYear(), 11, 31);
+    const daysLeft = Math.max(1, Math.ceil((endOfYear.getTime() - now.getTime()) / 86_400_000));
+    return daysLeft / 365;
+  })();
+
+  const activeRules = sortKey
+    ? [...rawActiveRules].sort((a: any, b: any) => {
+        let av: any, bv: any;
+        if (sortKey === "name") { av = a.name || ""; bv = b.name || ""; }
+        else if (sortKey === "serviceLine") {
+          av = a.serviceLine || (a.action?.filters?.serviceLine || [])[0] || "";
+          bv = b.serviceLine || (b.action?.filters?.serviceLine || [])[0] || "";
+        }
+        else if (sortKey === "restOfYear") { av = (a.annualImpact || 0) * restOfYearFraction; bv = (b.annualImpact || 0) * restOfYearFraction; }
+        else { av = a[sortKey] ?? 0; bv = b[sortKey] ?? 0; }
+        const cmp = typeof av === "string" ? av.localeCompare(bv) : av - bv;
+        return sortDir === "asc" ? cmp : -cmp;
+      })
+    : rawActiveRules;
+
   const totalNet = activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
   const totalSteadyState = activeRules.reduce((s: number, r: any) => s + (r.steadyStateAnnualImpact || 0), 0);
   const lift = activeRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
@@ -217,28 +265,199 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
             <KpiCard label="Active Rules" value={String(activeRules.length)} color="text-slate-800" />
           </div>
 
-          {/* Rules table */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          {/* ── Rate movement: trailing 12 months vs. what the proposal adds ── */}
+          {yoyData?.available && yoyData.byServiceLine?.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm break-inside-avoid">
+              <div className="px-6 py-4 bg-gradient-to-r from-slate-900 to-slate-800 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-teal-400">Rate Movement</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Trailing 12 months ({yoyData.priorMonth} → {yoyData.currentMonth}) vs. the lift this proposal adds
+                  </p>
+                </div>
+                {yoyData.overall && (
+                  <div className="flex items-center gap-6 shrink-0">
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500">Last 12 Mo</p>
+                      {yoyData.overall.yoyPct == null ? (
+                        <p className="text-xl font-black leading-none text-slate-500">n/a</p>
+                      ) : (
+                        <p className={`text-xl font-black leading-none ${yoyData.overall.yoyPct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {yoyData.overall.yoyPct >= 0 ? "+" : ""}{yoyData.overall.yoyPct}%
+                        </p>
+                      )}
+                      {yoyData.overall.incomparableServiceLines > 0 && (
+                        <p className="text-[9px] text-slate-500 mt-0.5">
+                          excl. {yoyData.overall.incomparableServiceLines} line{yoyData.overall.incomparableServiceLines > 1 ? "s" : ""} w/o history
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-slate-600 text-lg font-light">→</div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-500">Proposal Adds</p>
+                      <p className={`text-xl font-black leading-none ${(yoyData.overall.proposedPct ?? 0) >= 0 ? "text-teal-300" : "text-amber-300"}`}>
+                        {(yoyData.overall.proposedPct ?? 0) >= 0 ? "+" : ""}{yoyData.overall.proposedPct ?? 0}%
+                      </p>
+                      <p className="text-[9px] text-slate-500 mt-0.5">on {yoyData.overall.affectedUnits?.toLocaleString()} units</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left  px-6 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Service Line</th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Avg Rate<br/><span className="font-medium normal-case tracking-normal text-slate-400">a year ago</span></th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Avg Rate<br/><span className="font-medium normal-case tracking-normal text-slate-400">today</span></th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">YoY Change</th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Proposal<br/><span className="font-medium normal-case tracking-normal text-slate-400">on affected</span></th>
+                    <th className="text-right px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Coverage</th>
+                    <th className="text-right px-6 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Net Effect<br/><span className="font-medium normal-case tracking-normal text-slate-400">whole line</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {yoyData.byServiceLine.map((r: any) => {
+                    const yoyPos = (r.yoyPct ?? 0) >= 0;
+                    const propPos = (r.proposedPct ?? 0) >= 0;
+                    const isDaily = r.serviceLine === "HC" || r.serviceLine === "HC/MC";
+                    return (
+                      <tr key={r.serviceLine} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
+                        <td className="px-6 py-3">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold"
+                            style={{ background: SL_BG[r.serviceLine] || "#f1f5f9", color: SL_FG[r.serviceLine] || "#475569" }}>
+                            {r.serviceLine}
+                          </span>
+                          <span className="ml-2 text-[10px] text-slate-400">{r.totalUnits?.toLocaleString()} units</span>
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums text-slate-500">
+                          ${r.priorRate?.toLocaleString()}{isDaily && <span className="text-[9px] text-slate-400">/day</span>}
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums font-semibold text-slate-800">
+                          ${r.currentRate?.toLocaleString()}{isDaily && <span className="text-[9px] text-slate-400">/day</span>}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {r.yoyPct == null ? <span className="text-slate-300">—</span> : (
+                            <span className={`inline-flex items-center gap-1 font-bold tabular-nums ${yoyPos ? "text-emerald-600" : "text-red-600"}`}>
+                              {yoyPos ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                              {yoyPos ? "+" : ""}{r.yoyPct}%
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {r.affectedUnits === 0 ? <span className="text-slate-300">—</span> : (
+                            <span className={`font-bold tabular-nums ${propPos ? "text-teal-700" : "text-amber-700"}`}>
+                              {propPos ? "+" : ""}{r.proposedPct}%
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {r.affectedUnits === 0 ? <span className="text-slate-300">—</span> : (
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-14 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-teal-500 rounded-full" style={{ width: `${Math.min(100, r.coveragePct)}%` }} />
+                              </div>
+                              <span className="text-[11px] tabular-nums text-slate-500 w-10 text-right">{r.coveragePct}%</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          {r.affectedUnits === 0 ? <span className="text-slate-300">—</span> : (
+                            <span className={`font-bold tabular-nums ${(r.blendedPct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                              {(r.blendedPct ?? 0) >= 0 ? "+" : ""}{r.blendedPct}%
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="px-6 py-3 bg-slate-50 border-t border-slate-200">
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  <span className="font-semibold text-slate-600">Reading this:</span> YoY Change is the actual movement in average street rate over the last 12 months.
+                  Proposal is the weighted average increase the active rules apply to the units they claim. Net Effect scales that by coverage — the blended
+                  impact across the entire service line. HC and HC/MC are daily rates.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Rules table — [overflow:clip] keeps rounded corners while letting sticky thead work */}
+          <div className="bg-white rounded-xl border border-slate-200 [overflow:clip] shadow-sm">
+            <TooltipProvider delayDuration={200}>
             <table className="w-full text-sm border-collapse">
               <thead>
-                {/* Section title row — lives in thead so it repeats on every printed page */}
-                <tr className="bg-slate-900">
-                  <td colSpan={8} className="px-6 py-4">
+                {/* Section title row — sticky so it stays visible while scrolling */}
+                <tr className="bg-slate-900 sticky top-0 z-20">
+                  <td colSpan={9} className="px-6 py-4">
                     <div className="flex items-center justify-between">
                       <p className="text-base font-bold text-white tracking-tight">Active Pricing Rules</p>
                       <p className="text-xs font-medium text-slate-400 bg-slate-800 rounded-full px-3 py-1">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
                     </div>
                   </td>
                 </tr>
-                <tr className="bg-slate-50 text-left border-b border-slate-200">
-                  <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[22%]">Rule</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[9%]">Service Line</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[26%]">Condition</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[9%]">Units</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">Monthly Impact</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[11%]">First-Year Impact</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-[12%]">Fully Ramped /yr</th>
-                  <th className="px-3 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-[5%]"></th>
+                {/* Column headers — sticky just below the title row (~57 px) */}
+                <tr className="bg-slate-50 text-left border-b border-slate-200 sticky top-[57px] z-20 shadow-[0_1px_0_0_#e2e8f0]">
+                  {([
+                    {
+                      key: "name", label: "Rule", cls: "px-5 py-3 w-[22%] text-left",
+                      tip: "Rule name and the rate adjustment it applies (+% increase or −% concession). Click to sort alphabetically.",
+                    },
+                    {
+                      key: "serviceLine", label: "Service Line", cls: "px-3 py-3 w-[9%] text-left",
+                      tip: "The care type this rule is scoped to (AL, HC, HC/MC, SL, VIL). Rules showing 'All' apply across every service line.",
+                    },
+                    {
+                      key: null, label: "Condition", cls: "px-3 py-3 w-[26%] text-left",
+                      tip: "The occupancy or market trigger(s) a unit must satisfy to receive this rule's adjusted rate. Multiple conditions are AND-ed — a unit must meet all of them.",
+                    },
+                    {
+                      key: "affectedUnits", label: "Units", cls: "px-3 py-3 w-[7%] text-right",
+                      tip: "Units currently meeting every trigger condition and receiving this rule's adjusted street rate. Shown with the number of distinct campuses covered.",
+                    },
+                    {
+                      key: "monthlyImpact", label: "Monthly", cls: "px-3 py-3 w-[8%] text-right",
+                      tip: "Rate delta × monthly move-in rate × affected units. Only new admissions pay the adjusted rate — existing residents' in-house rates are unaffected — so this reflects the recurring revenue earned from new move-ins each month.",
+                    },
+                    {
+                      key: "restOfYear", label: "Rest of Year", cls: "px-3 py-3 w-[10%] text-right",
+                      tip: "First-Year impact prorated to the remaining calendar days in the current year (today → Dec 31). Useful for budget planning within the current fiscal year.",
+                    },
+                    {
+                      key: "annualImpact", label: "First-Year", cls: "px-3 py-3 w-[9%] text-right",
+                      tip: "Cumulative 12-month impact using a ramp factor (×78 move-in events) that assumes the rate change reaches a full roster of new residents over the year. Concession rules reduce this.",
+                    },
+                    {
+                      key: "steadyStateAnnualImpact", label: "Fully Ramped /yr", cls: "px-3 py-3 w-[10%] text-right",
+                      tip: "Annual steady-state revenue once the full unit cohort has turned over at least once and every resident is paying the adjusted rate (×144 move-in events vs ×78 for the first year).",
+                    },
+                  ] as const).map(({ key, label, cls, tip }) => (
+                    <th key={label}
+                      className={`${cls} text-xs font-bold uppercase tracking-wider text-slate-500 select-none ${key ? "cursor-pointer hover:text-slate-700 hover:bg-slate-100" : ""}`}
+                      onClick={key ? () => handleSort(key) : undefined}>
+                      <span className={`inline-flex items-center gap-1 ${cls.includes("text-right") ? "justify-end w-full" : ""}`}>
+                        {label}
+                        {key && (sortKey === key
+                          ? (sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)
+                          : <ChevronsUpDown className="h-3 w-3 opacity-30" />)}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              className="inline-flex text-slate-300 hover:text-slate-500 transition-colors cursor-help"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-[260px] text-xs leading-relaxed text-left normal-case font-normal tracking-normal">
+                            {tip}
+                          </TooltipContent>
+                        </Tooltip>
+                      </span>
+                    </th>
+                  ))}
+                  <th className="px-3 py-3 w-[5%]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -281,13 +500,17 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                         {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400 mt-0.5">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
+                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
+                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(Math.round((rule.annualImpact || 0) * restOfYearFraction))}</span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">thru Dec</p>
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`text-base font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
+                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
+                      </td>
+                      <td className="px-3 py-4 text-right">
+                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
                         <p className="text-[10px] text-slate-400 mt-0.5">run-rate</p>
                       </td>
                       <td className="px-3 py-4">
@@ -301,14 +524,16 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                 {/* Totals row */}
                 <tr className="border-t-2 border-slate-300 bg-slate-900">
                   <td className="px-5 py-4 text-sm font-bold text-white" colSpan={3}>Portfolio Total — {activeRules.length} active rule{activeRules.length !== 1 ? "s" : ""}</td>
-                  <td className="px-3 py-4 text-right text-base font-black text-white">{statsData?.uniqueUnits ?? activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0)}</td>
-                  <td className="px-3 py-4 text-right text-base font-black text-emerald-400">{fmt(activeRules.reduce((s: number, r: any) => s + (r.monthlyImpact || 0), 0))}</td>
-                  <td className="px-3 py-4 text-right text-base font-black text-emerald-400">{fmt(totalNet)}</td>
-                  <td className="px-3 py-4 text-right text-base font-black text-emerald-400">{fmt(totalSteadyState)}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-base font-black text-white">{statsData?.uniqueUnits ?? activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0)}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(activeRules.reduce((s: number, r: any) => s + (r.monthlyImpact || 0), 0))}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(Math.round(activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0) * restOfYearFraction))}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(totalNet)}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(totalSteadyState)}</td>
                   <td />
                 </tr>
               </tbody>
             </table>
+            </TooltipProvider>
           </div>
 
           {/* Footer */}
