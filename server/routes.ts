@@ -180,6 +180,91 @@ function setCachedAnalytics(key: string, data: any, ttl?: number): void {
 // Deduplicates concurrent commentary regenerations per cache key
 const commentaryInflight = new Map<string, Promise<any>>();
 
+// Returns true when two string Sets contain the exact same elements.
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
+
+// Checks whether an active rule already exists with the same location, service
+// lines, room types, adjustment type, and adjustment value. Returns the
+// duplicate's { id, name } when found, or null when the rule is unique.
+// Used by both POST /api/adjustment-rules and POST /api/adjustment-rules/from-filters
+// to prevent near-identical rules from being saved when the original wasn't
+// visible due to client_id scoping.
+//
+// effectiveLocationNames: the campus-name scope for rules created via the
+// from-filters path (where location_id is always NULL and campus scope lives
+// in action.filters.location). Pass an empty array for rules created via the
+// main handler where location scope is already expressed by locationId.
+async function findDuplicateRule(
+  clientId: string,
+  locationId: string | null,
+  adjustmentType: string,
+  adjustmentValue: number,
+  effectiveSLs: string[],
+  effectiveRTs: string[],
+  effectiveLocationNames: string[] = [],
+): Promise<{ id: string; name: string } | null> {
+  const candidateRes = await pool.query<{
+    id: string;
+    name: string;
+    service_line: string | null;
+    service_lines: any;
+    action: any;
+  }>(
+    `SELECT id, name, service_line, service_lines, action
+     FROM adjustment_rules
+     WHERE (client_id = $1 OR client_id IS NULL)
+       AND is_active = true
+       AND is_historical IS NOT TRUE
+       AND (location_id IS NOT DISTINCT FROM $2)
+       AND (action->>'adjustmentType') = $3
+       AND ABS(COALESCE((action->>'adjustmentValue')::numeric, 0) - $4::numeric) < 0.001`,
+    [clientId, locationId, adjustmentType, adjustmentValue],
+  );
+
+  const newSLSet = new Set(effectiveSLs.map(s => s.trim()));
+  const newRTSet = new Set(effectiveRTs.map(r => r.trim()));
+  // When locationId is NULL the true campus scope lives inside action.filters.location.
+  // We must compare these name arrays to avoid blocking rules scoped to different campuses.
+  const newLocSet = new Set(effectiveLocationNames.map(l => l.trim()));
+
+  for (const row of candidateRes.rows) {
+    // Build the existing rule's service-line set
+    const existingSLs: string[] = Array.isArray(row.service_lines)
+      ? row.service_lines
+      : row.service_line
+        ? [row.service_line]
+        : [];
+    const existingSLSet = new Set(existingSLs.map(s => s.trim()));
+
+    // Build the existing rule's room-type set
+    const existingRTs: string[] = Array.isArray(row.action?.filters?.roomType)
+      ? row.action.filters.roomType
+      : [];
+    const existingRTSet = new Set(existingRTs.map(r => r.trim()));
+
+    // When location_id is NULL for both sides, also compare the campus-name filter
+    // stored in action.filters.location. An empty set means "all campuses" (portfolio-wide).
+    // Two rules are only duplicates if their campus-name scopes match exactly.
+    if (locationId === null) {
+      const existingLocs: string[] = Array.isArray(row.action?.filters?.location)
+        ? row.action.filters.location
+        : [];
+      const existingLocSet = new Set(existingLocs.map(l => l.trim()));
+      if (!setsEqual(newLocSet, existingLocSet)) continue;
+    }
+
+    if (setsEqual(newSLSet, existingSLSet) && setsEqual(newRTSet, existingRTSet)) {
+      return { id: row.id, name: row.name };
+    }
+  }
+
+  return null;
+}
+
 // Purge all adjustment-rule-related cache entries for a client so that any
 // filter combination (location, service line, or "all") sees the fresh DB state.
 // Returns a Promise so callers that need the DB deletion to complete before
@@ -14756,7 +14841,42 @@ Respond in JSON format:
           elasticity: elasticityImpact,
         });
       }
-      
+
+      // Duplicate guard: reject if an active rule with the same scope and
+      // adjustment already exists (prevents double-apply when the original
+      // wasn't visible due to client_id scoping differences).
+      // Use the finalized action.filters as the authoritative scope — these
+      // already contain both request-level and parser-inferred SL/RT/location.
+      const finalSLs: string[] = Array.isArray(parsedRule.action.filters?.serviceLine)
+        ? parsedRule.action.filters.serviceLine
+        : effectiveSLs;
+      const finalRTs: string[] = Array.isArray(parsedRule.action.filters?.roomType)
+        ? parsedRule.action.filters.roomType
+        : effectiveRTs;
+      // When locationId is null, parser may have inferred a location scope.
+      const finalLocNames: string[] = locationId
+        ? []
+        : Array.isArray(parsedRule.action.filters?.location)
+          ? parsedRule.action.filters.location
+          : [];
+      const dupRule = await findDuplicateRule(
+        clientId,
+        locationId || null,
+        parsedRule.action.adjustmentType,
+        parsedRule.action.adjustmentValue,
+        finalSLs,
+        finalRTs,
+        finalLocNames,
+      );
+      if (dupRule) {
+        return res.status(409).json({
+          duplicate: true,
+          existingRuleId: dupRule.id,
+          existingRuleName: dupRule.name,
+          error: `A similar rule already exists: "${dupRule.name}"`,
+        });
+      }
+
       // Create the rule in database — retry with a numeric suffix if the
       // generated name already exists for this location/service-line scope.
       let rule: any;
@@ -14920,6 +15040,28 @@ Respond in JSON format:
         locationNames.length ? `locations: ${locationNames.join(', ')}` : null,
       ].filter(Boolean);
       const description = `${dir} street rate by ${amount}${scopeBits.length ? ` for ${scopeBits.join('; ')}` : ' portfolio-wide'} (created from Reference Data filters)`;
+
+      // Duplicate guard: for from-filters rules location_id is always null;
+      // campus scope lives in action.filters.location (location names).
+      // Pass locationNames so the helper compares campus-name sets and does
+      // NOT block rules for different campuses with the same SL/RT/adj.
+      const dupRuleFF = await findDuplicateRule(
+        clientId,
+        null,
+        adjustmentType,
+        adjVal,
+        serviceLines,
+        expandedRoomTypes ?? [],
+        locationNames,
+      );
+      if (dupRuleFF) {
+        return res.status(409).json({
+          duplicate: true,
+          existingRuleId: dupRuleFF.id,
+          existingRuleName: dupRuleFF.name,
+          error: `A similar rule already exists: "${dupRuleFF.name}"`,
+        });
+      }
 
       // Impact using the shared latest-month model
       const impact = await computeRuleImpact({ action }, clientId);

@@ -190,6 +190,18 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
         }),
       });
 
+      if (response.status === 409) {
+        const result = await response.json();
+        toast({
+          title: "Similar rule already exists",
+          description: result.existingRuleName
+            ? `"${result.existingRuleName}" already covers this scope. Edit or deactivate it before creating a new one.`
+            : "A rule with the same scope and adjustment already exists.",
+          variant: "destructive",
+          duration: 7000,
+        });
+        return;
+      }
       if (!response.ok) throw new Error('Failed to process rule');
 
       const result = await response.json();

@@ -1071,14 +1071,30 @@ export default function ReferenceDataTable({
 
   const createRuleMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("/api/adjustment-rules/from-filters", "POST", {
-        adjustmentType: ruleAdjType,
-        adjustmentValue: parseFloat(ruleAdjValue),
-        effectiveDate: ruleEffDate || undefined,
-        notes: ruleNote.trim() || undefined,
-        scope: viewScope,
+      const res = await fetch("/api/adjustment-rules/from-filters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adjustmentType: ruleAdjType,
+          adjustmentValue: parseFloat(ruleAdjValue),
+          effectiveDate: ruleEffDate || undefined,
+          notes: ruleNote.trim() || undefined,
+          scope: viewScope,
+        }),
+        credentials: "include",
       });
-      return res.json();
+      const data = await res.json();
+      if (res.status === 409) {
+        const err: any = new Error(
+          data.existingRuleName
+            ? `"${data.existingRuleName}" already covers this scope. Edit or deactivate it before creating a new one.`
+            : "A rule with the same scope and adjustment already exists.",
+        );
+        err.isDuplicate = true;
+        throw err;
+      }
+      if (!res.ok) throw new Error(data?.error ?? "Failed to create rule");
+      return data;
     },
     onSuccess: (result: any) => {
       setRuleDialogOpen(false);
@@ -1095,7 +1111,11 @@ export default function ReferenceDataTable({
       });
     },
     onError: (err: any) => {
-      toast({ title: "Failed to create rule", description: err?.message ?? "Unknown error", variant: "destructive" });
+      if (err?.isDuplicate) {
+        toast({ title: "Similar rule already exists", description: err.message, duration: 7000 });
+      } else {
+        toast({ title: "Failed to create rule", description: err?.message ?? "Unknown error", variant: "destructive" });
+      }
     },
   });
 

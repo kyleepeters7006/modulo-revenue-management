@@ -266,7 +266,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [historyRules, setHistoryRules] = useState<AdjustmentRule[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyReportOpen, setHistoryReportOpen] = useState(false);
-  const [stackRule, setStackRule] = useState(false); // true = stacks with other rules; false = exclusive
+  const [stackRule, setStackRule] = useState(true); // true = stacks with other rules; false = exclusive
   const [slPickerOpen, setSlPickerOpen] = useState(false);
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
   const slPickerRef = useRef<HTMLDivElement>(null);
@@ -600,6 +600,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, roomTypes: isEditing ? [] : newRuleRoomTypes, effectiveDate: effectiveDate || null, isAdditive: stackRule, isHistorical: saveAsHistorical }),
       });
+      if (res.status === 409) {
+        const dup = await res.json();
+        toast({
+          title: 'Similar rule already exists',
+          description: dup.existingRuleName
+            ? `"${dup.existingRuleName}" already covers this scope. Edit or deactivate it before creating a new one.`
+            : 'A rule with the same scope and adjustment already exists.',
+          duration: 7000,
+        });
+        return;
+      }
       if (!res.ok) throw new Error();
       const data = await res.json();
       // Optimistically add the new rule to the list immediately so it appears
@@ -624,7 +635,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       setNewRuleRoomTypes([]);
       setEffectiveDate('');
       setSaveAsHistorical(false);
-      setStackRule(false);
+      setStackRule(true);
       if (saveAsHistorical) fetchHistory();
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
@@ -649,7 +660,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     setNewRuleRoomTypes([]);
     setEffectiveDate('');
     setSaveAsHistorical(false);
-    setStackRule(false);
+    setStackRule(true);
     setSlPickerOpen(false);
     setNewSlPickerOpen(false);
     setNewRtPickerOpen(false);
