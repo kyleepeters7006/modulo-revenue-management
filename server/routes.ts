@@ -20160,6 +20160,24 @@ Return ONLY valid JSON, no markdown fences:
         _ihAcc.forEach((e, k) => { if (e.st > 0) refIhVar.set(k, (e.ih - e.st) / e.st * 100); });
       }
 
+      // Build street-to-comp variance map for trigger evaluation (campus||sl → pct).
+      // Uses the SL-level campus_metrics values computed during the last reference-data
+      // calculation so that street_to_comp_var conditions in rules are evaluated
+      // accurately rather than being skipped.
+      const refCompVarMap = new Map<string, number>();
+      {
+        const cvRows = await pool.query(
+          `SELECT l.name AS campus, m.service_line AS sl, m.value
+           FROM campus_metrics m
+           JOIN locations l ON l.id = m.location_id
+           WHERE m.client_id = $1 AND m.metric_name = 'street_to_comp_var_pct' AND m.room_type IS NULL`,
+          [clientId],
+        );
+        for (const r of cvRows.rows as any[]) {
+          if (r.campus && r.sl) refCompVarMap.set(`${r.campus}||${r.sl}`, parseFloat(r.value));
+        }
+      }
+
       // Build one GroupRateInput per (campus, SL, RT) from spot-month aggRes rows.
       // avg_street is uniform per room type in aggRes (the SQL uses mode()), so it equals
       // the mode rate — same base as the units endpoint's groupModeStreet.
@@ -20181,7 +20199,7 @@ Return ONLY valid JSON, no markdown fences:
           _ruleGroups.push({ campus: g.campus, sl: g.sl, rt: g.rt, locationId: g.locationId, modeStreetRate: g.avgStreet, avgIhRate: g.avgIh, total: g.total, occ: g.occ });
         }
       }
-      const { ruleRatesMap } = buildGroupRulePreviewRates(_ruleGroups, activeRules, refCampusOcc, refSlOcc, refIhVar);
+      const { ruleRatesMap } = buildGroupRulePreviewRates(_ruleGroups, activeRules, refCampusOcc, refSlOcc, refIhVar, refCompVarMap);
 
       // ── Roll up in JS ────────────────────────────────────────────────
       const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
@@ -20886,6 +20904,21 @@ Return ONLY valid JSON, no markdown fences:
           const ihVar2 = new Map<string, number>();
           ihAcc.forEach((e, k) => { if (e.st > 0) ihVar2.set(k, (e.ih - e.st) / e.st * 100); });
 
+          // Street-to-comp variance for trigger evaluation (campus||sl → pct).
+          const compVarMap2 = new Map<string, number>();
+          {
+            const cvRows2 = await pool.query(
+              `SELECT l.name AS campus, m.service_line AS sl, m.value
+               FROM campus_metrics m
+               JOIN locations l ON l.id = m.location_id
+               WHERE m.client_id = $1 AND m.metric_name = 'street_to_comp_var_pct' AND m.room_type IS NULL`,
+              [clientId],
+            );
+            for (const r of cvRows2.rows as any[]) {
+              if (r.campus && r.sl) compVarMap2.set(`${r.campus}||${r.sl}`, parseFloat(r.value));
+            }
+          }
+
           // Build GroupRateInput array using pre-computed mode street rates so the
           // base rate matches the grouped endpoint's mode() WITHIN GROUP SQL value.
           const groupInputs = Array.from(gAgg.values()).map(g => ({
@@ -20894,7 +20927,7 @@ Return ONLY valid JSON, no markdown fences:
             avgIhRate: g.ihN ? g.ihSum / g.ihN : 0,
             total: g.total, occ: g.occ,
           }));
-          const { rulePreviewMap: preview } = buildGroupRulePreviewRates(groupInputs, activeRules2, campOcc2, slOcc2, ihVar2);
+          const { rulePreviewMap: preview } = buildGroupRulePreviewRates(groupInputs, activeRules2, campOcc2, slOcc2, ihVar2, compVarMap2);
           for (const [k, v] of Array.from(preview.entries())) rulePreviewMap.set(k, v);
         }
       }

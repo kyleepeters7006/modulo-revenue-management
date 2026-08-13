@@ -898,16 +898,28 @@ export function buildGroupRulePreviewRates(
   campOcc: Map<string, number>,
   slOcc: Map<string, number>,
   ihVar: Map<string, number>,
+  /** Optional: `${campus}||${sl}` → street-to-comp variance % from campus_metrics.
+   *  When provided, street_to_comp_var trigger conditions are evaluated precisely;
+   *  when absent the condition is treated as passing (don't block display). */
+  compVarMap?: Map<string, number>,
 ): RulePreviewResult {
   const rulePreviewMap = new Map<string, number>();
   const ruleRatesMap   = new Map<string, number>();
 
-  /** Evaluate one metric-based condition against the pre-built occupancy maps. */
+  const OCC_GROUP_FIELDS = new Set(['occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy']);
+
+  /** Evaluate one metric-based condition against the pre-built occupancy maps.
+   *  rtOccPct is the group's own room-type occupancy percentage (0–100). */
   const evalCond = (
     c: { field: string; operator: string; value: number },
     campus: string,
     sl: string,
+    rtOccPct: number | null,
   ): boolean => {
+    // Normalise fraction-stored occupancy thresholds to percentage (mirrors evalGroupCondition).
+    let value = Number(c.value);
+    if (OCC_GROUP_FIELDS.has(c.field) && Math.abs(value) <= 1) value = value * 100;
+
     let metricVal: number | null = null;
     if (c.field === 'service_line_occupancy') {
       metricVal = slOcc.get(`${campus}||${sl}`) ?? null;
@@ -915,20 +927,26 @@ export function buildGroupRulePreviewRates(
       metricVal = campOcc.get(campus) ?? null;
     } else if (c.field === 'ih_street_variance' || c.field === 'street_to_ih_var') {
       metricVal = ihVar.get(`${campus}||${sl}`) ?? null;
+    } else if (c.field === 'room_type_occupancy') {
+      metricVal = rtOccPct;
+    } else if (c.field === 'street_to_comp_var' || c.field === 'competitor_variance' || c.field === 'competitor_rate') {
+      if (!compVarMap) return true; // map not provided — don't block display
+      metricVal = compVarMap.get(`${campus}||${sl}`) ?? null;
+      if (metricVal === null) return true; // no data for this scope — don't block
     } else {
       // Metric not computable from aggregated group data — don't block display
       return true;
     }
     if (metricVal === null) return false;
-    return c.operator === '>='  ? metricVal >= c.value
-         : c.operator === '>'   ? metricVal >  c.value
-         : c.operator === '<='  ? metricVal <= c.value
-         : c.operator === '<'   ? metricVal <  c.value
-         : Math.abs(metricVal - c.value) < 0.001;
+    return c.operator === '>='  ? metricVal >= value
+         : c.operator === '>'   ? metricVal >  value
+         : c.operator === '<='  ? metricVal <= value
+         : c.operator === '<'   ? metricVal <  value
+         : Math.abs(metricVal - value) < 0.001;
   };
 
-  /** Does a rule's trigger condition pass for this campus/SL? */
-  const passesTrigger = (rule: ActiveRule, campus: string, sl: string): boolean => {
+  /** Does a rule's trigger condition pass for this campus/SL/RT group? */
+  const passesTrigger = (rule: ActiveRule, campus: string, sl: string, rtOccPct: number | null): boolean => {
     const trig = rule.trigger as any;
     if (!trig || trig.type !== 'condition') return true;
     const conds: Array<{ field: string; operator: string; value: number }> =
@@ -938,8 +956,8 @@ export function buildGroupRulePreviewRates(
     if (!conds.length) return true;
     const op = String(trig.conditionOperator || 'AND').toUpperCase();
     return op === 'OR'
-      ? conds.some(c => evalCond(c, campus, sl))
-      : conds.every(c => evalCond(c, campus, sl));
+      ? conds.some(c => evalCond(c, campus, sl, rtOccPct))
+      : conds.every(c => evalCond(c, campus, sl, rtOccPct));
   };
 
   // Sort rules by specificity DESC → priority DESC → effectiveDate DESC, then createdAt ASC.
@@ -990,7 +1008,8 @@ export function buildGroupRulePreviewRates(
       if (filters.occupancyStatus === 'occupied' && g.occ === 0)      continue;
 
       // ── Trigger conditions ──
-      if (!passesTrigger(rule, g.campus, g.sl)) continue;
+      const rtOccPct = g.total > 0 ? (g.occ / g.total) * 100 : null;
+      if (!passesTrigger(rule, g.campus, g.sl, rtOccPct)) continue;
 
       // ── Compute adjusted rate ──
       const adjustmentType: string  = action.adjustmentType  || 'percentage';
