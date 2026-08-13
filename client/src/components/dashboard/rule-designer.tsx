@@ -1585,7 +1585,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         const histRules     = rules.filter(r => r.isHistorical);
         const activeRules   = liveRules.filter(r => r.isActive);
         const disabledRules = liveRules.filter(r => !r.isActive);
-        const activeCount   = activeRules.filter(r => (r.affectedUnits ?? 0) > 0).length;
+        // Count all toggled-on rules, not just those whose conditions are currently met.
+        // Rules with 0 affected units still show in the list with a "0 units" badge —
+        // filtering them out of the count made it look like the rule wasn't saved.
+        const activeCount   = activeRules.length;
 
         // Priority-ordered active rules: exclusive rules compete for units; additive always stack
         const sortedActive   = [...activeRules].reverse(); // oldest first → priority 1, 2, 3...
