@@ -602,7 +602,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      await fetchRules();
+      // Optimistically add the new rule to the list immediately so it appears
+      // without waiting for the re-fetch (avoids any browser-cache 304 delay).
+      if (!isEditing && data.rule) {
+        setRules(prev => [...prev, data.rule]);
+      }
+      // Then sync the full list from the server (bypassing browser cache so the
+      // browser doesn't serve a stale 304 from before the rule was created).
+      await fetch(`/api/adjustment-rules${(() => { const p = new URLSearchParams(); if (locationId) p.set('locationId', locationId); if (serviceLine) p.set('serviceLine', serviceLine); if (showHistoryRules) p.set('includeHistorical', 'true'); (selectedLocations ?? []).forEach(l => p.append('locations', l)); (selectedRegions ?? []).forEach(r => p.append('regions', r)); (selectedDivisions ?? []).forEach(d => p.append('divisions', d)); return p.toString() ? '?' + p : ''; })()}`, { cache: 'reload' })
+        .then(r => r.ok ? r.json() : null)
+        .then(list => { if (list) setRules(list); })
+        .catch(() => {});
       setAiInput('');
       setConditions([defaultCondition()]);
       setRuleAction(defaultAction());

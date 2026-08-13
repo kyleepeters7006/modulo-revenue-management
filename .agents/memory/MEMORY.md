@@ -22,3 +22,6 @@
 - [YoY rate movement metric](yoy-rate-movement-metric.md) — proposed % is weighted by affected units, blended % by total units; null YoY lines must leave the roll-up, not count as 0.
 - [Rule impact: rate vs occupancy](rule-impact-rate-vs-occupancy.md) — realized impact must attribute the rate effect only; census swings dominate and invert the sign. Keep win-rate, column and total on one basis.
 - [Scoped filters matching nothing](scoped-filter-zero-match.md) — a requested filter resolving to zero locations must emit `AND FALSE`; skipping the predicate silently returns portfolio-wide numbers.
+- [User account client_id scoping](user-client-scoping.md) — real users with client_id=NULL get silently routed to 'demo'; fix: UPDATE users SET client_id=... + user must re-login; check this first when rules/data are missing.
+- [Rule save visibility](rule-save-visibility.md) — purgeRuleCaches must be awaited BEFORE res.json(); GET /api/adjustment-rules needs Cache-Control: no-store; frontend should optimistically prepend new rule to state.
+- [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.

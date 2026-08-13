@@ -14794,6 +14794,9 @@ Respond in JSON format:
         }
       }
       
+      // Purge BEFORE responding so the next GET request always sees the new rule,
+      // regardless of whether the browser sends a cache-revalidation request.
+      await purgeRuleCaches(clientId);
       res.json({
         rule,
         affectedUnits,
@@ -14803,7 +14806,6 @@ Respond in JSON format:
         volumeAdjustedAnnualImpact: Math.round(volumeAdjustedAnnualImpact),
         elasticity: elasticityImpact,
       });
-      purgeRuleCaches(clientId);
     } catch (error) {
       console.error('Error creating adjustment rule:', error);
       res.status(500).json({ error: "Failed to create adjustment rule" });
@@ -15902,7 +15904,8 @@ Respond in JSON format:
 
       // Bust the cached rules list so Rule Administration immediately shows the
       // new rule as active (GET /api/adjustment-rules is cached for 2 min).
-      purgeRuleCaches(clientId);
+      // Purge BEFORE responding so the next GET always sees the new rule.
+      await purgeRuleCaches(clientId);
 
       // Learning signal: log the acceptance so future AI runs favor similar rules.
       await recordSuggestionFeedback(clientId, 'accepted', {
@@ -16119,6 +16122,11 @@ Respond in JSON format:
       // Short-lived cache (2 min) so repeat page loads are instant.
       // Key includes all filter dimensions so scoped views are cached separately.
       const adjRulesCacheKey = `adj-rules:${clientId}:${locationId || ''}:${serviceLine || ''}:${includeHistorical || ''}:loc=${[...fLocations].sort().join('|')};reg=${[...fRegions].sort().join('|')};div=${[...fDivisions].sort().join('|')}`;
+      // Prevent the browser from caching this response — stale ETags cause new
+      // rules to appear missing immediately after save (browser serves 304 with
+      // the pre-save list). The server-side in-memory cache is still used.
+      res.set('Cache-Control', 'no-store');
+
       const adjRulesCached = getCachedAnalytics(adjRulesCacheKey);
       if (adjRulesCached) return res.json(adjRulesCached);
       
