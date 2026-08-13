@@ -214,6 +214,8 @@ export default function PricingControls() {
           selectedServiceLine={selectedServiceLine}
           selectedLocations={selectedLocations}
           selectedLocationId={selectedLocationId}
+          selectedRegions={selectedRegions}
+          selectedDivisions={selectedDivisions}
         />
 
         <div className="bg-white rounded-lg shadow-sm mb-6">
