@@ -463,7 +463,14 @@ function lookupMetric(
       // competitor_final_rate so that street_to_comp_var trigger conditions can
       // still be evaluated using whatever comp data is available.
       const locName = ctx.locIdToName.get(locId);
-      const bench = locName ? ctx.compBenchmark.benchmarkFor(locName, sl) : null;
+      // Use room-type-specific benchmark when the survey has that room type
+      // (e.g. Studio Dlx vs Studio Dlx competitor) — falls back to the SL-level
+      // blended benchmark when no RT-specific data is available.
+      const bench = locName
+        ? (k === `${locId}|${sl}|${rt}`
+            ? (ctx.compBenchmark.benchmarkForRT(locName, sl, rt) ?? ctx.compBenchmark.benchmarkFor(locName, sl))
+            : ctx.compBenchmark.benchmarkFor(locName, sl))
+        : null;
       if (bench && bench.adjusted > 0) {
         // Survey path — preferred when available.
         if (g.stN === 0) continue; // no street-rate data in this group — try broader scope
@@ -909,12 +916,14 @@ export function buildGroupRulePreviewRates(
   const OCC_GROUP_FIELDS = new Set(['occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy']);
 
   /** Evaluate one metric-based condition against the pre-built occupancy maps.
-   *  rtOccPct is the group's own room-type occupancy percentage (0–100). */
+   *  rtOccPct is the group's own room-type occupancy percentage (0–100).
+   *  rt is the room type string for RT-specific compVar lookups. */
   const evalCond = (
     c: { field: string; operator: string; value: number },
     campus: string,
     sl: string,
     rtOccPct: number | null,
+    rt?: string,
   ): boolean => {
     // Normalise fraction-stored occupancy thresholds to percentage (mirrors evalGroupCondition).
     let value = Number(c.value);
@@ -931,7 +940,10 @@ export function buildGroupRulePreviewRates(
       metricVal = rtOccPct;
     } else if (c.field === 'street_to_comp_var' || c.field === 'competitor_variance' || c.field === 'competitor_rate') {
       if (!compVarMap) return true; // map not provided — don't block display
-      metricVal = compVarMap.get(`${campus}||${sl}`) ?? null;
+      // Try room-type-specific key first (campus||sl||rt), then SL-level fallback.
+      metricVal = (rt ? compVarMap.get(`${campus}||${sl}||${rt}`) : undefined)
+                  ?? compVarMap.get(`${campus}||${sl}`)
+                  ?? null;
       if (metricVal === null) return true; // no data for this scope — don't block
     } else {
       // Metric not computable from aggregated group data — don't block display
@@ -946,7 +958,7 @@ export function buildGroupRulePreviewRates(
   };
 
   /** Does a rule's trigger condition pass for this campus/SL/RT group? */
-  const passesTrigger = (rule: ActiveRule, campus: string, sl: string, rtOccPct: number | null): boolean => {
+  const passesTrigger = (rule: ActiveRule, campus: string, sl: string, rtOccPct: number | null, rt?: string): boolean => {
     const trig = rule.trigger as any;
     if (!trig || trig.type !== 'condition') return true;
     const conds: Array<{ field: string; operator: string; value: number }> =
@@ -956,8 +968,8 @@ export function buildGroupRulePreviewRates(
     if (!conds.length) return true;
     const op = String(trig.conditionOperator || 'AND').toUpperCase();
     return op === 'OR'
-      ? conds.some(c => evalCond(c, campus, sl, rtOccPct))
-      : conds.every(c => evalCond(c, campus, sl, rtOccPct));
+      ? conds.some(c => evalCond(c, campus, sl, rtOccPct, rt))
+      : conds.every(c => evalCond(c, campus, sl, rtOccPct, rt));
   };
 
   // Sort rules by specificity DESC → priority DESC → effectiveDate DESC, then createdAt ASC.
@@ -1009,7 +1021,7 @@ export function buildGroupRulePreviewRates(
 
       // ── Trigger conditions ──
       const rtOccPct = g.total > 0 ? (g.occ / g.total) * 100 : null;
-      if (!passesTrigger(rule, g.campus, g.sl, rtOccPct)) continue;
+      if (!passesTrigger(rule, g.campus, g.sl, rtOccPct, g.rt)) continue;
 
       // ── Compute adjusted rate ──
       const adjustmentType: string  = action.adjustmentType  || 'percentage';

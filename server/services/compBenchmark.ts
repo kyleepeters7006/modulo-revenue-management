@@ -53,6 +53,8 @@ export interface SurveyRow {
   monthly_rate_avg: number | string | null;
   care_level_2_rate: number | string | null;
   medication_management_fee: number | string | null;
+  /** Optional room type for room-type-specific benchmark lookups. */
+  room_type?: string | null;
 }
 
 export interface CompBenchmarkEntry {
@@ -129,6 +131,37 @@ export function aggregateSurveyRows(rows: SurveyRow[]): Map<string, CompBenchmar
   return out;
 }
 
+/**
+ * Aggregate raw survey rows into per-(location, competitor type, room type)
+ * benchmark entries for room-type-specific lookups. Only rows that carry a
+ * non-empty room_type are included; rows without one are skipped (they
+ * contribute to the SL-level blended benchmark via aggregateSurveyRows).
+ */
+export function aggregateSurveyRowsByRT(rows: SurveyRow[]): Map<string, CompBenchmarkEntry> {
+  const acc = new Map<string, { base: number[]; care: number[]; med: number[] }>();
+  for (const r of rows) {
+    if (!r.room_type) continue; // no RT — goes into the SL-level map only
+    const key = `${r.keystats_location}|||${r.competitor_type}|||${r.room_type}`;
+    let e = acc.get(key);
+    if (!e) { e = { base: [], care: [], med: [] }; acc.set(key, e); }
+    const b = normalizeBaseRate(r.competitor_type, r.monthly_rate_avg);
+    const c = normalizeCareL2(r.competitor_type, r.care_level_2_rate);
+    const m = normalizeMedMgmt(r.competitor_type, r.medication_management_fee);
+    if (b !== null) e.base.push(b);
+    if (c !== null) e.care.push(c);
+    if (m !== null) e.med.push(m);
+  }
+  const avg = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : 0);
+  const out = new Map<string, CompBenchmarkEntry>();
+  for (const [key, e] of acc) {
+    if (!e.base.length) continue;
+    const baseRate = avg(e.base);
+    if (baseRate <= 0) continue;
+    out.set(key, { baseRate, careL2: avg(e.care), medMgmt: avg(e.med) });
+  }
+  return out;
+}
+
 export interface CompBenchmarkResult {
   /** Care-adjusted benchmark (>= 1). */
   adjusted: number;
@@ -148,6 +181,8 @@ export class CompBenchmark {
   constructor(
     private compMap: Map<string, CompBenchmarkEntry>,
     private ourCareMap: Map<string, number>,
+    /** Optional: per-(location, compType, roomType) entries for RT-specific lookups. */
+    private compRTMap?: Map<string, CompBenchmarkEntry>,
   ) {}
 
   /**
@@ -172,13 +207,44 @@ export class CompBenchmark {
     }
     return null;
   }
+
+  /**
+   * Room-type-specific care-adjusted benchmark. Tries the exact room type
+   * against the survey first; falls back to the SL-level blended benchmark
+   * when no RT-specific data is available for this location.
+   *
+   * This produces the correct apples-to-apples comparison (e.g. our Studio Dlx
+   * street rate vs the competitor's Studio Dlx rate) rather than blending all
+   * room types in the SL together, which distorts the premium signal.
+   */
+  benchmarkForRT(location: string, serviceLine: string, roomType: string): CompBenchmarkResult | null {
+    if (this.compRTMap) {
+      for (const ct of SL_TO_COMP[serviceLine] || [serviceLine]) {
+        const v = this.compRTMap.get(`${location}|||${ct}|||${roomType}`);
+        if (v && v.baseRate > 0) {
+          const careDiff = CARE_L2_APPLIES[serviceLine]
+            ? v.careL2 - (this.ourCareMap.get(`${location}|||${serviceLine}`) || 0)
+            : 0;
+          const careAdj = careDiff + v.medMgmt;
+          return {
+            adjusted: Math.max(v.baseRate + careAdj, 1),
+            base: v.baseRate,
+            careAdj,
+            compType: ct,
+          };
+        }
+      }
+    }
+    // Fall back to SL-level blended benchmark.
+    return this.benchmarkFor(location, serviceLine);
+  }
 }
 
 /** Load survey + care-rate data for a client and return a CompBenchmark. */
 export async function loadCompBenchmark(pool: Pool, clientId: string): Promise<CompBenchmark> {
   const [surveyRes, careRes] = await Promise.all([
     pool.query(
-      `SELECT keystats_location, competitor_type,
+      `SELECT keystats_location, competitor_type, room_type,
               monthly_rate_avg, care_level_2_rate, medication_management_fee
        FROM competitive_survey_data
        WHERE client_id = $1 AND monthly_rate_avg > 0`,
@@ -196,7 +262,12 @@ export async function loadCompBenchmark(pool: Pool, clientId: string): Promise<C
   for (const row of careRes.rows) {
     ourCareMap.set(`${row.location_name}|||${row.service_line}`, Number(row.level2_rate) || 0);
   }
-  return new CompBenchmark(aggregateSurveyRows(surveyRes.rows as SurveyRow[]), ourCareMap);
+  const rows = surveyRes.rows as SurveyRow[];
+  return new CompBenchmark(
+    aggregateSurveyRows(rows),
+    ourCareMap,
+    aggregateSurveyRowsByRT(rows),
+  );
 }
 
 export interface StudioCompResult {

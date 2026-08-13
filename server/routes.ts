@@ -20160,24 +20160,6 @@ Return ONLY valid JSON, no markdown fences:
         _ihAcc.forEach((e, k) => { if (e.st > 0) refIhVar.set(k, (e.ih - e.st) / e.st * 100); });
       }
 
-      // Build street-to-comp variance map for trigger evaluation (campus||sl → pct).
-      // Uses the SL-level campus_metrics values computed during the last reference-data
-      // calculation so that street_to_comp_var conditions in rules are evaluated
-      // accurately rather than being skipped.
-      const refCompVarMap = new Map<string, number>();
-      {
-        const cvRows = await pool.query(
-          `SELECT l.name AS campus, m.service_line AS sl, m.value
-           FROM campus_metrics m
-           JOIN locations l ON l.id = m.location_id
-           WHERE m.client_id = $1 AND m.metric_name = 'street_to_comp_var_pct' AND m.room_type IS NULL`,
-          [clientId],
-        );
-        for (const r of cvRows.rows as any[]) {
-          if (r.campus && r.sl) refCompVarMap.set(`${r.campus}||${r.sl}`, parseFloat(r.value));
-        }
-      }
-
       // Build one GroupRateInput per (campus, SL, RT) from spot-month aggRes rows.
       // avg_street is uniform per room type in aggRes (the SQL uses mode()), so it equals
       // the mode rate — same base as the units endpoint's groupModeStreet.
@@ -20199,6 +20181,35 @@ Return ONLY valid JSON, no markdown fences:
           _ruleGroups.push({ campus: g.campus, sl: g.sl, rt: g.rt, locationId: g.locationId, modeStreetRate: g.avgStreet, avgIhRate: g.avgIh, total: g.total, occ: g.occ });
         }
       }
+
+      // Build street-to-comp variance map for trigger evaluation, keyed by both
+      // campus||sl||rt (room-type-specific, preferred) and campus||sl (SL-level
+      // fallback).  Uses the live survey benchmark — room-type-specific when the
+      // survey has that room type (e.g. Studio Dlx vs Studio Dlx competitor rate),
+      // falling back to the SL-level blended benchmark otherwise.  This replaces
+      // the stale campus_metrics.competitor_final_rate approach which blended all
+      // room types together and produced misleading variances.
+      const refCompVarMap = new Map<string, number>();
+      {
+        const { loadCompBenchmark: _loadCB } = await import('./services/compBenchmark');
+        const refCompBench = await _loadCB(pool, clientId);
+        // Accumulate SL-level weighted averages for the campus||sl fallback key.
+        const slAcc = new Map<string, { wSum: number; wN: number }>();
+        for (const g of _ruleGroups) {
+          if (!g.modeStreetRate || !g.campus || !g.sl || !g.rt) continue;
+          const bench = refCompBench.benchmarkForRT(g.campus, g.sl, g.rt);
+          if (!bench || bench.adjusted <= 0) continue;
+          const pct = (g.modeStreetRate - bench.adjusted) / bench.adjusted * 100;
+          refCompVarMap.set(`${g.campus}||${g.sl}||${g.rt}`, pct);
+          // Accumulate unit-weighted SL-level variance for the fallback key.
+          const slKey = `${g.campus}||${g.sl}`;
+          const acc = slAcc.get(slKey) || { wSum: 0, wN: 0 };
+          acc.wSum += pct * g.total; acc.wN += g.total;
+          slAcc.set(slKey, acc);
+        }
+        slAcc.forEach(({ wSum, wN }, k) => { if (wN > 0) refCompVarMap.set(k, wSum / wN); });
+      }
+
       const { ruleRatesMap } = buildGroupRulePreviewRates(_ruleGroups, activeRules, refCampusOcc, refSlOcc, refIhVar, refCompVarMap);
 
       // ── Roll up in JS ────────────────────────────────────────────────
@@ -20904,21 +20915,6 @@ Return ONLY valid JSON, no markdown fences:
           const ihVar2 = new Map<string, number>();
           ihAcc.forEach((e, k) => { if (e.st > 0) ihVar2.set(k, (e.ih - e.st) / e.st * 100); });
 
-          // Street-to-comp variance for trigger evaluation (campus||sl → pct).
-          const compVarMap2 = new Map<string, number>();
-          {
-            const cvRows2 = await pool.query(
-              `SELECT l.name AS campus, m.service_line AS sl, m.value
-               FROM campus_metrics m
-               JOIN locations l ON l.id = m.location_id
-               WHERE m.client_id = $1 AND m.metric_name = 'street_to_comp_var_pct' AND m.room_type IS NULL`,
-              [clientId],
-            );
-            for (const r of cvRows2.rows as any[]) {
-              if (r.campus && r.sl) compVarMap2.set(`${r.campus}||${r.sl}`, parseFloat(r.value));
-            }
-          }
-
           // Build GroupRateInput array using pre-computed mode street rates so the
           // base rate matches the grouped endpoint's mode() WITHIN GROUP SQL value.
           const groupInputs = Array.from(gAgg.values()).map(g => ({
@@ -20927,6 +20923,28 @@ Return ONLY valid JSON, no markdown fences:
             avgIhRate: g.ihN ? g.ihSum / g.ihN : 0,
             total: g.total, occ: g.occ,
           }));
+
+          // Street-to-comp variance map: survey-based, RT-specific where available.
+          // Mirrors the logic in the grouped Reference Data endpoint.
+          const compVarMap2 = new Map<string, number>();
+          {
+            const { loadCompBenchmark: _loadCB2 } = await import('./services/compBenchmark');
+            const refCompBench2 = await _loadCB2(pool, clientId);
+            const slAcc2 = new Map<string, { wSum: number; wN: number }>();
+            for (const g of groupInputs) {
+              if (!g.modeStreetRate || !g.campus || !g.sl || !g.rt) continue;
+              const bench = refCompBench2.benchmarkForRT(g.campus, g.sl, g.rt);
+              if (!bench || bench.adjusted <= 0) continue;
+              const pct = (g.modeStreetRate - bench.adjusted) / bench.adjusted * 100;
+              compVarMap2.set(`${g.campus}||${g.sl}||${g.rt}`, pct);
+              const slKey = `${g.campus}||${g.sl}`;
+              const acc = slAcc2.get(slKey) || { wSum: 0, wN: 0 };
+              acc.wSum += pct * g.total; acc.wN += g.total;
+              slAcc2.set(slKey, acc);
+            }
+            slAcc2.forEach(({ wSum, wN }, k) => { if (wN > 0) compVarMap2.set(k, wSum / wN); });
+          }
+
           const { rulePreviewMap: preview } = buildGroupRulePreviewRates(groupInputs, activeRules2, campOcc2, slOcc2, ihVar2, compVarMap2);
           for (const [k, v] of Array.from(preview.entries())) rulePreviewMap.set(k, v);
         }
