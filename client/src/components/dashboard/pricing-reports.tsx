@@ -181,12 +181,14 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
 
   // Year-over-year street-rate movement + the lift the active rules will add
   const { data: yoyData } = useQuery<any>({
-    queryKey: ["/api/pricing-controls/yoy-rate-analysis", selectedLocationId ?? "", selectedServiceLine ?? "", (selectedLocations || []).join(",")],
+    queryKey: ["/api/pricing-controls/yoy-rate-analysis", selectedLocationId ?? "", selectedServiceLine ?? "", (selectedLocations || []).join(","), (selectedRegions || []).join(","), (selectedDivisions || []).join(",")],
     queryFn: () => {
       const p = new URLSearchParams();
       if (selectedLocationId) p.set("locationId", selectedLocationId);
       if (selectedServiceLine && selectedServiceLine !== "All") p.set("serviceLine", selectedServiceLine);
       (selectedLocations || []).forEach(l => p.append("locations", l));
+      (selectedRegions || []).forEach(r => p.append("regions", r));
+      (selectedDivisions || []).forEach(d => p.append("divisions", d));
       return fetch(`/api/pricing-controls/yoy-rate-analysis${p.toString() ? "?" + p.toString() : ""}`).then(r => r.json());
     },
     enabled: open,
