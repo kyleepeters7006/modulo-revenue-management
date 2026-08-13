@@ -129,6 +129,9 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     const p = new URLSearchParams();
     if (selectedLocationId) p.set("locationId", selectedLocationId);
     if (selectedServiceLine && selectedServiceLine !== "All") p.set("serviceLine", selectedServiceLine);
+    // Include location names so the server's scope-scoping logic fires and the
+    // result matches exactly what Rule Administration shows for the same filter.
+    (selectedLocations || []).forEach(l => p.append("locations", l));
     const s = p.toString();
     return s ? "?" + s : "";
   })();
@@ -142,7 +145,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
   })();
 
   const { data: rulesData = [] } = useQuery<any[]>({
-    queryKey: ["/api/adjustment-rules", selectedLocationId ?? "", selectedServiceLine ?? ""],
+    queryKey: ["/api/adjustment-rules", selectedLocationId ?? "", selectedServiceLine ?? "", (selectedLocations || []).join(",")],
     queryFn: () => fetch(`/api/adjustment-rules${rulesQs}`).then(r => r.json()),
     enabled: open,
     staleTime: 2 * 60 * 1000,
@@ -156,11 +159,12 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
   });
 
   const { data: statsData } = useQuery<any>({
-    queryKey: ["/api/adjustment-rules/combined-stats", selectedLocationId ?? "", selectedServiceLine ?? ""],
+    queryKey: ["/api/adjustment-rules/combined-stats", selectedLocationId ?? "", selectedServiceLine ?? "", (selectedLocations || []).join(",")],
     queryFn: () => {
       const p = new URLSearchParams();
       if (selectedLocationId) p.set("locationId", selectedLocationId);
       if (selectedServiceLine && selectedServiceLine !== "All") p.set("serviceLine", selectedServiceLine);
+      (selectedLocations || []).forEach(l => p.append("locations", l));
       return fetch(`/api/adjustment-rules/combined-stats${p.toString() ? "?" + p.toString() : ""}`).then(r => r.json());
     },
     enabled: open,

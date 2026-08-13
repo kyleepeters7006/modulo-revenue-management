@@ -823,7 +823,13 @@ export default function ReferenceDataTable({
 
   // ── dynamic rule column groups ──
   const dynGroups = useMemo((): GroupDef[] => {
-    const rules = data?.rules ?? [];
+    // Only show a rule as a column when it produces a non-null rate for at least
+    // one row in the current filtered view.  This ensures the columns match the
+    // active rules visible in Rule Administration for the same scope — portfolio-wide
+    // rules scoped to another location won't bleed in as empty columns.
+    const allRules = data?.rules ?? [];
+    const rows = data?.rows ?? [];
+    const rules = allRules.filter(r => rows.some(row => (row.ruleRates as any)?.[r.id] != null));
     const allMonths = data?.months ?? [];
 
     // Build base groups (with rule groups injected after "inhouse")
@@ -877,7 +883,7 @@ export default function ReferenceDataTable({
       }));
       return { ...g, cols: [...g.cols, ...monthCols] };
     });
-  }, [data?.rules, data?.months, expandedGroups, groupLevel]);
+  }, [data?.rules, data?.rows, data?.months, expandedGroups, groupLevel]);
 
   const dynAllCols = useMemo(() => dynGroups.flatMap(g => g.cols), [dynGroups]);
 

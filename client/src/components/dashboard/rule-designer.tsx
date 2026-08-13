@@ -168,7 +168,7 @@ const defaultAction = (): RuleAction => ({
   scope: 'Vacant units only',
 });
 
-function buildDescription(conditions: Condition[], operator: string, action: RuleAction): string {
+function buildDescription(conditions: Condition[], operator: string, action: RuleAction, roomTypes: string[] = []): string {
   const condParts = conditions
     .filter(c => c.value.trim())
     .map(c => `${c.metric} (${c.timePeriod}) ${c.operator} ${c.value}`);
@@ -179,7 +179,11 @@ function buildDescription(conditions: Condition[], operator: string, action: Rul
     ? (action.amountType === 'percent' ? `${action.amountValue}%` : `$${action.amountValue}`)
     : '[amount]';
   const thenPart = `${actionLabel} by ${amountStr}`;
-  const scopePart = action.scope ? ` for ${action.scope.toLowerCase()}` : '';
+  // When specific room types are selected, embed them in the description so the
+  // rule name generation picks them up (e.g. "for Studio Dlx, Studio").
+  const scopePart = roomTypes.length > 0
+    ? ` for ${roomTypes.join(', ')}`
+    : action.scope ? ` for ${action.scope.toLowerCase()}` : '';
   return [ifPart, thenPart + scopePart].filter(Boolean).join(', ');
 }
 
@@ -251,6 +255,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [editingRuleName, setEditingRuleName] = useState<string>('');
   const [editingRuleSLs, setEditingRuleSLs] = useState<string[]>([]);
   const [newRuleSLs, setNewRuleSLs] = useState<string[]>([]);
+  const [newRuleRoomTypes, setNewRuleRoomTypes] = useState<string[]>([]);
+  const [availableRoomTypes, setAvailableRoomTypes] = useState<string[]>([]);
+  const [newRtPickerOpen, setNewRtPickerOpen] = useState(false);
+  const newRtPickerRef = useRef<HTMLDivElement>(null);
   const [effectiveDate, setEffectiveDate] = useState<string>(''); // '' = effective immediately (YYYY-MM-DD)
   const [saveAsHistorical, setSaveAsHistorical] = useState(false); // true = record of a past change; never applied to current rates
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -360,6 +368,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   }, [locationId, serviceLine]);
 
   useEffect(() => { fetchManualOverrides(); }, [fetchManualOverrides]);
+
+  // Fetch distinct room types for the current location (re-runs when location or SL filter changes)
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (locationId) params.set('locationId', locationId);
+    if (newRuleSLs.length > 0) params.set('serviceLines', newRuleSLs.join(','));
+    fetch(`/api/room-types?${params}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setAvailableRoomTypes)
+      .catch(() => {});
+  }, [locationId, newRuleSLs]);
 
   const recognitionRef = useRef<any>(null);
 
@@ -504,13 +523,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     return () => recognitionRef.current?.stop();
   }, [isSpeechSupported, toast]);
 
-  // Close SL picker dropdowns when clicking outside
+  // Close SL / RT picker dropdowns when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (slPickerRef.current && !slPickerRef.current.contains(e.target as Node)) setSlPickerOpen(false);
       const inStructuredPicker = newSlPickerRef.current && newSlPickerRef.current.contains(e.target as Node);
       const inAiPicker = newSlPickerAiRef.current && newSlPickerAiRef.current.contains(e.target as Node);
       if (!inStructuredPicker && !inAiPicker) setNewSlPickerOpen(false);
+      if (newRtPickerRef.current && !newRtPickerRef.current.contains(e.target as Node)) setNewRtPickerOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -529,7 +549,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const getDescription = () =>
     activeTab === 'ask-ai'
       ? aiInput.trim()
-      : buildDescription(conditions, conditionOperator, ruleAction);
+      : buildDescription(conditions, conditionOperator, ruleAction, newRuleRoomTypes);
 
   // Preview impact (no save)
   const handlePreviewImpact = async () => {
@@ -578,7 +598,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, effectiveDate: effectiveDate || null, isAdditive: stackRule, isHistorical: saveAsHistorical }),
+        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, roomTypes: isEditing ? [] : newRuleRoomTypes, effectiveDate: effectiveDate || null, isAdditive: stackRule, isHistorical: saveAsHistorical }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -591,6 +611,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       setEditingRuleName('');
       setEditingRuleSLs([]);
       setNewRuleSLs([]);
+      setNewRuleRoomTypes([]);
       setEffectiveDate('');
       setSaveAsHistorical(false);
       setStackRule(true);
@@ -615,11 +636,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     setEditingRuleName('');
     setEditingRuleSLs([]);
     setNewRuleSLs([]);
+    setNewRuleRoomTypes([]);
     setEffectiveDate('');
     setSaveAsHistorical(false);
     setStackRule(true);
     setSlPickerOpen(false);
     setNewSlPickerOpen(false);
+    setNewRtPickerOpen(false);
   };
 
   const startEdit = (rule: AdjustmentRule) => {
@@ -637,6 +660,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
               ? [action0.filters.serviceLine]
               : [];
     setEditingRuleSLs(resolvedSLs);
+    // Hydrate room type scope from stored action filters
+    const resolvedRTs: string[] = Array.isArray(action0?.filters?.roomType) ? action0.filters.roomType : [];
+    setNewRuleRoomTypes(resolvedRTs);
     setEffectiveDate((rule as any).effectiveDate ? String((rule as any).effectiveDate).slice(0, 10) : '');
     setStackRule(isRuleAdditive(rule.action as any));
     setDesignerOpen(true);
@@ -1094,10 +1120,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                 {/* ── STRUCTURED BUILDER TAB ── */}
                 <TabsContent value="structured" className="mt-4 space-y-5">
 
-                  {/* Service line scope picker — only shown for new rules (edit uses the banner) */}
+                  {/* Service line + room type scope pickers — only shown for new rules (edit uses the banner) */}
                   {!editingRuleId && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                       <span className="font-medium text-foreground">Scope:</span>
+
+                      {/* Service line picker */}
                       <div className="relative" ref={newSlPickerRef}>
                         <button
                           type="button"
@@ -1125,6 +1153,46 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                             {newRuleSLs.length > 0 && (
                               <button type="button" onClick={() => setNewRuleSLs([])} className="text-[10px] text-muted-foreground hover:underline mt-1 w-full text-left">
                                 Clear (all service lines)
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Room type picker */}
+                      <div className="relative" ref={newRtPickerRef}>
+                        <button
+                          type="button"
+                          data-testid="scope-picker-room-type"
+                          onClick={() => setNewRtPickerOpen(p => !p)}
+                          className="h-7 text-xs px-2.5 inline-flex items-center gap-1.5 border border-border rounded-md bg-muted/40 hover:bg-muted/80 hover:border-[var(--trilogy-teal)] transition-colors"
+                        >
+                          <span data-testid="scope-label-room-type">
+                            {newRuleRoomTypes.length === 0 ? 'All room types' : newRuleRoomTypes.join(', ')}
+                          </span>
+                          <ChevronDown className="h-3 w-3 shrink-0" />
+                        </button>
+                        {newRtPickerOpen && (
+                          <div className="absolute top-full left-0 z-50 mt-1 bg-white dark:bg-gray-900 border border-border rounded-lg shadow-lg p-2 min-w-[160px] max-h-52 overflow-y-auto">
+                            {availableRoomTypes.length === 0 ? (
+                              <p className="text-[11px] text-muted-foreground px-1 py-1">No room types found</p>
+                            ) : (
+                              availableRoomTypes.map(rt => (
+                                <label key={rt} className="flex items-center gap-2 text-xs py-1 cursor-pointer text-foreground hover:text-[var(--trilogy-teal)]">
+                                  <input
+                                    type="checkbox"
+                                    data-testid={`scope-checkbox-room-type-${rt}`}
+                                    checked={newRuleRoomTypes.includes(rt)}
+                                    onChange={e => setNewRuleRoomTypes(prev => e.target.checked ? [...prev, rt] : prev.filter(r => r !== rt))}
+                                    className="h-3 w-3"
+                                  />
+                                  {rt}
+                                </label>
+                              ))
+                            )}
+                            {newRuleRoomTypes.length > 0 && (
+                              <button type="button" onClick={() => setNewRuleRoomTypes([])} className="text-[10px] text-muted-foreground hover:underline mt-1 w-full text-left">
+                                Clear (all room types)
                               </button>
                             )}
                           </div>

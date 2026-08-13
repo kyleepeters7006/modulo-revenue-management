@@ -13098,6 +13098,38 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
   
+  // Distinct room types for the current client/location — used by the Rule Designer scope picker
+  app.get("/api/room-types", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLines } = req.query as Record<string, string>;
+
+      let query = `SELECT DISTINCT room_type FROM rent_roll_data WHERE client_id = $1 AND room_type IS NOT NULL AND room_type <> ''`;
+      const params: any[] = [clientId];
+
+      if (locationId) {
+        params.push(locationId);
+        query += ` AND location_id = $${params.length}`;
+      }
+
+      if (serviceLines) {
+        const sls = String(serviceLines).split(',').map((s: string) => s.trim()).filter(Boolean);
+        if (sls.length > 0) {
+          params.push(sls);
+          query += ` AND service_line = ANY($${params.length})`;
+        }
+      }
+
+      query += ` ORDER BY room_type`;
+
+      const result = await pool.query(query, params);
+      res.json(result.rows.map((r: any) => r.room_type));
+    } catch (error) {
+      console.error('Error fetching room types:', error);
+      res.status(500).json({ error: 'Failed to fetch room types' });
+    }
+  });
+
   // Room Type Base Prices endpoints
   app.get("/api/room-type-base-prices", async (req, res) => {
     try {
@@ -14485,7 +14517,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine, serviceLines, effectiveDate, isAdditive, isHistorical } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, isHistorical } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -14517,6 +14549,17 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         parsedRule.action = {
           ...parsedRule.action,
           filters: { ...(parsedRule.action.filters ?? {}), serviceLine: effectiveSLs },
+        };
+        parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+      }
+
+      // Inject explicit room type scope when provided by the Rule Designer picker.
+      // This takes precedence over whatever the NLP parser inferred from the description.
+      const effectiveRTs: string[] = Array.isArray(roomTypes) ? roomTypes.filter(Boolean) : [];
+      if (effectiveRTs.length > 0) {
+        parsedRule.action = {
+          ...parsedRule.action,
+          filters: { ...(parsedRule.action.filters ?? {}), roomType: effectiveRTs },
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
       }
@@ -17821,7 +17864,7 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const { id } = req.params;
       const clientId = (req as any).clientId || 'demo';
-      const { description, locationId, serviceLine, serviceLines, effectiveDate, isAdditive } = req.body;
+      const { description, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -17849,6 +17892,16 @@ Return ONLY valid JSON, no markdown fences:
         parsedRule.action = {
           ...parsedRule.action,
           filters: { ...(parsedRule.action.filters ?? {}), serviceLine: effectiveSLs },
+        };
+        parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
+      }
+
+      // Inject explicit room type scope when provided — takes precedence over NLP inference.
+      const effectiveRTs: string[] = Array.isArray(roomTypes) ? roomTypes.filter(Boolean) : [];
+      if (effectiveRTs.length > 0) {
+        parsedRule.action = {
+          ...parsedRule.action,
+          filters: { ...(parsedRule.action.filters ?? {}), roomType: effectiveRTs },
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
       }
