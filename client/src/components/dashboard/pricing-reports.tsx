@@ -144,6 +144,8 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     const p = new URLSearchParams();
     if (selectedServiceLine && selectedServiceLine !== "All") p.set("serviceLine", selectedServiceLine);
     (selectedLocations || []).forEach(l => p.append("locations", l));
+    (selectedRegions || []).forEach(r => p.append("regions", r));
+    (selectedDivisions || []).forEach(d => p.append("divisions", d));
     const s = p.toString();
     return s ? "?" + s : "";
   })();
@@ -156,7 +158,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
   });
 
   const { data: commentary } = useQuery<any>({
-    queryKey: ["/api/pricing-controls/commentary", selectedServiceLine, (selectedLocations || []).join(",")],
+    queryKey: ["/api/pricing-controls/commentary", selectedServiceLine, (selectedLocations || []).join(","), (selectedRegions || []).join(","), (selectedDivisions || []).join(",")],
     queryFn: () => fetch(`/api/pricing-controls/commentary${commentaryQs}`).then(r => r.json()),
     enabled: open,
     staleTime: 5 * 60 * 1000,
