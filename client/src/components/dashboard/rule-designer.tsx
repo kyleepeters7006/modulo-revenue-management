@@ -266,7 +266,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [historyRules, setHistoryRules] = useState<AdjustmentRule[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyReportOpen, setHistoryReportOpen] = useState(false);
-  const [stackRule, setStackRule] = useState(true); // true = stacks with other rules; false = exclusive
+  const [stackRule, setStackRule] = useState(false); // true = stacks with other rules; false = exclusive
   const [slPickerOpen, setSlPickerOpen] = useState(false);
   const [newSlPickerOpen, setNewSlPickerOpen] = useState(false);
   const slPickerRef = useRef<HTMLDivElement>(null);
@@ -624,7 +624,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       setNewRuleRoomTypes([]);
       setEffectiveDate('');
       setSaveAsHistorical(false);
-      setStackRule(true);
+      setStackRule(false);
       if (saveAsHistorical) fetchHistory();
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
@@ -649,7 +649,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     setNewRuleRoomTypes([]);
     setEffectiveDate('');
     setSaveAsHistorical(false);
-    setStackRule(true);
+    setStackRule(false);
     setSlPickerOpen(false);
     setNewSlPickerOpen(false);
     setNewRtPickerOpen(false);
