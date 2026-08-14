@@ -26,3 +26,5 @@
 - [Rule save visibility](rule-save-visibility.md) — purgeRuleCaches must be awaited BEFORE res.json(); GET /api/adjustment-rules needs Cache-Control: no-store; frontend should optimistically prepend new rule to state.
 - [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.
 - [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey data has client_id=NULL everywhere; queries need (client_id=$1 OR client_id IS NULL); AL/MC must also search competitor_type=AL.
+- [DATABASE_URL vs NEON_DATABASE_URL](db-url-distinction.md) — server uses DATABASE_URL; NEON_DATABASE_URL is a different incomplete DB; always use DATABASE_URL for manual node queries.
+- [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.

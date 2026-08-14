@@ -16963,16 +16963,19 @@ Return ONLY valid JSON with no markdown fences:
       const compPosCached = getCachedAnalytics(compPosCacheKey);
       if (compPosCached) return res.json(compPosCached);
 
-      // Latest rent roll month
+      // Latest rent roll month — scope via locations join (rent_roll_data has no client_id column).
       const latestResult = await pool.query(
-        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id=$1`, [clientId]
+        `SELECT MAX(rr.upload_month) AS m
+         FROM rent_roll_data rr
+         JOIN locations loc ON loc.id = rr.location_id
+         WHERE loc.client_id = $1`, [clientId]
       );
       const latestMonth = latestResult.rows[0]?.m;
       if (!latestMonth) return res.json([]);
 
-      // Our rates + occupancy per location+SL. Region/division live on the
-      // locations table, so filter via a join (rent_roll_data has no such columns).
-      let whereClause = `rr.client_id=$1 AND rr.upload_month=$2 AND rr.street_rate>0`;
+      // Our rates + occupancy per location+SL. Scope to client via locations join
+      // (rent_roll_data has no client_id column — use loc.client_id instead).
+      let whereClause = `loc.client_id=$1 AND rr.upload_month=$2 AND rr.street_rate>0`;
       const params: any[] = [clientId, latestMonth];
       let p = 3;
       if (locations.length) { whereClause += ` AND rr.location = ANY($${p++})`; params.push(locations); }
@@ -16983,7 +16986,7 @@ Return ONLY valid JSON with no markdown fences:
       // Distribution weights for combined-SL history rows must NOT depend on the
       // serviceLine filter (or street_rate>0), otherwise occupancy for the same
       // location+SL point would change when the filter is applied.
-      let weightWhere = `rr.client_id=$1 AND rr.upload_month=$2`;
+      let weightWhere = `loc.client_id=$1 AND rr.upload_month=$2`;
       const weightParams: any[] = [clientId, latestMonth];
       let wp = 3;
       if (locations.length) { weightWhere += ` AND rr.location = ANY($${wp++})`; weightParams.push(locations); }
@@ -17003,8 +17006,11 @@ Return ONLY valid JSON with no markdown fences:
             -- independent living) has no Studio product so all room types are
             -- used instead — this matches the competitor benchmark which already
             -- aggregates all room types. B beds excluded as everywhere else.
+            -- rr.room_type is already backfill-normalized ("Studio", "Studio Dlx",
+            -- etc.) so no room_type_groupings join is needed — branded names like
+            -- "Legacy Lane - Studio" (group_name) would break the 'studio%' filter.
             ROUND(AVG(rr.street_rate) FILTER (WHERE
-              (rr.service_line = 'VIL' OR COALESCE(rtg.group_name, rr.room_type) ILIKE 'studio%')
+              (rr.service_line = 'VIL' OR rr.room_type ILIKE 'studio%')
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
             )::numeric, 0) AS our_rate,
             ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
@@ -17013,9 +17019,6 @@ Return ONLY valid JSON with no markdown fences:
           -- matches competitive_survey_data.keystats_location. The region/division
           -- filters below use loc.region / loc.division from this same join.
           LEFT JOIN locations loc ON loc.id = rr.location_id
-          LEFT JOIN room_type_groupings rtg
-            ON rtg.client_id = rr.client_id AND rtg.location = rr.location
-           AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
           WHERE ${whereClause}
           GROUP BY rr.location, loc.name, rr.service_line
         `, params),
@@ -17041,7 +17044,7 @@ Return ONLY valid JSON with no markdown fences:
           SELECT rr.location, rr.service_line, COUNT(*) AS total_cnt,
                  COUNT(*) FILTER (WHERE rr.occupied_yn) AS occ_cnt
           FROM rent_roll_data rr
-          LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+          JOIN locations loc ON loc.id = rr.location_id
           WHERE ${weightWhere}
             AND ${slWeightSqlPredicate('rr.')}
           GROUP BY rr.location, rr.service_line

@@ -25,12 +25,11 @@
 import type { Pool } from "pg";
 
 // Service line → survey competitor types, in fallback order.
-// AL/MC includes "AL" as a fallback because survey data typically stores
-// AL/MC-range competitors under competitor_type="AL" (same product, same
-// rate sheet). HC/MC similarly falls back to the legacy SMC type.
+// HC/MC falls back to the legacy SMC type for older survey imports.
+// AL/MC and AL are distinct service lines with separate survey entries.
 export const SL_TO_COMP: Record<string, string[]> = {
   AL: ["AL"],
-  "AL/MC": ["AL/MC", "AL"],
+  "AL/MC": ["AL/MC"],
   HC: ["HC"],
   "HC/MC": ["HC/MC", "SMC"],
   SL: ["IL_IL"],
