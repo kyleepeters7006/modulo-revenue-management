@@ -270,8 +270,12 @@ async function findDuplicateRule(
 // Returns a Promise so callers that need the DB deletion to complete before
 // continuing (e.g. after an ROH upload) can await it.
 function purgeRuleCaches(clientId: string): Promise<void> {
+  // adj-rules list cache must be purged for ALL clients, not just the session
+  // client. Global rules (client_id = NULL in DB) are visible to every client,
+  // so a rule saved in a 'demo' session still affects what 'trilogy' sees.
+  // Scoping the purge to one clientId leaves other clients' caches stale.
   const prefixes = [
-    `adj-rules:${clientId}:`,
+    `adj-rules:`,               // purge rule LIST for every client
     `rule-strategy-analysis:${clientId}`,
     `adj-rules-combined:${clientId}`,
     `pc-commentary:${clientId}`,

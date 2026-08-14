@@ -16,3 +16,4 @@ description: Why newly saved rules don't appear in Rule Administration immediate
 - `server/routes.ts` POST `/api/adjustment-rules/suggestions/accept` — same order
 - `server/routes.ts` GET `/api/adjustment-rules` — `res.set('Cache-Control', 'no-store')` at the top
 - Frontend `handleSaveRule` in `rule-designer.tsx` — optimistically prepend `data.rule` to `rules` state, then do a `cache: 'reload'` fetch for the authoritative list
+- `purgeRuleCaches` must clear `adj-rules:` (ALL clients) not just `adj-rules:${clientId}:` — global rules (client_id=NULL) are visible to every client; scoping the purge to one client leaves others stale when sessions switch (e.g. user saves as 'demo' then views as 'trilogy')
