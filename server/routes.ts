@@ -16457,13 +16457,11 @@ Respond in JSON format:
         };
       });
 
-      // When a location/region/division scope is active, hide active rules with
-      // no qualifying units in that scope — the rules list and coverage map
-      // should only show rules that actually touch the filtered campuses.
-      const scopedRules = scopeLocationIds
-        ? enrichedRules.filter((r: any) =>
-            !r.isActive || r.isHistorical === true || (r.affectedUnits ?? 0) > 0)
-        : enrichedRules;
+      // Never hide active rules based on affectedUnits — a rule can have
+      // 0 impacted units this month because its trigger conditions aren't
+      // currently met, but it must still appear in Rule Administration so
+      // the user can see, edit, or deactivate it.
+      const scopedRules = enrichedRules;
 
       // Attach the strategy category so the Rule Administration UI can group
       // rules the same way the Rule Performance section does.
