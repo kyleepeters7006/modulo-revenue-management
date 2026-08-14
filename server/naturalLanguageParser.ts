@@ -119,6 +119,9 @@ const SERVICE_LINES: Record<string, string> = {
   'sl': 'SL',
 };
 
+// ── Condition type alias ───────────────────────────────────────────────────
+type SingleCond = { field: string; operator: '>' | '<' | '>=' | '<=' | '='; value: number };
+
 // ── Comparison operator table ─────────────────────────────────────────────
 // Ordered most-specific first.
 const CMP_OPS: Array<{ re: RegExp; op: '>' | '<' | '>=' | '<=' | '=' }> = [
@@ -154,6 +157,48 @@ function extractCmpRaw(text: string): { op: '>' | '<' | '>=' | '<=' | '='; value
   return null;
 }
 
+/**
+ * Detect "between X and Y" / "between X - Y" patterns and return [lo, hi] bounds.
+ * Handles optional $, % signs and comma-separated thousands.
+ * Also recognises the protected token __BETW_AND__ used internally when the "and"
+ * inside a range must not be confused with a condition conjunction during splitting.
+ *
+ * Value normalisation:
+ *   - Dollar prefix ($) detected → currency, keep raw (no /100 scaling)
+ *   - rawPct=true               → keep raw (e.g. 10 means 10 percentage points)
+ *   - rawPct=false              → apply extractCmp scaling (>1 → /100 for fractions)
+ */
+function extractBetween(
+  text: string,
+  rawPct: boolean,
+): [SingleCond, SingleCond] | null {
+  // Capture optional leading $ on each bound so we can detect currency.
+  // Groups: 1=lo_dollar, 2=lo_num, 3=hi_dollar, 4=hi_num
+  const re =
+    /(?:is\s+)?between\s+(\$?)(-?\d+(?:,\d{3})*(?:\.\d+)?)[%$]?\s*(?:and|__BETW_AND__|[-\u2013])\s*(\$?)(-?\d+(?:,\d{3})*(?:\.\d+)?)[%$]?/i;
+  const m = text.match(re);
+  if (!m) return null;
+
+  const isCurrency = m[1] === '$' || m[3] === '$';
+
+  // Strip commas from thousand-separated numbers (e.g. $3,000 → 3000)
+  const parseVal = (s: string) => parseFloat(s.replace(/,/g, ''));
+  let lo = parseVal(m[2]);
+  let hi = parseVal(m[4]);
+
+  if (!isCurrency && !rawPct) {
+    // Same normalisation as extractCmp: whole-number percentages (> 1) → decimal
+    if (lo > 1) lo = lo / 100;
+    if (hi > 1) hi = hi / 100;
+  }
+  // isCurrency or rawPct → keep raw values unchanged
+
+  return [
+    { field: '', operator: '>=', value: lo },
+    { field: '', operator: '<=', value: hi },
+  ];
+}
+
 // ── Metric name → internal field name mapping ─────────────────────────────
 // Keys must be lowercase to match against lowercased phrase input.
 const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> = [
@@ -172,15 +217,27 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
 
 /**
  * Parse a single condition phrase (e.g. "service line occupancy (current month) is greater than or equal to 93")
- * into a structured { field, operator, value } object.
+ * into a structured condition object (or a two-element array when the phrase uses
+ * "between X and Y", which expands into a >= lo AND <= hi pair).
+ *
  */
 function parseSingleConditionPhrase(
-  phrase: string
-): { field: string; operator: '>' | '<' | '>=' | '<=' | '='; value: number } | null {
+  phrase: string,
+): SingleCond | [SingleCond, SingleCond] | null {
   const lower = phrase.toLowerCase().trim();
 
   for (const { key, field, rawPct } of METRIC_TO_FIELD) {
     if (!lower.startsWith(key) && !lower.includes(key)) continue;
+
+    // "between X and Y" → two conditions (>= lo, <= hi).
+    // OR+between combinations are rejected upstream in resolveIfClause before
+    // this function is reached, so no guard is needed here.
+    const between = extractBetween(lower, !!rawPct);
+    if (between) {
+      between[0].field = field;
+      between[1].field = field;
+      return between;
+    }
 
     if (rawPct) {
       const cmp = extractCmpRaw(lower);
@@ -311,49 +368,69 @@ function parseTrigger(input: string): ParsedTrigger | null {
   // Both forms share the same splitConditionPhrases / parseSingleConditionPhrase logic.
 
   function resolveIfClause(ifClause: string) {
-    const { parts, operator } = splitConditionPhrases(ifClause);
+    // Pre-protect "between X and Y" (any casing of "and") so the conjunction inside
+    // the range is not mistaken for a condition separator during splitting.
+    // The /gi flag covers "and", "AND", "And", etc.
+    const protectedClause = ifClause.replace(
+      /\bbetween\s+(\$?-?\d+(?:,\d{3})*(?:\.\d+)?[%$]?)\s+(and)\s+(\$?-?\d+(?:,\d{3})*(?:\.\d+)?[%$]?)/gi,
+      (_: string, lo: string, _and: string, hi: string) => `between ${lo} __BETW_AND__ ${hi}`,
+    );
 
-    if (parts.length >= 2) {
-      const parsedConditions = parts
-        .map(p => parseSingleConditionPhrase(p))
-        .filter((c): c is NonNullable<typeof c> => c !== null);
+    const { parts, operator } = splitConditionPhrases(protectedClause);
+    // Restore the protected "and" in each part before parsing
+    const restoredParts = parts.map((p: string) => p.replace(/__BETW_AND__/g, 'and'));
 
-      if (parsedConditions.length >= 2) {
-        return {
-          type: 'condition' as const,
-          conditions: parsedConditions,
-          conditionOperator: operator,
-        };
-      }
-
-      if (parsedConditions.length === 1) {
-        return { type: 'condition' as const, condition: parsedConditions[0] };
-      }
+    // If the outer operator is OR and any part contains a "between" range,
+    // we cannot safely expand it: both bounds require AND semantics, and flattening
+    // them under OR would invert the bounded range (e.g. matching occupancy BELOW
+    // the floor OR ABOVE the ceiling). Reject the entire clause so no incorrect
+    // rule is persisted rather than silently dropping a bound.
+    const BETWEEN_RE = /\bbetween\b/i;
+    if (operator === 'OR' && restoredParts.some(p => BETWEEN_RE.test(p))) {
+      return null;
     }
 
-    if (parts.length === 1) {
-      const single = parseSingleConditionPhrase(parts[0]);
-      if (single) return { type: 'condition' as const, condition: single };
+    // Flatten: parseSingleConditionPhrase may return a single cond or a [lo,hi] pair.
+    // allowBetween is always true here because OR+between was already rejected above.
+    const parsedConditions: SingleCond[] = [];
+    for (const p of restoredParts) {
+      const result = parseSingleConditionPhrase(p);
+      if (result === null) continue;
+      if (Array.isArray(result)) parsedConditions.push(...result);
+      else parsedConditions.push(result);
+    }
+
+    if (parsedConditions.length >= 2) {
+      return {
+        type: 'condition' as const,
+        conditions: parsedConditions,
+        conditionOperator: operator,
+      };
+    }
+
+    if (parsedConditions.length === 1) {
+      return { type: 'condition' as const, condition: parsedConditions[0] };
     }
 
     return null;
   }
 
   // Form 1: "If <clause>, <action verb>..."
+  // When the input explicitly starts with "if ...", the clause is the canonical trigger
+  // specification. If resolveIfClause cannot parse it (unrecognised metric or an
+  // OR+between combination that cannot be safely flattened), return null rather than
+  // falling through to generalised single-condition paths that could produce an
+  // incorrect partial trigger.
   const ifMatchLeading = input.match(/^if\s+(.+?)(?:,\s*(?:increase|decrease|reduce|raise|lower|set|apply|remove|cap|boost|add|adjust))/i);
   if (ifMatchLeading) {
-    const result = resolveIfClause(ifMatchLeading[1]);
-    if (result) return result;
+    return resolveIfClause(ifMatchLeading[1]); // null propagates — never falls through
   }
 
-  // Form 2: "<action description> If <clause>" — "if" anywhere, clause to end of string.
-  // Only attempt when Form 1 didn't match (i.e. "if" is not at start of string).
-  if (!ifMatchLeading) {
-    const ifMatchTrailing = input.match(/\bif\s+(.+)$/i);
-    if (ifMatchTrailing) {
-      const result = resolveIfClause(ifMatchTrailing[1]);
-      if (result) return result;
-    }
+  // Form 2: "<action description> If <clause>" — "if" appears after the action, clause
+  // runs to end of string. Same terminal-rejection semantics as Form 1.
+  const ifMatchTrailing = input.match(/\bif\s+(.+)$/i);
+  if (ifMatchTrailing) {
+    return resolveIfClause(ifMatchTrailing[1]); // null propagates — never falls through
   }
 
   // ── Generalized single-condition triggers (no "If" prefix required) ───
