@@ -1,6 +1,7 @@
 import { pool } from "../db";
 import { isBBedRow } from "@shared/bBed";
 import { loadCompBenchmark, type CompBenchmark } from "./compBenchmark";
+import { normalizeRoomType } from "@shared/roomTypes";
 
 // ---------------------------------------------------------------------------
 // Qualified rule impact — the single source of truth for "how many units does
@@ -55,6 +56,10 @@ export interface RuleImpactContext {
   compBenchmark: CompBenchmark;              // survey-based competitor benchmark (correct source for street_to_comp_var_pct)
   locIdToName: Map<string, string>;          // location_id → location name for benchmark lookup
   campusStreetToCompVar: Map<string, number>; // `${locId}|${sl}` → pre-computed street_to_comp_var_pct from campus_metrics
+  /** Trailing-N occupancy % from room_type_occupancy_history.
+   *  Key: `${locId}|${sl}|${rt}|trailing${N}` (sl='' campus-level, rt='' SL-level).
+   *  Value: weighted avg occ_percent over N most recent months (0–100 scale). */
+  trailingOccMap: Map<string, number>;
 }
 
 export interface RuleCampusImpact {
@@ -438,7 +443,137 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     }
   }
 
-  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar };
+  // ── Trailing occupancy from room_type_occupancy_history ──────────────────
+  // Fetch all history rows for this client in a single query, then compute
+  // rolling averages in memory for windows of 3, 6, and 12 months.
+  // Key format: `${locId}|${sl}|${rt}|trailing${N}` (sl='' → campus, rt='' → SL-level)
+  const trailingOccMap = new Map<string, number>();
+  try {
+    // Include rows whose location_id is NULL by resolving them via location_name
+    // (matching the established authoritative-source pattern used elsewhere).
+    const histRes = await pool.query(
+      `SELECT COALESCE(roh.location_id, l.id) AS location_id,
+              roh.service_line, roh.normalized_room_type AS room_type,
+              roh.year, roh.month, roh.occ_units, roh.available_units, roh.occ_percent
+       FROM room_type_occupancy_history roh
+       LEFT JOIN locations l
+         ON l.client_id = roh.client_id
+        AND l.name      = roh.location_name
+        AND roh.location_id IS NULL
+       WHERE roh.client_id = $1
+         AND (roh.location_id IS NOT NULL OR l.id IS NOT NULL)
+       ORDER BY COALESCE(roh.location_id, l.id),
+                roh.service_line, roh.normalized_room_type, roh.year DESC, roh.month DESC`,
+      [clientId],
+    );
+    if (histRes.rows.length > 0) {
+      // Group rows by (locId, sl, rt) — already ordered recency-first per group.
+      // Composite service lines ("AL, MC") are tokenised and expanded so each token
+      // gets its own history entry, matching the convention used by occupancy-map code.
+      type HistRow = { location_id: string; service_line: string; room_type: string; year: number; month: number; occ_units: number | null; available_units: number | null; occ_percent: number | null };
+      const byRt = new Map<string, HistRow[]>();
+      for (const r of histRes.rows as HistRow[]) {
+        const slTokens = String(r.service_line || '').split(',').map(t => t.trim()).filter(Boolean);
+        for (const sl of slTokens) {
+          const k = `${r.location_id}|${sl}|${r.room_type}`;
+          if (!byRt.has(k)) byRt.set(k, []);
+          byRt.get(k)!.push(r);
+        }
+      }
+
+      // Helper: weighted average occ% over top-N rows in the recency-ordered list.
+      // Prefers occ_units/available_units for a true weighted average; falls back
+      // to averaging occ_percent when unit counts are absent.
+      const windowAvg = (rows: HistRow[], n: number): number | null => {
+        const slice = rows.slice(0, n);
+        if (!slice.length) return null;
+        const occSum = slice.reduce((s, r) => s + (r.occ_units ?? 0), 0);
+        const avlSum = slice.reduce((s, r) => s + (r.available_units ?? 0), 0);
+        if (avlSum > 0) return (occSum / avlSum) * 100;
+        // Fallback: simple average of occ_percent
+        const pctRows = slice.filter(r => r.occ_percent !== null);
+        return pctRows.length ? pctRows.reduce((s, r) => s + (r.occ_percent ?? 0), 0) / pctRows.length : null;
+      };
+
+      const WINDOWS = [3, 6, 12] as const;
+
+      byRt.forEach((rows, rtKey) => {
+        const [locId, sl, rt] = rtKey.split('|');
+        for (const w of WINDOWS) {
+          const avg = windowAvg(rows, w);
+          if (avg !== null) {
+            trailingOccMap.set(`${locId}|${sl}|${rt}|trailing${w}`, avg);
+          }
+        }
+      });
+
+      // SL-level: aggregate across all room types for each (locId, sl)
+      // Composite SL values ("AL, MC") are tokenised so each token accumulates separately.
+      const bySl = new Map<string, Map<string, HistRow[]>>(); // locId|sl → month_key → rows
+      for (const r of histRes.rows as HistRow[]) {
+        const monthKey = `${r.year}-${String(r.month).padStart(2, '0')}`;
+        const slTokens = String(r.service_line || '').split(',').map(t => t.trim()).filter(Boolean);
+        for (const sl of slTokens) {
+          const slKey = `${r.location_id}|${sl}`;
+          if (!bySl.has(slKey)) bySl.set(slKey, new Map());
+          if (!bySl.get(slKey)!.has(monthKey)) bySl.get(slKey)!.set(monthKey, []);
+          bySl.get(slKey)!.get(monthKey)!.push(r);
+        }
+      }
+      bySl.forEach((monthMap, slKey) => {
+        const [locId, sl] = slKey.split('|');
+        // Sort months descending, then for each window take the top-N months and aggregate
+        const sortedMonths = Array.from(monthMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
+        for (const w of WINDOWS) {
+          const topMonths = sortedMonths.slice(0, w);
+          let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
+          for (const mk of topMonths) {
+            for (const r of monthMap.get(mk)!) {
+              occSum += r.occ_units ?? 0;
+              avlSum += r.available_units ?? 0;
+              if (r.occ_percent !== null) { pctSum += r.occ_percent; pctN++; }
+            }
+          }
+          const avg = avlSum > 0 ? (occSum / avlSum) * 100 : (pctN > 0 ? pctSum / pctN : null);
+          if (avg !== null) {
+            trailingOccMap.set(`${locId}|${sl}||trailing${w}`, avg);
+          }
+        }
+      });
+
+      // Campus-level: aggregate across all SLs for each locId
+      const byCampus = new Map<string, Map<string, HistRow[]>>(); // locId → month_key → rows
+      for (const r of histRes.rows as HistRow[]) {
+        const locId = r.location_id;
+        if (!byCampus.has(locId)) byCampus.set(locId, new Map());
+        const monthKey = `${r.year}-${String(r.month).padStart(2, '0')}`;
+        if (!byCampus.get(locId)!.has(monthKey)) byCampus.get(locId)!.set(monthKey, []);
+        byCampus.get(locId)!.get(monthKey)!.push(r);
+      }
+      byCampus.forEach((monthMap, locId) => {
+        const sortedMonths = Array.from(monthMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
+        for (const w of WINDOWS) {
+          const topMonths = sortedMonths.slice(0, w);
+          let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
+          for (const mk of topMonths) {
+            for (const r of monthMap.get(mk)!) {
+              occSum += r.occ_units ?? 0;
+              avlSum += r.available_units ?? 0;
+              if (r.occ_percent !== null) { pctSum += r.occ_percent; pctN++; }
+            }
+          }
+          const avg = avlSum > 0 ? (occSum / avlSum) * 100 : (pctN > 0 ? pctSum / pctN : null);
+          if (avg !== null) {
+            trailingOccMap.set(`${locId}|||trailing${w}`, avg);
+          }
+        }
+      });
+    } // end if (histRes.rows.length > 0)
+  } catch (err) {
+    console.warn('[ruleImpact] Failed to load trailing occupancy history:', err);
+  }
+
+  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar, trailingOccMap };
 }
 
 /** Metric lookup with SL+RT → SL → campus fallback (mirrors the rate engine). */
@@ -519,7 +654,12 @@ function cmp(val: number | null, op: string, threshold: number): boolean {
   }
 }
 
-const OCC_FIELDS = new Set(["occupancy", "campus_occupancy", "service_line_occupancy", "room_type_occupancy"]);
+const OCC_FIELDS = new Set([
+  "occupancy", "campus_occupancy", "service_line_occupancy", "room_type_occupancy",
+  "room_type_occupancy_trailing3", "room_type_occupancy_trailing6", "room_type_occupancy_trailing12",
+  "service_line_occupancy_trailing3", "service_line_occupancy_trailing6", "service_line_occupancy_trailing12",
+  "occupancy_trailing3", "occupancy_trailing6", "occupancy_trailing12",
+]);
 
 /** Evaluate one metric-based trigger condition at the campus/SL/RT group level.
  *
@@ -550,6 +690,40 @@ function evalGroupCondition(
   }
   if (field === "room_type_occupancy") {
     return cmp(lookupMetric(ctx, locId, sl, rt, "occupancy_pct"), operator, value);
+  }
+  // ── Trailing-window occupancy variants ──────────────────────────────────
+  // Falls back to current rent-roll occupancy when history is insufficient.
+  if (field === "room_type_occupancy_trailing3" || field === "room_type_occupancy_trailing6" || field === "room_type_occupancy_trailing12") {
+    const win = field.endsWith('12') ? 12 : field.endsWith('6') ? 6 : 3;
+    // Normalize the room type at lookup time so aliased rent-roll values (e.g.
+    // "1 BR") match the canonical history keys (e.g. "One Bedroom").
+    const normRt = normalizeRoomType(rt);
+    const rtVal = ctx.trailingOccMap.get(`${locId}|${sl}|${normRt}|trailing${win}`);
+    if (rtVal !== undefined) return cmp(rtVal, operator, value);
+    const slVal = ctx.trailingOccMap.get(`${locId}|${sl}||trailing${win}`);
+    if (slVal !== undefined) return cmp(slVal, operator, value);
+    const campVal = ctx.trailingOccMap.get(`${locId}|||trailing${win}`);
+    if (campVal !== undefined) return cmp(campVal, operator, value);
+    // Fallback: current rent-roll
+    return cmp(lookupMetric(ctx, locId, sl, rt, "occupancy_pct"), operator, value);
+  }
+  if (field === "service_line_occupancy_trailing3" || field === "service_line_occupancy_trailing6" || field === "service_line_occupancy_trailing12") {
+    const win = field.endsWith('12') ? 12 : field.endsWith('6') ? 6 : 3;
+    const slVal = ctx.trailingOccMap.get(`${locId}|${sl}||trailing${win}`);
+    if (slVal !== undefined) return cmp(slVal, operator, value);
+    const campVal = ctx.trailingOccMap.get(`${locId}|||trailing${win}`);
+    if (campVal !== undefined) return cmp(campVal, operator, value);
+    // Fallback: current rent-roll
+    const g = ctx.metrics.get(`${locId}|${sl}`);
+    return cmp(g && g.total ? (g.occupied / g.total) * 100 : null, operator, value);
+  }
+  if (field === "occupancy_trailing3" || field === "occupancy_trailing6" || field === "occupancy_trailing12") {
+    const win = field.endsWith('12') ? 12 : field.endsWith('6') ? 6 : 3;
+    const campVal = ctx.trailingOccMap.get(`${locId}|||trailing${win}`);
+    if (campVal !== undefined) return cmp(campVal, operator, value);
+    // Fallback: current rent-roll
+    const g = ctx.metrics.get(locId);
+    return cmp(g && g.total ? (g.occupied / g.total) * 100 : null, operator, value);
   }
   if (field === "vacant_units" || field === "vacant_beds") {
     const g = ctx.metrics.get(`${locId}|${sl}`);
@@ -909,11 +1083,21 @@ export function buildGroupRulePreviewRates(
    *  When provided, street_to_comp_var trigger conditions are evaluated precisely;
    *  when absent the condition is treated as passing (don't block display). */
   compVarMap?: Map<string, number>,
+  /** Optional: campus-name-keyed trailing occupancy averages.
+   *  Keys: `${campus}|${sl}|${normRt}|trailing${N}` (RT), `${campus}|${sl}||trailing${N}` (SL),
+   *  `${campus}|||trailing${N}` (campus).  When provided, trailing conditions are
+   *  evaluated precisely; when absent the condition is treated as passing. */
+  trailingOccMap?: Map<string, number>,
 ): RulePreviewResult {
   const rulePreviewMap = new Map<string, number>();
   const ruleRatesMap   = new Map<string, number>();
 
-  const OCC_GROUP_FIELDS = new Set(['occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy']);
+  const OCC_GROUP_FIELDS = new Set([
+    'occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy',
+    'room_type_occupancy_trailing3', 'room_type_occupancy_trailing6', 'room_type_occupancy_trailing12',
+    'service_line_occupancy_trailing3', 'service_line_occupancy_trailing6', 'service_line_occupancy_trailing12',
+    'occupancy_trailing3', 'occupancy_trailing6', 'occupancy_trailing12',
+  ]);
 
   /** Evaluate one metric-based condition against the pre-built occupancy maps.
    *  rtOccPct is the group's own room-type occupancy percentage (0–100).
@@ -938,6 +1122,29 @@ export function buildGroupRulePreviewRates(
       metricVal = ihVar.get(`${campus}||${sl}`) ?? null;
     } else if (c.field === 'room_type_occupancy') {
       metricVal = rtOccPct;
+    } else if (
+      c.field === 'room_type_occupancy_trailing3' || c.field === 'room_type_occupancy_trailing6' || c.field === 'room_type_occupancy_trailing12' ||
+      c.field === 'service_line_occupancy_trailing3' || c.field === 'service_line_occupancy_trailing6' || c.field === 'service_line_occupancy_trailing12' ||
+      c.field === 'occupancy_trailing3' || c.field === 'occupancy_trailing6' || c.field === 'occupancy_trailing12'
+    ) {
+      if (!trailingOccMap) return true; // map not provided — don't block display
+      const win = c.field.endsWith('12') ? 12 : c.field.endsWith('6') ? 6 : 3;
+      const normRt = rt ? normalizeRoomType(rt) : null;
+      if (c.field.startsWith('room_type_occupancy_trailing')) {
+        // RT-level → SL-level → campus-level fallback; null history → don't block
+        metricVal = (normRt ? trailingOccMap.get(`${campus}|${sl}|${normRt}|trailing${win}`) : undefined)
+                 ?? trailingOccMap.get(`${campus}|${sl}||trailing${win}`)
+                 ?? trailingOccMap.get(`${campus}|||trailing${win}`)
+                 ?? null;
+      } else if (c.field.startsWith('service_line_occupancy_trailing')) {
+        metricVal = trailingOccMap.get(`${campus}|${sl}||trailing${win}`)
+                 ?? trailingOccMap.get(`${campus}|||trailing${win}`)
+                 ?? null;
+      } else {
+        // campus-level trailing
+        metricVal = trailingOccMap.get(`${campus}|||trailing${win}`) ?? null;
+      }
+      if (metricVal === null) return true; // no history for this scope — don't block display
     } else if (c.field === 'street_to_comp_var' || c.field === 'competitor_variance' || c.field === 'competitor_rate') {
       if (!compVarMap) return true; // map not provided — don't block display
       // Try room-type-specific key first (campus||sl||rt), then SL-level fallback.
@@ -1053,4 +1260,146 @@ export function buildGroupRulePreviewRates(
   }
 
   return { rulePreviewMap, ruleRatesMap };
+}
+
+/**
+ * Pure aggregation helper — converts raw `room_type_occupancy_history` rows
+ * (already fetched from the DB) into a campus-name-keyed trailing occupancy
+ * map.  Exported for testability; callers that have DB access use
+ * `buildPreviewTrailingOccMap` which wraps this.
+ *
+ * Key format:
+ *   `${locationName}|${sl}|${normRt}|trailing${N}` (RT-level)
+ *   `${locationName}|${sl}||trailing${N}`           (SL-level)
+ *   `${locationName}|||trailing${N}`                (campus-level)
+ *
+ * Composite service lines ("AL, MC") are tokenised so each SL token gets its
+ * own history entry, matching the convention used by the execution and impact
+ * paths.
+ */
+export function aggregatePreviewTrailingOccRows(rows: Array<{
+  location_name: string; service_line: string; normalized_room_type: string;
+  year: number; month: number; occ_units: number | null;
+  available_units: number | null; occ_percent: number | null;
+}>): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!rows.length) return map;
+
+  const WINDOWS = [3, 6, 12] as const;
+  type HRow = typeof rows[0];
+
+  const windowAvg = (rowsIn: HRow[], w: number): number | null => {
+    // Rows must be ordered recency-first; take up to W distinct months.
+    const seen = new Set<string>();
+    const slice: HRow[] = [];
+    for (const r of rowsIn) {
+      const mk = `${r.year}-${String(r.month).padStart(2, '0')}`;
+      if (!seen.has(mk)) { seen.add(mk); if (seen.size > w) break; }
+      if (seen.size <= w) slice.push(r);
+    }
+    const avlSum = slice.reduce((s, r) => s + (r.available_units ?? 0), 0);
+    if (avlSum > 0) return slice.reduce((s, r) => s + (r.occ_units ?? 0), 0) / avlSum * 100;
+    const pctRows = slice.filter(r => r.occ_percent !== null);
+    return pctRows.length ? pctRows.reduce((s, r) => s + (r.occ_percent ?? 0), 0) / pctRows.length : null;
+  };
+
+  // RT-level grouping — composite SLs tokenised so each token has its own entry
+  const byRt = new Map<string, HRow[]>();
+  for (const r of rows) {
+    const slTokens = String(r.service_line || '').split(',').map(t => t.trim()).filter(Boolean);
+    for (const sl of slTokens) {
+      const k = `${r.location_name}|${sl}|${r.normalized_room_type}`;
+      if (!byRt.has(k)) byRt.set(k, []);
+      byRt.get(k)!.push(r);
+    }
+  }
+  byRt.forEach((rtRows, k) => {
+    const [locName, sl, normRt] = k.split('|');
+    for (const w of WINDOWS) {
+      const avg = windowAvg(rtRows, w);
+      if (avg !== null) map.set(`${locName}|${sl}|${normRt}|trailing${w}`, avg);
+    }
+  });
+
+  // SL-level: aggregate across RTs per month, then rolling window — tokenised
+  const bySl = new Map<string, Map<string, HRow[]>>(); // locName|sl → monthKey → rows
+  for (const r of rows) {
+    const mk = `${r.year}-${String(r.month).padStart(2, '0')}`;
+    const slTokens = String(r.service_line || '').split(',').map(t => t.trim()).filter(Boolean);
+    for (const sl of slTokens) {
+      const slKey = `${r.location_name}|${sl}`;
+      if (!bySl.has(slKey)) bySl.set(slKey, new Map());
+      if (!bySl.get(slKey)!.has(mk)) bySl.get(slKey)!.set(mk, []);
+      bySl.get(slKey)!.get(mk)!.push(r);
+    }
+  }
+  bySl.forEach((monthMap, slKey) => {
+    const [locName, sl] = slKey.split('|');
+    const sortedMonths = Array.from(monthMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
+    for (const w of WINDOWS) {
+      const topMonths = sortedMonths.slice(0, w);
+      let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
+      for (const mk of topMonths) {
+        for (const r of monthMap.get(mk)!) {
+          occSum += r.occ_units ?? 0; avlSum += r.available_units ?? 0;
+          if (r.occ_percent !== null) { pctSum += r.occ_percent; pctN++; }
+        }
+      }
+      const avg = avlSum > 0 ? (occSum / avlSum) * 100 : (pctN > 0 ? pctSum / pctN : null);
+      if (avg !== null) map.set(`${locName}|${sl}||trailing${w}`, avg);
+    }
+  });
+
+  // Campus-level: aggregate across all SLs per month (no tokenization needed)
+  const byCampus = new Map<string, Map<string, HRow[]>>(); // locName → monthKey → rows
+  for (const r of rows) {
+    if (!byCampus.has(r.location_name)) byCampus.set(r.location_name, new Map());
+    const mk = `${r.year}-${String(r.month).padStart(2, '0')}`;
+    if (!byCampus.get(r.location_name)!.has(mk)) byCampus.get(r.location_name)!.set(mk, []);
+    byCampus.get(r.location_name)!.get(mk)!.push(r);
+  }
+  byCampus.forEach((monthMap, locName) => {
+    const sortedMonths = Array.from(monthMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
+    for (const w of WINDOWS) {
+      const topMonths = sortedMonths.slice(0, w);
+      let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
+      for (const mk of topMonths) {
+        for (const r of monthMap.get(mk)!) {
+          occSum += r.occ_units ?? 0; avlSum += r.available_units ?? 0;
+          if (r.occ_percent !== null) { pctSum += r.occ_percent; pctN++; }
+        }
+      }
+      const avg = avlSum > 0 ? (occSum / avlSum) * 100 : (pctN > 0 ? pctSum / pctN : null);
+      if (avg !== null) map.set(`${locName}|||trailing${w}`, avg);
+    }
+  });
+
+  return map;
+}
+
+/**
+ * Build a campus-name-keyed trailing occupancy map for use in
+ * buildGroupRulePreviewRates.  Queries room_type_occupancy_history for the
+ * given client and returns the map from `aggregatePreviewTrailingOccRows`.
+ * The map is empty when history is unavailable.
+ */
+export async function buildPreviewTrailingOccMap(clientId: string): Promise<Map<string, number>> {
+  try {
+    const res = await pool.query<{
+      location_name: string; service_line: string; normalized_room_type: string;
+      year: number; month: number; occ_units: number | null;
+      available_units: number | null; occ_percent: number | null;
+    }>(
+      `SELECT location_name, service_line, normalized_room_type,
+              year, month, occ_units, available_units, occ_percent
+       FROM room_type_occupancy_history
+       WHERE client_id = $1
+       ORDER BY location_name, service_line, normalized_room_type, year DESC, month DESC`,
+      [clientId],
+    );
+    return aggregatePreviewTrailingOccRows(res.rows);
+  } catch (err) {
+    console.warn('[ruleImpact] buildPreviewTrailingOccMap failed:', err);
+  }
+  return new Map<string, number>();
 }

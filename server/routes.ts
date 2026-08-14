@@ -20297,8 +20297,11 @@ Return ONLY valid JSON, no markdown fences:
       // 6b) Per-rule rates (spot month only): shared rule-preview pipeline
       //     (buildGroupRulePreviewRates) evaluates triggers and computes adjusted
       //     rates for every active rule × group combination in a single pass.
-      const { fetchActiveRules, buildGroupRulePreviewRates } = await import('./services/ruleImpactService');
-      const activeRules = await fetchActiveRules(clientId);
+      const { fetchActiveRules, buildGroupRulePreviewRates, buildPreviewTrailingOccMap } = await import('./services/ruleImpactService');
+      const [activeRules, refTrailingOccMap] = await Promise.all([
+        fetchActiveRules(clientId),
+        buildPreviewTrailingOccMap(clientId),
+      ]);
 
       // IH-to-street variance % per (campus, SL) from spot-month rows, occupied-weighted.
       // Mirrors the rule engine's methodology: Companion units excluded, occupied in-house
@@ -20399,7 +20402,7 @@ Return ONLY valid JSON, no markdown fences:
         slAcc.forEach(({ wSum, wN }, k) => { if (wN > 0) refCompVarMap.set(k, wSum / wN); });
       }
 
-      const { ruleRatesMap } = buildGroupRulePreviewRates(_ruleGroups, activeRules, refCampusOcc, refSlOcc, refIhVar, refCompVarMap);
+      const { ruleRatesMap } = buildGroupRulePreviewRates(_ruleGroups, activeRules, refCampusOcc, refSlOcc, refIhVar, refCompVarMap, refTrailingOccMap);
 
       // ── Roll up in JS ────────────────────────────────────────────────
       const avg = (a: number[]) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
@@ -21053,8 +21056,11 @@ Return ONLY valid JSON, no markdown fences:
       // with the grouped endpoint.
       const rulePreviewMap = new Map<string, number>();
       {
-        const { fetchActiveRules, buildGroupRulePreviewRates } = await import('./services/ruleImpactService');
-        const activeRules2 = await fetchActiveRules(clientId);
+        const { fetchActiveRules, buildGroupRulePreviewRates, buildPreviewTrailingOccMap } = await import('./services/ruleImpactService');
+        const [activeRules2, trailingOccMap2] = await Promise.all([
+          fetchActiveRules(clientId),
+          buildPreviewTrailingOccMap(clientId),
+        ]);
         if (activeRules2.length) {
           // Build per-group aggregates from unit rows.
           const gAgg = new Map<string, { campus: string; sl: string; rt: string; locationId: string|null; ihSum: number; ihN: number; total: number; occ: number }>();
@@ -21146,7 +21152,7 @@ Return ONLY valid JSON, no markdown fences:
             slAcc2.forEach(({ wSum, wN }, k) => { if (wN > 0) compVarMap2.set(k, wSum / wN); });
           }
 
-          const { rulePreviewMap: preview } = buildGroupRulePreviewRates(groupInputs, activeRules2, campOcc2, slOcc2, ihVar2, compVarMap2);
+          const { rulePreviewMap: preview } = buildGroupRulePreviewRates(groupInputs, activeRules2, campOcc2, slOcc2, ihVar2, compVarMap2, trailingOccMap2);
           for (const [k, v] of Array.from(preview.entries())) rulePreviewMap.set(k, v);
         }
       }

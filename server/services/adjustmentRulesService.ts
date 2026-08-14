@@ -5,6 +5,7 @@ import { isRuleExclusive, applyRuleAdjustmentStep } from "@shared/ruleStacking";
 import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
 import { isBBedRow } from "@shared/bBed";
 import { loadCompBenchmark } from "./compBenchmark";
+import { normalizeRoomType } from "@shared/roomTypes";
 
 // ---------------------------------------------------------------------------
 // In-memory cache for IH-to-Street variance metric
@@ -134,7 +135,7 @@ export async function recalculateAndPreloadCampusMetrics(
     type MetricRow = { sl: string | null; rt: string | null; name: string; val: number };
     const metrics: MetricRow[] = [];
 
-    function pushGroup(sl: string | null, rt: string | null, group: typeof units) {
+    const pushGroup = (sl: string | null, rt: string | null, group: typeof units) => {
       const total = group.length;
       if (!total) return;
       const occupied = group.filter(u => u.occupied_yn).length;
@@ -220,7 +221,7 @@ export async function recalculateAndPreloadCampusMetrics(
     // Per service line
     const slMap = new Map<string, typeof units>();
     for (const u of units) { const k = u.service_line || 'Other'; if (!slMap.has(k)) slMap.set(k, []); slMap.get(k)!.push(u); }
-    for (const [sl, g] of slMap) pushGroup(sl, null, g);
+    slMap.forEach((g, sl) => pushGroup(sl, null, g));
 
     // Per room type — keyed by SL+RT for SL-scoped lookup
     const slRtMap = new Map<string, typeof units>();
@@ -229,10 +230,10 @@ export async function recalculateAndPreloadCampusMetrics(
       if (!slRtMap.has(k)) slRtMap.set(k, []);
       slRtMap.get(k)!.push(u);
     }
-    for (const [slRt, g] of slRtMap) {
+    slRtMap.forEach((g, slRt) => {
       const [sl, rt] = slRt.split('|');
       pushGroup(sl, rt, g);
-    }
+    });
 
     // Inquiry/tour from inquiry_metrics
     const campInq  = inqRes.rows.reduce((s, r) => s + (Number(r.inq)  || 0), 0);
@@ -244,6 +245,115 @@ export async function recalculateAndPreloadCampusMetrics(
         metrics.push({ sl: r.service_line, rt: null, name: 'inquiry_count', val: Number(r.inq)  || 0 });
         metrics.push({ sl: r.service_line, rt: null, name: 'tour_count',    val: Number(r.tour) || 0 });
       }
+    }
+
+    // ── Trailing occupancy from room_type_occupancy_history ──────────────
+    // Query the N most recent distinct (year, month) pairs for this location,
+    // then compute weighted averages for windows of 3, 6, and 12 months.
+    // Metric names: occupancy_pct_trailing3/6/12 at campus/SL/RT granularity.
+    try {
+      // Include rows whose location_id is NULL by matching via location_name,
+      // consistent with the authoritative-source convention used elsewhere.
+      const histRes = await pool.query<{
+        service_line: string; room_type: string; year: number; month: number;
+        occ_units: number | null; available_units: number | null; occ_percent: number | null;
+      }>(
+        `SELECT service_line, normalized_room_type AS room_type, year, month,
+                occ_units, available_units, occ_percent
+         FROM room_type_occupancy_history
+         WHERE client_id=$1
+           AND (location_id=$2
+             OR (location_id IS NULL
+                 AND location_name = (SELECT name FROM locations WHERE id=$2 LIMIT 1)))
+         ORDER BY service_line, normalized_room_type, year DESC, month DESC`,
+        [clientId, locationId],
+      );
+
+      if (histRes.rows.length > 0) {
+        type HRow = typeof histRes.rows[0];
+        const WINDOWS = [3, 6, 12] as const;
+
+        // Helper: weighted average of top-N recency-ordered rows
+        const wavg = (rows: HRow[], n: number): number | null => {
+          const slice = rows.slice(0, n);
+          if (!slice.length) return null;
+          const occSum = slice.reduce((s, r) => s + (r.occ_units ?? 0), 0);
+          const avlSum = slice.reduce((s, r) => s + (r.available_units ?? 0), 0);
+          if (avlSum > 0) return (occSum / avlSum) * 100;
+          const pctRows = slice.filter(r => r.occ_percent !== null);
+          return pctRows.length ? pctRows.reduce((s, r) => s + (r.occ_percent ?? 0), 0) / pctRows.length : null;
+        };
+
+        // RT-level: group by (sl, rt), already ordered recency-first within each group.
+        // Composite SL values ("AL, MC") are tokenised so each token gets its own entry.
+        const byRt = new Map<string, HRow[]>();
+        for (const r of histRes.rows) {
+          const slTokens = String(r.service_line || '').split(',').map(t => t.trim()).filter(Boolean);
+          for (const sl of slTokens) {
+            const k = `${sl}|${r.room_type}`;
+            if (!byRt.has(k)) byRt.set(k, []);
+            byRt.get(k)!.push(r);
+          }
+        }
+        byRt.forEach((rows, rtKey) => {
+          const [slName, rtName] = rtKey.split('|');
+          for (const w of WINDOWS) {
+            const avg = wavg(rows, w);
+            if (avg !== null) metrics.push({ sl: slName, rt: rtName, name: `occupancy_pct_trailing${w}`, val: avg });
+          }
+        });
+
+        // SL-level: aggregate across RTs per month, then take top-N months
+        // Composite SL values are tokenised so each token accumulates separately.
+        const bySl = new Map<string, Map<string, HRow[]>>(); // sl → month_key → rows
+        for (const r of histRes.rows) {
+          const mk = `${r.year}-${String(r.month).padStart(2, '0')}`;
+          const slTokens = String(r.service_line || '').split(',').map(t => t.trim()).filter(Boolean);
+          for (const sl of slTokens) {
+            if (!bySl.has(sl)) bySl.set(sl, new Map());
+            if (!bySl.get(sl)!.has(mk)) bySl.get(sl)!.set(mk, []);
+            bySl.get(sl)!.get(mk)!.push(r);
+          }
+        }
+        bySl.forEach((mMap, slName) => {
+          const sortedMonths = Array.from(mMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
+          for (const w of WINDOWS) {
+            const topMonths = sortedMonths.slice(0, w);
+            let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
+            for (const mk of topMonths) {
+              for (const r of mMap.get(mk)!) {
+                occSum += r.occ_units ?? 0; avlSum += r.available_units ?? 0;
+                if (r.occ_percent !== null) { pctSum += r.occ_percent; pctN++; }
+              }
+            }
+            const avg = avlSum > 0 ? (occSum / avlSum) * 100 : pctN > 0 ? pctSum / pctN : null;
+            if (avg !== null) metrics.push({ sl: slName, rt: null, name: `occupancy_pct_trailing${w}`, val: avg });
+          }
+        });
+
+        // Campus-level: aggregate across all SLs per month
+        const byCampus = new Map<string, HRow[]>(); // month_key → rows
+        for (const r of histRes.rows) {
+          const mk = `${r.year}-${String(r.month).padStart(2, '0')}`;
+          if (!byCampus.has(mk)) byCampus.set(mk, []);
+          byCampus.get(mk)!.push(r);
+        }
+        const sortedCampusMonths = Array.from(byCampus.keys()).sort((a, b) => b.localeCompare(a));
+        for (const w of WINDOWS) {
+          const topMonths = sortedCampusMonths.slice(0, w);
+          let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
+          for (const mk of topMonths) {
+            for (const r of byCampus.get(mk)!) {
+              occSum += r.occ_units ?? 0; avlSum += r.available_units ?? 0;
+              if (r.occ_percent !== null) { pctSum += r.occ_percent; pctN++; }
+            }
+          }
+          const avg = avlSum > 0 ? (occSum / avlSum) * 100 : pctN > 0 ? pctSum / pctN : null;
+          if (avg !== null) metrics.push({ sl: null, rt: null, name: `occupancy_pct_trailing${w}`, val: avg });
+        }
+      }
+    } catch (err) {
+      console.warn(`[adjustmentRules] Trailing occupancy history failed for ${locationId}:`, err);
     }
 
     // ── Persist: delete old + bulk insert new ────────────────────────────
@@ -308,6 +418,20 @@ function evaluateSingleCondition(
       default: return false;
     }
   }
+  // cmpMetricWith allows passing a normalised threshold instead of the raw
+  // stored value — used for occupancy trailing fields where NL parser stores
+  // fractions (0.90) but campus_metrics are on the 0–100 scale.
+  function cmpMetricWith(metricVal: number | null, threshold: number): boolean {
+    if (metricVal === null) return false;
+    switch (operator) {
+      case "<":  return metricVal < threshold;
+      case "<=": return metricVal <= threshold;
+      case ">":  return metricVal > threshold;
+      case ">=": return metricVal >= threshold;
+      case "=": case "==": case "===": return Math.abs(metricVal - threshold) < 0.01;
+      default: return false;
+    }
+  }
 
   // IH-to-street variance: prefer the recalculated table cache, then fall back
   // to the campus-metrics value computed fresh from rent roll before each run.
@@ -341,6 +465,44 @@ function evaluateSingleCondition(
   if (field === "room_type_occupancy") {
     // Bug 3 fix: pass sl (not null) so lookup finds SL+RT specific metric first
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'occupancy_pct'));
+  }
+
+  // ── Trailing-window occupancy variants ───────────────────────────────────
+  // Uses history data computed in recalculateAndPreloadCampusMetrics.
+  // Falls back to the current rent-roll occupancy when history is missing.
+  if (field === "room_type_occupancy_trailing3" || field === "room_type_occupancy_trailing6" || field === "room_type_occupancy_trailing12") {
+    const win = field.endsWith('12') ? 12 : field.endsWith('6') ? 6 : 3;
+    const trailingMetric = `occupancy_pct_trailing${win}`;
+    // Normalize the room type at lookup time so aliased rent-roll values (e.g.
+    // "1 BR") match the canonical history-keyed campus_metrics rows ("One Bedroom").
+    const normRt = rt ? normalizeRoomType(rt) : null;
+    // Try SL+RT first (normalized), then SL-level, then campus-level, then current rent-roll
+    const val = _lookupCampusMetric(clientId, unit.locationId, sl, normRt, trailingMetric)
+             ?? _lookupCampusMetric(clientId, unit.locationId, sl, null, trailingMetric)
+             ?? _lookupCampusMetric(clientId, unit.locationId, null, null, trailingMetric)
+             ?? _lookupCampusMetric(clientId, unit.locationId, sl, normRt, 'occupancy_pct')
+             ?? _lookupCampusMetric(clientId, unit.locationId, sl, rt, 'occupancy_pct');
+    // Normalise fraction thresholds (0.90 stored by NL parser) to percentage scale
+    // to match the 0–100 scale used by campus_metrics. Mirrors evalGroupCondition.
+    const normValue = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
+    return cmpMetricWith(val, normValue);
+  }
+  if (field === "service_line_occupancy_trailing3" || field === "service_line_occupancy_trailing6" || field === "service_line_occupancy_trailing12") {
+    const win = field.endsWith('12') ? 12 : field.endsWith('6') ? 6 : 3;
+    const trailingMetric = `occupancy_pct_trailing${win}`;
+    const val = _lookupCampusMetric(clientId, unit.locationId, sl, null, trailingMetric)
+             ?? _lookupCampusMetric(clientId, unit.locationId, null, null, trailingMetric)
+             ?? _lookupCampusMetric(clientId, unit.locationId, sl, null, 'occupancy_pct');
+    const normValue = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
+    return cmpMetricWith(val, normValue);
+  }
+  if (field === "occupancy_trailing3" || field === "occupancy_trailing6" || field === "occupancy_trailing12") {
+    const win = field.endsWith('12') ? 12 : field.endsWith('6') ? 6 : 3;
+    const trailingMetric = `occupancy_pct_trailing${win}`;
+    const val = _lookupCampusMetric(clientId, unit.locationId, null, null, trailingMetric)
+             ?? _lookupCampusMetric(clientId, unit.locationId, null, null, 'occupancy_pct');
+    const normValue = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
+    return cmpMetricWith(val, normValue);
   }
 
   // Vacant unit counts
@@ -758,9 +920,9 @@ export async function fetchAndApplyAdjustmentRules(
 
     if (hasMetricCondition) {
       const clientId = units.find(u => u.unit?.clientId)?.unit?.clientId || 'demo';
-      const uniqueLocationIds = [...new Set(
+      const uniqueLocationIds = Array.from(new Set(
         units.map(u => u.unit?.locationId).filter((id): id is string => Boolean(id))
-      )];
+      ));
       await Promise.all(uniqueLocationIds.map(locId =>
         recalculateAndPreloadCampusMetrics(clientId, locId)
       ));

@@ -728,12 +728,28 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       switch (c.field) {
         case 'service_line_occupancy':
           return { id: newConditionId(), metric: 'Service Line Occupancy', timePeriod: 'Current Month', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'service_line_occupancy_trailing3':
+          return { id: newConditionId(), metric: 'Service Line Occupancy', timePeriod: 'Trailing 3', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'service_line_occupancy_trailing6':
+          return { id: newConditionId(), metric: 'Service Line Occupancy', timePeriod: 'Trailing 6', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'service_line_occupancy_trailing12':
+          return { id: newConditionId(), metric: 'Service Line Occupancy', timePeriod: 'Trailing 12', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
         case 'room_type_occupancy':
           return { id: newConditionId(), metric: 'Room Type Occupancy', timePeriod: c.timePeriod === 'trailing3' ? 'Trailing 3' : 'Current Month', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
         case 'room_type_occupancy_trailing3':
           return { id: newConditionId(), metric: 'Room Type Occupancy', timePeriod: 'Trailing 3', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'room_type_occupancy_trailing6':
+          return { id: newConditionId(), metric: 'Room Type Occupancy', timePeriod: 'Trailing 6', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'room_type_occupancy_trailing12':
+          return { id: newConditionId(), metric: 'Room Type Occupancy', timePeriod: 'Trailing 12', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
         case 'occupancy':
           return { id: newConditionId(), metric: 'Campus Occupancy', timePeriod: 'Current Month', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'occupancy_trailing3':
+          return { id: newConditionId(), metric: 'Campus Occupancy', timePeriod: 'Trailing 3', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'occupancy_trailing6':
+          return { id: newConditionId(), metric: 'Campus Occupancy', timePeriod: 'Trailing 6', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
+        case 'occupancy_trailing12':
+          return { id: newConditionId(), metric: 'Campus Occupancy', timePeriod: 'Trailing 12', operator: opMap[c.operator] ?? 'is less than', value: toPercent(c.value) };
         case 'days_vacant':
           return { id: newConditionId(), metric: 'Days Vacant', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         case 'street_to_comp_var':
