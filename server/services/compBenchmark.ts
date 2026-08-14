@@ -25,9 +25,12 @@
 import type { Pool } from "pg";
 
 // Service line → survey competitor types, in fallback order.
+// AL/MC includes "AL" as a fallback because survey data typically stores
+// AL/MC-range competitors under competitor_type="AL" (same product, same
+// rate sheet). HC/MC similarly falls back to the legacy SMC type.
 export const SL_TO_COMP: Record<string, string[]> = {
   AL: ["AL"],
-  "AL/MC": ["AL/MC"],
+  "AL/MC": ["AL/MC", "AL"],
   HC: ["HC"],
   "HC/MC": ["HC/MC", "SMC"],
   SL: ["IL_IL"],
@@ -247,7 +250,7 @@ export async function loadCompBenchmark(pool: Pool, clientId: string): Promise<C
       `SELECT keystats_location, competitor_type, room_type,
               monthly_rate_avg, care_level_2_rate, medication_management_fee
        FROM competitive_survey_data
-       WHERE client_id = $1 AND monthly_rate_avg > 0`,
+       WHERE (client_id = $1 OR client_id IS NULL) AND monthly_rate_avg > 0`,
       [clientId],
     ),
     pool.query(
@@ -417,7 +420,7 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
          -- winning. The rate filter is applied in the outer query only.
          SELECT keystats_location, MAX(survey_month) AS latest_month
          FROM competitive_survey_data
-         WHERE client_id = $1
+         WHERE (client_id = $1 OR client_id IS NULL)
          GROUP BY keystats_location
        ),
        studio_presence AS (
@@ -432,7 +435,7 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
          JOIN latest_months lm
            ON lm.keystats_location = csd.keystats_location
           AND lm.latest_month      = csd.survey_month
-         WHERE csd.client_id = $1 AND csd.monthly_rate_avg > 0
+         WHERE (csd.client_id = $1 OR csd.client_id IS NULL) AND csd.monthly_rate_avg > 0
          GROUP BY csd.keystats_location, csd.competitor_name, csd.competitor_type
        )
        SELECT csd.keystats_location, csd.competitor_type, csd.competitor_name,
@@ -446,7 +449,7 @@ export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Pro
          ON sp.keystats_location = csd.keystats_location
         AND sp.competitor_name   = csd.competitor_name
         AND sp.competitor_type   = csd.competitor_type
-       WHERE csd.client_id = $1 AND csd.monthly_rate_avg > 0
+       WHERE (csd.client_id = $1 OR csd.client_id IS NULL) AND csd.monthly_rate_avg > 0
          AND (
            -- Prefer Studio-type rows when available — these match the Competitors tab
            (sp.has_studio = 1 AND csd.room_type ILIKE 'studio%')

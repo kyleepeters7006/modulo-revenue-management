@@ -17310,9 +17310,9 @@ Return ONLY valid JSON with no markdown fences:
             (SELECT ROUND(AVG(COALESCE(NULLIF(avg_care_rate,0), NULLIF(street_rate,0))))
                FROM competitors WHERE client_id = $1) AS avg_comp_rate,
             (SELECT COUNT(DISTINCT competitor_name)
-               FROM competitive_survey_data WHERE client_id = $1) AS survey_comp_count,
+               FROM competitive_survey_data WHERE client_id = $1 OR client_id IS NULL) AS survey_comp_count,
             (SELECT ROUND(AVG(NULLIF(monthly_rate_avg,0))::numeric)
-               FROM competitive_survey_data WHERE client_id = $1) AS survey_avg_rate
+               FROM competitive_survey_data WHERE client_id = $1 OR client_id IS NULL) AS survey_avg_rate
         `, [clientId]),
 
         // 6-month occupancy trend from Room Type Occupancy History (authoritative)

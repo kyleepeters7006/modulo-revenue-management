@@ -25,3 +25,4 @@
 - [User account client_id scoping](user-client-scoping.md) — real users with client_id=NULL get silently routed to 'demo'; fix: UPDATE users SET client_id=... + user must re-login; check this first when rules/data are missing.
 - [Rule save visibility](rule-save-visibility.md) — purgeRuleCaches must be awaited BEFORE res.json(); GET /api/adjustment-rules needs Cache-Control: no-store; frontend should optimistically prepend new rule to state.
 - [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.
+- [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey data has client_id=NULL everywhere; queries need (client_id=$1 OR client_id IS NULL); AL/MC must also search competitor_type=AL.
