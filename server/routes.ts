@@ -20121,6 +20121,11 @@ Return ONLY valid JSON, no markdown fences:
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
             AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
             AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
+            -- Underlying normalised room type (most common among units in this group).
+            -- Used to validate comp rates against the live survey without relying on
+            -- stale competitor_base_rate values that may have been set when different
+            -- survey data existed.
+            mode() WITHIN GROUP (ORDER BY rr.room_type) FILTER (WHERE rr.room_type IS NOT NULL) AS mode_room_type,
             -- Rules-only pivot: the proposed rate is the rule-adjusted rate ONLY.
             -- No Modulo fallback — when no rule applies the proposed rate is NULL.
             AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
@@ -20337,6 +20342,35 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
+      // Load the live survey benchmark (uses ALL survey months for rule-trigger
+      // evaluation) and separately build a LATEST-month-only coverage set used
+      // to gate comp-rate display.  The two are intentionally different: rule
+      // triggers benefit from historical averaging, but the comp-rate column
+      // should only show when the most recent survey covers that room type.
+      const { loadCompBenchmark: _loadCB, SL_TO_COMP: _SL_TO_COMP } = await import('./services/compBenchmark');
+      const [refCompBench, _latestCovRes] = await Promise.all([
+        _loadCB(pool, clientId),
+        pool.query<{ keystats_location: string; competitor_type: string; room_type: string }>(
+          `SELECT DISTINCT csd.keystats_location, csd.competitor_type, csd.room_type
+           FROM competitive_survey_data csd
+           INNER JOIN (
+             SELECT keystats_location, competitor_type, MAX(survey_month) AS latest_month
+             FROM competitive_survey_data
+             WHERE (client_id = $1 OR client_id IS NULL) AND monthly_rate_avg > 0
+             GROUP BY keystats_location, competitor_type
+           ) lm ON lm.keystats_location = csd.keystats_location
+              AND lm.competitor_type    = csd.competitor_type
+              AND csd.survey_month      = lm.latest_month
+           WHERE (csd.client_id = $1 OR csd.client_id IS NULL) AND csd.monthly_rate_avg > 0
+             AND csd.room_type IS NOT NULL AND csd.room_type <> ''`,
+          [clientId],
+        ),
+      ]);
+      // Keyed by "location|||compType|||roomType" — only latest-month rows.
+      const refLatestSurveyCov = new Set(_latestCovRes.rows.map(
+        r => `${r.keystats_location}|||${r.competitor_type}|||${r.room_type}`
+      ));
+
       // Build street-to-comp variance map for trigger evaluation, keyed by both
       // campus||sl||rt (room-type-specific, preferred) and campus||sl (SL-level
       // fallback).  Uses the live survey benchmark — room-type-specific when the
@@ -20346,13 +20380,13 @@ Return ONLY valid JSON, no markdown fences:
       // room types together and produced misleading variances.
       const refCompVarMap = new Map<string, number>();
       {
-        const { loadCompBenchmark: _loadCB } = await import('./services/compBenchmark');
-        const refCompBench = await _loadCB(pool, clientId);
         // Accumulate SL-level weighted averages for the campus||sl fallback key.
         const slAcc = new Map<string, { wSum: number; wN: number }>();
         for (const g of _ruleGroups) {
           if (!g.modeStreetRate || !g.campus || !g.sl || !g.rt) continue;
-          const bench = refCompBench.benchmarkForRT(g.campus, g.sl, g.rt);
+          // Use RT-specific benchmark; fall back to SL-level for trigger evaluation only.
+          const bench = refCompBench.benchmarkForRT(g.campus, g.sl, g.rt)
+                     ?? refCompBench.benchmarkFor(g.campus, g.sl);
           if (!bench || bench.adjusted <= 0) continue;
           const pct = (g.modeStreetRate - bench.adjusted) / bench.adjusted * 100;
           refCompVarMap.set(`${g.campus}||${g.sl}||${g.rt}`, pct);
@@ -20373,7 +20407,7 @@ Return ONLY valid JSON, no markdown fences:
 
       type Agg = { month: string; total: number; occupied: number; avgDaysVacant: number|null; avgStreet: number|null; avgIh: number|null; avgCompBase: number|null; avgCompAdj: number|null; avgProposed: number|null; hcPrivatePay: number|null };
       // combo key
-      const comboMap = new Map<string, { division: string; region: string; campus: string; serviceLine: string; roomType: string; locationId: string|null; campusKey: string; byMonth: Map<string, Agg> }>();
+      const comboMap = new Map<string, { division: string; region: string; campus: string; serviceLine: string; roomType: string; modeRoomType: string; locationId: string|null; campusKey: string; byMonth: Map<string, Agg> }>();
       // campus & service-line monthly occupancy: key -> month -> {total, occupied}
       const campusOcc = new Map<string, Map<string, { total: number; occupied: number }>>();
       const slOcc     = new Map<string, Map<string, { total: number; occupied: number }>>();
@@ -20386,7 +20420,7 @@ Return ONLY valid JSON, no markdown fences:
         // Stable campus identity: location_id disambiguates same-named campuses across divisions/imports
         const campusKey = `${r.location_id ?? ''}||${division}||${campus}`;
         const key = `${campusKey}||${sl}||${rt}`;
-        if (!comboMap.has(key)) comboMap.set(key, { division, region: r.region || '—', campus, serviceLine: sl, roomType: rt, locationId: r.location_id ?? null, campusKey, byMonth: new Map() });
+        if (!comboMap.has(key)) comboMap.set(key, { division, region: r.region || '—', campus, serviceLine: sl, roomType: rt, modeRoomType: r.mode_room_type ?? rt, locationId: r.location_id ?? null, campusKey, byMonth: new Map() });
         comboMap.get(key)!.byMonth.set(r.month, {
           month: r.month,
           total: Number(r.total) || 0,
@@ -20624,8 +20658,18 @@ Return ONLY valid JSON, no markdown fences:
 
         const streetSpot = spot?.avgStreet ?? null;
         const ihSpot = spot?.avgIh ?? null;
-        const compBase = spot?.avgCompBase ?? null;
-        const compAdj = spot?.avgCompAdj ?? null;
+        // Gate comp rate display on LATEST-survey-month coverage.  Only show
+        // when the most recent survey for this location includes the group's
+        // underlying normalised room type.  Stale competitor_base_rate values
+        // written by the job under old survey data are suppressed.
+        // The stored DB values are kept when valid — they reflect the
+        // competitor rate job's weighted-selection methodology.
+        const _compTypes = _SL_TO_COMP[c.serviceLine] || [c.serviceLine];
+        const _hasLatestCov = _compTypes.some(ct =>
+          refLatestSurveyCov.has(`${c.campus}|||${ct}|||${c.modeRoomType}`)
+        );
+        const compBase = _hasLatestCov ? (spot?.avgCompBase ?? null) : null;
+        const compAdj  = _hasLatestCov ? (spot?.avgCompAdj ?? null) : null;
         const proposed = spot?.avgProposed ?? null;
         const totalUnits = spot?.total ?? rateWindow(bm, t3Months, 'total') ?? 0;
 
@@ -21088,7 +21132,9 @@ Return ONLY valid JSON, no markdown fences:
             const slAcc2 = new Map<string, { wSum: number; wN: number }>();
             for (const g of groupInputs) {
               if (!g.modeStreetRate || !g.campus || !g.sl || !g.rt) continue;
-              const bench = refCompBench2.benchmarkForRT(g.campus, g.sl, g.rt);
+              // RT-specific benchmark; fall back to SL-level for trigger evaluation only.
+              const bench = refCompBench2.benchmarkForRT(g.campus, g.sl, g.rt)
+                         ?? refCompBench2.benchmarkFor(g.campus, g.sl);
               if (!bench || bench.adjusted <= 0) continue;
               const pct = (g.modeStreetRate - bench.adjusted) / bench.adjusted * 100;
               compVarMap2.set(`${g.campus}||${g.sl}||${g.rt}`, pct);

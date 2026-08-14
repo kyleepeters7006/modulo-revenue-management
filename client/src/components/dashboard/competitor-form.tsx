@@ -573,19 +573,38 @@ export default function CompetitorForm({
                           </div>
                         )}
                         
-                        {/* Per-room-type rate breakdown */}
+                        {/* Per-room-type rate breakdown with care adjustment + total */}
                         {competitor.roomRates && competitor.roomRates.length > 0 ? (
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
+                          <div className="flex flex-col gap-y-1 text-sm text-[var(--dashboard-muted)]">
                             {[...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
                               compareRoomTypes(a.roomType, b.roomType)
                             ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null; competitorType?: string | null }, idx: number) => {
                               const slLabel = rr.competitorType || (competitor.serviceLines && competitor.serviceLines.length > 0 ? competitor.serviceLines[0] : null);
+                              // careAdj from the API is monthly; HC/HC-MC store daily rates
+                              // so convert the adjustment to daily for those service lines.
+                              const isHC = competitor.serviceLines?.some((sl: string) => sl === 'HC' || sl === 'HC/MC');
+                              const careAdj: number = competitor.careAdj ?? 0;
+                              const displayCareAdj = isHC ? Math.round(careAdj / 30.44) : careAdj;
+                              const base = rr.streetRate != null ? Math.round(rr.streetRate) : null;
+                              const total = base != null && displayCareAdj !== 0 ? base + displayCareAdj : null;
                               return (
-                              <div key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`} className="whitespace-nowrap">
-                                <span className="font-medium">
-                                  {slLabel ? `${slLabel} – ` : ''}{rr.roomType}:
-                                </span>{' '}
-                                {rr.streetRate != null ? `$${Math.round(rr.streetRate).toLocaleString()}` : '—'}
+                              <div key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <span className="whitespace-nowrap">
+                                  <span className="font-medium">
+                                    {slLabel ? `${slLabel} – ` : ''}{rr.roomType}:
+                                  </span>{' '}
+                                  {base != null ? `$${base.toLocaleString()}` : '—'}
+                                </span>
+                                {displayCareAdj !== 0 && (
+                                  <span className={`whitespace-nowrap font-medium ${displayCareAdj > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    {displayCareAdj > 0 ? '+' : '-'}${Math.abs(displayCareAdj).toLocaleString()} Care Adj.
+                                  </span>
+                                )}
+                                {total != null && (
+                                  <span className="whitespace-nowrap text-[var(--dashboard-text)] font-medium">
+                                    = ${total.toLocaleString()} Total
+                                  </span>
+                                )}
                               </div>
                               );
                             })}

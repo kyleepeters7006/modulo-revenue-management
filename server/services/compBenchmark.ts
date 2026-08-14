@@ -211,13 +211,13 @@ export class CompBenchmark {
   }
 
   /**
-   * Room-type-specific care-adjusted benchmark. Tries the exact room type
-   * against the survey first; falls back to the SL-level blended benchmark
-   * when no RT-specific data is available for this location.
+   * Room-type-specific care-adjusted benchmark. Returns a result ONLY when
+   * the survey has data for the exact room type — never falls back to the
+   * SL-level blended benchmark, so callers can reliably distinguish
+   * "survey covers this room type" from "survey has no RT-specific data".
    *
-   * This produces the correct apples-to-apples comparison (e.g. our Studio Dlx
-   * street rate vs the competitor's Studio Dlx rate) rather than blending all
-   * room types in the SL together, which distorts the premium signal.
+   * If you need the SL-level fallback use:
+   *   benchmarkForRT(...) ?? benchmarkFor(...)
    */
   benchmarkForRT(location: string, serviceLine: string, roomType: string): CompBenchmarkResult | null {
     if (this.compRTMap) {
@@ -237,8 +237,7 @@ export class CompBenchmark {
         }
       }
     }
-    // Fall back to SL-level blended benchmark.
-    return this.benchmarkFor(location, serviceLine);
+    return null;
   }
 }
 
