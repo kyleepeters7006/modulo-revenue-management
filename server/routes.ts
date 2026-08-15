@@ -5559,7 +5559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (format === 'csv') {
         // Generate CSV with validation
-        const { csv, validation } = await generateMatrixCareCSV(rentRollData, exportDate);
+        const { csv, validation, unmappedFacilities } = await generateMatrixCareCSV(rentRollData, clientId, exportDate);
         
         if (!validation.isValid) {
           console.error('MatrixCare CSV export has validation issues:', validation.issues);
@@ -5573,10 +5573,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (validation.suggestions.length > 0) {
           res.setHeader('X-Validation-Suggestions', toHeaderSafe(validation.suggestions.join('; ')));
         }
+        res.setHeader('X-Unmapped-Facility-Count', String(unmappedFacilities.length));
+        if (unmappedFacilities.length > 0) {
+          res.setHeader('X-Unmapped-Facilities', toHeaderSafe(unmappedFacilities.join('; ')));
+        }
         res.send(csv);
       } else {
         // Generate Excel with validation
-        const { buffer, validation } = await generateMatrixCareExcel(rentRollData, exportDate);
+        const { buffer, validation, unmappedFacilities } = await generateMatrixCareExcel(rentRollData, clientId, exportDate);
         
         if (!validation.isValid) {
           console.error('MatrixCare Excel export has validation issues:', validation.issues);
@@ -5589,6 +5593,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
         if (validation.suggestions.length > 0) {
           res.setHeader('X-Validation-Suggestions', toHeaderSafe(validation.suggestions.join('; ')));
+        }
+        res.setHeader('X-Unmapped-Facility-Count', String(unmappedFacilities.length));
+        if (unmappedFacilities.length > 0) {
+          res.setHeader('X-Unmapped-Facilities', toHeaderSafe(unmappedFacilities.join('; ')));
         }
         res.send(buffer);
       }

@@ -1,6 +1,12 @@
 import type { RentRollData as SelectRentRollData } from '@shared/schema';
 import { isBBedRow } from '@shared/bBed';
-import { billingFrequencyFor, DAYS_PER_MONTH } from './services/matrixCareFacility';
+import {
+  billingFrequencyFor,
+  DAYS_PER_MONTH,
+  resolveMatrixCareFacility,
+  loadFacilityLookup,
+  type FacilityLocation,
+} from './services/matrixCareFacility';
 import * as XLSX from 'xlsx';
 import {
   safeExportDate,
@@ -46,29 +52,21 @@ function buildBedTypeDescription(row: SelectRentRollData): string {
   return ratings.length ? `${base};${ratings.join(';')}` : base;
 }
 
-// Generate a stable facility customer-ID
-function getFacilityCustomerId(location: string, serviceLine: string): string {
-  const locCode = location.replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
-  const n = serviceLine.toUpperCase();
-  const svcCode = (n === 'HC' || n === 'SNF' || n === 'HC/MC') ? 'HC'
-                : (n === 'AL' || n === 'AL/MC' || n === 'MC')  ? 'AL'
-                : (n === 'VIL')                                 ? 'VIL'
-                : 'SL';
-  return `~14-${locCode}-${svcCode}`;
-}
-
 /** Rent roll row optionally carrying the resolved effective rate from the export rate service. */
 export type ExportableRentRollRow = SelectRentRollData & { effectiveRate?: number | null };
 
 export function transformToMatrixCareFormat(
   rentRollData: ExportableRentRollRow[],
+  facilityLookup: { byId: Map<string, FacilityLocation & { id: string; name: string }>; byName: Map<string, FacilityLocation & { id: string; name: string }> },
   exportDate?: string | null
-): MatrixCareRow[] {
+): { rows: MatrixCareRow[]; unmappedFacilities: string[] } {
   // Always produce a valid date string, never an empty/null value
   const effectiveDate = safeExportDate(exportDate);
   const matrixCareRows: MatrixCareRow[] = [];
+  const unmappedFacilities = new Set<string>();
 
-  // Group by facility
+  // Group by location name — we resolve the location object once per group using the
+  // lookup so every row in a group shares the same MatrixCare facility identity.
   const facilitiesMap = new Map<string, ExportableRentRollRow[]>();
   for (const row of rentRollData) {
     const key = row.location;
@@ -76,7 +74,14 @@ export function transformToMatrixCareFormat(
     facilitiesMap.get(key)!.push(row);
   }
 
-  facilitiesMap.forEach((facilityData, facilityName) => {
+  facilitiesMap.forEach((facilityData, locationName) => {
+    // Resolve the location object from the lookup (id-first, name fallback), matching
+    // the same strategy used by the street-rates and special-rates exports.
+    const firstRow = facilityData[0];
+    const locationObj =
+      (firstRow?.locationId ? facilityLookup.byId.get(firstRow.locationId) : undefined)
+      ?? facilityLookup.byName.get(locationName);
+
     // Accumulate every unit's effective rate per (bedType, serviceLine), then average.
     // Previously only the first row encountered was kept, so the exported price was an
     // arbitrary pick rather than a representative rate for that bed type.
@@ -112,7 +117,16 @@ export function transformToMatrixCareFormat(
     }
 
     uniqueCombinations.forEach(({ bedType, serviceLine, basePrice }) => {
-      const facilityCustomerId = getFacilityCustomerId(facilityName, serviceLine);
+      // Resolve facility identity through the shared resolver — same logic as the
+      // street-rates and special-rates exports so all three files agree on names/ids.
+      const facilitySource: FacilityLocation = locationObj ?? {
+        name: locationName,
+        matrixCareNameHC: null, matrixCareNameAL: null, matrixCareNameIL: null,
+        customerFacilityIdHC: null, customerFacilityIdAL: null, customerFacilityIdIL: null,
+      };
+      const facility = resolveMatrixCareFacility(facilitySource, serviceLine);
+      if (!facility.mapped) unmappedFacilities.add(locationName);
+
       const levels = fuzzyMapServiceLineToLevels(serviceLine);
       const payers = getPayerConfigurations(serviceLine);
 
@@ -120,8 +134,8 @@ export function transformToMatrixCareFormat(
         for (const payer of payers) {
           const revAcct = getRevenueAccount(serviceLine, payer.payerName);
           matrixCareRows.push({
-            FacilityName:           `${facilityName} ${serviceLine}`,
-            FacilityCustomerID:     facilityCustomerId,
+            FacilityName:           facility.name,
+            FacilityCustomerID:     `~${facility.customerId}`,
             BedTypeDescription:     bedType,
             LevelofCare:            loc,
             RoomChargeDescription:  'ROOM CHARGE',
@@ -148,7 +162,15 @@ export function transformToMatrixCareFormat(
     });
   });
 
-  return matrixCareRows;
+  if (unmappedFacilities.size > 0) {
+    console.warn(
+      `[matrixCareExport] ${unmappedFacilities.size} location(s) have no MatrixCare facility mapping; ` +
+      `exported with derived names/ids: ${Array.from(unmappedFacilities).slice(0, 10).join(', ')}` +
+      (unmappedFacilities.size > 10 ? ', …' : '')
+    );
+  }
+
+  return { rows: matrixCareRows, unmappedFacilities: Array.from(unmappedFacilities).sort() };
 }
 
 // AI Validation for MatrixCare mapping
@@ -200,8 +222,8 @@ ${JSON.stringify(sampleRows, null, 2)}
 
 Source summary:
 - Units: ${originalData.length}
-- Service lines: ${[...new Set(originalData.map(d => d.serviceLine))].join(', ')}
-- Room types: ${[...new Set(originalData.map(d => d.roomType))].join(', ')}
+- Service lines: ${Array.from(new Set(originalData.map(d => d.serviceLine))).join(', ')}
+- Room types: ${Array.from(new Set(originalData.map(d => d.roomType))).join(', ')}
 
 Validate: LevelofCare accuracy, daily rate reasonableness, revenue account format, payer type correctness, missing/malformed fields.
 
@@ -227,9 +249,11 @@ Respond JSON: { "isValid": bool, "criticalIssues": [], "suggestions": [], "mappi
 
 export async function generateMatrixCareExcel(
   rentRollData: ExportableRentRollRow[],
+  clientId: string,
   exportDate?: string | null
-): Promise<{ buffer: Buffer; validation: any }> {
-  const matrixCareData = transformToMatrixCareFormat(rentRollData, exportDate);
+): Promise<{ buffer: Buffer; validation: any; unmappedFacilities: string[] }> {
+  const facilityLookup = await loadFacilityLookup(clientId);
+  const { rows: matrixCareData, unmappedFacilities } = transformToMatrixCareFormat(rentRollData, facilityLookup, exportDate);
   const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
 
   if (!validation.isValid)        console.warn('MatrixCare export validation issues:', validation.issues);
@@ -258,14 +282,16 @@ export async function generateMatrixCareExcel(
   }
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  return { buffer, validation };
+  return { buffer, validation, unmappedFacilities };
 }
 
 export async function generateMatrixCareCSV(
   rentRollData: ExportableRentRollRow[],
+  clientId: string,
   exportDate?: string | null
-): Promise<{ csv: string; validation: any }> {
-  const matrixCareData = transformToMatrixCareFormat(rentRollData, exportDate);
+): Promise<{ csv: string; validation: any; unmappedFacilities: string[] }> {
+  const facilityLookup = await loadFacilityLookup(clientId);
+  const { rows: matrixCareData, unmappedFacilities } = transformToMatrixCareFormat(rentRollData, facilityLookup, exportDate);
   const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
 
   if (!validation.isValid)        console.warn('MatrixCare CSV validation issues:', validation.issues);
@@ -305,5 +331,5 @@ export async function generateMatrixCareCSV(
     }
   }
 
-  return { csv, validation };
+  return { csv, validation, unmappedFacilities };
 }
