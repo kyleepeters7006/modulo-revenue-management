@@ -73,7 +73,7 @@ export default function PricingAlgorithmDocs() {
 
           <Section id="overview" icon={GitBranch} title="Overview">
             <p>
-              Modulo produces one proposed rate per unit — the <strong className="text-[var(--trilogy-dark-blue)]">Rules Rate</strong>. It starts from the unit's current street rate, applies the adjustment rules you author in the Rule Designer, then clamps the result with Guardrails. If no rule matches a unit, the proposed rate stays blank — Modulo never invents one.
+              Modulo recommends a rate for every unit based on the pricing rules your team has put in place. An <strong className="text-[var(--trilogy-dark-blue)]">AI rule generator</strong> analyzes occupancy trends, market conditions, and your community's performance to suggest rules designed to hit your revenue growth targets — you review and approve before anything goes live. Once active, each rule nudges rates up or down, and a built-in safety layer keeps every recommended rate within the boundaries you set. If no rule applies to a unit, Modulo leaves the rate unchanged rather than guessing.
             </p>
           </Section>
 
