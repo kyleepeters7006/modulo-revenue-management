@@ -26,7 +26,11 @@ export const AGG_WAVG_KEYS: string[] = [
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "elasticityTrend", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
-  "revenueGrowthTarget", "revYtdGrowth", "revImpactPct",
+  // NOTE: revYtdGrowth / ihYtdGrowth / streetYtdGrowth are listed here so the
+  // roll-up produces a value at all, but aggregateRows OVERWRITES each of them
+  // by re-deriving the ratio from summed spot/base components. Averaging the
+  // percentages would weight a 4-unit room type like a 40-unit one.
+  "revenueGrowthTarget", "revYtdGrowth", "ihYtdGrowth", "streetYtdGrowth", "revImpactPct",
   "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
 ];
 

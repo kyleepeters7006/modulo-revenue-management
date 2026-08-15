@@ -110,6 +110,28 @@ class PricingJobManager {
     return jobId;
   }
   
+  /**
+   * True when a pricing run for this client is still in flight. Callers that
+   * auto-trigger recalculation use this to avoid starting a second overlapping
+   * run, which would double the DB load and race on the same rate columns.
+   */
+  hasActiveJobForClient(clientId: string): boolean {
+    return this.getActiveJobForClient(clientId) !== undefined;
+  }
+
+  /**
+   * The in-flight pricing run for this client, if any. The Rate Card polls this
+   * so it can show that rates are being recalculated even for runs it did not
+   * start itself — e.g. one auto-triggered by a rule change elsewhere in the app.
+   */
+  getActiveJobForClient(clientId: string): PricingJob | undefined {
+    for (const jobId of Array.from(this.processingJobs)) {
+      const job = this.jobs.get(jobId);
+      if (job && (job.params?.clientId ?? 'demo') === clientId) return job;
+    }
+    return undefined;
+  }
+
   getJob(jobId: string): PricingJob | undefined {
     return this.jobs.get(jobId);
   }

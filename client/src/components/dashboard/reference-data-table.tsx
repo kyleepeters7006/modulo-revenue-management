@@ -259,7 +259,9 @@ const GROUPS: GroupDef[] = [
     label: "Growth Target",
     cols: [
       { key: "revenueGrowthTarget", label: "Target", type: "pct", w: 70, tip: "Target annual revenue growth % set for this campus / service line on the Pricing Controls page." },
-      { key: "revYtdGrowth", label: "YTD", type: "pctfracsigned", w: 70, tip: "Year-to-date in-house revenue growth: latest month in-house revenue (rate × occupied units) vs the first month of this year." },
+      { key: "revYtdGrowth", label: "Rev YTD", type: "pctfracsigned", w: 78, tip: "Year-to-date in-house revenue growth: latest month in-house revenue (rate × occupied units) vs the first month of this year. Combines rate and census movement." },
+      { key: "ihYtdGrowth", label: "IH Rate YTD", type: "pctfracsigned", w: 88, tip: "Year-to-date in-house RATE growth: latest month average in-house rate vs the first month of this year, with census held out. Compare against Rev YTD to see how much of the revenue move came from pricing rather than occupancy." },
+      { key: "streetYtdGrowth", label: "Street Rate YTD", type: "pctfracsigned", w: 100, tip: "Year-to-date street RATE growth: latest month average published street rate vs the first month of this year. Shows whether street-rate pushes are actually landing — in-house rate growth normally trails this as new residents move in." },
     ],
   },
   {
@@ -362,7 +364,9 @@ const AGG_WAVG_KEYS = [
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
-  "revenueGrowthTarget", "revYtdGrowth",
+  // The three *YtdGrowth keys are re-derived from summed components in
+  // aggregateRows below; they are listed here only so a value always exists.
+  "revenueGrowthTarget", "revYtdGrowth", "ihYtdGrowth", "streetYtdGrowth",
   "ihT3avg", "ihT12avg", "streetT3avg", "streetT12avg",
 ];
 const HISTORY_KEYS = ["campusOccHistory", "slOccHistory", "rtOccHistory", "streetHistory", "ihHistory"];
@@ -468,15 +472,43 @@ function aggregateRows(
         ? Number(out.revMonthlyImpact) / denom
         : null;
     }
-    // YTD growth recomputed from summed revenue components (not averaged %s)
+    // YTD growth recomputed from summed components (never averaged %s).
+    //
+    // Revenue growth is a straight ratio of summed revenue. The two RATE growth
+    // measures must divide out their unit counts first, otherwise a group whose
+    // census grew would report that growth as if it were a price increase:
+    //   group rate growth = (Σ rate×units)_spot / (Σ units)_spot
+    //                     ÷ (Σ rate×units)_base / (Σ units)_base  − 1
     {
-      let spotSum = 0, baseSum = 0, anyYtd = false;
+      let revSpot = 0, revBase = 0, anyRev = false;
+      let ihUnitsSpot = 0, ihUnitsBase = 0;
+      let stSpot = 0, stBase = 0, stUnitsSpot = 0, stUnitsBase = 0, anySt = false;
       for (const r of rs) {
         if (r.ytdRevSpot != null && r.ytdRevBase != null) {
-          spotSum += Number(r.ytdRevSpot); baseSum += Number(r.ytdRevBase); anyYtd = true;
+          revSpot += Number(r.ytdRevSpot); revBase += Number(r.ytdRevBase); anyRev = true;
+          // IH unit counts ride along with the revenue components — both are
+          // only emitted together, so this stays in sync with revSpot/revBase.
+          ihUnitsSpot += Number(r.ytdIhUnitsSpot ?? 0);
+          ihUnitsBase += Number(r.ytdIhUnitsBase ?? 0);
+        }
+        if (r.ytdStreetSpot != null && r.ytdStreetBase != null) {
+          stSpot += Number(r.ytdStreetSpot); stBase += Number(r.ytdStreetBase);
+          stUnitsSpot += Number(r.ytdStreetUnitsSpot ?? 0);
+          stUnitsBase += Number(r.ytdStreetUnitsBase ?? 0);
+          anySt = true;
         }
       }
-      out.revYtdGrowth = anyYtd && baseSum > 0 ? (spotSum - baseSum) / baseSum : null;
+      out.revYtdGrowth = anyRev && revBase > 0 ? (revSpot - revBase) / revBase : null;
+
+      const ihRateSpot = ihUnitsSpot > 0 ? revSpot / ihUnitsSpot : null;
+      const ihRateBase = ihUnitsBase > 0 ? revBase / ihUnitsBase : null;
+      out.ihYtdGrowth = (anyRev && ihRateSpot !== null && ihRateBase !== null && ihRateBase > 0)
+        ? (ihRateSpot - ihRateBase) / ihRateBase : null;
+
+      const stRateSpot = stUnitsSpot > 0 ? stSpot / stUnitsSpot : null;
+      const stRateBase = stUnitsBase > 0 ? stBase / stUnitsBase : null;
+      out.streetYtdGrowth = (anySt && stRateSpot !== null && stRateBase !== null && stRateBase > 0)
+        ? (stRateSpot - stRateBase) / stRateBase : null;
     }
     // Derived variances recomputed from aggregates
     out.compVarDollar = (out.compAdjusted !== null && out.streetSpot !== null) ? out.compAdjusted - out.streetSpot : null;

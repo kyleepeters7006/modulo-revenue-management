@@ -190,8 +190,6 @@ export default function RateCardTable({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const [activeModuloJobId, setActiveModuloJobId] = useState<string | null>(null);
-  const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -317,90 +315,26 @@ export default function RateCardTable({
     }
   }, [rateCardData, selectedUnit, selectedServiceLine, isLoading]);
 
-  // Poll background Modulo job until it completes, then refresh rates
-  useEffect(() => {
-    if (!activeModuloJobId) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/pricing/job-status/${activeModuloJobId}`);
-        if (cancelled) return;
-        // Jobs live in an in-memory map, so a server restart loses anything in flight.
-        // Without this the progress bar spins forever with no explanation.
-        if (res.status === 404) {
-          setActiveModuloJobId(null);
-          setModuloJobProgress(0);
-          toast({
-            title: "Rules Rate calculation interrupted",
-            description: "The server restarted before the run finished. Please run it again.",
-            variant: "destructive",
-          });
-          return;
-        }
-        if (!res.ok) { setTimeout(poll, 3000); return; }
-        const job = await res.json();
-        const pct = job.progress?.percentage ?? 0;
-        setModuloJobProgress(pct);
-        if (job.status === 'completed') {
-          if (!cancelled) {
-            setActiveModuloJobId(null);
-            setModuloJobProgress(0);
-            toast({ title: "Rules rates saved", description: "Pricing recommendations have been calculated and saved" });
-            queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-          }
-        } else if (job.status === 'failed') {
-          if (!cancelled) {
-            setActiveModuloJobId(null);
-            setModuloJobProgress(0);
-            toast({ title: "Rules Rate calculation failed", description: job.error || "Unknown error", variant: "destructive" });
-          }
-        } else {
-          setTimeout(poll, 2000);
-        }
-      } catch {
-        if (!cancelled) setTimeout(poll, 3000);
-      }
-    };
-    poll();
-    return () => { cancelled = true; };
-  }, [activeModuloJobId]);
-
-  const generateModuloMutation = useMutation({
-    // Use the background-job endpoint. The synchronous one prices ~16 units/sec, so a
-    // full portfolio run (7.9k demo / 19k Trilogy units) exceeds the HTTP timeout and
-    // surfaces as "Failed to generate Rules Rate suggestions" even though it is still
-    // running server-side. This path returns a jobId immediately and is polled below.
-    mutationFn: () => apiRequest('/api/pricing/generate-modulo-optimized', 'POST', { 
-      month: selectedMonth,
-      serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
-      regions: selectedRegions,
-      divisions: selectedDivisions,
-      locations: selectedLocations
-    }),
-    onSuccess: async (response: any) => {
-      let jobId: string | null = null;
-      try {
-        const data = typeof response?.json === 'function' ? await response.json() : response;
-        jobId = data?.jobId ?? null;
-      } catch { /* ignore */ }
-      if (jobId) {
-        setActiveModuloJobId(jobId);
-        setModuloJobProgress(1);
-        toast({ title: "Rules Rate calculation started", description: "Rates will update automatically when complete" });
-      } else {
-        // Fallback: no job ID means synchronous response — just refresh
-        toast({ title: "Rules rates saved", description: "Pricing recommendations have been calculated and saved" });
-        queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-      }
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to generate Rules Rate suggestions",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
+  // Rules are re-applied by a background run this page usually does NOT start —
+  // saving a rule in Pricing Controls triggers it. So poll for any in-flight run
+  // for the client instead of tracking only a jobId we happen to own.
+  const { data: activeJob } = useQuery<{ active: boolean; progress?: { percentage?: number } }>({
+    queryKey: ['/api/pricing/active-job'],
+    refetchInterval: 5000,
   });
+
+  const isRecalculating = !!activeJob?.active;
+  const recalcPercentage = activeJob?.progress?.percentage;
+
+  // Pull the new rates in as soon as a run finishes, so the table reflects the
+  // rules without the user reloading or pressing anything.
+  const wasRecalculating = useRef(false);
+  useEffect(() => {
+    if (wasRecalculating.current && !isRecalculating) {
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
+    }
+    wasRecalculating.current = isRecalculating;
+  }, [isRecalculating, queryClient]);
 
   const acceptSuggestionsMutation = useMutation({
     mutationFn: ({ unitIds, type }: { unitIds: string[], type: string }) => 
@@ -506,6 +440,18 @@ export default function RateCardTable({
   // Also prepare for highlighting
   const highlightedUnitId = selectedUnit ? 
     filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
+
+  /**
+   * Background tint for a row. Vacant units are called out so they stand out while
+   * scanning the roll. The frozen columns must carry the same colour: they sit above
+   * the row background, so leaving them white punches a hole through the tint.
+   */
+  const rowTint = (unit: any) =>
+    highlightedUnitId === unit.id
+      ? 'bg-[var(--trilogy-teal)]/10'
+      : !unit.occupiedYN
+        ? 'bg-amber-50'
+        : 'bg-white';
 
   if (isLoading) {
     return (
@@ -650,20 +596,27 @@ export default function RateCardTable({
             <div className="space-y-3">
               <div className="overflow-x-auto -mx-1 px-1">
                 <div className="flex space-x-4 min-w-max">
-                <Button
-                  onClick={() => generateModuloMutation.mutate()}
-                  disabled={generateModuloMutation.isPending || !!activeModuloJobId || filteredUnits.length === 0}
-                  data-testid="button-generate-modulo"
-                >
-                  {(generateModuloMutation.isPending || activeModuloJobId) ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {/* No manual trigger here by design: the rent roll is a place to READ
+                    the data. Rules are re-applied automatically whenever they change
+                    (and after imports), so this only reports what is happening. */}
+                <div className="flex items-center gap-2 text-sm" data-testid="status-rules-auto-apply">
+                  {isRecalculating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-[var(--trilogy-teal)]" />
+                      <span className="text-muted-foreground">
+                        Applying rules to rates
+                        {typeof recalcPercentage === 'number' ? ` — ${recalcPercentage}%` : '…'}
+                      </span>
+                    </>
                   ) : (
-                    <Calculator className="h-4 w-4 mr-2" />
+                    <>
+                      <Calculator className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">
+                        Rates update automatically when rules change
+                      </span>
+                    </>
                   )}
-                  {(generateModuloMutation.isPending || activeModuloJobId)
-                    ? "Calculating..."
-                    : "Run Rules Rate"}
-                </Button>
+                </div>
                 </div>
               </div>
 
@@ -677,12 +630,14 @@ export default function RateCardTable({
                         {moduloCount > 0 ? (
                           <span className="flex items-center gap-1">
                             <CheckCircle className="h-3 w-3 text-green-500" />
-                            {moduloCount} unit{moduloCount !== 1 ? 's' : ''} have saved Rules Rates
+                            {moduloCount} of {filteredUnits.length} unit{filteredUnits.length !== 1 ? 's' : ''} have a rule applied
                           </span>
                         ) : (
                           <span className="flex items-center gap-1">
                             <Info className="h-3 w-3" />
-                            No rates calculated yet — click Run Rules Rate to create recommendations
+                            {isRecalculating
+                              ? 'Applying rules now — rates will appear as the run completes'
+                              : 'No rules match these units yet — add one in Pricing Controls'}
                           </span>
                         )}
                       </>
@@ -701,7 +656,7 @@ export default function RateCardTable({
                     if (unitsWithModulo.length === 0) {
                       toast({ 
                         title: "No Rules Rate suggestions", 
-                        description: "Generate Rules Rate suggestions first",
+                        description: "No rules apply to these units yet — add one in Pricing Controls",
                         variant: "destructive"
                       });
                       return;
@@ -725,18 +680,19 @@ export default function RateCardTable({
             
             {/* Progress bars for loading states */}
             <div className="space-y-3">
-              {(generateModuloMutation.isPending || activeModuloJobId) && (
+              {isRecalculating && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Calculator className="h-4 w-4 text-primary animate-pulse" />
-                      <div className="text-sm text-muted-foreground">Calculating Rules Rate pricing recommendations...</div>
+                      <div className="text-sm text-muted-foreground">Applying pricing rules to units...</div>
                     </div>
-                    {moduloJobProgress > 0 && (
-                      <span className="text-xs text-muted-foreground tabular-nums">{Math.round(moduloJobProgress)}%</span>
+                    {typeof recalcPercentage === 'number' && recalcPercentage > 0 && (
+                      <span className="text-xs text-muted-foreground tabular-nums">{Math.round(recalcPercentage)}%</span>
                     )}
                   </div>
-                  <Progress value={generateModuloMutation.isPending ? 5 : moduloJobProgress} className="h-2" />
+                  {/* Indeterminate until the run reports real progress. */}
+                  <Progress value={recalcPercentage ?? 5} className="h-2" />
                 </div>
               )}
             </div>
@@ -1071,15 +1027,16 @@ export default function RateCardTable({
                     <TableRow 
                       key={unit.id}
                       id={`unit-row-${unit.id}`}
-                      className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
+                      className={`${rowTint(unit)} ${highlightedUnitId === unit.id ? 'border-[var(--trilogy-teal)]' : ''}`}
+                      data-vacant={!unit.occupiedYN ? 'true' : undefined}
                     >
-                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
+                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${rowTint(unit)} ${!unit.occupiedYN && highlightedUnitId !== unit.id ? 'border-l-4 border-l-amber-400' : ''}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
                         {unit.location || unit.locationName || unit.campusName || '-'}
                       </TableCell>
-                      <TableCell className={`font-medium ${colWidth.unit} ${freeze('unit', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>
+                      <TableCell className={`font-medium ${colWidth.unit} ${freeze('unit', 'z-10')} ${rowTint(unit)}`}>
                         {unit.roomNumber}
                       </TableCell>
-                      <TableCell className={`${colWidth.roomType} ${freeze('roomType', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>{unit.roomType}</TableCell>
+                      <TableCell className={`${colWidth.roomType} ${freeze('roomType', 'z-10')} ${rowTint(unit)}`}>{unit.roomType}</TableCell>
                       <TableCell>
                         <button
                           type="button"

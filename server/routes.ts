@@ -139,7 +139,7 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
-import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
+import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark } from "./services/compBenchmark";
 import { 
   getRevenuePerformanceForScope, 
@@ -293,6 +293,85 @@ function purgeRuleCaches(clientId: string): Promise<void> {
   return pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
     .then(() => undefined)
     .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
+}
+
+// ---------------------------------------------------------------------------
+// Auto-apply adjustment rules whenever the rules themselves change.
+//
+// Rule mutations used to purge caches but never recompute `rule_adjusted_rate`,
+// so a newly saved rule had no effect on any stored rate until someone opened
+// the Rate Card and clicked "Run Rules Rate". The rent roll therefore showed
+// rates that silently predated the user's own rules.
+//
+// Two constraints shape this: rule edits arrive in bursts (create, tweak,
+// toggle, re-scope), and a portfolio pricing run takes minutes. So collapse a
+// burst into a single run, and never let two runs for one client overlap —
+// `createJob` starts work immediately and has no queue of its own.
+const RULE_RECALC_DEBOUNCE_MS = 15_000;
+const pendingRuleRecalcs = new Map<string, NodeJS.Timeout>();
+
+// A run that never settles (hung, or a client repeatedly kicking off manual jobs)
+// must not defer a pending recalculation forever. 40 × 15s ≈ 10 minutes, well past
+// a full portfolio run, after which we give up loudly rather than looping silently.
+const MAX_RULE_RECALC_DEFERRALS = 40;
+
+function scheduleRuleRecalculation(clientId: string, attempt = 0): void {
+  const existing = pendingRuleRecalcs.get(clientId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(async () => {
+    pendingRuleRecalcs.delete(clientId);
+    try {
+      const { pricingJobManager } = await import('./pricingJobManager');
+
+      // A run already in flight read the rules as they were when it started, so
+      // it would miss this change. Re-arm instead of racing it with a second run.
+      if (pricingJobManager.hasActiveJobForClient(clientId)) {
+        if (attempt >= MAX_RULE_RECALC_DEFERRALS) {
+          console.error(
+            `[RuleAutoApply] ${clientId}: a pricing run has been in flight for ~${
+              Math.round((MAX_RULE_RECALC_DEFERRALS * RULE_RECALC_DEBOUNCE_MS) / 60000)
+            }m; giving up on the queued rule recalculation. Rates may be stale until the next rule change.`,
+          );
+          return;
+        }
+        console.log(`[RuleAutoApply] ${clientId}: run already in flight, deferring recalculation`);
+        scheduleRuleRecalculation(clientId, attempt + 1);
+        return;
+      }
+
+      // month omitted → the job resolves the newest uploaded month for the client.
+      const jobId = pricingJobManager.createJob({ clientId });
+      console.log(`[RuleAutoApply] ${clientId}: rules changed, started pricing job ${jobId}`);
+    } catch (err) {
+      console.error(`[RuleAutoApply] ${clientId}: failed to start recalculation:`, err);
+    }
+  }, RULE_RECALC_DEBOUNCE_MS);
+
+  // Never hold the process open just for a pending recalculation.
+  timer.unref?.();
+  pendingRuleRecalcs.set(clientId, timer);
+}
+
+// Purge caches AND recompute stored rates. Use for any rule change that alters
+// pricing. Use purgeRuleCaches alone when only cached reads went stale (e.g. a
+// notes-only edit), so cosmetic edits don't trigger a multi-minute run.
+// KNOWN GAP — recalculation is deliberately scoped to the REQUESTING tenant.
+//
+// Rules are global (`adjustment_rules.client_id` is NULL on every row), which is
+// why purgeRuleCaches purges the rule list for all clients. So a rule edited here
+// also changes what other tenants should see, and their *stored* rates stay stale
+// until someone edits a rule in their own session.
+//
+// Fanning the recalculation out to every tenant was considered and rejected: the
+// rule mutation endpoints have no auth middleware and unauthenticated sessions
+// resolve to clientId 'demo', so any anonymous visitor could kick off a full
+// portfolio repricing WRITE against a real tenant's data. Staleness is the safer
+// failure mode. The real fix is to scope rules per tenant, or to put the rule
+// endpoints behind auth — either is a bigger change than auto-apply.
+async function onRulesChanged(clientId: string): Promise<void> {
+  await purgeRuleCaches(clientId);
+  scheduleRuleRecalculation(clientId);
 }
 
 // Infer a service-line family string (e.g. "AL", "HC", "AL/MC") from a raw
@@ -12821,6 +12900,26 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   });
   
   // Get status of a pricing calculation job
+  // Is a pricing run currently in flight for this client?
+  //
+  // Rule changes now auto-trigger recalculation, so the Rate Card must be able to
+  // report "recalculating" for a run it did not start itself. Polling by jobId
+  // cannot do that — the page never learns the id of an auto-triggered run.
+  app.get("/api/pricing/active-job", async (req: any, res) => {
+    try {
+      const clientId: string = req.clientId || (req.session as any)?.clientId || 'demo';
+      const { pricingJobManager } = await import('./pricingJobManager');
+      const job = pricingJobManager.getActiveJobForClient(clientId);
+      res.set('Cache-Control', 'no-store');
+      res.json(job
+        ? { active: true, jobId: job.id, progress: job.progress, startedAt: job.startedAt }
+        : { active: false });
+    } catch (error) {
+      console.error('[pricing/active-job] error:', error);
+      res.status(500).json({ error: 'Failed to check pricing job status' });
+    }
+  });
+
   app.get("/api/pricing/job-status/:jobId", async (req, res) => {
     try {
       const { jobId } = req.params;
@@ -14963,7 +15062,7 @@ Respond in JSON format:
       
       // Purge BEFORE responding so the next GET request always sees the new rule,
       // regardless of whether the browser sends a cache-revalidation request.
-      await purgeRuleCaches(clientId);
+      await onRulesChanged(clientId);
       res.json({
         rule,
         affectedUnits,
@@ -15131,7 +15230,7 @@ Respond in JSON format:
         volumeAdjustedAnnualImpact: Math.round(impact.volumeAdjustedAnnualImpact),
       } as any);
 
-      purgeRuleCaches(clientId);
+      onRulesChanged(clientId);
       res.json({
         rule,
         affectedUnits: impact.affectedUnits,
@@ -15268,7 +15367,7 @@ Respond in JSON format:
         rulesCreated.push({ name: rule.name, rowCount: g.rowCount, annualImpact: Math.round(impact.annualImpact) });
       }
 
-      if (rulesCreated.length || overridesApplied) purgeRuleCaches(clientId);
+      if (rulesCreated.length || overridesApplied) onRulesChanged(clientId);
       res.json({ rulesCreated, overridesApplied, errors });
     } catch (error) {
       console.error('Error importing rules from Excel:', error);
@@ -15699,6 +15798,127 @@ Respond in JSON format:
       // premium (room-mix blending drags the denominator down).
       const suggestBenchmark = await loadCompBenchmark(pool, clientId);
 
+      // ── Demand pace + realised growth ───────────────────────────────────────
+      // The guidance below asks the model to reason about in-house vs street
+      // gaps, move-in volume, and the distance to the revenue growth target.
+      // None of those numbers used to reach the prompt, so the model was being
+      // asked to write rules against signals it could not actually see. Load
+      // them here and surface them per service line.
+      const suggestScopeSql = locationId
+        ? ` AND rr.location = (SELECT name FROM locations WHERE id = $2 AND client_id = $1)`
+        : '';
+      const suggestScopeParams: any[] = locationId ? [clientId, locationId] : [clientId];
+
+      // upload_month originates from user-supplied import files, so it is
+      // untrusted even though it lives in our own table. Validate the shape
+      // before doing any date math with it, and bind it as a parameter rather
+      // than interpolating. If it is malformed the enrichment is skipped
+      // rather than failing the whole suggestion request.
+      const monthsUsable = /^\d{4}-\d{2}$/.test(latestMonth);
+      const spotYearPrefix = monthsUsable ? latestMonth.slice(0, 4) : null;
+      if (!monthsUsable) {
+        console.warn(`[rule-suggest] latest upload_month "${latestMonth}" is not YYYY-MM; ` +
+          `skipping YTD growth enrichment.`);
+      }
+
+      // T3 move-ins per service line, and monthly in-house rate / census history
+      // for the spot year. Independent queries — run them together.
+      // Month values are bound as parameters (never interpolated) — see the
+      // untrusted-input note above.
+      const ytdParams: any[] = [...suggestScopeParams];
+      const pYearLike = ytdParams.push(`${spotYearPrefix}-%`);
+      const emptyRes: { rows: any[] } = { rows: [] };
+
+      // Move-in pace comes from the shared accessor, NOT a local rent-roll
+      // query. Clients who upload the "Move Ins & Outs Detail" workbook keep
+      // their authoritative counts in move_in_out_events and leave
+      // rent_roll_data.move_in_date empty — so a rent-roll-only query reports
+      // ZERO demand for exactly the clients with the best data. The accessor
+      // branches on hasMoveInOutEvents and returns per-month averages keyed
+      // `location||service_line||room_type` on RAW room types, matching the
+      // basis of the unit rows iterated below.
+      const [moveInMap, ytdRes, moveInFeedAvailable] = await Promise.all([
+        getT3MoveInsMapSvc(clientId, { locationId: locationId || null })
+          .catch((e: any) => {
+            console.warn(`[rule-suggest] move-in map unavailable: ${e?.message}`);
+            return new Map<string, number>();
+          }),
+        !monthsUsable ? Promise.resolve(emptyRes) : pool.query(`
+          SELECT rr.service_line, rr.upload_month AS month,
+                 AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0) AS avg_ih,
+                 COUNT(*) FILTER (WHERE rr.occupied_yn) AS occupied,
+                 mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
+                   WHERE rr.street_rate > 0
+                     AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                 ) AS avg_street
+          FROM rent_roll_data rr
+          WHERE rr.client_id = $1 AND rr.upload_month LIKE $${pYearLike}${suggestScopeSql}
+          GROUP BY rr.service_line, rr.upload_month
+        `, ytdParams),
+        // Whether this client has a move-in FEED at all — deliberately decided
+        // from the data source, not from whether any count came back positive.
+        // A client with a working feed and genuinely no recent move-ins must
+        // report 0, while a client with no feed must report "unavailable"; a
+        // count-derived flag conflates the two and would also let one service
+        // line's activity mask another's missing coverage.
+        (async () => {
+          const { hasMoveInOutEvents } = await import('./services/moveInOutService');
+          if (await hasMoveInOutEvents(clientId)) return true;
+          const rr = await pool.query(
+            `SELECT 1 FROM rent_roll_data
+              WHERE client_id = $1 AND move_in_date IS NOT NULL AND move_in_date <> ''
+              LIMIT 1`,
+            [clientId],
+          );
+          return rr.rows.length > 0;
+        })().catch(() => false),
+      ]);
+
+      // Accessor values are already per-month averages, so they are reported as
+      // a monthly pace and never multiplied back into a "trailing-3 total" —
+      // the accessor's two branches do not agree on the denominator when a
+      // client has fewer than three snapshots, and reconstructing a total would
+      // bake that disagreement into the prompt.
+      //
+      // Aggregated to the service line only: the event feed's room_type values
+      // do not reliably match rent-roll room types (measured: one service line
+      // matched none of its room types, another matched about half), so a
+      // per-room-type figure would print phantom zeros next to real ones and
+      // read as "no demand for this room type". Service-line pace is sound and
+      // is what the required-lift math below uses.
+      const moveInsBySL: Record<string, number> = {};
+      for (const [mKey, mVal] of Array.from(moveInMap.entries())) {
+        const sl = String(mKey).split('||')[1] || '';
+        const n = Number(mVal) || 0;
+        if (!sl || n <= 0) continue;
+        moveInsBySL[sl] = (moveInsBySL[sl] || 0) + n;
+      }
+      // Realised year-to-date growth per service line: earliest month of the
+      // spot year as the baseline, same convention as the Reference Data table.
+      const ytdBySL: Record<string, { ihGrowth: number|null; revGrowth: number|null; streetGrowth: number|null; months: number }> = {};
+      {
+        const bySl = new Map<string, Map<string, { ih: number|null; occ: number; street: number|null }>>();
+        for (const r of ytdRes.rows as any[]) {
+          const sl = r.service_line || '';
+          if (!bySl.has(sl)) bySl.set(sl, new Map());
+          bySl.get(sl)!.set(r.month, {
+            ih: r.avg_ih !== null ? Number(r.avg_ih) : null,
+            occ: Number(r.occupied) || 0,
+            street: r.avg_street !== null ? Number(r.avg_street) : null,
+          });
+        }
+        for (const [sl, m] of Array.from(bySl.entries())) {
+          const ms = Array.from(m.keys()).sort();
+          if (ms.length < 2) { ytdBySL[sl] = { ihGrowth: null, revGrowth: null, streetGrowth: null, months: ms.length }; continue; }
+          const base = m.get(ms[0])!, spot = m.get(ms[ms.length - 1])!;
+          const ihGrowth = (base.ih && spot.ih && base.ih > 0) ? (spot.ih - base.ih) / base.ih : null;
+          const baseRev = (base.ih ?? 0) * base.occ, spotRev = (spot.ih ?? 0) * spot.occ;
+          const revGrowth = baseRev > 0 ? (spotRev - baseRev) / baseRev : null;
+          const streetGrowth = (base.street && spot.street && base.street > 0) ? (spot.street - base.street) / base.street : null;
+          ytdBySL[sl] = { ihGrowth, revGrowth, streetGrowth, months: ms.length };
+        }
+      }
+
       // Per-service-line metric blocks for the AI prompt.
       const slBlocks: string[] = [];
       const slContexts: any[] = [];
@@ -15754,26 +15974,117 @@ Respond in JSON format:
           ? segElasticities.reduce((a, b) => a + b, 0) / segElasticities.length : null;
         const roomTypes = Array.from(new Set(scoped.map((u: any) => u.roomType).filter(Boolean)));
 
+        // In-house (actual paid) rate — occupied units only, same basis as the
+        // Reference Data "IH Spot" column so the variance the model sees matches
+        // the variance the user sees on screen.
+        const ihRates = scoped.filter((u: any) => u.occupiedYN && u.inHouseRate > 0)
+          .map((u: any) => u.inHouseRate as number);
+        const avgIh = ihRates.length ? ihRates.reduce((a: number, b: number) => a + b, 0) / ihRates.length : 0;
+        // ih_street_variance is a REAL trigger the engine evaluates — give the
+        // model the actual number instead of asking it to guess.
+        const ihStreetVar = (avgIh > 0 && avgStreet > 0) ? ((avgIh / avgStreet) - 1) * 100 : null;
+
+        // Demand pace: the accessor already returns a per-month average.
+        const moveInsPerMonth = moveInsBySL[sl] ?? 0;
+
+        // Distance to target, and what it would take to close it. Uses the same
+        // first-year impact model the rest of the app uses: a street-rate change
+        // only reaches NEW residents, so one month's cohort contributes
+        // 12 + 11 + … + 1 = 78 delta-months over the first year.
+        const ytd = ytdBySL[sl];
+        const target = targetsBySL[sl];
+        const annualIhRevenue = avgIh * occupied * 12;
+        let requiredLiftLine = '';
+        if (target != null && annualIhRevenue > 0) {
+          const realisedPct = ytd?.revGrowth != null ? ytd.revGrowth * 100 : null;
+          const gapPct = realisedPct !== null ? target - realisedPct : target;
+          const gapDollars = annualIhRevenue * (gapPct / 100);
+          if (moveInsPerMonth > 0 && avgStreet > 0) {
+            const requiredDelta = gapDollars / (78 * moveInsPerMonth);
+            const requiredPct = (requiredDelta / avgStreet) * 100;
+            requiredLiftLine =
+              `Gap to target: ${gapPct.toFixed(1)} pts (≈ $${Math.round(gapDollars).toLocaleString()} of annual revenue)\n` +
+              `Street-rate lift needed to close the gap on new move-ins alone: ` +
+              `${requiredPct >= 0 ? '+' : ''}${requiredPct.toFixed(1)}% ` +
+              `(≈ $${Math.round(requiredDelta)}/mo per unit, given ${moveInsPerMonth.toFixed(1)} move-ins/month)\n`;
+          } else {
+            requiredLiftLine =
+              `Gap to target: ${gapPct.toFixed(1)} pts (≈ $${Math.round(gapDollars).toLocaleString()} of annual revenue)\n` +
+              `Street-rate lift needed: not computable (${moveInFeedAvailable
+                ? 'no recent move-in volume — rate changes cannot reach new residents here'
+                : 'move-in volume is not available for this client — treat pace as unknown, not zero'})\n`;
+          }
+        }
+
+        // Per-room-type detail. Rules target room types, so segment-level numbers
+        // are what make a rule targeted rather than a blanket change.
+        const rtLines: string[] = [];
+        for (const rt of roomTypes) {
+          const rtUnits = scoped.filter((u: any) => u.roomType === rt);
+          if (!rtUnits.length) continue;
+          const rtStreetArr = rtUnits
+            .filter((u: any) => !(SH_SLS_SUGGEST.has(u.serviceLine) && /\/[B-Zb-z]$/.test(u.roomNumber || '')))
+            .map((u: any) => u.streetRate).filter((r: number) => r > 0);
+          const rtStreet = rtStreetArr.length ? rtStreetArr.reduce((a: number, b: number) => a + b, 0) / rtStreetArr.length : 0;
+          const rtIhArr = rtUnits.filter((u: any) => u.occupiedYN && u.inHouseRate > 0).map((u: any) => u.inHouseRate as number);
+          const rtIh = rtIhArr.length ? rtIhArr.reduce((a: number, b: number) => a + b, 0) / rtIhArr.length : 0;
+          const rtOcc = rtUnits.filter((u: any) => u.occupiedYN).length;
+          const rtOccPct = (rtOcc / rtUnits.length) * 100;
+          const rtDvArr = rtUnits.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant as number);
+          const rtDv = rtDvArr.length ? rtDvArr.reduce((a: number, b: number) => a + b, 0) / rtDvArr.length : 0;
+          const rtElArr = Array.from(elasticityMap.values())
+            .filter((e: any) => (!campusName || e.locationName === campusName)
+              && e.serviceLine === sl && e.roomType === rt && e.elasticity !== null)
+            .map((e: any) => e.elasticity as number);
+          const rtEl = rtElArr.length ? rtElArr.reduce((a, b) => a + b, 0) / rtElArr.length : null;
+          rtLines.push(
+            `  • ${rt}: ${rtUnits.length} units, ${rtOccPct.toFixed(1)}% occupied` +
+            `, street $${Math.round(rtStreet)}` +
+            (rtIh > 0 ? `, in-house $${Math.round(rtIh)}` : '') +
+            (rtIh > 0 && rtStreet > 0 ? ` (IH is ${(((rtIh / rtStreet) - 1) * 100).toFixed(1)}% vs street)` : '') +
+            `, avg days vacant ${Math.round(rtDv)}` +
+            (rtEl !== null ? `, elasticity ${rtEl.toFixed(3)}` : ', elasticity unknown'));
+        }
+
         slBlocks.push(
           `── Service line: ${sl} ──\n` +
-          `Revenue growth target: ${targetsBySL[sl] != null ? targetsBySL[sl] + '%' : 'not specified'}\n` +
+          `Revenue growth target: ${target != null ? target + '%' : 'not specified'}\n` +
+          `Realised YTD growth — revenue ${ytd?.revGrowth != null ? (ytd.revGrowth * 100).toFixed(1) + '%' : 'unknown'}` +
+            `, in-house rate ${ytd?.ihGrowth != null ? (ytd.ihGrowth * 100).toFixed(1) + '%' : 'unknown'}` +
+            `, street rate ${ytd?.streetGrowth != null ? (ytd.streetGrowth * 100).toFixed(1) + '%' : 'unknown'}\n` +
+          requiredLiftLine +
           `Total units: ${total}\n` +
           `Occupied: ${occupied} (${occPct.toFixed(1)}% occupancy)\n` +
           `Vacant: ${vacant}\n` +
+          (moveInFeedAvailable
+            ? `Move-in pace: ${moveInsPerMonth.toFixed(1)}/month (trailing-3 average) — this is the ONLY population a street-rate change reaches\n`
+            : `Move-in pace: NOT AVAILABLE for this client — this is a missing data feed, NOT zero demand. Do not treat it as weak demand or use it to justify discounting; size rules from occupancy, comp gap and in-house-to-street variance instead.\n`) +
           `Average street rate: $${Math.round(avgStreet)}\n` +
+          `Average in-house rate (RevPOR proxy, occupied units): ${avgIh > 0 ? '$' + Math.round(avgIh) : 'unknown'}\n` +
+          `In-house to street variance: ${ihStreetVar !== null ? (ihStreetVar >= 0 ? '+' : '') + ihStreetVar.toFixed(1) + '%' : 'unknown'}` +
+            `${ihStreetVar !== null && ihStreetVar > 0 ? ' (in-house ABOVE street — street rates are lagging what residents already pay)' : ''}\n` +
           `Average competitor rate (care-adjusted market benchmark): ${avgComp !== null ? '$' + Math.round(avgComp) : 'unknown'}\n` +
           `Street rate premium vs market: ${avgComp !== null && avgStreet > 0 ? (((avgStreet / avgComp) - 1) * 100).toFixed(1) + '%' : 'unknown'}\n` +
           `Average days vacant: ${Math.round(avgDaysVacant)}\n` +
-          `Average price elasticity (Δdays-to-sell / Δrate): ${avgElasticity !== null ? avgElasticity.toFixed(3) : 'unknown'}\n` +
-          `Room types: ${roomTypes.join(', ') || 'unknown'}`);
+          `Average price elasticity (Δdays-to-sell / Δrate): ${avgElasticity !== null ? avgElasticity.toFixed(3) : 'unknown'}` +
+            ` — magnitude near 0 means demand barely reacts to price (safe to push)\n` +
+          `Room types: ${roomTypes.join(', ') || 'unknown'}\n` +
+          (rtLines.length ? `Room-type detail:\n${rtLines.join('\n')}` : ''));
         slContexts.push({
           serviceLine: sl,
-          targetGrowthPercent: targetsBySL[sl],
+          targetGrowthPercent: target,
           occupancyPercent: Number(occPct.toFixed(1)),
           avgStreetRate: Math.round(avgStreet),
+          avgInHouseRate: avgIh > 0 ? Math.round(avgIh) : null,
+          ihStreetVariancePct: ihStreetVar !== null ? Number(ihStreetVar.toFixed(1)) : null,
           avgCompetitorRate: avgComp !== null ? Math.round(avgComp) : null,
           avgDaysVacant: Math.round(avgDaysVacant),
           avgElasticity,
+          moveInFeedAvailable,
+          moveInsPerMonth: Number(moveInsPerMonth.toFixed(2)),
+          ytdRevGrowthPct: ytd?.revGrowth != null ? Number((ytd.revGrowth * 100).toFixed(1)) : null,
+          ytdIhRateGrowthPct: ytd?.ihGrowth != null ? Number((ytd.ihGrowth * 100).toFixed(1)) : null,
+          ytdStreetRateGrowthPct: ytd?.streetGrowth != null ? Number((ytd.streetGrowth * 100).toFixed(1)) : null,
         });
       }
       if (!validSLs.length) return res.json({ suggestions: [], context: { reason: 'no units in scope' } });
@@ -15839,12 +16150,26 @@ Respond in JSON format:
         `in its "serviceLines" array instead of duplicating near-identical rules per line. ` +
         `Only make a rule service-line specific when the data genuinely differs.\n\n${metricsBlock}\n\n` +
         `Guidance:\n` +
-        `- GROWTH MANDATE: the operator requires at least 5% year-over-year RevPOR growth and demand is strong. Default to rate INCREASES — the majority of your rules should raise rates. Propose a discount ONLY when the data shows a clear, specific weak spot (e.g. sustained low room-type occupancy AND long vacancy durations), and keep discounts small and narrowly targeted.\n` +
-        `- If occupancy is high and elasticity is weak (small magnitude), favor rate increases.\n` +
-        `- Only when occupancy is genuinely low AND units sit vacant a long time, consider a targeted discount to accelerate leasing — never a broad one.\n` +
-        `- Keep individual adjustments realistic (typically 1%–12%); size increases so the affected service line's blended rate growth stays on pace for the 5% annual target.\n` +
-        `- Include at least one rule that RIGHT-SIZES street rates versus in-house rates to protect the annual growth target — when in-house rates run well above street, street rates are underpriced and should rise, e.g. "When in-house to street variance is greater than 10%, increase street rate by 4% for vacant units".\n` +
-        `- Look for UNDERPRICED headroom, not just premium positions: when occupancy is strong AND street rates sit BELOW competitors (negative street-to-comp variance), that is the clearest safe rate increase — e.g. "If service line occupancy is greater than or equal to 88 AND street rate to top comp var % is less than 0, increase street rate by 5% for vacant units". Do not only propose increases where rates are already above comps.\n` +
+        `- GROWTH MANDATE: this operator requires at least 5% year-over-year RevPOR growth and the market is in high demand. Rate integrity comes first: your DEFAULT action is a rate INCREASE, and the clear majority of your rules must raise rates. Discounting is a last resort, not a lever of first choice.\n` +
+        `- ANCHOR EVERY RULE TO THE TARGET GAP. Each service line above shows its realised YTD growth, its gap to target, and the street-rate lift needed to close that gap on new move-ins alone. That lift is a planning HEURISTIC, not an exact forecast — it compares part-year realised growth against a full-year target and assumes the current move-in pace holds — so treat it as an order-of-magnitude guide to how hard to push, not a precise number to reproduce. Treat that required lift as your budget: the increases you propose for a service line should, in combination, get it to target. If the required lift is large, propose a larger or broader increase; if the line is already at or above target, protect it with a modest increase rather than a big one. Never propose increases that obviously overshoot or fall far short of the stated gap.\n` +
+        `- MOVE-IN VOLUME SETS THE CEILING. A street-rate change only ever reaches NEW residents, so a service line's move-in pace decides how much revenue a rate rule can actually produce. Where move-in volume is high, a modest increase compounds quickly — prefer it. Where move-in volume is near zero, a street-rate change will do almost nothing no matter how large; do not lean on that line to hit the target, and do not propose an aggressive increase there expecting revenue from it.\n` +
+        `- ELASTICITY GATES THE MAGNITUDE. Elasticity is Δdays-to-sell per Δrate. A magnitude near zero means demand barely reacts to price — that is your safest and best place to push hard. A large negative magnitude means raising the rate materially slows absorption — still increase, but keep it small. Use the per-room-type elasticity above, not just the service-line average, and put your biggest increases on the least elastic room types.\n` +
+        `\n` +
+        `PLAYBOOK — work down this list; the earlier techniques are the highest-confidence revenue with the least occupancy risk:\n` +
+        `1. RECAPTURE LOSS-TO-LEASE (in-house above street). SIGN CONVENTION: the "in-house to street variance" figure above is POSITIVE when in-house rates sit ABOVE street rates, and NEGATIVE when they sit below. A POSITIVE variance is the loss-to-lease case — the published street rate has fallen behind what residents already pay, so you are underpricing every new move-in. That is low-risk revenue: trigger on it, e.g. "When in-house to street variance is greater than 10%, increase street rate by 5% for vacant units". A NEGATIVE variance is the opposite situation: street is already ahead of in-house, new residents already pay more than existing ones, and there is no loss-to-lease to recapture — do NOT describe that as recapture, and justify any increase there from the comp gap or occupancy instead. Only use this technique, and only call it recapture, when the variance shown above is actually positive.\n` +
+        `2. CLOSE THE COMP GAP (street below market). When occupancy is healthy AND street rates sit BELOW the care-adjusted competitor benchmark (negative street-to-comp variance), the market is telling you there is headroom, e.g. "If service line occupancy is greater than or equal to 88 AND street rate to top comp var % is less than 0, increase street rate by 5% for vacant units". Do NOT only propose increases where you are already priced above comps — hunt for the underpriced positions first.\n` +
+        `3. TIER BY OCCUPANCY (scarcity pricing). Scarce inventory should cost more. Push hardest where occupancy is highest and step the increase down as occupancy falls — a larger increase above 95% occupancy, a smaller one in the 88–95% band. Room-type occupancy is often far more extreme than the service-line average; use it to find the genuinely scarce segments.\n` +
+        `4. PROTECT PREMIUM POSITIONS. Where you are already above market AND occupancy is strong, you have proven pricing power. Keep increasing, just more modestly, so the line stays on pace for its target without testing the ceiling.\n` +
+        `5. FAST-ABSORPTION PUSH. A room type that is highly occupied AND sells quickly (low average days vacant) is underpriced almost by definition — demand is clearing faster than the price implies. Raise it.\n` +
+        `\n` +
+        `DISCOUNT POLICY — deliberately restrictive; this operator would rather hold rate than buy occupancy:\n` +
+        `- A discount is permitted ONLY in a service line whose occupancy is genuinely LOW (roughly below 85%) where volume is the only remaining lever, AND only for a segment that ALSO shows long vacancy durations. Both conditions must hold, and both must appear in the rule sentence.\n` +
+        `- At most 2 of your rules may be decreases, and only if the data genuinely supports them. If nothing meets the bar, propose NO discounts at all — that is a valid and often correct answer.\n` +
+        `- Keep any discount small (typically 2%–6%) and scoped to the specific room type that is struggling. Never discount a whole service line, and never discount a line that is at or above its growth target.\n` +
+        `- Never discount purely because a segment is priced above competitors. Being above market is a position to defend, not a problem to fix.\n` +
+        `\n` +
+        `- SIZING: keep individual adjustments realistic (typically 1%–12%). Size each increase from the target gap, the move-in pace, and the elasticity of the segment it touches — not from a round number.\n` +
+        `- VARY YOUR RULES. Do not return ten variations of one idea: cover several different playbook techniques and several different segments, so the user gets a portfolio of actions rather than one action restated.\n` +
         `COMPLEXITY REQUIREMENTS — every rule MUST be conditional and targeted, not a blanket change:\n` +
         `- Each rule must include at least ONE trigger condition AND, where sensible, a room-type or occupancy-status target.\n` +
         `- Prefer compound conditions (two conditions joined by AND or OR) when the data supports them.\n` +
@@ -16094,7 +16419,7 @@ Respond in JSON format:
       // Bust the cached rules list so Rule Administration immediately shows the
       // new rule as active (GET /api/adjustment-rules is cached for 2 min).
       // Purge BEFORE responding so the next GET always sees the new rule.
-      await purgeRuleCaches(clientId);
+      await onRulesChanged(clientId);
 
       // Learning signal: log the acceptance so future AI runs favor similar rules.
       await recordSuggestionFeedback(clientId, 'accepted', {
@@ -18153,7 +18478,7 @@ Return ONLY valid JSON, no markdown fences:
         volumeAdjustedAnnualImpact: impact.annualImpact,
       });
 
-      purgeRuleCaches(clientId);
+      onRulesChanged(clientId);
       res.json({ rule: { ...updated, ...impact }, affectedUnits: impact.affectedUnits });
     } catch (error) {
       console.error('Error updating adjustment rule:', error);
@@ -18178,7 +18503,7 @@ Return ONLY valid JSON, no markdown fences:
 
       // Clear all cached rule-list variants so every location/service-line
       // filter sees the updated active state immediately (not the stale cache).
-      purgeRuleCaches(clientId);
+      onRulesChanged(clientId);
       
       res.json(updated);
     } catch (error) {
@@ -18267,7 +18592,7 @@ Return ONLY valid JSON, no markdown fences:
         createdBy: 'reselect',
       } as any);
 
-      purgeRuleCaches(clientId);
+      onRulesChanged(clientId);
       res.json(created);
     } catch (error) {
       console.error('Error reselecting adjustment rule:', error);
@@ -18286,7 +18611,7 @@ Return ONLY valid JSON, no markdown fences:
       const updated = await storage.updateAdjustmentRule(id, {
         action: { ...action, isAdditive: action.isAdditive === false },
       });
-      purgeRuleCaches(clientId);
+      onRulesChanged(clientId);
       res.json(updated);
     } catch (error) {
       console.error('Error updating rule additive flag:', error);
@@ -18299,7 +18624,7 @@ Return ONLY valid JSON, no markdown fences:
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
       await storage.deleteAdjustmentRule(id);
-      purgeRuleCaches(clientId);
+      onRulesChanged(clientId);
       res.json({ success: true });
     } catch (error) {
       console.error('Error deleting adjustment rule:', error);
@@ -20736,22 +21061,63 @@ Return ONLY valid JSON, no markdown fences:
           ? (effectiveProposed - streetSpot) * t3MoveInsForImpact
           : null;
 
-        // YTD in-house revenue growth: revenue = avg in-house rate × occupied units.
+        // ── Year-to-date growth ────────────────────────────────────────────────
         // Baseline = earliest available month in the spot year; growth = (spot − base) / base.
+        //
+        // Three related measures, all sharing the same baseline month so they
+        // decompose cleanly:
+        //   revYtdGrowth    — in-house REVENUE growth  (avg IH rate × occupied units)
+        //   ihYtdGrowth     — in-house RATE growth     (avg IH rate alone)
+        //   streetYtdGrowth — street RATE growth       (avg street rate alone)
+        // Revenue growth ≈ rate growth + census growth, so publishing rate growth
+        // next to revenue growth shows how much of the revenue move came from
+        // pricing versus occupancy.
+        //
+        // Every measure also emits its raw spot/base components. Group roll-ups
+        // MUST re-derive the percentage from summed components — averaging the
+        // per-row percentages weights a 4-unit room type the same as a 40-unit one.
         const spotYear = spotMonth.slice(0, 4);
         const yearMonths = months.filter(mm => mm.startsWith(spotYear)).sort();
         let revYtdGrowth: number | null = null;
         let ytdRevSpot: number | null = null;
         let ytdRevBase: number | null = null;
+        let ihYtdGrowth: number | null = null;
+        let ytdIhUnitsSpot: number | null = null;
+        let ytdIhUnitsBase: number | null = null;
+        let streetYtdGrowth: number | null = null;
+        let ytdStreetSpot: number | null = null;
+        let ytdStreetBase: number | null = null;
+        let ytdStreetUnitsSpot: number | null = null;
+        let ytdStreetUnitsBase: number | null = null;
         if (yearMonths.length >= 2 && spot) {
           const baseMonth = yearMonths[0];
           const base = bm.get(baseMonth);
-          const spotRev = (spot.avgIh !== null) ? spot.avgIh * spot.occupied : null;
-          const baseRev = (base && base.avgIh !== null) ? base.avgIh * base.occupied : null;
-          if (spotRev !== null && baseRev !== null && baseRev > 0 && baseMonth !== spotMonth) {
-            revYtdGrowth = (spotRev - baseRev) / baseRev;
-            ytdRevSpot = spotRev;
-            ytdRevBase = baseRev;
+          if (base && baseMonth !== spotMonth) {
+            // In-house revenue + in-house rate. Weighted by OCCUPIED units: an
+            // in-house rate only exists where somebody is paying it.
+            if (spot.avgIh !== null && base.avgIh !== null
+                && spot.occupied > 0 && base.occupied > 0 && base.avgIh > 0) {
+              const spotRev = spot.avgIh * spot.occupied;
+              const baseRev = base.avgIh * base.occupied;
+              if (baseRev > 0) {
+                revYtdGrowth = (spotRev - baseRev) / baseRev;
+                ytdRevSpot = spotRev;
+                ytdRevBase = baseRev;
+                ytdIhUnitsSpot = spot.occupied;
+                ytdIhUnitsBase = base.occupied;
+                ihYtdGrowth = (spot.avgIh - base.avgIh) / base.avgIh;
+              }
+            }
+            // Street rate. Weighted by TOTAL units — a street rate is published
+            // for vacant units too, so occupancy must not gate it.
+            if (spot.avgStreet !== null && base.avgStreet !== null
+                && spot.total > 0 && base.total > 0 && base.avgStreet > 0) {
+              ytdStreetSpot = spot.avgStreet * spot.total;
+              ytdStreetBase = base.avgStreet * base.total;
+              ytdStreetUnitsSpot = spot.total;
+              ytdStreetUnitsBase = base.total;
+              streetYtdGrowth = (spot.avgStreet - base.avgStreet) / base.avgStreet;
+            }
           }
         }
 
@@ -20911,10 +21277,22 @@ Return ONLY valid JSON, no markdown fences:
           revenueGrowthTarget:
             (c.locationId ? growthTargetMap.get(`${c.locationId}||${c.serviceLine}`) : undefined)
             ?? null,
-          // YTD in-house revenue growth (fraction, e.g. 0.023 = +2.3%)
+          // YTD growth (all fractions, e.g. 0.023 = +2.3%). The *Spot/*Base
+          // components are the raw numerator/denominator pieces the client sums
+          // when rolling rows up — never average the percentages themselves.
           revYtdGrowth,
           ytdRevSpot,
           ytdRevBase,
+          // YTD in-house RATE growth (rate only, census removed)
+          ihYtdGrowth,
+          ytdIhUnitsSpot,
+          ytdIhUnitsBase,
+          // YTD street RATE growth
+          streetYtdGrowth,
+          ytdStreetSpot,
+          ytdStreetBase,
+          ytdStreetUnitsSpot,
+          ytdStreetUnitsBase,
           // Monthly history for expandable column drill-down (up to 24 months)
           campusOccHistory: Object.fromEntries(
             months.map(mm => [mm, rtoOccWindow(rtoCampusMap.get(c.campus), [mm]) ?? occPctWindow(cOcc, [mm])])

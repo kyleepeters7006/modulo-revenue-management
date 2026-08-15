@@ -30,4 +30,7 @@
 - [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.
 - [Tooltips in scrollable dialogs](dialog-tooltip-portal.md) — portal to body + viewport-clamp, never flip above/below; two identically-titled bubble maps exist, fix both.
 - [Rule-adjusted rate persistence](rule-rate-persistence.md) — bulk writer must preserve rule cols on `undefined` (null still clears); two rival pricing paths, only one applies rules.
+- [Rule changes auto-apply](rule-auto-apply.md) — rule mutations schedule a debounced repricing run (never apply on read); deferral must be bounded; single-tenant on purpose.
 - [MatrixCare export semantics](matrixcare-export-semantics.md) — exports must be client+latest-month scoped w/ override>rule>modulo>street; hold fields differ by payer; no resident columns.
+- [Rule parser compound drops](rule-parser-compound-drop.md) — a phrase can parse standalone yet vanish inside "A AND B"; METRIC_TO_FIELD needs every alias, assert condition COUNT.
+- [Reference Data YTD decomposition](refdata-ytd-decomposition.md) — rev vs IH-rate vs street-rate YTD; roll-ups re-derive from summed components, divide out units before the ratio.

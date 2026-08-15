@@ -1112,6 +1112,13 @@ export function buildGroupRulePreviewRates(
     // Normalise fraction-stored occupancy thresholds to percentage (mirrors evalGroupCondition).
     let value = Number(c.value);
     if (OCC_GROUP_FIELDS.has(c.field) && Math.abs(value) <= 1) value = value * 100;
+    // Same normalisation for IH-to-street variance. Legacy rules stored this
+    // threshold as a fraction (0.1 = 10%) while the metric is on the 0–100 %
+    // scale. evaluateSingleCondition and evalGroupCondition both correct for
+    // this; without it here the Reference Data preview would fire a legacy rule
+    // at >0.1% while the pricing engine required >10%.
+    if ((c.field === 'ih_street_variance' || c.field === 'street_to_ih_var')
+        && Math.abs(value) <= 1 && value !== 0) value = value * 100;
 
     let metricVal: number | null = null;
     if (c.field === 'service_line_occupancy') {

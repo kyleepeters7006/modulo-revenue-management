@@ -276,7 +276,26 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'room type occupancy',                                 field: 'room_type_occupancy' },
   { key: 'campus occupancy',                                    field: 'occupancy' },
   { key: 'street rate to top comp var %',                       field: 'street_to_comp_var', rawPct: true },
-  { key: 'in house to street rate var % - single occupant',     field: 'ih_street_variance' },
+  // ── In-house to street rate variance ───────────────────────────────────
+  // The canonical column label plus the natural phrasings people (and the AI
+  // rule generator) actually write. Without these aliases the metric parsed
+  // ONLY as a standalone whole-rule condition via the regex fallback further
+  // down; inside a compound "A AND B" trigger the phrase matched nothing here
+  // and the condition was silently dropped, producing a rule that looked
+  // correct in its description but ignored the variance entirely.
+  //
+  // rawPct: the metric is on the 0–100 % scale (10 = 10%), matching the
+  // regex fallback and every engine that evaluates ih_street_variance.
+  { key: 'in house to street rate var % - single occupant',     field: 'ih_street_variance', rawPct: true },
+  { key: 'in-house to street rate var',                         field: 'ih_street_variance', rawPct: true },
+  { key: 'in house to street rate var',                         field: 'ih_street_variance', rawPct: true },
+  { key: 'in-house to street var',                              field: 'ih_street_variance', rawPct: true },
+  { key: 'in house to street var',                              field: 'ih_street_variance', rawPct: true },
+  { key: 'in-house to street rate variance',                    field: 'ih_street_variance', rawPct: true },
+  { key: 'in house to street rate variance',                    field: 'ih_street_variance', rawPct: true },
+  { key: 'ih to street var',                                    field: 'ih_street_variance', rawPct: true },
+  { key: 'ih-street var',                                       field: 'ih_street_variance', rawPct: true },
+  { key: 'ih street var',                                       field: 'ih_street_variance', rawPct: true },
   { key: 'competitor rate',                                     field: 'competitor_variance' },
   { key: 'vacant units/beds',                                   field: 'vacant_units', rawPct: true },
   { key: 'total units/beds',                                    field: 'total_units', rawPct: true },

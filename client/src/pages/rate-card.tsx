@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { ChevronDown, X, Download, Calculator } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -50,13 +49,6 @@ export default function RateCard() {
   );
   const [selectedUnit, setSelectedUnit] = useState<string | null>(urlUnit); // Track selected unit
   const [isExporting, setIsExporting] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [jobProgress, setJobProgress] = useState<{
-    percentage: number;
-    current: number;
-    total: number;
-    message: string;
-  } | null>(null);
   const { toast } = useToast();
 
   // Save filters to localStorage whenever they change
@@ -99,108 +91,6 @@ export default function RateCard() {
   const clearAllSelection = (setter: (values: string[]) => void) => {
     setter([]);
   };
-
-  // Function to check job status
-  const checkJobStatus = async (jobId: string) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/pricing/job-status/${jobId}`);
-        const data = await response.json();
-        
-        console.log(`Job ${jobId} status:`, data.status, 'Progress:', data.progress);
-        
-        if (data.status === 'completed') {
-          clearInterval(pollInterval);
-          setIsGenerating(false);
-          setJobProgress(null);
-          toast({
-            title: "Rules Rate Calculation Complete",
-            description: `Successfully generated pricing for ${data.progress?.total || data.result?.totalUnits || 0} units.`,
-          });
-          // Invalidate rate card data to refresh the table
-          queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-        } else if (data.status === 'failed') {
-          clearInterval(pollInterval);
-          setIsGenerating(false);
-          setJobProgress(null);
-          toast({
-            title: "Calculation Failed",
-            description: data.error || "Failed to generate Rules Rate suggestions.",
-            variant: "destructive",
-          });
-        } else if (data.status === 'processing') {
-          // Update progress - handle the actual data structure
-          const progress = data.progress || {};
-          const percentage = progress.percentage || 0;
-          const current = progress.current || 0;
-          const total = progress.total || 0;
-          
-          // Generate appropriate message based on progress
-          let message = 'Processing...';
-          if (percentage > 0) {
-            message = `Processing batch ${progress.currentBatch || 0} of ${progress.totalBatches || 0}`;
-          } else {
-            message = 'Initializing calculation...';
-          }
-          
-          setJobProgress({
-            percentage,
-            current,
-            total,
-            message
-          });
-        }
-      } catch (error) {
-        console.error('Error checking job status:', error);
-      }
-    }, 2000); // Poll every 2 seconds
-    
-    // Return the interval so it can be cleared if needed
-    return pollInterval;
-  };
-
-  // Generate Modulo mutation using optimized endpoint
-  const generateModuloMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest('/api/pricing/generate-modulo-optimized', 'POST', {
-        // No month: the server prices the client's newest uploaded month.
-        serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
-        regions: selectedRegions.length > 0 ? selectedRegions : undefined,
-        divisions: selectedDivisions.length > 0 ? selectedDivisions : undefined,
-        locations: selectedLocations.length > 0 ? selectedLocations : undefined,
-      });
-      return response;
-    },
-    onMutate: () => {
-      setIsGenerating(true);
-      setJobProgress({
-        percentage: 0,
-        current: 0,
-        total: 0,
-        message: 'Starting calculation...'
-      });
-    },
-    onSuccess: (data) => {
-      if (data.jobId) {
-        toast({
-          title: "Calculation Started",
-          description: "Processing pricing suggestions in the background...",
-        });
-        // Start polling for job status
-        checkJobStatus(data.jobId);
-      }
-    },
-    onError: (error) => {
-      setIsGenerating(false);
-      setJobProgress(null);
-      toast({
-        title: "Calculation Failed",
-        description: "Failed to start Rules Rate calculation. Please try again.",
-        variant: "destructive",
-      });
-      console.error('Generate Modulo error:', error);
-    },
-  });
 
   // Export handler
   const handleExport = async () => {
@@ -275,7 +165,7 @@ export default function RateCard() {
                 Rate Card & Pricing
               </h1>
               <p className="text-sm sm:text-base text-gray-600" data-testid="text-page-subtitle">
-                Review current rates and Rules Rate suggestions
+                Review current rates — pricing rules are applied automatically
               </p>
             </div>
             <div className="flex flex-col gap-2">
@@ -289,17 +179,6 @@ export default function RateCard() {
                 <Download className="h-4 w-4" />
                 {isExporting ? 'Exporting...' : 'Export to CSV'}
               </Button>
-              {jobProgress && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm font-medium text-blue-900">{jobProgress.message}</span>
-                    <span className="text-sm text-blue-700">
-                      {jobProgress.current} / {jobProgress.total} units ({jobProgress.percentage}%)
-                    </span>
-                  </div>
-                  <Progress value={jobProgress.percentage} className="h-2" />
-                </div>
-              )}
             </div>
           </div>
           
