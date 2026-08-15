@@ -73,7 +73,7 @@ export default function PricingAlgorithmDocs() {
 
           <Section id="overview" icon={GitBranch} title="Overview">
             <p>
-              Modulo recommends a rate for every unit based on the pricing rules your team has put in place. An <strong className="text-[var(--trilogy-dark-blue)]">AI rule generator</strong> analyzes occupancy trends, market conditions, and your community's performance to suggest rules designed to hit your revenue growth targets — you review and approve before anything goes live. Once active, each rule nudges rates up or down, and a built-in safety layer keeps every recommended rate within the boundaries you set. If no rule applies to a unit, Modulo leaves the rate unchanged rather than guessing.
+              Modulo recommends a rate for every unit based on the pricing rules your team has put in place. An <strong className="text-[var(--trilogy-dark-blue)]">AI rule generator</strong> analyzes occupancy trends, market conditions, and your community's performance to suggest rules designed to hit your revenue growth targets — you review and approve before anything goes live. Once active, each rule nudges rates up or down, and a built-in safety layer keeps every recommended rate within the boundaries you set.
             </p>
           </Section>
 
