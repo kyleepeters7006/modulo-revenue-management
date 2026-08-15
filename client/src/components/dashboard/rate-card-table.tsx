@@ -1179,17 +1179,7 @@ export default function RateCardTable({
                               <ModuloCalculationDialog
                                 roomType={unit.roomType}
                                 currentRate={unit.streetRate}
-                                unitId={unit.id}
-                                calculationDetails={(() => {
-                                  try {
-                                    if (!unit.moduloCalculationDetails) return null;
-                                    return typeof unit.moduloCalculationDetails === 'string' 
-                                      ? JSON.parse(unit.moduloCalculationDetails)
-                                      : unit.moduloCalculationDetails;
-                                  } catch {
-                                    return null;
-                                  }
-                                })()}
+                                baseRate={unit.moduloSuggestedRate}
                                 ruleAdjustedRate={unit.ruleAdjustedRate}
                                 appliedRuleName={unit.appliedRuleName}
                                 serviceLine={unit.serviceLine}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Navigation from "@/components/navigation";
 import { CompetitorMap } from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
@@ -157,6 +157,32 @@ export default function CompetitorAnalysis() {
   });
 
   // Extract unique regions, divisions, and locations - sorted alphabetically
+  // Same query key and params as CompetitorForm, so React Query serves both from one
+  // cache entry — the header stats cost no extra network request.
+  const { data: competitorsData } = useQuery({
+    queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations, selectedServiceLines],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedRegions.length > 0) params.append('regions', selectedRegions.join(','));
+      if (selectedDivisions.length > 0) params.append('divisions', selectedDivisions.join(','));
+      if (selectedLocations.length > 0) params.append('locations', selectedLocations.join(','));
+      if (selectedServiceLines.length > 0) params.append('serviceLines', selectedServiceLines.join(','));
+      const qs = params.toString();
+      const response = await fetch(`/api/competitors${qs ? '?' + qs : ''}`);
+      if (!response.ok) throw new Error('Failed to fetch competitors');
+      return response.json();
+    },
+  });
+
+  const competitorStats = useMemo(() => {
+    const items: any[] = (competitorsData as any)?.items || [];
+    const mapped = items.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng)).length;
+    const withRates = items.filter((c) => (c.roomRates?.length || 0) > 0 || c.streetRate != null).length;
+    const serviceLines = new Set<string>();
+    items.forEach((c) => (c.serviceLines || []).forEach((sl: string) => sl && serviceLines.add(sl)));
+    return { total: items.length, mapped, unmapped: items.length - mapped, withRates, serviceLines: serviceLines.size };
+  }, [competitorsData]);
+
   const regions = (locationsData?.regions || []).sort((a, b) => a.localeCompare(b));
   const divisions = (locationsData?.divisions || []).sort((a, b) => a.localeCompare(b));
   const locations = (locationsData?.locations?.map((loc: any) => loc.name) || []).sort((a, b) => a.localeCompare(b));
@@ -260,6 +286,41 @@ export default function CompetitorAnalysis() {
                 {isRetrying ? "Starting…" : geocodingPending > 0 ? `Retry (${geocodingPending} pending)` : "Retry Geocoding"}
               </Button>
             )}
+          </div>
+
+          {/* Snapshot of what's currently in scope. The page used to open straight into a
+              wall of filter dropdowns with no sense of scale or data health. */}
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[
+              // "Shown", not "tracked": the API caps results at the top 3 per location when
+              // several locations are filtered, so items[] is the displayed set. Every tile
+              // below is derived from that same set, so they stay consistent with each other.
+              { label: 'Competitors shown', value: competitorStats.total, note: null as string | null, accent: false },
+              {
+                // Deliberately not "plotted on map" — the map dedupes stacked pins and
+                // filters by radius, so its own count is legitimately lower.
+                label: 'With coordinates',
+                value: competitorStats.mapped,
+                note: competitorStats.unmapped > 0 ? `${competitorStats.unmapped.toLocaleString()} missing coordinates` : null,
+                accent: true,
+              },
+              { label: 'With rate data', value: competitorStats.withRates, note: null as string | null, accent: false },
+              { label: 'Service lines covered', value: competitorStats.serviceLines, note: null as string | null, accent: false },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                className="rounded-xl border border-[var(--dashboard-border)] bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md"
+                data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <div className={`text-2xl font-semibold tabular-nums ${stat.accent ? 'text-teal-600' : 'text-gray-900'}`}>
+                  {stat.value.toLocaleString()}
+                </div>
+                <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-[var(--dashboard-muted)]">
+                  {stat.label}
+                </div>
+                {stat.note && <div className="mt-1 text-[11px] text-amber-600">{stat.note}</div>}
+              </div>
+            ))}
           </div>
 
           {/* Filters */}
@@ -526,8 +587,11 @@ export default function CompetitorAnalysis() {
         </div>
         
         {/* Desktop: Side by side */}
-        <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
-          <div className="lg:col-span-2 min-w-0">
+        {/* A rigid 2/1 split left the side column near 320px — too narrow for a card with
+            a title, an action button and rate rows, so content spilled and got clipped.
+            A floor width on the panel keeps it readable and lets the map take the slack. */}
+        <div className="hidden lg:grid lg:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.62fr)] xl:grid-cols-[minmax(0,1fr)_minmax(430px,0.55fr)]">
+          <div className="min-w-0">
             <CompetitorMap 
               selectedRegions={selectedRegions}
               selectedDivisions={selectedDivisions}
@@ -535,7 +599,9 @@ export default function CompetitorAnalysis() {
               selectedServiceLines={selectedServiceLines}
             />
           </div>
-          <div className="lg:col-span-1 min-w-0 overflow-hidden">
+          {/* overflow-hidden here is what actually severed the delete button — it hid the
+              symptom of the cramped column instead of letting the content lay out. */}
+          <div className="min-w-0">
             <CompetitorForm 
               selectedRegions={selectedRegions}
               selectedDivisions={selectedDivisions}

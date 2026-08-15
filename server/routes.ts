@@ -140,7 +140,7 @@ import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
 import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
-import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark } from "./services/compBenchmark";
+import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark, pickComparisonRate } from "./services/compBenchmark";
 import { 
   getRevenuePerformanceForScope, 
   calculateGapAnalysis, 
@@ -161,6 +161,17 @@ interface AnalyticsCacheEntry {
 const analyticsCache = new Map<string, AnalyticsCacheEntry>();
 const ANALYTICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (default)
 const COMMENTARY_CACHE_TTL = 30 * 60 * 1000; // 30 minutes (AI commentary changes rarely)
+
+// A commentary payload is only worth showing — or caching — if it actually says something.
+// Syntactically valid but semantically empty AI output ({"summary":"","rules":[]}) is the
+// precise shape that left the Strategy Overview blank, so parseability alone is not enough.
+// Applied at every point a payload enters the system: after parsing, before serving a
+// cached row, and before writing one.
+function isUsableCommentary(c: any): boolean {
+  if (!c || typeof c !== 'object') return false;
+  if (typeof c.summary === 'string' && c.summary.trim().length > 0) return true;
+  return Array.isArray(c.rules) && c.rules.some((r: any) => r && typeof r.name === 'string' && r.name.trim().length > 0);
+}
 
 function getCachedAnalytics(key: string): any | null {
   const entry = analyticsCache.get(key);
@@ -5640,45 +5651,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       })();
-      const [campusRentRoll, campusData, competitors, pricingWeights, surveyData] = await Promise.all([
+      // The raw competitor/survey fetches that used to live here fed the old
+      // max-rate position calculation; loadStudioCompBenchmark (below) now supplies
+      // competitor rates, so they are no longer read.
+      const [campusRentRoll, campusData] = await Promise.all([
         storage.getRentRollDataByMonth(currentMonth, clientId),  // Only get current month data
         storage.getAllCampuses(clientId),
-        storage.getCompetitors(clientId),
-        storage.getPricingWeights(),
-        // Fetch competitive survey data as fallback for market position when units lack competitorFinalRate
-        db.select({
-          keyStatsLocation: competitiveSurveyData.keyStatsLocation,
-          competitorType: competitiveSurveyData.competitorType,
-          roomType: competitiveSurveyData.roomType,
-          monthlyRateAvg: competitiveSurveyData.monthlyRateAvg,
-        }).from(competitiveSurveyData).where(eq(competitiveSurveyData.clientId, clientId))
       ]);
 
-      // Build a lookup map from competitive survey data:
-      // location → compType → roomType → avg rate (for fallback market position)
-      const surveyRateMap = new Map<string, Map<string, number[]>>();
-      for (const row of surveyData) {
-        if (!row.keyStatsLocation || !row.monthlyRateAvg || row.monthlyRateAvg <= 0) continue;
-        if (!surveyRateMap.has(row.keyStatsLocation)) surveyRateMap.set(row.keyStatsLocation, new Map());
-        const locMap = surveyRateMap.get(row.keyStatsLocation)!;
-        const key = `${row.competitorType || 'ALL'}:${row.roomType || 'ALL'}`;
-        if (!locMap.has(key)) locMap.set(key, []);
-        locMap.get(key)!.push(row.monthlyRateAvg);
-      }
-
-      // Map service lines to competitor types for survey lookup
-      const SL_TO_COMP_TYPE: Record<string, string> = {
-        'HC': 'HC', 'HC/MC': 'SMC',
-        'AL': 'AL', 'AL/MC': 'AL',
-        'SL': 'IL_IL', 'VIL': 'IL_Villa',
-      };
-      
       console.log(`Analytics: Processing ${campusRentRoll.length} units for ${currentMonth}`);
 
       // Create a map of campus data for O(1) lookups instead of O(n) searches
       const campusDataMap = new Map();
+      // Rent-roll rows can carry an alternate spelling of a location while the FK
+      // still points at the canonical record, so competitor lookups resolve the
+      // KeyStats name through location_id first — the same thing the Competitive
+      // Position chart does with COALESCE(loc.name, rr.location) — and only fall
+      // back to matching on the rent-roll name.
+      const locationIdToName = new Map<string, string>();
       campusData.forEach((campus: any) => {
         campusDataMap.set(campus.name, campus);
+        if (campus.id) locationIdToName.set(campus.id, campus.name);
       });
 
       // Filter rent roll data by service line first if needed
@@ -5791,29 +5784,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         portfolioMediansByRoomType.set(roomType, median);
       });
       
-      // Group competitors by campus and room type for apples-to-apples comparison
-      const competitorsByLocationAndType = new Map<string, Map<string, number[]>>();
-      
-      competitors.forEach((comp: any) => {
-        const campusId = comp.location || 'Unknown';
-        const roomType = comp.roomType || 'Unknown';
-        
-        if (!competitorsByLocationAndType.has(campusId)) {
-          competitorsByLocationAndType.set(campusId, new Map());
-        }
-        
-        const locationMap = competitorsByLocationAndType.get(campusId)!;
-        if (!locationMap.has(roomType)) {
-          locationMap.set(roomType, []);
-        }
-        
-        // Filter out unrealistically low rates (likely data import errors)
-        // Senior living monthly rates below $1000 are clearly errors (daily rates imported as monthly)
-        const MIN_REALISTIC_MONTHLY_RATE = 1000;
-        if (comp.streetRate && comp.streetRate > MIN_REALISTIC_MONTHLY_RATE) {
-          locationMap.get(roomType)!.push(comp.streetRate);
-        }
-      });
+      // Same per-competitor, care-adjusted benchmark the Competitive Position
+      // scatter on Pricing Controls uses, so this KPI and that chart cannot
+      // disagree about where we sit against the top competitor.
+      const scatterBenchmark = await loadStudioCompBenchmark(pool, clientId);
 
       // Calculate metrics for each campus
       const campusesData: any[] = [];
@@ -5849,112 +5823,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const avgHcDailyRate = hcUnits > 0 ? hcRate / hcUnits : 0;
         const avgSeniorHousingMonthlyRate = seniorHousingUnits > 0 ? seniorHousingRate / seniorHousingUnits : 0;
         
-        // DECISION (kept intentionally): market position here is benchmarked against
-        // the TOP (highest) competitor adjusted rate from the competitive data — NOT
-        // the average competitor rate, and NOT the shared care-adjusted market
-        // benchmark (server/services/compBenchmark.ts) used by the Competitive
-        // Position scatter and AI rule suggestions. Comparing against a blended
-        // average overstated our premium (e.g. a campus could show +94% vs a low
-        // blended average). The top comp is the most relevant pricing ceiling for
-        // this campus-level view, and the UI labels it explicitly as "vs top
-        // competitor" so it cannot be confused with the shared market benchmark.
-        // If an AVERAGE-based premium is ever added here, it must come from
-        // loadCompBenchmark/unitWeightedBenchmark — never a raw
-        // competitor_final_rate average.
+        // Position vs top competitor. This mirrors the Competitive Position scatter
+        // on Pricing Controls (StudioCompBenchmark) so the KPI and the chart agree.
+        // Three things decide the number, and all three used to be wrong here:
         //
-        // Rates have two incompatible bases: HC / HC/MC are daily; senior housing
-        // (AL, AL/MC, SL, VIL, IL) is monthly. We compute top comp + avg in-house rate
-        // PER BASIS so daily and monthly rates are never mixed, then combine into a
-        // single unit-weighted position. Outlier guards drop bad imports (negative
-        // rates, daily rates parsed as monthly, the occasional six-figure VIL error).
-        const DAILY_SERVICE_LINES = new Set(['HC', 'HC/MC', 'SMC']);
-        const isValidCompRate = (rate: number, daily: boolean): boolean =>
-          daily ? (rate >= 50 && rate <= 2000) : (rate >= 1000 && rate <= 50000);
-
-        const basisAcc: Record<'daily' | 'monthly', { trilogySum: number; count: number; topComp: number }> = {
-          daily: { trilogySum: 0, count: 0, topComp: 0 },
-          monthly: { trilogySum: 0, count: 0, topComp: 0 },
-        };
-
-        metrics.units.forEach((unit: any) => {
-          const comp = unit.competitorFinalRate || 0;
-          if (comp <= 0) return;
-          const daily = DAILY_SERVICE_LINES.has(unit.serviceLine);
-          if (!isValidCompRate(comp, daily)) return;
-          const trilogyRate = unit.streetRate || unit.inHouseRate || 0;
-          if (trilogyRate <= 0) return;
-          const b = daily ? basisAcc.daily : basisAcc.monthly;
-          b.trilogySum += trilogyRate;
-          b.count++;
-          if (comp > b.topComp) b.topComp = comp;
-        });
-
-        let unitsWithCompetitorData = basisAcc.daily.count + basisAcc.monthly.count;
-
-        // Fallback: if no units have competitorFinalRate, use competitive_survey_data.
-        // Take the TOP (max) survey rate per room type, still bucketed by rate basis.
-        if (unitsWithCompetitorData === 0) {
-          const locSurveyMap = surveyRateMap.get(campusId);
-          if (locSurveyMap) {
-            metrics.units.forEach((unit: any) => {
-              const trilogyRate = unit.streetRate || unit.inHouseRate || 0;
-              if (trilogyRate <= 0) return;
-              const compType = SL_TO_COMP_TYPE[unit.serviceLine] || null;
-              if (!compType) return;
-              // Normalize room type to match survey keys
-              const rt = (unit.size || unit.roomType || '').replace('Two Bedroom', 'Two Bedroom').replace('One Bedroom', 'One Bedroom');
-              const key = `${compType}:${rt}`;
-              const fallbackKey = `${compType}:ALL`;
-              const rates = locSurveyMap.get(key) || locSurveyMap.get(fallbackKey);
-              if (rates && rates.length > 0) {
-                const daily = DAILY_SERVICE_LINES.has(unit.serviceLine);
-                const validRates = rates.filter((r: number) => isValidCompRate(r, daily));
-                if (validRates.length === 0) return;
-                const top = Math.max(...validRates);
-                const b = daily ? basisAcc.daily : basisAcc.monthly;
-                b.trilogySum += trilogyRate;
-                b.count++;
-                if (top > b.topComp) b.topComp = top;
-              }
-            });
-            unitsWithCompetitorData = basisAcc.daily.count + basisAcc.monthly.count;
-          }
-        }
-
-        // Price position vs the top competitor, computed per basis then unit-weighted.
+        //   1. WHICH COMPETITOR. The top comp is the highest-WEIGHT competitor for
+        //      this location + service line, ties broken by nearest distance — the
+        //      same selection the Competitors tab shows. The old code took whichever
+        //      competitor happened to carry the maximum competitor_final_rate, which
+        //      is frequently a distant outlier nobody actually competes with.
+        //   2. LIKE-FOR-LIKE ROOM TYPE. Our side is Studio-only. The old code
+        //      averaged every room type — Companion through Two Bedroom — and set
+        //      that blended figure against a single competitor rate, so a campus's
+        //      room mix alone moved the position.
+        //   3. CARE BASIS. The benchmark adds the competitor's care Level 2 and
+        //      med-mgmt difference (skipped for SL/VIL, which carry no care), putting
+        //      both sides on the same all-in basis.
+        //
+        // Room-type rule: Studio-only where a Studio product exists, otherwise all
+        // room types. Villas and patio-home style SL campuses have no Studio stock
+        // and their competitors publish only 1BR/2BR, so a Studio-only rule would
+        // drop them entirely; the competitor side of this benchmark is already
+        // all-room-type for exactly that reason.
+        //
+        // Rate bases can't cross-contaminate because every comparison happens within
+        // one service line: HC and HC/MC are daily on both sides, senior housing
+        // monthly on both sides.
         let pricePosition = 0;
-        let weightedPos = 0;
-        let weightTotal = 0;
-        (['daily', 'monthly'] as const).forEach((key) => {
-          const b = basisAcc[key];
-          if (b.count > 0 && b.topComp > 0) {
-            const avgTril = b.trilogySum / b.count;
-            const pos = ((avgTril - b.topComp) / b.topComp) * 100;
-            weightedPos += pos * b.count;
-            weightTotal += b.count;
-          }
-        });
-        if (weightTotal > 0) pricePosition = weightedPos / weightTotal;
+        let avgCompetitorRate = 0;
+        let avgTrilogyRateWithComp = 0;
+        {
+          // Survey rows are keyed by the canonical KeyStats location name.
+          const canonicalLocation =
+            locationIdToName.get(metrics.units[0]?.locationId) ||
+            campusDataMap.get(campusId)?.name ||
+            campusId;
+          type SlAcc = { studioSum: number; studioN: number; allSum: number; allN: number };
+          const bySl = new Map<string, SlAcc>();
 
-        // Representative top comp + in-house rate for tooltips/exports follow the
-        // campus's PRIMARY rate basis (whichever basis most of its units belong to),
-        // so the single displayed "Top Comp Rate" lines up with the rate shown for the
-        // campus (e.g. a senior-housing campus shows the monthly top comp, not a daily
-        // HC one). The weighted pricePosition above still accounts for both bases.
-        let dailyUnitCount = 0;
-        let monthlyUnitCount = 0;
-        metrics.units.forEach((unit: any) => {
-          if (DAILY_SERVICE_LINES.has(unit.serviceLine)) dailyUnitCount++;
-          else monthlyUnitCount++;
-        });
-        const primaryIsDaily = dailyUnitCount > monthlyUnitCount;
-        let dominantBasis = primaryIsDaily ? basisAcc.daily : basisAcc.monthly;
-        // Fall back to the other basis if the primary one has no competitor data.
-        if (dominantBasis.count === 0) {
-          dominantBasis = primaryIsDaily ? basisAcc.monthly : basisAcc.daily;
+          metrics.units.forEach((unit: any) => {
+            const sl = unit.serviceLine || '';
+            if (!sl) return;
+            // One rate per physical room — companion B-beds would double-count.
+            if (isBBedRow(sl, unit.roomNumber)) return;
+            const rate = unit.streetRate || unit.inHouseRate || 0;
+            if (!(rate > 0)) return;
+            let acc = bySl.get(sl);
+            if (!acc) { acc = { studioSum: 0, studioN: 0, allSum: 0, allN: 0 }; bySl.set(sl, acc); }
+            acc.allSum += rate;
+            acc.allN++;
+            // room_type is backfill-normalized ("Studio", "Studio Dlx"), so a prefix
+            // test is safe here — unlike room_type_groupings.group_name, which
+            // carries branded values such as "Legacy Lane - Studio".
+            if (/^studio/i.test(unit.roomType || '')) { acc.studioSum += rate; acc.studioN++; }
+          });
+
+          let weightedPos = 0;
+          let weightTotal = 0;
+          let largestSlUnits = -1;
+          for (const [sl, acc] of Array.from(bySl.entries())) {
+            const bench = scatterBenchmark.benchmarkFor(canonicalLocation, sl);
+            if (!bench || !(bench.topAdjusted > 0)) continue;
+            const ourRate = pickComparisonRate(
+              sl,
+              acc.studioN > 0 ? acc.studioSum / acc.studioN : 0,
+              acc.allN > 0 ? acc.allSum / acc.allN : 0,
+            );
+            if (!(ourRate > 0)) continue;
+            weightedPos += ((ourRate - bench.topAdjusted) / bench.topAdjusted) * 100 * acc.allN;
+            weightTotal += acc.allN;
+            // The single top-comp/our-rate pair shown in tooltips and exports follows
+            // the campus's largest service line, so the displayed rates line up with
+            // the position rather than mixing a daily HC comp into a monthly campus.
+            if (acc.allN > largestSlUnits) {
+              largestSlUnits = acc.allN;
+              avgCompetitorRate = bench.topAdjusted;
+              avgTrilogyRateWithComp = ourRate;
+            }
+          }
+          if (weightTotal > 0) pricePosition = weightedPos / weightTotal;
         }
-        const avgCompetitorRate = dominantBasis.topComp;
-        const avgTrilogyRateWithComp = dominantBasis.count > 0 ? dominantBasis.trilogySum / dominantBasis.count : 0;
           
         // Calculate revenue impact (simplified)
         const currentMonthlyRevenue = avgRate * metrics.occupiedUnits * 30;
@@ -5997,7 +5945,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           seniorHousingUnits,
           occupancy,
           occupiedUnits: metrics.occupiedUnits,  // Add occupied units for weighted avg
-          competitorAvgRate: Math.round(avgCompetitorRate), // Use adjusted competitor rate
+          competitorAvgRate: Math.round(avgCompetitorRate), // Top competitor's care-adjusted rate
+          // The rate actually compared against competitorAvgRate (Studio-only, or all
+          // room types where there is no Studio product). Distinct from avgRate, which
+          // is the campus's blended rate across every room type — showing avgRate
+          // beside the top comp would not reconcile with pricePosition.
+          ourComparedRate: Math.round(avgTrilogyRateWithComp),
           pricePosition,
           revenueImpact,
           potentialRevenue,
@@ -17378,17 +17331,19 @@ Return ONLY valid JSON with no markdown fences:
             -- location_id FK is not populated.
             COALESCE(loc.name, rr.location) AS location_name,
             rr.service_line,
-            -- Studio-only street rate for AL/HC/SL service lines; VIL (villa/
-            -- independent living) has no Studio product so all room types are
-            -- used instead — this matches the competitor benchmark which already
-            -- aggregates all room types. B beds excluded as everywhere else.
+            -- Both candidate rates are returned and pickComparisonRate() chooses
+            -- between them, so this chart and the Position vs Top Competitor KPI
+            -- cannot drift apart. B beds excluded as everywhere else.
             -- rr.room_type is already backfill-normalized ("Studio", "Studio Dlx",
             -- etc.) so no room_type_groupings join is needed — branded names like
             -- "Legacy Lane - Studio" (group_name) would break the 'studio%' filter.
             ROUND(AVG(rr.street_rate) FILTER (WHERE
-              (rr.service_line = 'VIL' OR rr.room_type ILIKE 'studio%')
+              rr.room_type ILIKE 'studio%'
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
-            )::numeric, 0) AS our_rate,
+            )::numeric, 0) AS our_studio_rate,
+            ROUND(AVG(rr.street_rate) FILTER (WHERE
+              NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+            )::numeric, 0) AS our_all_rate,
             ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
           FROM rent_roll_data rr
           -- Join via location_id (FK) to get the canonical KeyStats name that
@@ -17476,8 +17431,10 @@ Return ONLY valid JSON with no markdown fences:
         const bench = scatterBenchmark.benchmarkFor(canonicalLocation, sl);
         if (!bench) return null;
 
-        const ourRate = Number(row.our_rate);
-        if (!(ourRate > 0)) return null; // no Studio units at this location/SL
+        // Studio where we have a Studio product, otherwise all room types (VIL and
+        // patio-home style SL campuses). Shared with the analytics KPI.
+        const ourRate = pickComparisonRate(sl, Number(row.our_studio_rate), Number(row.our_all_rate));
+        if (!(ourRate > 0)) return null; // no rated units at this location/SL
         const marketPosition = Math.round((ourRate / bench.topAdjusted) * 100);
         // Per-service-line occupancy: prefer authoritative RTO history (physical
         // rooms, no B-bed inflation) distributed to this location+SL; fall back
@@ -18142,6 +18099,11 @@ ${isUnfiltered
         return '';
       });
 
+      // Wrapped so the request can be retried. An unparseable response used to collapse
+      // into `{}` below, yielding summary:'' and rules:[] — an empty overview that was then
+      // cached for the full TTL, so the panel showed "No overview available" for 30 minutes
+      // even with active rules. Returns null instead of a silent empty object.
+      const requestCommentary = async (): Promise<any | null> => {
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o',
         temperature: 0.3,
@@ -18187,10 +18149,54 @@ Return ONLY valid JSON, no markdown fences:
         ],
       });
 
-      const content = completion.choices[0]?.message?.content || '{}';
+      const content = completion.choices[0]?.message?.content || '';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      let parsed: any = {};
-      try { parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}; } catch { parsed = {}; }
+      if (!jsonMatch) return null;
+      try { return JSON.parse(jsonMatch[0]); } catch { return null; }
+      }; // end requestCommentary
+
+      let parsed: any = null;
+      for (let attempt = 1; attempt <= 2 && !parsed; attempt++) {
+        try {
+          const candidate = await requestCommentary();
+          // Valid JSON is not the bar — {"summary":"","rules":[]} parses cleanly and is
+          // exactly what blanked the panel. Treat it as a failed attempt so the retry and
+          // the deterministic fallback below actually get a chance to run.
+          if (isUsableCommentary(candidate)) parsed = candidate;
+          else console.error(`[pc-commentary] unusable AI response (attempt ${attempt}/2) for ${cacheKey}`);
+        } catch (err) {
+          console.error(`[pc-commentary] AI request failed (attempt ${attempt}/2) for ${cacheKey}:`, err);
+        }
+      }
+
+      // Deterministic fallback so the panel never goes blank while rules exist. Built
+      // entirely from the rule rows already in hand — no second AI dependency.
+      if (!parsed) {
+        console.error(`[pc-commentary] falling back to rule-derived overview for ${cacheKey}`);
+        const describeRuleAction = (r: any): string => {
+          let action: any = r.action;
+          if (typeof action === 'string') { try { action = JSON.parse(action); } catch { action = null; } }
+          const val = Number(action?.adjustmentValue);
+          if (Number.isFinite(val) && val !== 0) {
+            const amount = action?.adjustmentType === 'fixed'
+              ? `${val > 0 ? '+' : '-'}$${Math.abs(val).toLocaleString()}`
+              : `${val > 0 ? '+' : ''}${val}%`;
+            return `Applies a **${amount}** rate adjustment to the units it matches.`;
+          }
+          return vilToPatioHomes(r.description || 'Adjusts rates for the units it matches.');
+        };
+        const ruleSLs = Array.from(new Set(ruleRows.flatMap((r: any) =>
+          (Array.isArray(r.service_lines) && r.service_lines.length ? r.service_lines : [r.service_line])
+        ).filter(Boolean))).map((s: any) => vilToPatioHomes(String(s)));
+        parsed = {
+          summary: ruleRows.length > 0
+            ? `**${ruleRows.length} active pricing rule${ruleRows.length === 1 ? '' : 's'}**${ruleSLs.length ? ` across **${ruleSLs.join(', ')}**` : ''} are currently in effect. Written commentary is temporarily unavailable — the rule details below are live and current.`
+            : `No active pricing rules are in effect. Overall occupancy is **${overallOcc}%**, with **${totalVacant}** of ${totalUnits} units vacant.`,
+          pricingTrend: '',
+          rulesSummary: '',
+          rules: ruleRows.map((r: any) => ({ name: r.name, strategy: describeRuleAction(r) })),
+        };
+      }
 
       // Merge effective date from DB rows into the GPT-returned rules array.
       // Falls back to created_at so rules applied in past pricing rounds show a real
@@ -18220,6 +18226,15 @@ Return ONLY valid JSON, no markdown fences:
         if (inflight) return inflight;
         const p = generateCommentary()
           .then(async (result) => {
+            // Never cache an empty overview. Doing so turned a transient AI failure into
+            // 30 minutes of "No overview available", and stale-while-revalidate kept
+            // re-serving the blank row. Degraded results get a short memory-only TTL so
+            // the next request retries instead of inheriting the failure.
+            if (!isUsableCommentary(result)) {
+              console.error('[pc-commentary] refusing to cache empty commentary for', cacheKey);
+              setCachedAnalytics(cacheKey, result, 60 * 1000);
+              return result;
+            }
             setCachedAnalytics(cacheKey, result, COMMENTARY_CACHE_TTL);
             await pool.query(
               `INSERT INTO ai_commentary_cache (cache_key, data, updated_at) VALUES ($1, $2, NOW())
@@ -18236,7 +18251,16 @@ Return ONLY valid JSON, no markdown fences:
       const dbRes = await pool.query(
         `SELECT data, updated_at FROM ai_commentary_cache WHERE cache_key = $1`, [cacheKey]
       );
-      const dbHit = dbRes.rows[0];
+      let dbHit = dbRes.rows[0];
+      // A blank row written by an older build would otherwise keep the panel empty for the
+      // rest of its freshness window, and stale-while-revalidate would serve it again on
+      // every request. Drop it and regenerate instead of handing it to the client.
+      if (dbHit && !isUsableCommentary(dbHit.data)) {
+        console.error('[pc-commentary] discarding unusable cached overview for', cacheKey);
+        await pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key = $1`, [cacheKey])
+          .catch((err: any) => console.error('[pc-commentary] cache delete error:', err));
+        dbHit = undefined;
+      }
       if (dbHit) {
         const fresh = Date.now() - new Date(dbHit.updated_at).getTime() < COMMENTARY_CACHE_TTL;
         setCachedAnalytics(cacheKey, dbHit.data, COMMENTARY_CACHE_TTL);

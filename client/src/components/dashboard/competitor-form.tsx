@@ -252,10 +252,14 @@ export default function CompetitorForm({
 
   return (
     <Card id="competitor-form-section" className="bg-[var(--dashboard-surface)] border-[var(--dashboard-border)] w-full">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-[var(--dashboard-text)]">Competitor Management</CardTitle>
-          <Button onClick={startAdd} className="flex items-center gap-2" data-testid="button-add-competitor">
+      <CardHeader className="pb-4">
+        {/* Wraps rather than letting the button squeeze the title, which is what forced
+            "Competitor Management" onto two cramped lines in the side column. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          {/* Matches the "Competitor Map" heading scale so the two panels read as a pair,
+              and leaves room for the action button to sit inline. */}
+          <CardTitle className="whitespace-nowrap text-lg font-semibold text-[var(--dashboard-text)]">Competitor Management</CardTitle>
+          <Button onClick={startAdd} size="sm" className="flex shrink-0 items-center gap-1.5" data-testid="button-add-competitor">
             <Plus className="h-4 w-4" />
             Add Competitor
           </Button>
@@ -520,7 +524,16 @@ export default function CompetitorForm({
 
         {/* Competitor List */}
         <div className="space-y-3">
-          <h3 className="text-lg font-medium text-[var(--dashboard-text)]">Current Competitors</h3>
+          <div className="flex items-baseline justify-between gap-2">
+            {/* Demoted to a section label so it sits under the card title in the hierarchy
+                rather than competing with it at the same size. */}
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Current Competitors</h3>
+            {(competitors as any)?.items?.length > 0 && (
+              <span className="whitespace-nowrap text-xs font-medium tabular-nums text-[var(--dashboard-muted)]">
+                {(competitors as any).items.length.toLocaleString()} shown
+              </span>
+            )}
+          </div>
 
           {(competitors as any)?.items?.length > 0 ? (
             <div className="grid gap-4">
@@ -574,42 +587,60 @@ export default function CompetitorForm({
                         )}
                         
                         {/* Per-room-type rate breakdown with care adjustment + total */}
-                        {competitor.roomRates && competitor.roomRates.length > 0 ? (
-                          <div className="flex flex-col gap-y-1 text-sm text-[var(--dashboard-muted)]">
-                            {[...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
-                              compareRoomTypes(a.roomType, b.roomType)
-                            ).map((rr: { roomType: string; streetRate: number | null; careRate: number | null; competitorType?: string | null }, idx: number) => {
-                              const slLabel = rr.competitorType || (competitor.serviceLines && competitor.serviceLines.length > 0 ? competitor.serviceLines[0] : null);
-                              // careAdj from the API is monthly; HC/HC-MC store daily rates
-                              // so convert the adjustment to daily for those service lines.
-                              const isHC = competitor.serviceLines?.some((sl: string) => sl === 'HC' || sl === 'HC/MC');
-                              const careAdj: number = competitor.careAdj ?? 0;
-                              const displayCareAdj = isHC ? Math.round(careAdj / 30.44) : careAdj;
-                              const base = rr.streetRate != null ? Math.round(rr.streetRate) : null;
-                              const total = base != null && displayCareAdj !== 0 ? base + displayCareAdj : null;
-                              return (
-                              <div key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                <span className="whitespace-nowrap">
-                                  <span className="font-medium">
-                                    {slLabel ? `${slLabel} – ` : ''}{rr.roomType}:
-                                  </span>{' '}
-                                  {base != null ? `$${base.toLocaleString()}` : '—'}
-                                </span>
-                                {displayCareAdj !== 0 && (
-                                  <span className={`whitespace-nowrap font-medium ${displayCareAdj > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                    {displayCareAdj > 0 ? '+' : '-'}${Math.abs(displayCareAdj).toLocaleString()} Care Adj.
-                                  </span>
-                                )}
-                                {total != null && (
-                                  <span className="whitespace-nowrap text-[var(--dashboard-text)] font-medium">
-                                    = ${total.toLocaleString()} Total
-                                  </span>
-                                )}
+                        {competitor.roomRates && competitor.roomRates.length > 0 ? (() => {
+                          // careAdj from the API is monthly; HC/HC-MC store daily rates
+                          // so convert the adjustment to daily for those service lines.
+                          const isHC = competitor.serviceLines?.some((sl: string) => sl === 'HC' || sl === 'HC/MC');
+                          const careAdj: number = competitor.careAdj ?? 0;
+                          const displayCareAdj = isHC ? Math.round(careAdj / 30.44) : careAdj;
+                          const showCare = displayCareAdj !== 0;
+                          const cols = showCare
+                            ? 'grid-cols-[minmax(0,1fr)_auto_auto_auto]'
+                            : 'grid-cols-[minmax(0,1fr)_auto]';
+                          const rows = [...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
+                            compareRoomTypes(a.roomType, b.roomType)
+                          );
+                          return (
+                            // Fixed columns keep base / care / total aligned down the card. The old
+                            // inline run wrapped mid-expression in a narrow panel, stranding
+                            // "= $2,030 Total" on its own line under the rate it belonged to.
+                            <div className="overflow-hidden rounded-lg border border-[var(--dashboard-border)]">
+                              <div className={`grid ${cols} gap-x-3 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]`}>
+                                <span>Room type</span>
+                                <span className="text-right">Base</span>
+                                {showCare && <span className="text-right">Care adj.</span>}
+                                {showCare && <span className="text-right">Total</span>}
                               </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
+                              {rows.map((rr: any, idx: number) => {
+                                const slLabel = rr.competitorType || (competitor.serviceLines && competitor.serviceLines.length > 0 ? competitor.serviceLines[0] : null);
+                                const base = rr.streetRate != null ? Math.round(rr.streetRate) : null;
+                                const total = base != null && showCare ? base + displayCareAdj : null;
+                                const label = `${slLabel ? `${slLabel} – ` : ''}${rr.roomType}`;
+                                return (
+                                  <div
+                                    key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`}
+                                    className={`grid ${cols} items-baseline gap-x-3 px-2.5 py-1.5 text-sm text-[var(--dashboard-muted)] ${idx % 2 ? 'bg-black/[0.015]' : ''}`}
+                                  >
+                                    <span className="truncate font-medium text-[var(--dashboard-text)]" title={label}>{label}</span>
+                                    <span className="whitespace-nowrap text-right tabular-nums">
+                                      {base != null ? `$${base.toLocaleString()}` : '—'}
+                                    </span>
+                                    {showCare && (
+                                      <span className={`whitespace-nowrap text-right font-medium tabular-nums ${displayCareAdj > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                        {displayCareAdj > 0 ? '+' : '-'}${Math.abs(displayCareAdj).toLocaleString()}
+                                      </span>
+                                    )}
+                                    {showCare && (
+                                      <span className="whitespace-nowrap text-right font-semibold tabular-nums text-[var(--dashboard-text)]">
+                                        {total != null ? `$${total.toLocaleString()}` : '—'}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })() : (
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--dashboard-muted)]">
                             {competitor.streetRate && (
                               <div className="whitespace-nowrap">Street Rate: ${competitor.streetRate}</div>

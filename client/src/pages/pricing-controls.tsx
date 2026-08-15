@@ -742,8 +742,11 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     setScatterPopupPos({ x: clientX, y: clientY });
   };
 
+  // Every rule toggled on, whether or not it currently claims units. A rule whose
+  // conditions match nothing today is still active and is still shown in the list
+  // below, so counting only rules with affectedUnits > 0 made this badge disagree
+  // with both its own section and the count in Rule Administration.
   const activeRules = useMemo(() => (rulesData || []).filter((r: any) => r.isActive), [rulesData]);
-  const activeRulesWithImpact = useMemo(() => activeRules.filter((r: any) => (r.affectedUnits ?? 0) > 0), [activeRules]);
 
   // ── Latest-cycle-wins: detect rules superseded by a newer cycle ──
   // Two rules can supersede each other only when they have the SAME effective scope
@@ -1002,9 +1005,9 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 group-hover:text-slate-600 transition-colors">Strategy Overview</span>
                 <ChevronDown className={`h-3 w-3 text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${strategyOpen ? '' : '-rotate-90'}`} />
               </button>
-              {activeRulesWithImpact.length > 0 && (
+              {activeRules.length > 0 && (
                 <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-teal-500 border border-teal-200 rounded px-1.5 py-0.5">
-                  {activeRulesWithImpact.length} Active Rule{activeRulesWithImpact.length !== 1 ? 's' : ''}
+                  {activeRules.length} Active Rule{activeRules.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -1869,7 +1872,14 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
       )}
 
       {!hasData && !isLoading && (
-        <p className="text-sm text-slate-400 italic py-8 text-center px-6">No overview available — add pricing rules to generate insights.</p>
+        <p className="text-sm text-slate-400 italic py-8 text-center px-6">
+          {activeRules.length > 0
+            // Telling someone to "add pricing rules" while their rules are sitting right
+            // there is just confusing — this branch means generation failed, not that the
+            // portfolio is empty.
+            ? "Overview couldn't be generated just now. Use the refresh button above to try again."
+            : 'No overview available — add pricing rules to generate insights.'}
+        </p>
       )}
 
       {isLoading && !hasData && (

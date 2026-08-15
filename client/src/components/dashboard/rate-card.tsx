@@ -5,7 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Home, Users, Bed, Shield, Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import ModuloCalculationDialog from "./modulo-calculation-dialog";
 
 const floorPlanData = {
   Studio: {
@@ -215,15 +214,14 @@ export default function RateCard() {
                   
                   <div className="flex justify-between items-center pb-3 border-b border-[var(--dashboard-border)]">
                     <span className="text-sm text-[var(--trilogy-teal)]">Rules Rate</span>
-                    <ModuloCalculationDialog 
-                      roomType={selectedFloorPlan} 
-                      currentRate={currentFloorPlan.basePrice}
-                    >
-                      <span className="text-lg font-semibold text-[var(--trilogy-teal)] hover:underline cursor-pointer flex items-center space-x-1">
-                        <span>{formatCurrency(recommendedPrice || currentFloorPlan.basePrice)}</span>
-                        <span className="text-xs opacity-60">📊</span>
-                      </span>
-                    </ModuloCalculationDialog>
+                    {/* This widget is floor-plan based and has no unit context, so it cannot
+                        explain which adjustment rules produced a rate. It previously opened the
+                        rate calculation dialog with no rule data at all, which now reads as
+                        "no pricing rules applied" beside a different figure. Show the value plainly;
+                        the Rate Card page has the per-unit explanation. */}
+                    <span className="text-lg font-semibold text-[var(--trilogy-teal)]">
+                      {formatCurrency(recommendedPrice || currentFloorPlan.basePrice)}
+                    </span>
                   </div>
 
                   <div className="flex justify-between items-center pb-3 border-b border-[var(--dashboard-border)]">

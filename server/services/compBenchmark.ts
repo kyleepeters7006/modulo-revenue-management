@@ -49,6 +49,33 @@ export const CARE_L2_APPLIES: Record<string, boolean> = {
 // Competitor types whose survey values are quoted daily.
 export const DAILY_COMP_TYPES = new Set(["HC", "HC/MC", "SMC"]);
 
+/**
+ * Picks which of our rates to compare against a competitor benchmark, so every
+ * surface that reports "position vs top competitor" uses one rule.
+ *
+ * Studio is the like-for-like unit: it is the product nearly every competitor
+ * publishes, so comparing Studio to Studio keeps room mix out of the number.
+ * Two cases fall back to an all-room-type average instead:
+ *
+ *  - VIL always. Villa/independent-living stock is not a Studio product, and the
+ *    handful of Studio rows surveyed against it carry implausible values (they
+ *    appear to be entrance fees rather than monthly rent).
+ *  - Any location/service line with no Studio units of our own — patio-home style
+ *    SL campuses, for instance, where both we and the competitors publish only
+ *    1BR/2BR. Without this the location would drop out of the comparison entirely.
+ *
+ * The competitor side of StudioCompBenchmark is already all-room-type whenever a
+ * competitor has no Studio rows, so both sides degrade together.
+ */
+export function pickComparisonRate(
+  serviceLine: string,
+  studioRate: number,
+  allRoomRate: number,
+): number {
+  if (serviceLine !== 'VIL' && studioRate > 0) return studioRate;
+  return allRoomRate;
+}
+
 export interface SurveyRow {
   keystats_location: string;
   competitor_type: string;

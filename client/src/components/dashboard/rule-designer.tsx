@@ -825,6 +825,36 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   };
 
   // Per-rule note editing (Rule Administration list)
+  // Deep link from the rate calculation dialog: /pricing-controls?editRule=<id>
+  // opens that rule straight into the designer. The rule is fetched unfiltered so
+  // one outside the page's current location/service-line filters still resolves.
+  // Runs once per mount.
+  const editRuleDeepLinkRef = useRef(false);
+  useEffect(() => {
+    if (editRuleDeepLinkRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const ruleId = params.get('editRule');
+    if (!ruleId) return;
+    editRuleDeepLinkRef.current = true;
+
+    // Drop the param straight away so a refresh doesn't reopen the editor later.
+    params.delete('editRule');
+    const qs = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/adjustment-rules', { credentials: 'include' });
+        if (!res.ok) return;
+        const list: AdjustmentRule[] = await res.json();
+        const rule = list.find(r => r.id === ruleId);
+        if (rule && !cancelled) startEdit(rule);
+      } catch { /* silent — the designer still opens normally */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const [adminNoteDraft, setAdminNoteDraft] = useState<{ ruleId: string; text: string } | null>(null);
   const [adminNoteSaving, setAdminNoteSaving] = useState(false);
   const saveRuleNote = async (ruleId: string, notes: string) => {

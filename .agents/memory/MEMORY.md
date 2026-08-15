@@ -33,4 +33,8 @@
 - [Rule changes auto-apply](rule-auto-apply.md) — rule mutations schedule a debounced repricing run (never apply on read); deferral must be bounded; single-tenant on purpose.
 - [MatrixCare export semantics](matrixcare-export-semantics.md) — exports must be client+latest-month scoped w/ override>rule>modulo>street; hold fields differ by payer; no resident columns.
 - [Rule parser compound drops](rule-parser-compound-drop.md) — a phrase can parse standalone yet vanish inside "A AND B"; METRIC_TO_FIELD needs every alias, assert condition COUNT.
+- [Position vs Top Competitor](position-vs-top-comp.md) — one shared rule: weight-selected care-adjusted comp vs Studio-only (all-room for VIL / no-studio); never blended avg vs MAX comp.
 - [Reference Data YTD decomposition](refdata-ytd-decomposition.md) — rev vs IH-rate vs street-rate YTD; roll-ups re-derive from summed components, divide out units before the ratio.
+- [AI content cache validation](ai-content-cache-validation.md) — validate AI output semantically (not just parseable) before serving/caching; empty payload + SWR = panel blank for a full TTL.
+- [Rule rate base & why replays fail](rule-rate-base-and-replay.md) — rules apply to the modulo base, round per step, then clamp; no per-unit chain persisted; never recompute a served rate in the browser.
+- [Competitors endpoint capping](competitors-endpoint-capping.md) — items[] is top-3-per-location when multi-location; totalCompetitors is the real total; map pin count dedupes + radius-filters.

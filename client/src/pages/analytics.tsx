@@ -285,9 +285,12 @@ export function Analytics() {
     if (!analyticsData?.campuses) return [];
     
     return analyticsData.campuses.filter((campus: any) => (campus.occupancy ?? 0) > 0).map((campus: any) => {
-      // Use the backend-computed price position (top competitor rate, per-basis,
-      // unit-weighted). Do NOT recompute from avgRate vs competitorAvgRate here —
-      // that would mix daily/monthly bases and bypass the top-comp logic.
+      // Use the backend-computed price position (Studio-only vs the weight-selected
+      // top competitor's care-adjusted rate, unit-weighted across service lines —
+      // the same benchmark as the Competitive Position chart on Pricing Controls).
+      // Do NOT recompute from avgRate vs competitorAvgRate here: avgRate blends every
+      // room type and daily/monthly bases, which is exactly the bug that made this
+      // number read far too high.
       const rawPricePosition = parseFloat((campus.pricePosition ?? 0).toFixed(2));
       
       // Clamp to [-100, 200] range for display (200% = 3x market price, which is reasonable max)
@@ -446,20 +449,21 @@ export function Analytics() {
 
       case 'marketPosition':
         const campusesWithData = campuses.filter((c: any) => c.pricePosition !== 0 && c.competitorAvgRate > 0);
-        const totalPricePosition = campusesWithData.reduce((sum: number, c: any) => 
-          sum + (c.pricePosition || 0), 0);
+        const unitsWithData = campusesWithData.reduce((sum: number, c: any) => sum + (c.unitsCount || 0), 0);
         return {
           title: 'Position vs Top Competitor Calculation',
-          formula: 'Average of ((Your Rate - Top Competitor Rate) ÷ Top Competitor Rate × 100), benchmarked against the highest adjusted competitor rate per rate basis',
+          formula: '(Our Studio rate − Top competitor rate) ÷ Top competitor rate × 100, per campus and service line, then unit-weighted across the portfolio. The top competitor is the highest-weighted competitor for that campus (nearest wins ties), and its rate is care-adjusted to match our all-in basis. Campuses with no Studio product — villas and patio-home style independent living — compare on all room types instead.',
           steps: [
-            { label: 'Campuses with adjusted competitor data', value: campusesWithData.length.toString() },
-            { label: 'Sum of all positions vs top competitor', value: `${totalPricePosition > 0 ? '+' : ''}${totalPricePosition.toFixed(1)}%` },
-            { label: 'Average position vs top competitor (weighted)', value: `${summary.avgPricePosition > 0 ? '+' : ''}${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
+            { label: 'Campuses with competitor coverage', value: campusesWithData.length.toString() },
+            { label: 'Units behind the weighted average', value: unitsWithData.toLocaleString() },
+            { label: 'Average position vs top competitor (unit-weighted)', value: `${summary.avgPricePosition > 0 ? '+' : ''}${summary.avgPricePosition.toFixed(1)}%`, highlight: true },
           ],
           breakdown: campuses.slice(0, 10).map((c: any) => ({
             campus: c.campusName,
             value: `${c.pricePosition > 0 ? '+' : ''}${c.pricePosition.toFixed(1)}%`,
-            detail: `Your: $${Math.round(c.avgRate).toLocaleString()} | Top Comp: $${Math.round(c.competitorAvgRate).toLocaleString()}`
+            // ourComparedRate is the rate the position is actually computed from
+            // (Studio-only where a Studio product exists), not the campus blended rate.
+            detail: `Ours: $${Math.round(c.ourComparedRate ?? c.avgRate).toLocaleString()} | Top Comp: $${Math.round(c.competitorAvgRate).toLocaleString()}`
           }))
         };
 
