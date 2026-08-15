@@ -203,11 +203,36 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     else { setSortKey(key); setSortDir("desc"); }
   };
 
-  // Include all active, non-historical rules regardless of affectedUnits.
-  // Rows with 0 affected units render "—" cells (see lines ~389+) and show a
-  // muted badge so users know the condition couldn't be evaluated rather than
-  // the rule silently disappearing.
-  const rawActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
+  // ── Scope-aware rule list ──
+  // Portfolio-wide, every active rule is listed even at 0 units: a dormant rule
+  // is real information at that level (its thresholds sit outside the range the
+  // portfolio occupies), and hiding it makes the rule look deleted.
+  //
+  // Once the report is filtered to specific locations / service lines, that no
+  // longer holds. Rules with no location scope of their own pass the list filter
+  // (they apply everywhere) but qualify no units inside the filter, so the report
+  // fills with "0 units / +$0" rows that say nothing about the campus being
+  // reviewed. At a single campus that is most of the table. Those rows are
+  // dropped here, and the count of what was dropped is surfaced above the table
+  // so the reader knows the list was narrowed rather than the rules vanishing.
+  const isScoped = !!(
+    selectedLocationId ||
+    (selectedLocations && selectedLocations.length) ||
+    (selectedRegions && selectedRegions.length) ||
+    (selectedDivisions && selectedDivisions.length) ||
+    (selectedServiceLine && selectedServiceLine !== "All")
+  );
+  // Units alone counts as impact: a rule can move rates on units whose dollar
+  // impact rounds to zero, and that is still a rule acting on this scope.
+  const hasScopedImpact = (r: any) =>
+    (r.affectedUnits ?? 0) > 0 ||
+    (r.monthlyImpact ?? 0) !== 0 ||
+    (r.annualImpact ?? 0) !== 0 ||
+    (r.steadyStateAnnualImpact ?? 0) !== 0;
+
+  const allActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
+  const rawActiveRules = isScoped ? allActiveRules.filter(hasScopedImpact) : allActiveRules;
+  const hiddenNoImpactCount = allActiveRules.length - rawActiveRules.length;
   // Fraction of the calendar year remaining from today through Dec 31.
   // Used for the "Rest of Year" column: same ramp assumptions as First-Year
   // impact, just prorated to the remaining months of the current year.
@@ -238,13 +263,29 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
   const lift = activeRules.filter((r: any) => (r.annualImpact || 0) > 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
   const conc = activeRules.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0);
 
-  const scope = selectedLocations?.length === 1
-    ? selectedLocations[0] + (selectedServiceLine && selectedServiceLine !== "All" ? ` · ${selectedServiceLine}` : "")
-    : selectedLocations && selectedLocations.length > 1
-      ? `${selectedLocations.length} locations${selectedServiceLine && selectedServiceLine !== "All" ? ` · ${selectedServiceLine}` : ""}`
-      : selectedServiceLine && selectedServiceLine !== "All"
-        ? `${selectedServiceLine} · Portfolio-wide`
-        : "Portfolio-wide";
+  // Scope label for the header and the empty state. Every filter dimension has to
+  // be represented: a region- or division-only report used to call itself
+  // "Portfolio-wide", which is wrong in the header and actively misleading in the
+  // empty state ("No active pricing rule affects Portfolio-wide").
+  const scope = (() => {
+    const sl = selectedServiceLine && selectedServiceLine !== "All" ? selectedServiceLine : null;
+    const locs = selectedLocations || [];
+    const regs = selectedRegions || [];
+    const divs = selectedDivisions || [];
+    const place =
+      locs.length === 1 ? locs[0]
+      : locs.length > 1 ? `${locs.length} locations`
+      : regs.length === 1 ? `${regs[0]} region`
+      : regs.length > 1 ? `${regs.length} regions`
+      : divs.length === 1 ? `${divs[0]} division`
+      : divs.length > 1 ? `${divs.length} divisions`
+      // A bare locationId carries no name on this surface, so describe it generically
+      // rather than claiming portfolio coverage.
+      : selectedLocationId ? "Selected campus"
+      : null;
+    if (place) return sl ? `${place} · ${sl}` : place;
+    return sl ? `${sl} · Portfolio-wide` : "Portfolio-wide";
+  })();
 
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
@@ -452,7 +493,14 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                   <td colSpan={9} className="px-6 py-4">
                     <div className="flex items-center justify-between">
                       <p className="text-base font-bold text-white tracking-tight">Active Pricing Rules</p>
-                      <p className="text-xs font-medium text-slate-400 bg-slate-800 rounded-full px-3 py-1">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
+                      <div className="flex items-center gap-3">
+                        {hiddenNoImpactCount > 0 && (
+                          <p className="text-xs font-medium text-slate-500">
+                            {hiddenNoImpactCount} rule{hiddenNoImpactCount !== 1 ? "s" : ""} with no impact here hidden
+                          </p>
+                        )}
+                        <p className="text-xs font-medium text-slate-400 bg-slate-800 rounded-full px-3 py-1">{activeRules.length} rule{activeRules.length !== 1 ? "s" : ""} currently in play</p>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -584,9 +632,36 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                     </tr>
                   );
                 })}
-                {/* Totals row */}
+                {/* Every rule was filtered out as no-impact for this scope */}
+                {activeRules.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-12 text-center">
+                      {hiddenNoImpactCount > 0 ? (
+                        <>
+                          <p className="text-sm font-semibold text-slate-700">No active pricing rule affects {scope}</p>
+                          <p className="text-xs text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+                            {hiddenNoImpactCount === 1
+                              ? "One active rule was evaluated against this scope and qualified no units."
+                              : `All ${hiddenNoImpactCount} active rules were evaluated against this scope and qualified no units.`}
+                            {" "}Widen the filter, or revisit the rule thresholds if this scope should be priced.
+                          </p>
+                        </>
+                      ) : (
+                        /* Nothing was hidden — there simply are no active rules to report on. */
+                        <>
+                          <p className="text-sm font-semibold text-slate-700">No active pricing rules</p>
+                          <p className="text-xs text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+                            Create a rule in the Rule Designer to start pricing {scope}.
+                          </p>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                {/* Totals row — omitted when nothing qualified, since a row of $0 reads as a finding */}
+                {activeRules.length > 0 && (
                 <tr className="border-t-2 border-slate-300 bg-slate-900">
-                  <td className="px-5 py-4 text-sm font-bold text-white" colSpan={3}>Portfolio Total — {activeRules.length} active rule{activeRules.length !== 1 ? "s" : ""}</td>
+                  <td className="px-5 py-4 text-sm font-bold text-white" colSpan={3}>{isScoped ? "Scope" : "Portfolio"} Total — {activeRules.length} active rule{activeRules.length !== 1 ? "s" : ""}</td>
                   <td className="px-3 py-4 text-right tabular-nums text-base font-black text-white">{statsData?.uniqueUnits ?? activeRules.reduce((s: number, r: any) => s + (r.affectedUnits || 0), 0)}</td>
                   <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(activeRules.reduce((s: number, r: any) => s + (r.monthlyImpact || 0), 0))}</td>
                   <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(Math.round(activeRules.reduce((s: number, r: any) => s + (r.annualImpact || 0), 0) * restOfYearFraction))}</td>
@@ -594,6 +669,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                   <td className="px-3 py-4 text-right tabular-nums text-base font-black text-emerald-400">{fmt(totalSteadyState)}</td>
                   <td />
                 </tr>
+                )}
               </tbody>
             </table>
             </TooltipProvider>

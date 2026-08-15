@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalTooltip } from '@/hooks/usePortalTooltip';
+import { zeroReasonLabel, zeroReasonDetail } from '@/lib/ruleZeroReason';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -2166,6 +2167,18 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   {(rule.affectedCampuses ?? 0) > 0 && (
                                     <span className="block text-[10px] text-gray-400">
                                       {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
+                                    </span>
+                                  )}
+                                  {/* A rule can legitimately affect 0 units. Say why, so a bare
+                                      "0" isn't mistaken for a broken or miscounted rule. */}
+                                  {(rule.affectedUnits ?? 0) === 0 && (rule as any).zeroReason && (
+                                    <span
+                                      className="mt-1 inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-amber-700 cursor-help"
+                                      title={zeroReasonDetail((rule as any).zeroReason)}
+                                      data-testid={`zero-reason-${rule.id}`}
+                                    >
+                                      <Info className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                                      <span className="text-left">{zeroReasonLabel((rule as any).zeroReason)}</span>
                                     </span>
                                   )}
                                   {/* T3 move-in baseline chip */}

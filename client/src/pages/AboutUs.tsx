@@ -30,10 +30,13 @@ export default function AboutUs() {
         {/* Hero */}
         <div className="text-center mb-14">
           <div className="flex justify-center mb-6">
+            {/* Keep this lockup in sync with the dashboard header (overview.tsx):
+                same asset, square, rounded-3xl. */}
             <img
-              src="/attached_assets/modulo_glass_v2_1784404625887.png"
+              src="/attached_assets/modulo_flat_blue_1786491120146.png"
               alt="Modulo Revenue Management"
-              className="h-44 object-contain"
+              className="mx-auto object-contain rounded-3xl"
+              style={{ height: '260px', width: '260px', display: 'block' }}
             />
           </div>
           <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-3">

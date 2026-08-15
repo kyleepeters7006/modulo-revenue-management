@@ -594,8 +594,12 @@ export default function CompetitorForm({
                           const careAdj: number = competitor.careAdj ?? 0;
                           const displayCareAdj = isHC ? Math.round(careAdj / 30.44) : careAdj;
                           const showCare = displayCareAdj !== 0;
+                          // The care adjustment is a single per-competitor value, so a
+                          // per-row column repeated the same figure on every line while
+                          // squeezing the room-type label down to "A…" in this narrow
+                          // side panel. It's stated once in a footer line instead.
                           const cols = showCare
-                            ? 'grid-cols-[minmax(0,1fr)_auto_auto_auto]'
+                            ? 'grid-cols-[minmax(0,1fr)_auto_auto]'
                             : 'grid-cols-[minmax(0,1fr)_auto]';
                           const rows = [...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
                             compareRoomTypes(a.roomType, b.roomType)
@@ -608,7 +612,6 @@ export default function CompetitorForm({
                               <div className={`grid ${cols} gap-x-3 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]`}>
                                 <span>Room type</span>
                                 <span className="text-right">Base</span>
-                                {showCare && <span className="text-right">Care adj.</span>}
                                 {showCare && <span className="text-right">Total</span>}
                               </div>
                               {rows.map((rr: any, idx: number) => {
@@ -621,15 +624,10 @@ export default function CompetitorForm({
                                     key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`}
                                     className={`grid ${cols} items-baseline gap-x-3 px-2.5 py-1.5 text-sm text-[var(--dashboard-muted)] ${idx % 2 ? 'bg-black/[0.015]' : ''}`}
                                   >
-                                    <span className="truncate font-medium text-[var(--dashboard-text)]" title={label}>{label}</span>
+                                    <span className="min-w-0 break-words font-medium leading-snug text-[var(--dashboard-text)]" title={label}>{label}</span>
                                     <span className="whitespace-nowrap text-right tabular-nums">
                                       {base != null ? `$${base.toLocaleString()}` : '—'}
                                     </span>
-                                    {showCare && (
-                                      <span className={`whitespace-nowrap text-right font-medium tabular-nums ${displayCareAdj > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                        {displayCareAdj > 0 ? '+' : '-'}${Math.abs(displayCareAdj).toLocaleString()}
-                                      </span>
-                                    )}
                                     {showCare && (
                                       <span className="whitespace-nowrap text-right font-semibold tabular-nums text-[var(--dashboard-text)]">
                                         {total != null ? `$${total.toLocaleString()}` : '—'}
@@ -638,6 +636,15 @@ export default function CompetitorForm({
                                   </div>
                                 );
                               })}
+                              {showCare && (
+                                <div className="border-t border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-1 text-[10px] leading-snug text-[var(--dashboard-muted)]">
+                                  Total includes care adj.{' '}
+                                  <span className={`font-semibold tabular-nums ${displayCareAdj > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    {displayCareAdj > 0 ? '+' : '-'}${Math.abs(displayCareAdj).toLocaleString()}
+                                  </span>
+                                  {isHC ? ' per day' : ' per month'}
+                                </div>
+                              )}
                             </div>
                           );
                         })() : (

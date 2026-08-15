@@ -199,6 +199,28 @@ export function CompetitorMap({
         address: ""
       };
       
+      // Leaflet popups are built as raw HTML strings, so every interpolated
+      // string value must be escaped. Location, region and service-line names all
+      // originate from uploaded spreadsheets and are not a safe HTML boundary.
+      // (Numeric values are Number()-coerced before interpolation, so they're safe.)
+      const esc = (v: unknown): string => String(v ?? '').replace(
+        /[&<>"']/g,
+        (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string),
+      );
+
+      // Haversine distance helper — miles between two lat/lng points.
+      // Declared before the portfolio marker so the "your property" popup can
+      // summarise how many tracked competitors sit near this campus.
+      const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+        const R = 3959;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
       // Only show portfolio location marker if we have valid coordinates from actual data
       if (currentLocation && currentLocation.lat && currentLocation.lng) {
         
@@ -214,30 +236,100 @@ export function CompetitorMap({
           icon: currentIcon
         }).addTo(mapInstanceRef.current);
 
+        // Campus stats supplied by /api/competitors for the selected location.
+        // Absent if the stats query failed server-side — the popup then degrades
+        // to the original name + address header rather than breaking the map.
+        const stats = (currentLocation as any).stats;
+        const slRows: any[] = stats?.serviceLines || [];
+
+        // HC and HC/MC are quoted as daily rates everywhere in the app; the
+        // senior-housing lines are monthly. Same rule the competitor popups use.
+        const isDailySl = (sl: string) => sl === 'HC' || sl === 'HC/MC';
+        // "VIL" is an internal code — users see the sales term.
+        const slLabel = (sl: string) => (sl === 'VIL' ? 'Patio Homes' : sl);
+        const fmtRate = (v: number | null | undefined, sl: string) =>
+          v == null ? '—' : `$${Math.round(v).toLocaleString()}${isDailySl(sl) ? '/day' : '/mo'}`;
+
+        // Tracked competitors near this campus, using the same 30-mile rule that
+        // decides which competitor pins get drawn, so the count matches the map.
+        const nearbyComps = (competitorData.items || []).filter((c: any) =>
+          Number.isFinite(c.lat) && Number.isFinite(c.lng) &&
+          haversineDistance(currentProperty.lat, currentProperty.lng, c.lat, c.lng) <= 30
+        );
+        const nearestMi: number | null = nearbyComps.reduce((min: number | null, c: any) => {
+          const d = Number.isFinite(c.distanceMiles)
+            ? Number(c.distanceMiles)
+            : haversineDistance(currentProperty.lat, currentProperty.lng, c.lat, c.lng);
+          return min == null || d < min ? d : min;
+        }, null as number | null);
+
+        const subtitleParts = [currentLocation.region, currentLocation.division].filter(Boolean);
+
         currentMarker.bindPopup(`
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 280px; max-width: 340px; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '330px' : '280px'}; max-width: ${stats ? '380px' : '340px'}; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
           <!-- Header with gradient background -->
-          <div style="background: linear-gradient(135deg, #0071e3 0%, #005bb5 100%); color: white; padding: 20px; position: relative;">
-            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px;">
-              <h3 style="margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.3;">${currentProperty.name}</h3>
-              <span style="background: rgba(255,255,255,0.2); color: white; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">YOUR PROPERTY</span>
+          <div style="background: linear-gradient(135deg, #0071e3 0%, #005bb5 100%); color: white; padding: ${stats ? '13px 16px' : '20px'}; position: relative;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: ${stats ? '5px' : '8px'};">
+              <h3 style="margin: 0; font-size: ${stats ? '15px' : '17px'}; font-weight: 600; letter-spacing: -0.5px; line-height: 1.3;">${esc(currentProperty.name)}</h3>
+              <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">YOUR PROPERTY</span>
             </div>
-            ${currentProperty.address ? `<p style="margin: 0; font-size: 12px; opacity: 0.85; font-weight: 300;">${currentProperty.address}</p>` : ''}
+            ${currentProperty.address ? `<p style="margin: 0; font-size: ${stats ? '11px' : '12px'}; opacity: 0.85; font-weight: 300;">${esc(currentProperty.address)}</p>` : ''}
+            ${subtitleParts.length ? `<p style="margin: 3px 0 0 0; font-size: 10px; opacity: 0.75; font-weight: 300;">${subtitleParts.map(esc).join(' · ')}</p>` : ''}
           </div>
+          ${stats ? `
+          <!-- Key campus metrics -->
+          <div style="padding: 12px 16px 4px 16px;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
+              <div style="text-align: center;">
+                <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Occupancy</p>
+                <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${stats.occupancyPct != null ? `${stats.occupancyPct.toFixed(1)}%` : '—'}</p>
+              </div>
+              <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
+                <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Units</p>
+                <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${Number(stats.totalUnits || 0).toLocaleString()}</p>
+              </div>
+              <div style="text-align: center;">
+                <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Competitors</p>
+                <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${nearbyComps.length}</p>
+                <p style="margin: 1px 0 0 0; font-size: 9px; color: #64748b;">${nearestMi != null ? `nearest ${nearestMi.toFixed(1)} mi` : 'within 30 mi'}</p>
+              </div>
+            </div>
+            ${slRows.length ? `
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr>
+                  <th style="text-align: left; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Service Line</th>
+                  <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Units</th>
+                  <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Street</th>
+                  <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Care L2</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${slRows.map((s: any) => `
+                <tr>
+                  <td style="text-align: left; padding: 4px 0; color: #1e293b; font-weight: 500; border-bottom: 1px solid #f1f5f9;">${esc(slLabel(s.serviceLine))}</td>
+                  <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${Number(s.units) || 0}</td>
+                  <td style="text-align: right; padding: 4px 0; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.avgStreetRate, s.serviceLine)}</td>
+                  <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.careLevel2, s.serviceLine)}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+            <p style="margin: 6px 0 8px 0; font-size: 9px; color: #94a3b8; line-height: 1.4;">
+              ${stats.occupancySource === 'history' ? 'Occupancy from history' : stats.occupancySource === 'rentroll' ? 'Occupancy from rent roll' : ''}
+              ${stats.occupancySource ? ' · ' : ''}Rates exclude companion (B) beds
+            </p>
+            ` : `<p style="margin: 0 0 12px 0; font-size: 11px; color: #94a3b8;">No rent roll data for this campus in the latest month.</p>`}
+          </div>
+          ` : ''}
         </div>
-      `);
+      `, {
+        // The map card is a fixed 400px tall, so a campus with many service lines
+        // can produce a popup taller than the viewport. maxHeight makes Leaflet
+        // scroll the content instead of letting it clip off the bottom.
+        maxHeight: 340,
+        maxWidth: 380,
+      });
       } // End of if block for currentLocation check
-      
-      // Haversine distance helper — miles between two lat/lng points
-      const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-        const R = 3959;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-          Math.sin(dLng / 2) ** 2;
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      };
 
       // Competitor markers
       competitorData.items.forEach((competitor: any) => {

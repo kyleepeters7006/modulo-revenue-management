@@ -675,10 +675,21 @@ function parseAction(input: string): ParsedAction | null {
     filters.location = [locationMatch[1].trim()];
   }
   
-  // Occupancy status filter
-  if (input.includes('vacant unit') || input.includes('empty unit') || input.includes('unoccupied')) {
+  // Occupancy status filter.
+  // A room type commonly sits between the vacancy word and "units" -- "vacant Studio Dlx
+  // units", "vacant One Bedroom units" -- so a literal 'vacant unit' substring test silently
+  // drops the filter and the rule ends up applying to occupied units too, contradicting its
+  // own description. Match across a short run of intervening words instead. The gap refuses
+  // clause words so it cannot leak across conditions (e.g. "...vacant AND occupied units").
+  // "beds" is as common as "units" in senior-housing phrasing ("vacant beds"), so both
+  // nouns close the match.
+  const OCC_GAP = String.raw`(?:(?!(?:and|or|if|when|than|occupied|vacant|empty)\b)[A-Za-z0-9\/\-]+\s+){0,4}?`;
+  const OCC_NOUN = String.raw`(?:units?|beds?)`;
+  const vacantUnitsRe = new RegExp(String.raw`\b(?:vacant|empty)\s+${OCC_GAP}${OCC_NOUN}\b`, 'i');
+  const occupiedUnitsRe = new RegExp(String.raw`\boccupied\s+${OCC_GAP}${OCC_NOUN}\b`, 'i');
+  if (vacantUnitsRe.test(input) || /\bunoccupied\b/i.test(input)) {
     filters.occupancyStatus = 'vacant';
-  } else if (input.includes('occupied unit')) {
+  } else if (occupiedUnitsRe.test(input)) {
     filters.occupancyStatus = 'occupied';
   }
   

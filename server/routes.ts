@@ -4206,7 +4206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get current location info for map centering
-      let currentLocation = null;
+      let currentLocation: any = null;
       if (locationsParam) {
         const locList = (locationsParam as string).split(',');
         if (locList.length === 1) {
@@ -4220,9 +4220,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
               name: loc.name,
               lat: loc.lat,
               lng: loc.lng,
-              address: addrParts.length > 0 ? addrParts.join(', ') : ''
+              address: addrParts.length > 0 ? addrParts.join(', ') : '',
+              region: loc.region ?? null,
+              division: loc.division ?? null,
             };
           }
+        }
+      }
+
+      // ── Campus stats for the "your property" popup on the competitor map ──
+      // Only computed in single-location mode, which is the only mode that renders
+      // that marker, so the all-locations map pays nothing for these queries.
+      // Sources deliberately match the rest of the app so the popup cannot disagree
+      // with other pages: occupancy from room_type_occupancy_history (physical
+      // rooms, authoritative), street rates with the standard B-bed exclusion, and
+      // unit counts on the shared split-weight predicate.
+      //
+      // Campus-level occupancy is summed across every history row for the location,
+      // which is why no combined-service-line splitting is needed here — splitting
+      // only matters when attributing a combined row to an individual service line.
+      if (currentLocation) {
+        try {
+          const [slRes, rtoRes, careRes] = await Promise.all([
+            pool.query(`
+              SELECT rr.service_line,
+                COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rr.')}) AS units,
+                COUNT(*) FILTER (WHERE rr.occupied_yn AND ${slWeightSqlPredicate('rr.')}) AS occupied,
+                ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                  AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                )) AS avg_street_rate
+              FROM rent_roll_data rr
+              WHERE rr.client_id = $1
+                AND (rr.location_id = $2 OR rr.location = $3)
+                AND rr.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
+              GROUP BY rr.service_line
+              ORDER BY rr.service_line
+            `, [clientId, currentLocation.id, currentLocation.name]),
+            pool.query(`
+              SELECT SUM(occ_units) AS occ, SUM(available_units) AS avail
+              FROM room_type_occupancy_history
+              WHERE client_id = $1
+                AND (location_id = $2 OR location_name = $3)
+                AND (year * 100 + month) = (
+                  SELECT MAX(year * 100 + month) FROM room_type_occupancy_history WHERE client_id = $1
+                )
+            `, [clientId, currentLocation.id, currentLocation.name]),
+            pool.query(`
+              SELECT service_line, level2_rate
+              FROM care_level_rates
+              WHERE client_id = $1 AND location_id = $2
+            `, [clientId, currentLocation.id]),
+          ]);
+
+          const careBySl = new Map<string, number>();
+          for (const c of careRes.rows) careBySl.set(String(c.service_line), Number(c.level2_rate));
+
+          const serviceLines = slRes.rows.map((r: any) => ({
+            serviceLine: String(r.service_line),
+            units: Number(r.units) || 0,
+            occupied: Number(r.occupied) || 0,
+            avgStreetRate: r.avg_street_rate != null ? Number(r.avg_street_rate) : null,
+            careLevel2: careBySl.has(String(r.service_line)) ? careBySl.get(String(r.service_line))! : null,
+          })).filter((s: any) => s.units > 0);
+
+          const totalUnits = serviceLines.reduce((sum: number, s: any) => sum + s.units, 0);
+
+          // Prefer authoritative occupancy history; fall back to the rent-roll
+          // count only when history has no coverage for this campus.
+          const occRaw = Number(rtoRes.rows?.[0]?.occ ?? 0);
+          const availRaw = Number(rtoRes.rows?.[0]?.avail ?? 0);
+          let occupancyPct: number | null = null;
+          let occupancySource: 'history' | 'rentroll' | null = null;
+          if (availRaw > 0) {
+            occupancyPct = Math.round(Math.min(occRaw / availRaw, 1) * 1000) / 10;
+            occupancySource = 'history';
+          } else if (totalUnits > 0) {
+            const occUnits = serviceLines.reduce((sum: number, s: any) => sum + s.occupied, 0);
+            occupancyPct = Math.round((occUnits / totalUnits) * 1000) / 10;
+            occupancySource = 'rentroll';
+          }
+
+          currentLocation.stats = { totalUnits, occupancyPct, occupancySource, serviceLines };
+        } catch (statsErr) {
+          // The popup degrades to name + address; the map itself must still render.
+          console.error('[competitors] campus stats for map popup failed:', statsErr);
         }
       }
       
@@ -16727,6 +16808,13 @@ Respond in JSON format:
         dedupedImpactById.set(rule.id, impact);
       }
 
+      // Explaining a zero-unit rule normally costs one extra impact pass, but
+      // pinpointing WHICH of several AND-ed conditions never fires costs one
+      // pass per condition. Bound only that sweep, so a portfolio full of
+      // dormant multi-condition rules can't turn this into an
+      // O(rules x conditions) scan.
+      let conditionSweepBudget = 40;
+
       const enrichedRules = rules.map((rule) => {
         const action = rule.action as any;
         const adjustmentValue: number = action?.adjustmentValue ?? 0;
@@ -16770,6 +16858,76 @@ Respond in JSON format:
           }
         }
 
+        // ── Explain a zero-unit rule ─────────────────────────────────────────
+        // A rule showing "0 units" is usually correct but opaque: the user
+        // cannot tell whether its filters match nothing, its triggers never
+        // fire, or another rule already claimed every unit. Diagnose by
+        // re-running the impact calc with parts of the rule removed. Only done
+        // for rules that actually landed on zero, so the extra passes are rare.
+        let zeroReason: {
+          kind: 'no_matching_units' | 'suppressed' | 'condition_never_met' | 'conditions_never_co_occur';
+          candidateUnits?: number;
+          unsatisfiedConditions?: any[];
+        } | undefined;
+        if (impact.affectedUnits === 0) {
+          // Best-effort only. This is explanatory garnish for the UI, so a
+          // failure here must never take down the whole rules list.
+          try {
+            // overlapExcludedUnits counts units this rule qualified that a
+            // higher-precedence rule had already claimed. Use it only as a
+            // cheap gate, not as the candidate count: in-house rules narrow
+            // to occupied units *after* that tally, so it can be non-zero for
+            // a rule whose real story isn't suppression. Paying for the
+            // undeduped pass here is rare and gives the exact pool.
+            if ((impact.overlapExcludedUnits ?? 0) > 0) {
+              const undeduped = computeQualifiedRuleImpact(impactCtx, rule, scope);
+              if (undeduped.affectedUnits > 0) {
+                zeroReason = { kind: 'suppressed', candidateUnits: undeduped.affectedUnits };
+              }
+            }
+            if (!zeroReason) {
+              // One extra pass: units matching scope + action filters (room
+              // type, vacancy) but ignoring the trigger conditions entirely.
+              const noTrigger = computeQualifiedRuleImpact(
+                impactCtx, { ...rule, trigger: { type: 'immediate' } }, scope);
+              if (noTrigger.affectedUnits === 0) {
+                zeroReason = { kind: 'no_matching_units' };
+              } else {
+                const trig: any = rule.trigger || {};
+                const conds: any[] = Array.isArray(trig.conditions)
+                  ? trig.conditions
+                  : trig.condition ? [trig.condition] : [];
+                const isOr = String(trig.conditionOperator || 'AND').toUpperCase() === 'OR';
+                if (conds.length === 0) {
+                  // Nothing to explain — leave the reason unset.
+                } else if (conds.length === 1 || isOr) {
+                  // A single condition, or OR semantics where any one satisfied
+                  // condition would have matched the rule: every condition is
+                  // provably unmet, so there is nothing left to re-test.
+                  zeroReason = { kind: 'condition_never_met', unsatisfiedConditions: conds };
+                } else if (conditionSweepBudget >= conds.length) {
+                  conditionSweepBudget -= conds.length;
+                  // Which individual conditions match nothing on their own?
+                  const unsatisfied = conds.filter((c) => computeQualifiedRuleImpact(
+                    impactCtx,
+                    { ...rule, trigger: { type: 'condition', conditions: [c], conditionOperator: 'AND' } },
+                    scope,
+                  ).affectedUnits === 0);
+                  // AND semantics: if every condition matches on its own, the
+                  // zero means no single unit satisfies all of them at once.
+                  zeroReason = unsatisfied.length
+                    ? { kind: 'condition_never_met', unsatisfiedConditions: unsatisfied }
+                    : { kind: 'conditions_never_co_occur', candidateUnits: noTrigger.affectedUnits };
+                }
+                // Out of budget: leave zeroReason unset rather than guess.
+              }
+            }
+          } catch (err) {
+            console.warn(`[adjustment-rules] zero-reason diagnosis failed for rule ${rule.id}:`, err);
+            zeroReason = undefined;
+          }
+        }
+
         return {
           ...rule,
           affectedUnits: impact.affectedUnits,
@@ -16783,6 +16941,7 @@ Respond in JSON format:
           volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
           overlapExcludedUnits: impact.overlapExcludedUnits ?? 0,
           ...(suppressedByRules ? { suppressedByRules } : {}),
+          ...(zeroReason ? { zeroReason } : {}),
         };
       });
 

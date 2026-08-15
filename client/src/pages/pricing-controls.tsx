@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { usePortalTooltip } from "@/hooks/usePortalTooltip";
+import { describeCondition, zeroReasonLabel, zeroReasonDetail } from "@/lib/ruleZeroReason";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
@@ -618,6 +619,7 @@ function clientSpecScore(r: any): number {
   if (Array.isArray(rt) && rt.length > 0) score += 1;
   return score;
 }
+
 function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions, selectedLocationId, onDraftRule, onRuleCreated }: PricingCommentaryCardProps) {
   const [, setLocation] = useLocation();
   const [selectedRule, setSelectedRule] = useState<any>(null);
@@ -928,6 +930,53 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     );
   };
 
+  // Split of the same points the full chart plots, used to caption the thumbnail.
+  // marketPosition is a rounded percentage, so landing exactly on 100 is common — count it
+  // separately rather than folding it into "below", which the chart's own Market reference
+  // line at y=100 would contradict.
+  const aboveMarket = compPositionData.filter((d: any) => d.marketPosition > 100).length;
+  const belowMarket = compPositionData.filter((d: any) => d.marketPosition < 100).length;
+  const atMarket = compPositionData.length - aboveMarket - belowMarket;
+
+  // Thumbnail shown while the Strategy Overview strip is collapsed. The competitive-position
+  // query already runs on page load, so this costs no extra request. Axes, grid, ticks and
+  // tooltip are stripped deliberately — at ~46px tall they would be noise, not information;
+  // the only retained reference is the y=100 "at market" line, which is what gives the dot
+  // cloud its meaning at a glance.
+  const renderMiniScatter = () => (
+    <ResponsiveContainer width="100%" height="100%">
+      <ScatterChart margin={{ top: 3, right: 3, bottom: 3, left: 3 }}>
+        {/* Unlike the full chart these domains hug the data rather than clamping to
+            0-100 / 88-112. With the axes hidden there is no scale to preserve, so the
+            cloud should use the whole 132px instead of bunching in one corner. The y
+            floor/ceiling still straddle 100 so the "at market" line can never clip out. */}
+        <XAxis
+          type="number" dataKey="occupancy" hide
+          domain={([min, max]: [number, number]) => [min - 1, max + 1]}
+        />
+        <YAxis
+          type="number" dataKey="marketPosition" hide
+          domain={([min, max]: [number, number]) => [Math.min(min - 2, 98), Math.max(max + 2, 102)]}
+        />
+        <ZAxis range={[9, 9]} />
+        <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="3 2" strokeWidth={1} />
+        {['AL','AL/MC','HC','HC/MC','SL','VIL'].map(sl => {
+          const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
+          if (!slData.length) return null;
+          return (
+            <Scatter
+              key={sl}
+              data={slData}
+              fill={SCATTER_SL_COLORS[sl] || '#64748b'}
+              fillOpacity={0.85}
+              isAnimationActive={false}
+            />
+          );
+        })}
+      </ScatterChart>
+    </ResponsiveContainer>
+  );
+
   const renderScatterChart = (height: number, tickFontSize: number) => (
     <ResponsiveContainer width="100%" height={height}>
       <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
@@ -1024,6 +1073,34 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               </h2>
             ) : null)}
           </div>
+
+          {/* Collapsed-state preview. On first load the strip is shut, leaving this whole
+              right side empty — the thumbnail puts competitive position on screen without
+              the user expanding anything. It is deliberately absent once the strip is open,
+              since the full-size chart below would then duplicate it. */}
+          {!strategyOpen && compPositionData.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setStrategyOpen(true); setScatterOpen(true); }}
+              className="hidden md:flex shrink-0 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-1.5 -my-0.5 group hover:border-teal-300 hover:bg-teal-50/40 transition-colors"
+              title="Open the full Competitive Position chart"
+              aria-expanded={strategyOpen}
+              aria-label={`Competitive position: ${aboveMarket} above market, ${belowMarket} below market${atMarket > 0 ? `, ${atMarket} at market` : ''}. Open the full chart.`}
+              data-testid="button-mini-competitive-position"
+            >
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 group-hover:text-teal-600 transition-colors whitespace-nowrap">
+                  Competitive Position
+                </p>
+                <p className="text-[11px] font-semibold text-slate-500 tabular-nums whitespace-nowrap">
+                  {aboveMarket} above · {belowMarket} below{atMarket > 0 ? ` · ${atMarket} at` : ''} market
+                </p>
+              </div>
+              <div className="h-[46px] w-[132px] shrink-0">
+                {renderMiniScatter()}
+              </div>
+            </button>
+          )}
 
           {/* KPI column — right-aligned on desktop */}
           {strategyOpen && activeRules.length > 0 && !isLoading && (
@@ -1152,20 +1229,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                 // Describe all trigger conditions for expanded view
                                 const triggerObj = rule.trigger || {};
                                 const allConditions: any[] = triggerObj.conditions || (triggerObj.condition ? [triggerObj.condition] : []);
-                                const condLabels = allConditions.map((c: any) => {
-                                  const fieldMap: Record<string, string> = {
-                                    service_line_occupancy: 'SL occupancy',
-                                    room_type_occupancy: 'Room type occupancy',
-                                    campus_occupancy: 'Campus occupancy',
-                                    days_vacant: 'Days vacant',
-                                    street_to_comp_var: 'Street vs top comp',
-                                    vacant_units: 'Vacant units',
-                                  };
-                                  const fn = fieldMap[c.field] || (c.field || '').replace(/_/g, ' ');
-                                  const op = c.operator === '>=' ? '≥' : c.operator === '<=' ? '≤' : c.operator === '<' ? '<' : c.operator === '>' ? '>' : c.operator;
-                                  const pct = c.field?.includes('occupancy') ? `${Math.round((c.value || 0) * 100)}%` : c.field === 'street_to_comp_var' ? `${c.value}%` : String(c.value);
-                                  return `${fn} ${op} ${pct}`;
-                                });
+                                const condLabels = allConditions.map(describeCondition);
                                 const isSuperseded = supersededIds.has(rule.id);
                                 return (
                                   <div key={rule.id} ref={el => { ruleRowRefs.current[rule.id] = el; }}>
@@ -1199,6 +1263,25 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                                             </span>
                                           )}
                                           {isDupe && !isBlanketSuppressed && !isSuperseded && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">overlap — units counted once</span>}
+                                          {/* A rule can legitimately affect 0 units. Say why, so the
+                                              bare "0" isn't mistaken for a broken or miscounted rule. */}
+                                          {units === 0 && !isBlanketSuppressed && !isSuperseded && rule.zeroReason && (
+                                            <TooltipProvider delayDuration={200}>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <span
+                                                    className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 underline decoration-dotted cursor-help"
+                                                    data-testid={`badge-zero-reason-${rule.id}`}
+                                                  >
+                                                    {zeroReasonLabel(rule.zeroReason)}
+                                                  </span>
+                                                </TooltipTrigger>
+                                                <TooltipContent className="max-w-[280px]">
+                                                  <p className="text-[11px] leading-relaxed">{zeroReasonDetail(rule.zeroReason)}</p>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            </TooltipProvider>
+                                          )}
                                         </div>
                                         <div className="text-[11px] text-slate-400 mt-0.5">
                                           {adjDisp} · {condLabels.length > 1 ? (

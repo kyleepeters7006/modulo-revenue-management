@@ -5,7 +5,8 @@
 - [Rule impact methodology](rule-impact-methodology.md) — affected units must pass trigger conditions; impact = T3 move-ins/mo × Δrate via shared service; occupancy triggers stored as fractions.
 - [Rule overlap dedup](rule-overlap-dedup.md) — units matched by multiple active rules count once: newest rule claims units first; frontend must not re-exclude, backend impacts are already net.
 - [HC private-pay-only impact](hc-private-pay-impact.md) — HC/HC-MC pricing impact math must count Private Pay only; other payers are fixed-rate and unaffected by street pricing.
-- [Adjustment rules schema](adjustment-rules-schema.md) — has NO affected_units or affected_campuses columns; use execution_count as proxy. Impact columns: monthly_impact, annual_impact (snake_case from pool.query rows).
+- [Adjustment rules schema](adjustment-rules-schema.md) — no affected_units/affected_campuses columns; execution_count is NOT a usage signal; pool.query rows are snake_case.
+- [Rule description vs filters](rule-description-filter-mismatch.md) — description can promise a filter action.filters never encodes; check applied_rule_name before deleting, then reprice.
 - [Rule History debugging lessons](rule-history-debug.md) — three root causes fixed for 0 move-ins / 0 speed vs expected in Rule History section.
 - [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative; combined-SL rows split by identical B-bed-excluded weights everywhere; compute % before rounding counts.
 - [Pricing cycle superseding](pricing-cycle-superseding.md) — latest-cycle-wins logic in applyAdjustmentRulesToUnit prevents Apr/Jul cycle stacking; supersededIds in UI marks older-cycle rules crossed-out.
@@ -28,6 +29,7 @@
 - [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey data has client_id=NULL everywhere; queries need (client_id=$1 OR client_id IS NULL); AL/MC must also search competitor_type=AL.
 - [DATABASE_URL vs NEON_DATABASE_URL](db-url-distinction.md) — server uses DATABASE_URL; NEON_DATABASE_URL is a different incomplete DB; always use DATABASE_URL for manual node queries.
 - [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.
+- [`dark:` variants always on](dark-variant-always-on.md) — App.tsx wraps everything in `.dark`; literal dark palette colours paint a translucent wash. Sticky cells must be opaque in every branch.
 - [Tooltips in scrollable dialogs](dialog-tooltip-portal.md) — portal to body + viewport-clamp, never flip above/below; two identically-titled bubble maps exist, fix both.
 - [Rule-adjusted rate persistence](rule-rate-persistence.md) — bulk writer must preserve rule cols on `undefined` (null still clears); two rival pricing paths, only one applies rules.
 - [Rule changes auto-apply](rule-auto-apply.md) — rule mutations schedule a debounced repricing run (never apply on read); deferral must be bounded; single-tenant on purpose.
@@ -38,3 +40,8 @@
 - [AI content cache validation](ai-content-cache-validation.md) — validate AI output semantically (not just parseable) before serving/caching; empty payload + SWR = panel blank for a full TTL.
 - [Rule rate base & why replays fail](rule-rate-base-and-replay.md) — rules apply to the modulo base, round per step, then clamp; no per-unit chain persisted; never recompute a served rate in the browser.
 - [Competitors endpoint capping](competitors-endpoint-capping.md) — items[] is top-3-per-location when multi-location; totalCompetitors is the real total; map pin count dedupes + radius-filters.
+- [Two scatters on Pricing Controls](pricing-controls-two-scatters.md) — "Scattergram" (occupancy vs Δ move-ins) ≠ "Competitive Position" (occupancy vs % of top comp); disambiguate by axes, not name.
+- [Zero-impact rule diagnosis](zero-impact-rule-diagnosis.md) — a 0-unit rule is usually correct; four distinct causes, and overlapExcludedUnits is a gate, not a candidate count.
+- [Campus vs SL occupancy](campus-vs-sl-occupancy.md) — combined-SL splitting is only needed for per-service-line output; campus totals just sum occ/avail rows and divide once.
+- [Client workbook reconciliation](workbook-reconciliation.md) — tie-out basis (B-beds, ex-Kingston, AL/SL→SL, HC private-pay IH); totals then match exactly and residuals are real defects.
+- [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; controls stack above popups; escape interpolated strings.

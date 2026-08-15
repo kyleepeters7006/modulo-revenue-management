@@ -507,6 +507,32 @@ export default function RateCardTable({
   const highlightedUnitId = selectedUnit ? 
     filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
 
+  // Vacant beds are the rows that need pricing attention, so the whole row is tinted
+  // amber rather than relying on the Status badge alone. A selected/scrolled-to unit
+  // keeps its teal highlight — that's a deliberate user action and outranks the tint.
+  // Sticky columns must repeat the tint as a SOLID colour: they scroll over the other
+  // cells, so a translucent background would let the underlying row show through.
+  // Deliberately no `dark:` variants here. App.tsx wraps the whole tree in
+  // `<div className="dark">`, so every `dark:` variant is permanently ON even though the
+  // palette renders light. A `dark:` background therefore paints a translucent dark tint
+  // over a light page and makes these sticky cells see-through.
+  const rowTint = (unit: any) =>
+    highlightedUnitId === unit.id
+      ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]'
+      : !unit.occupiedYN
+        ? 'bg-amber-50 hover:bg-amber-100'
+        : '';
+
+  // Same colours as rowTint, but every branch must be fully OPAQUE — the selected-unit
+  // teal is mixed into white rather than alpha-blended so it matches the row visually
+  // without letting scrolled-under columns show through.
+  const stickyCellTint = (unit: any) =>
+    highlightedUnitId === unit.id
+      ? 'bg-[color-mix(in_srgb,var(--trilogy-teal)_10%,white)]'
+      : !unit.occupiedYN
+        ? 'bg-amber-50'
+        : 'bg-white';
+
   if (isLoading) {
     return (
       <Card>
@@ -1074,15 +1100,15 @@ export default function RateCardTable({
                     <TableRow 
                       key={unit.id}
                       id={`unit-row-${unit.id}`}
-                      className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
+                      className={rowTint(unit)}
                     >
-                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
+                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${stickyCellTint(unit)} ${!unit.occupiedYN && highlightedUnitId !== unit.id ? 'border-l-4 border-l-amber-400' : ''}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
                         {unit.location || unit.locationName || unit.campusName || '-'}
                       </TableCell>
-                      <TableCell className={`font-medium ${colWidth.unit} ${freeze('unit', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>
+                      <TableCell className={`font-medium ${colWidth.unit} ${freeze('unit', 'z-10')} ${stickyCellTint(unit)}`}>
                         {unit.roomNumber}
                       </TableCell>
-                      <TableCell className={`${colWidth.roomType} ${freeze('roomType', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>{unit.roomType}</TableCell>
+                      <TableCell className={`${colWidth.roomType} ${freeze('roomType', 'z-10')} ${stickyCellTint(unit)}`}>{unit.roomType}</TableCell>
                       <TableCell>
                         <button
                           type="button"
@@ -1122,7 +1148,12 @@ export default function RateCardTable({
                         <Badge variant="outline">{unit.serviceLine}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={unit.occupiedYN ? "default" : "secondary"}>
+                        <Badge
+                          variant={unit.occupiedYN ? "outline" : "default"}
+                          className={unit.occupiedYN
+                            ? 'text-muted-foreground font-normal'
+                            : 'bg-amber-500 hover:bg-amber-500 text-white border-transparent'}
+                        >
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
                         </Badge>
                       </TableCell>
