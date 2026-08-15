@@ -795,12 +795,26 @@ export class DatabaseStorage implements IStorage {
       const detailsCases = batch.map(u => 
         sql`WHEN id = ${u.id} THEN ${u.moduloCalculationDetails}::text`
       );
-      const ruleRateCases = batch.map(u => 
-        sql`WHEN id = ${u.id} THEN ${u.ruleAdjustedRate !== undefined ? u.ruleAdjustedRate : null}`
+      // Preserve existing rule data when a caller omits it.
+      //
+      // `undefined` means "this caller does not compute rule rates" -> keep whatever is
+      // already stored. `null` is a meaningful value ("no rule matched this unit") and
+      // must still clear the column. Previously undefined was coerced to null, so any
+      // caller that skipped rule evaluation (e.g. the background pricing job) silently
+      // wiped rule_adjusted_rate for every unit in its batch.
+      const ruleRateCases = batch.map(u =>
+        u.ruleAdjustedRate !== undefined
+          ? sql`WHEN id = ${u.id} THEN ${u.ruleAdjustedRate}`
+          : sql`WHEN id = ${u.id} THEN rule_adjusted_rate`
       );
-      const ruleNameCases = batch.map(u => 
-        sql`WHEN id = ${u.id} THEN ${u.appliedRuleName !== undefined ? u.appliedRuleName : null}`
+      const ruleNameCases = batch.map(u =>
+        u.appliedRuleName !== undefined
+          ? sql`WHEN id = ${u.id} THEN ${u.appliedRuleName}`
+          : sql`WHEN id = ${u.id} THEN applied_rule_name`
       );
+
+      // Only stamp the rule-calculation timestamp when this batch actually carried rule data.
+      const batchHasRuleData = batch.some(u => u.ruleAdjustedRate !== undefined);
       
       // Execute single bulk update query
       const now = new Date();
@@ -823,7 +837,7 @@ export class DatabaseStorage implements IStorage {
             ${sql.join(ruleNameCases, sql.raw(' '))}
             ELSE applied_rule_name
           END,
-          rule_rate_calculated_at = ${now}
+          rule_rate_calculated_at = ${batchHasRuleData ? sql`${now}` : sql`rule_rate_calculated_at`}
         WHERE id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})
       `);
       

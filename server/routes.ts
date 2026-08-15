@@ -5082,8 +5082,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // MatrixCare Street Rates Export (for new admissions)
-  app.get("/api/export/street-rates", async (req, res) => {
+  app.get("/api/export/street-rates", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { campuses, date } = req.query;
       const selectedCampuses = campuses ? (campuses as string).split(',') : undefined;
       const exportDate = date ? (date as string) : null;
@@ -5092,7 +5093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { generateStreetRatesExport, validateStreetRatesExport } = await import('./matrixCareStreetRatesExport');
       
       // Generate the export file
-      const filepath = await generateStreetRatesExport(selectedCampuses, exportDate);
+      const { filepath, unmappedFacilities } = await generateStreetRatesExport(clientId, selectedCampuses, exportDate);
       
       // Validate the export
       const validation = await validateStreetRatesExport(filepath);
@@ -5107,6 +5108,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Disposition', `attachment; filename=CORPORATEROOMCHARGESEXPORT_Trilogy_${timestamp}.CSV`);
       res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
       res.setHeader('X-Validation-Summary', JSON.stringify(validation.summary));
+      // Facilities exported with a derived (unverified) MatrixCare identity — the caller
+      // must be able to see this, not just the server log.
+      res.setHeader('X-Unmapped-Facility-Count', String(unmappedFacilities.length));
+      if (unmappedFacilities.length > 0) {
+        res.setHeader('X-Unmapped-Facilities', toHeaderSafe(unmappedFacilities.join('; ')));
+      }
       
       // Clean up temp file
       await fs.promises.unlink(filepath);
@@ -5119,8 +5126,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // MatrixCare Special Rates Export (for current residents)
-  app.get("/api/export/special-rates", async (req, res) => {
+  app.get("/api/export/special-rates", async (req: any, res) => {
     try {
+      const clientId = req.clientId || 'demo';
       const { campuses, date } = req.query;
       const selectedCampuses = campuses ? (campuses as string).split(',') : undefined;
       const exportDate = date ? (date as string) : null;
@@ -5129,7 +5137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { generateSpecialRatesExport, validateSpecialRatesExport } = await import('./matrixCareSpecialRatesExport');
       
       // Generate the export file
-      const filepath = await generateSpecialRatesExport(selectedCampuses, exportDate);
+      const { filepath, unmappedFacilities } = await generateSpecialRatesExport(clientId, selectedCampuses, exportDate);
       
       // Validate the export
       const validation = await validateSpecialRatesExport(filepath);
@@ -5144,6 +5152,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Disposition', `attachment; filename=SPECIALROOMRATESEXPORT_Trilogy_${timestamp}.CSV`);
       res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
       res.setHeader('X-Validation-Summary', JSON.stringify(validation.summary));
+      // Facilities exported with a derived (unverified) MatrixCare identity — the caller
+      // must be able to see this, not just the server log.
+      res.setHeader('X-Unmapped-Facility-Count', String(unmappedFacilities.length));
+      if (unmappedFacilities.length > 0) {
+        res.setHeader('X-Unmapped-Facilities', toHeaderSafe(unmappedFacilities.join('; ')));
+      }
       
       // Clean up temp file
       await fs.promises.unlink(filepath);
@@ -5422,6 +5436,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  /**
+   * HTTP headers may only carry ISO-8859-1. Validation messages are authored with
+   * typographic punctuation (em dashes, curly quotes), which makes res.setHeader throw
+   * ERR_INVALID_CHAR and fails the whole export. Fold those to ASCII equivalents.
+   */
+  const toHeaderSafe = (value: string): string =>
+    value
+      .replace(/[\u2010-\u2015]/g, '-')   // hyphens / en & em dashes
+      .replace(/[\u2018\u2019]/g, "'")    // curly single quotes
+      .replace(/[\u201C\u201D]/g, '"')    // curly double quotes
+      .replace(/\u2026/g, '...')          // ellipsis
+      .replace(/[^\x20-\x7E]/g, '')       // anything else non-printable-ASCII
+      .slice(0, 900);                     // keep well under header size limits
+
   // MatrixCare Export - Export data in MatrixCare format
   app.get("/api/export/matrixcare", async (req: any, res) => {
     try {
@@ -5429,10 +5457,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { format = 'xlsx', date } = req.query;
       const exportDate = date ? (date as string) : null;
       
-      // Get all rent roll data
-      const rentRollData = await storage.getRentRollData(clientId);
+      // Scope to the client's newest upload month and resolve each unit's effective rate
+      // (manual override -> rule-adjusted -> Modulo -> street). Previously this exported
+      // every month of rent roll history using the raw street rate.
+      const { getEffectiveRateUnits } = await import('./services/exportRateService');
+      const { uploadMonth, units: effectiveUnits } = await getEffectiveRateUnits(clientId);
       
-      if (!rentRollData || rentRollData.length === 0) {
+      if (!uploadMonth) {
+        return res.status(404).json({ error: "No rent roll data available for export" });
+      }
+      
+      const rateById = new Map(effectiveUnits.map(u => [u.id, u.effectiveRate]));
+      const monthRows = await storage.getRentRollDataByMonth(uploadMonth, clientId);
+      const rentRollData = monthRows.map(r => ({ ...r, effectiveRate: rateById.get(r.id) ?? null }));
+      
+      if (rentRollData.length === 0) {
         return res.status(404).json({ error: "No rent roll data available for export" });
       }
       
@@ -5453,7 +5492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
         if (validation.suggestions.length > 0) {
-          res.setHeader('X-Validation-Suggestions', validation.suggestions.join('; '));
+          res.setHeader('X-Validation-Suggestions', toHeaderSafe(validation.suggestions.join('; ')));
         }
         res.send(csv);
       } else {
@@ -5470,7 +5509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('X-Validation-Status', validation.isValid ? 'valid' : 'invalid');
         if (validation.suggestions.length > 0) {
-          res.setHeader('X-Validation-Suggestions', validation.suggestions.join('; '));
+          res.setHeader('X-Validation-Suggestions', toHeaderSafe(validation.suggestions.join('; ')));
         }
         res.send(buffer);
       }
@@ -12754,15 +12793,19 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const { pricingJobManager } = await import('./pricingJobManager');
       
       // Create a new background job
+      // Omit month deliberately when the caller did not supply one: the job resolves the
+      // client's newest upload month itself. A hardcoded default silently priced a stale
+      // period long after newer rent rolls had been imported.
       const jobId = pricingJobManager.createJob({
-        month: month || '2025-10',
+        month,
         serviceLine,
         regions,
         divisions,
-        locations
+        locations,
+        clientId: (req as any).clientId || 'demo'
       });
       
-      console.log(`[API] Created pricing job ${jobId} for month: ${month || '2025-10'}`);
+      console.log(`[API] Created pricing job ${jobId} for month: ${month || 'latest available'}`);
       
       // Return immediately with job ID
       res.json({

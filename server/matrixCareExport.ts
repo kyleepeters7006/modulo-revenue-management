@@ -1,4 +1,6 @@
-import { SelectRentRollData } from '@shared/schema';
+import type { RentRollData as SelectRentRollData } from '@shared/schema';
+import { isBBedRow } from '@shared/bBed';
+import { billingFrequencyFor, DAYS_PER_MONTH } from './services/matrixCareFacility';
 import * as XLSX from 'xlsx';
 import {
   safeExportDate,
@@ -55,8 +57,11 @@ function getFacilityCustomerId(location: string, serviceLine: string): string {
   return `~14-${locCode}-${svcCode}`;
 }
 
+/** Rent roll row optionally carrying the resolved effective rate from the export rate service. */
+export type ExportableRentRollRow = SelectRentRollData & { effectiveRate?: number | null };
+
 export function transformToMatrixCareFormat(
-  rentRollData: SelectRentRollData[],
+  rentRollData: ExportableRentRollRow[],
   exportDate?: string | null
 ): MatrixCareRow[] {
   // Always produce a valid date string, never an empty/null value
@@ -64,7 +69,7 @@ export function transformToMatrixCareFormat(
   const matrixCareRows: MatrixCareRow[] = [];
 
   // Group by facility
-  const facilitiesMap = new Map<string, SelectRentRollData[]>();
+  const facilitiesMap = new Map<string, ExportableRentRollRow[]>();
   for (const row of rentRollData) {
     const key = row.location;
     if (!facilitiesMap.has(key)) facilitiesMap.set(key, []);
@@ -72,20 +77,38 @@ export function transformToMatrixCareFormat(
   }
 
   facilitiesMap.forEach((facilityData, facilityName) => {
-    // Collect unique (bedType, serviceLine) combinations; keep the first street rate encountered
-    const uniqueCombinations = new Map<string, { bedType: string; serviceLine: string; basePrice: number }>();
+    // Accumulate every unit's effective rate per (bedType, serviceLine), then average.
+    // Previously only the first row encountered was kept, so the exported price was an
+    // arbitrary pick rather than a representative rate for that bed type.
+    const combos = new Map<string, { bedType: string; serviceLine: string; rates: number[] }>();
 
     for (const row of facilityData) {
+      // One rate per physical room: companion B-bed rows would double-count senior housing.
+      if (isBBedRow(row.serviceLine, row.roomNumber)) continue;
+
       const bedType = buildBedTypeDescription(row);
       const key = `${bedType}||${row.serviceLine}`;
-      if (!uniqueCombinations.has(key)) {
-        // Daily rate: monthly AL/SL/VIL ÷ 30.5; HC is already daily
-        const monthly = row.streetRate || 0;
-        const sl = (row.serviceLine || '').toUpperCase();
-        const isDaily = sl === 'HC' || sl === 'HC/MC' || sl === 'SNF';
-        const basePrice = Math.round(isDaily ? monthly : monthly / 30.5);
-        uniqueCombinations.set(key, { bedType, serviceLine: row.serviceLine, basePrice });
+      // Effective rate follows override -> rule-adjusted -> Modulo -> street precedence.
+      const rate = row.effectiveRate ?? row.streetRate ?? 0;
+      if (!Number.isFinite(rate) || rate <= 0) continue;
+
+      let combo = combos.get(key);
+      if (!combo) {
+        combo = { bedType, serviceLine: row.serviceLine, rates: [] };
+        combos.set(key, combo);
       }
+      combo.rates.push(rate);
+    }
+
+    const uniqueCombinations = new Map<string, { bedType: string; serviceLine: string; basePrice: number }>();
+    for (const [key, combo] of Array.from(combos.entries())) {
+      const avg = combo.rates.reduce((s, r) => s + r, 0) / combo.rates.length;
+      // MatrixCare expects a daily BasePrice: monthly senior housing is converted, HC is
+      // already per diem. Classified centrally so unrecognised service lines behave the
+      // same way here as in the street-rates export.
+      const isDaily = billingFrequencyFor(combo.serviceLine) === 'Daily';
+      const basePrice = Math.round(isDaily ? avg : avg / DAYS_PER_MONTH);
+      uniqueCombinations.set(key, { bedType: combo.bedType, serviceLine: combo.serviceLine, basePrice });
     }
 
     uniqueCombinations.forEach(({ bedType, serviceLine, basePrice }) => {
@@ -203,7 +226,7 @@ Respond JSON: { "isValid": bool, "criticalIssues": [], "suggestions": [], "mappi
 }
 
 export async function generateMatrixCareExcel(
-  rentRollData: SelectRentRollData[],
+  rentRollData: ExportableRentRollRow[],
   exportDate?: string | null
 ): Promise<{ buffer: Buffer; validation: any }> {
   const matrixCareData = transformToMatrixCareFormat(rentRollData, exportDate);
@@ -239,7 +262,7 @@ export async function generateMatrixCareExcel(
 }
 
 export async function generateMatrixCareCSV(
-  rentRollData: SelectRentRollData[],
+  rentRollData: ExportableRentRollRow[],
   exportDate?: string | null
 ): Promise<{ csv: string; validation: any }> {
   const matrixCareData = transformToMatrixCareFormat(rentRollData, exportDate);

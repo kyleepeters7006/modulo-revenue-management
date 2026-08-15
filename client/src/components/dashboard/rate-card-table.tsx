@@ -14,6 +14,7 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { CompetitorAdjustmentDialog } from "@/components/dashboard/competitor-adjustment-dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { 
   Select, 
   SelectContent, 
@@ -95,6 +96,30 @@ export default function RateCardTable({
   // The INNER div is the real scroll container, not bottomScrollRef.
   const topScrollRef    = useRef<HTMLDivElement>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
+
+  // Frozen-column layout.
+  //
+  // On a phone the three frozen columns (130 + 65 + 90 = 285px) consume almost the entire
+  // viewport, leaving a ~58px sliver through which the remaining seven columns have to be
+  // scrolled — the table reads as "cut off" even though horizontal scrolling works. So on
+  // narrow screens only Location stays frozen and everything else scrolls normally.
+  const isMobile = useIsMobile();
+  const frozenEdge = 'border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]';
+  const colWidth = {
+    location: isMobile ? 'w-[104px]' : 'w-[130px]',
+    unit:     isMobile ? 'w-[56px]'  : 'w-[65px]',
+    roomType: isMobile ? 'w-[84px]'  : 'w-[90px]',
+  };
+  /** Sticky positioning for a frozen column at the given stacking level. */
+  const freeze = (column: 'location' | 'unit' | 'roomType', z: string) => {
+    if (column === 'location') {
+      return `sticky left-0 ${z} ${isMobile ? frozenEdge : ''}`;
+    }
+    if (isMobile) return '';
+    return column === 'unit'
+      ? `sticky left-[130px] ${z}`
+      : `sticky left-[195px] ${z} ${frozenEdge}`;
+  };
   const isSyncingScroll = useRef(false);
 
   // Helper: get the actual scrollable div (shadcn Table's wrapper, first child of outer div)
@@ -299,7 +324,20 @@ export default function RateCardTable({
     const poll = async () => {
       try {
         const res = await fetch(`/api/pricing/job-status/${activeModuloJobId}`);
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        // Jobs live in an in-memory map, so a server restart loses anything in flight.
+        // Without this the progress bar spins forever with no explanation.
+        if (res.status === 404) {
+          setActiveModuloJobId(null);
+          setModuloJobProgress(0);
+          toast({
+            title: "Rules Rate calculation interrupted",
+            description: "The server restarted before the run finished. Please run it again.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (!res.ok) { setTimeout(poll, 3000); return; }
         const job = await res.json();
         const pct = job.progress?.percentage ?? 0;
         setModuloJobProgress(pct);
@@ -328,7 +366,11 @@ export default function RateCardTable({
   }, [activeModuloJobId]);
 
   const generateModuloMutation = useMutation({
-    mutationFn: () => apiRequest('/api/pricing/generate-modulo', 'POST', { 
+    // Use the background-job endpoint. The synchronous one prices ~16 units/sec, so a
+    // full portfolio run (7.9k demo / 19k Trilogy units) exceeds the HTTP timeout and
+    // surfaces as "Failed to generate Rules Rate suggestions" even though it is still
+    // running server-side. This path returns a jobId immediately and is polled below.
+    mutationFn: () => apiRequest('/api/pricing/generate-modulo-optimized', 'POST', { 
       month: selectedMonth,
       serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
       regions: selectedRegions,
@@ -815,7 +857,7 @@ export default function RateCardTable({
                   <TableRow>
                     {/* Location — sort + text search filter */}
                     <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-0 z-[31] bg-white w-[130px]"
+                      className={`cursor-pointer hover:bg-slate-50 select-none bg-white ${colWidth.location} ${freeze('location', 'z-[31]')}`}
                       onClick={() => handleSort('location')}
                       data-testid="sort-location"
                     >
@@ -839,7 +881,7 @@ export default function RateCardTable({
 
                     {/* Unit — sort + text search filter */}
                     <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-[130px] z-[31] bg-white w-[65px]"
+                      className={`cursor-pointer hover:bg-slate-50 select-none bg-white ${colWidth.unit} ${freeze('unit', 'z-[31]')}`}
                       onClick={() => handleSort('unit')}
                       data-testid="sort-unit"
                     >
@@ -863,7 +905,7 @@ export default function RateCardTable({
 
                     {/* Room Type — sort + multi-select filter */}
                     <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none sticky left-[195px] z-[31] bg-white w-[90px] border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]"
+                      className={`cursor-pointer hover:bg-slate-50 select-none bg-white ${colWidth.roomType} ${freeze('roomType', 'z-[31]')}`}
                       onClick={() => handleSort('roomType')}
                       data-testid="sort-room-type"
                     >
@@ -1031,13 +1073,13 @@ export default function RateCardTable({
                       id={`unit-row-${unit.id}`}
                       className={highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]' : ''}
                     >
-                      <TableCell className={`truncate sticky left-0 z-10 w-[130px] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
+                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
                         {unit.location || unit.locationName || unit.campusName || '-'}
                       </TableCell>
-                      <TableCell className={`font-medium sticky left-[130px] z-10 w-[65px] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>
+                      <TableCell className={`font-medium ${colWidth.unit} ${freeze('unit', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>
                         {unit.roomNumber}
                       </TableCell>
-                      <TableCell className={`sticky left-[195px] z-10 w-[90px] border-r border-slate-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>{unit.roomType}</TableCell>
+                      <TableCell className={`${colWidth.roomType} ${freeze('roomType', 'z-10')} ${highlightedUnitId === unit.id ? 'bg-[var(--trilogy-teal)]/10' : 'bg-white'}`}>{unit.roomType}</TableCell>
                       <TableCell>
                         <button
                           type="button"

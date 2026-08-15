@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { storage } from './storage';
 import { db } from './db';
-import { rentRollData, competitiveSurveyData, enquireData, roomTypeOccupancyHistory } from '@shared/schema';
+import { rentRollData, competitiveSurveyData, enquireData, roomTypeOccupancyHistory, locations } from '@shared/schema';
 import { eq, sql, and, or, inArray } from 'drizzle-orm';
 import { normalizeRoomType } from '@shared/roomTypes';
 import { calculateAttributedPrice, ensureCacheInitialized } from './pricingOrchestrator';
@@ -62,11 +62,13 @@ interface PricingJob {
     processingTimeMs: number;
   };
   params: {
-    month: string;
+    month?: string;
     serviceLine?: string;
     regions?: string[];
     divisions?: string[];
     locations?: string[];
+    locationId?: string;
+    calculationHistoryId?: string;
     clientId?: string;
   };
 }
@@ -485,9 +487,19 @@ class PricingJobManager {
       this.processingJobs.add(jobId);
       
       const startTime = Date.now();
-      const { month, locationId, locations: locationFilter, clientId: jobClientId } = job.params;
-      const targetMonth = month || '2025-10';
+      const {
+        month,
+        locationId,
+        locations: locationFilter,
+        serviceLine: serviceLineFilter,
+        regions: regionFilter,
+        divisions: divisionFilter,
+        clientId: jobClientId,
+      } = job.params;
       const jobClientId_ = jobClientId || 'demo';
+      // Resolve the newest uploaded month for this client rather than assuming a hardcoded
+      // one. A stale default silently prices a month that no longer holds current data.
+      const targetMonth = month || await this.resolveLatestUploadMonth(jobClientId_);
       
       // Reuse the history entry created by the caller (e.g. triggerPostImportActions) when
       // one is provided.  If not, create a fresh entry so manual/cron runs are still tracked.
@@ -519,11 +531,75 @@ class PricingJobManager {
       // Get all units for the month, then filter by location if specified
       console.log(`[PricingJob ${jobId}] Fetching units for month: ${targetMonth}`);
       const allMonthUnits = await storage.getRentRollDataByMonth(targetMonth, jobClientId_);
-      const units = locationFilter && locationFilter.length > 0
-        ? allMonthUnits.filter(u => locationFilter.includes(u.locationId ?? ''))
-        : allMonthUnits;
-      if (locationFilter && locationFilter.length > 0) {
-        console.log(`[PricingJob ${jobId}] Filtered to ${units.length} units for location(s): ${locationFilter.join(', ')}`);
+
+      // Apply EVERY scope the caller asked for. The Rate Card sends serviceLine, regions,
+      // divisions and locations together; a filter that is accepted but silently ignored
+      // would reprice the whole portfolio while still reporting success.
+      const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
+      let units = allMonthUnits;
+      const appliedScopes: string[] = [];
+
+      if (serviceLineFilter) {
+        units = units.filter(u => u.serviceLine === serviceLineFilter);
+        appliedScopes.push(`serviceLine=${serviceLineFilter}`);
+      }
+
+      const wantsRegionOrDivision = !!(regionFilter?.length || divisionFilter?.length);
+      const wantsLocations = !!locationFilter?.length;
+
+      if (wantsRegionOrDivision || wantsLocations) {
+        // Client-scoped: location names are only unique within a tenant.
+        const clientLocations = await db
+          .select()
+          .from(locations)
+          .where(eq(locations.clientId, jobClientId_));
+
+        // Region and division are properties of a location, so resolve them to the set of
+        // locations they cover before filtering units.
+        if (wantsRegionOrDivision) {
+          const inScope = new Set(
+            clientLocations
+              .filter(l =>
+                (!regionFilter?.length   || (l.region   && regionFilter.includes(l.region))) &&
+                (!divisionFilter?.length || (l.division && divisionFilter.includes(l.division))))
+              .map(l => norm(l.name))
+          );
+          units = units.filter(u => inScope.has(norm(u.location)));
+          if (regionFilter?.length)   appliedScopes.push(`regions=${regionFilter.join('|')}`);
+          if (divisionFilter?.length) appliedScopes.push(`divisions=${divisionFilter.join('|')}`);
+        }
+
+        // The filter UI holds location NAMES and the synchronous endpoint matches on name,
+        // but this path previously matched locationId only — so a name filter selected zero
+        // units and the job still reported success. Classify each token against the known
+        // ids and names rather than matching both fields against one pooled set, so a name
+        // can never collide with an unrelated location's id.
+        if (wantsLocations) {
+          const knownIds   = new Set(clientLocations.map(l => norm(l.id)));
+          const wantedIds   = new Set<string>();
+          const wantedNames = new Set<string>();
+          for (const token of locationFilter!) {
+            const key = norm(token);
+            if (!key) continue;
+            (knownIds.has(key) ? wantedIds : wantedNames).add(key);
+          }
+          units = units.filter(u =>
+            (wantedIds.size   > 0 && wantedIds.has(norm(u.locationId))) ||
+            (wantedNames.size > 0 && wantedNames.has(norm(u.location))));
+          appliedScopes.push(`locations=${locationFilter!.join('|')}`);
+        }
+      }
+
+      if (appliedScopes.length > 0) {
+        console.log(`[PricingJob ${jobId}] Scoped to ${units.length}/${allMonthUnits.length} units (${appliedScopes.join(', ')})`);
+        // A requested scope that matches nothing is a filter bug, not an empty portfolio.
+        // Failing loudly beats a green "completed" that priced nothing.
+        if (units.length === 0) {
+          throw new Error(
+            `No units matched the requested scope for ${targetMonth} (${appliedScopes.join(', ')}). ` +
+            `Nothing was priced — check the filters.`
+          );
+        }
       }
       const totalUnits = units.length;
       
@@ -615,10 +691,57 @@ class PricingJobManager {
         console.log(`[PricingJob ${jobId}] Completed batch group ${batchGroupIndex + 1}-${endBatchIndex} (${totalProcessed}/${totalUnits} units processed)`);
       }
       
-      // Bulk update database with all results
-      console.log(`[PricingJob ${jobId}] Updating database with ${allUpdates.length} pricing calculations...`);
+      // Apply adjustment rules so the persisted rule_adjusted_rate reflects what the
+      // rules engine would actually serve. This job previously wrote Modulo rates only,
+      // which meant every unit it processed had its rule rate cleared.
+      let finalUpdates: Array<{
+        id: string;
+        moduloSuggestedRate: number;
+        moduloCalculationDetails: string;
+        ruleAdjustedRate?: number | null;
+        appliedRuleName?: string | null;
+      }> = allUpdates;
+
       if (allUpdates.length > 0) {
-        await storage.bulkUpdateModuloRates(allUpdates);
+        try {
+          const { fetchAndApplyAdjustmentRules } = await import('./services/adjustmentRulesService');
+
+          // Index units by id rather than relying on positional alignment: a failed
+          // batch returns an empty array, which would shift every subsequent index.
+          const unitById = new Map(units.map(u => [u.id, u]));
+          const unitsWithModuloRates = allUpdates.map(update => ({
+            id: update.id,
+            unit: unitById.get(update.id),
+            moduloSuggestedRate: update.moduloSuggestedRate,
+          }));
+
+          const adjustmentResults = await fetchAndApplyAdjustmentRules(unitsWithModuloRates);
+          const resultById = new Map(adjustmentResults.map(r => [r.id, r]));
+
+          finalUpdates = allUpdates.map(update => {
+            const adj = resultById.get(update.id);
+            return {
+              ...update,
+              ruleAdjustedRate: adj ? adj.ruleAdjustedRate : null,
+              appliedRuleName: adj ? adj.appliedRuleName : null,
+            };
+          });
+
+          const rulesAppliedCount = adjustmentResults.filter(r => r.ruleAdjustedRate !== null).length;
+          console.log(`[PricingJob ${jobId}] Applied adjustment rules to ${rulesAppliedCount}/${allUpdates.length} units`);
+        } catch (err) {
+          // Fall back to the Modulo-only payload. Because the bulk writer now preserves
+          // rule columns when they are undefined, existing rule rates survive instead of
+          // being wiped by a failed rules pass.
+          console.error(`[PricingJob ${jobId}] Adjustment rule application failed; preserving existing rule rates`, err);
+          finalUpdates = allUpdates;
+        }
+      }
+
+      // Bulk update database with all results
+      console.log(`[PricingJob ${jobId}] Updating database with ${finalUpdates.length} pricing calculations...`);
+      if (finalUpdates.length > 0) {
+        await storage.bulkUpdateModuloRates(finalUpdates);
       }
       
       // Regenerate rate card
@@ -727,6 +850,26 @@ class PricingJobManager {
     }
   }
   
+  /**
+   * Newest upload month for a client, falling back to the newest month across all
+   * clients. Throws rather than guessing a month when there is no rent roll at all,
+   * so a misconfigured job fails loudly instead of pricing the wrong period.
+   */
+  private async resolveLatestUploadMonth(clientId: string): Promise<string> {
+    const scoped = await db
+      .select({ m: sql<string | null>`MAX(${rentRollData.uploadMonth})` })
+      .from(rentRollData)
+      .where(eq(rentRollData.clientId, clientId));
+    if (scoped[0]?.m) return scoped[0].m;
+
+    const anyClient = await db
+      .select({ m: sql<string | null>`MAX(${rentRollData.uploadMonth})` })
+      .from(rentRollData);
+    if (anyClient[0]?.m) return anyClient[0].m;
+
+    throw new Error('No rent roll data available; cannot determine a month to price.');
+  }
+
   private async processBatch(
     units: RentRollData[], 
     context: PricingContext,

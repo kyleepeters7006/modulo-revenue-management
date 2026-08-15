@@ -1,18 +1,25 @@
-import { db } from "./db";
-import { locations, rentRollData } from "@shared/schema";
-import { and, inArray, isNotNull, eq } from "drizzle-orm";
 import {
   safeExportDate,
   getSpecialRatesPayerName,
 } from './matrixCareFuzzyMatch';
-import { campusMapping, getMatrixCareNameFromKeyStats, getCustomerFacilityId } from "./campusMapping";
+import {
+  resolveMatrixCareFacility,
+  loadFacilityLookup,
+  billingFrequencyFor,
+} from "./services/matrixCareFacility";
+import { getEffectiveRateUnits } from "./services/exportRateService";
 import { stringify } from 'csv-stringify';
 import { promises as fs } from 'fs';
 
+/**
+ * Row shape of the MatrixCare SpecialRoomRateExport.
+ *
+ * Column set and values mirror the reference export produced by MatrixCare itself.
+ * Notably it carries NO resident identifier columns — the file is keyed by facility
+ * and payer, one row per resident-level special rate.
+ */
 interface SpecialRateRecord {
   facilityName: string;
-  residentId: string;
-  residentName: string;
   beginDate: string;
   endDate: string;
   payerName: string;
@@ -29,107 +36,135 @@ interface SpecialRateRecord {
   therLvHoldAmount: number;
   therLvPct: number;
   therLvHoldMonthly: number;
+  /** The reference file ends every line with a trailing empty field. */
+  trailing: string;
 }
 
+/**
+ * Special Room Rate export — locks in the current contracted rate for existing
+ * residents (a rate freeze), so the amount is the in-house rate, not a proposed rate.
+ *
+ * Scoped to the client's newest upload month via the shared export rate service;
+ * previously this read every month of rent roll history for every tenant at once.
+ */
 export async function generateSpecialRatesExport(
+  clientId: string,
   selectedCampuses?: string[],
   exportDate?: string | null
-): Promise<string> {
+): Promise<{ filepath: string; unmappedFacilities: string[] }> {
   // Always produce a valid begin date, never empty
   const beginDate = safeExportDate(exportDate);
-  const endDate   = '12/31/2099'; // far-future sentinel for ongoing special rates
 
-  const allLocations = await db.select().from(locations);
-  const campusesToExport = selectedCampuses && selectedCampuses.length > 0
-    ? allLocations.filter(loc => selectedCampuses.includes(loc.name))
-    : allLocations;
+  // The reference export uses annual periods: begin date through year-end.
+  const beginYear = (() => {
+    const parts = beginDate.split('/');
+    const year = Number(parts[2]);
+    return Number.isFinite(year) ? year : new Date().getFullYear();
+  })();
+  const endDate = `12/31/${beginYear}`;
 
-  const occupiedUnits = await db.select()
-    .from(rentRollData)
-    .where(
-      and(
-        inArray(rentRollData.locationId, campusesToExport.map(loc => loc.id)),
-        eq(rentRollData.occupiedYN, true),
-        isNotNull(rentRollData.residentId),
-      )
-    );
+  const { uploadMonth, units } = await getEffectiveRateUnits(clientId, {
+    campusNames: selectedCampuses,
+  });
+  if (!uploadMonth) {
+    throw new Error('No rent roll data available to export.');
+  }
+
+  // Client-scoped: location names are only unique within a tenant, so an unscoped
+  // name fallback could resolve to another tenant's facility mapping.
+  const { byId: locById, byName: locByName } = await loadFacilityLookup(clientId);
 
   const specialRateRecords: SpecialRateRecord[] = [];
+  const unmappedFacilities = new Set<string>();
+  let skippedNoRate = 0;
 
-  for (const unit of occupiedUnits) {
-    const location = campusesToExport.find(loc => loc.id === unit.locationId);
-    if (!location) continue;
+  for (const unit of units) {
+    // A special rate locks in the rate for a resident currently in place. The MatrixCare
+    // file carries no resident identifier columns, so occupancy alone determines the rows —
+    // requiring a resident id would drop every unit for tenants that don't import one.
+    if (!unit.occupied) continue;
 
-    let matrixCareName: string | undefined;
-    const sl = (unit.serviceLine || '').toUpperCase();
-
-    if (sl === 'HC' || sl === 'HC/MC' || sl === 'SNF') {
-      matrixCareName = location.matrixCareNameHC || getMatrixCareNameFromKeyStats(location.name, 'HC');
-    } else if (sl === 'AL' || sl === 'AL/MC' || sl === 'MC') {
-      matrixCareName = location.matrixCareNameAL || getMatrixCareNameFromKeyStats(location.name, 'AL');
-    } else if (sl === 'SL') {
-      matrixCareName = location.matrixCareNameIL || getMatrixCareNameFromKeyStats(location.name, 'IL');
-    } else if (sl === 'VIL') {
-      matrixCareName = location.matrixCareNameAL
-        || getMatrixCareNameFromKeyStats(location.name, 'AL')
-        || `${location.name} VIL`;
+    // A zero, missing or non-finite in-house rate is not a rate freeze, it's missing data.
+    if (!Number.isFinite(unit.inHouseRate) || unit.inHouseRate <= 0) {
+      skippedNoRate++;
+      continue;
     }
 
-    if (!matrixCareName) continue;
+    const location =
+      (unit.locationId ? locById.get(unit.locationId) : undefined) ?? locByName.get(unit.location);
+    if (!location) continue;
+
+    const facility = resolveMatrixCareFacility(location, unit.serviceLine);
+    if (!facility.mapped) unmappedFacilities.add(location.name);
 
     // Use fuzzy payer mapping so non-standard service-line strings still resolve
     const payerName = getSpecialRatesPayerName(unit.serviceLine || '');
 
-    const isMonthly = ['AL', 'AL/MC', 'MC', 'SL', 'VIL'].includes(sl);
-    const monthly   = isMonthly ? 1 : 0;
-    const proration = isMonthly ? 1 : 0;
+    // Billing frequency drives Monthly and Proration: monthly senior housing bills
+    // Proration 2 / Monthly 1; daily health campus bills Proration 1 / Monthly 0.
+    const isMonthly = billingFrequencyFor(unit.serviceLine) === 'Monthly';
+    const monthly = isMonthly ? 1 : 0;
+    const proration = isMonthly ? 2 : 1;
 
+    const amount = Math.round((unit.inHouseRate || 0) * 100) / 100;
+
+    // Private-pay rows carry bed-hold coverage at the same rate; the percent
+    // columns stay at 0 because the hold is expressed as a flat amount.
     specialRateRecords.push({
-      facilityName:     matrixCareName,
-      residentId:       unit.residentId || `RES-${unit.roomNumber}`,
-      residentName:     unit.residentName || `Resident - Room ${unit.roomNumber}`,
-      beginDate:        beginDate,   // always populated
-      endDate:          endDate,
-      payerName:        payerName,
-      proration:        proration,
-      spclRate:         1,
-      amount:           Math.round((unit.inHouseRate || 0) * 100) / 100,
-      pct:              0,
-      monthly:          monthly,
-      hospHold:         0,
-      hospHoldAmount:   0,
-      hospPct:          100,
-      hospHoldMonthly:  0,
-      therLv:           0,
-      therLvHoldAmount: 0,
-      therLvPct:        100,
-      therLvHoldMonthly: 0,
+      facilityName:      facility.name,
+      beginDate:         beginDate,
+      endDate:           endDate,
+      payerName:         payerName,
+      proration:         proration,
+      spclRate:          1,
+      amount:            amount,
+      pct:               0,
+      monthly:           monthly,
+      hospHold:          1,
+      hospHoldAmount:    amount,
+      hospPct:           0,
+      hospHoldMonthly:   monthly,
+      therLv:            1,
+      therLvHoldAmount:  amount,
+      therLvPct:         0,
+      therLvHoldMonthly: monthly,
+      trailing:          '',
     });
+  }
+
+  if (skippedNoRate > 0) {
+    console.warn(`[specialRatesExport] Skipped ${skippedNoRate} occupied unit(s) with no in-house rate.`);
+  }
+  if (unmappedFacilities.size > 0) {
+    console.warn(
+      `[specialRatesExport] ${unmappedFacilities.size} location(s) have no MatrixCare facility mapping; ` +
+      `exported with derived names: ${Array.from(unmappedFacilities).slice(0, 10).join(', ')}` +
+      (unmappedFacilities.size > 10 ? ', …' : '')
+    );
   }
 
   const csvData = await new Promise<string>((resolve, reject) => {
     stringify(specialRateRecords, {
       header: true,
       columns: [
-        { key: 'facilityName',     header: 'Facility Name' },
-        { key: 'residentId',       header: 'Resident ID' },
-        { key: 'residentName',     header: 'Resident Name' },
-        { key: 'beginDate',        header: 'BeginDate' },
-        { key: 'endDate',          header: 'EndDate' },
-        { key: 'payerName',        header: 'PayerName' },
-        { key: 'proration',        header: 'Proration' },
-        { key: 'spclRate',         header: 'SpclRate' },
-        { key: 'amount',           header: 'Amount' },
-        { key: 'pct',              header: 'Pct' },
-        { key: 'monthly',          header: 'Monthly' },
-        { key: 'hospHold',         header: 'HospHold' },
-        { key: 'hospHoldAmount',   header: 'HospHoldAmount' },
-        { key: 'hospPct',          header: 'HospPct' },
-        { key: 'hospHoldMonthly',  header: 'HospHoldMonthly' },
-        { key: 'therLv',           header: 'TherLv' },
-        { key: 'therLvHoldAmount', header: 'TherLvHoldAmount' },
-        { key: 'therLvPct',        header: 'TherLvPct' },
-        { key: 'therLvHoldMonthly',header: 'TherLvHoldMonthly' },
+        { key: 'facilityName',      header: 'Facility Name' },
+        { key: 'beginDate',         header: 'BeginDate' },
+        { key: 'endDate',           header: 'EndDate' },
+        { key: 'payerName',         header: 'PayerName' },
+        { key: 'proration',         header: 'Proration' },
+        { key: 'spclRate',          header: 'SpclRate' },
+        { key: 'amount',            header: 'Amount' },
+        { key: 'pct',               header: 'Pct' },
+        { key: 'monthly',           header: 'Monthly' },
+        { key: 'hospHold',          header: 'HospHold' },
+        { key: 'hospHoldAmount',    header: 'HospHoldAmount' },
+        { key: 'hospPct',           header: 'HospPct' },
+        { key: 'hospHoldMonthly',   header: 'HospHoldMonthly' },
+        { key: 'therLv',            header: 'TherLv' },
+        { key: 'therLvHoldAmount',  header: 'TherLvHoldAmount' },
+        { key: 'therLvPct',         header: 'TherLvPct' },
+        { key: 'therLvHoldMonthly', header: 'TherLvHoldMonthly' },
+        { key: 'trailing',          header: '' },
       ],
     }, (err, output) => { if (err) reject(err); else resolve(output); });
   });
@@ -137,7 +172,7 @@ export async function generateSpecialRatesExport(
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = `/tmp/SPECIALROOMRATESEXPORT_Trilogy_${timestamp}.CSV`;
   await fs.writeFile(filename, csvData, 'utf8');
-  return filename;
+  return { filepath: filename, unmappedFacilities: Array.from(unmappedFacilities).sort() };
 }
 
 export async function validateSpecialRatesExport(filepath: string): Promise<{
@@ -159,34 +194,31 @@ export async function validateSpecialRatesExport(filepath: string): Promise<{
     const errors: string[] = [];
     const warnings: string[] = [];
     const facilities = new Set<string>();
-    const residents  = new Set<string>();
-    let totalRate = 0, rateCount = 0;
+    let totalRate = 0;
+    let rateCount = 0;
+    let recordCount = 0;
 
-    const requiredHeaders = ['Facility Name', 'Resident ID', 'Amount', 'BeginDate', 'EndDate'];
+    const requiredHeaders = ['Facility Name', 'BeginDate', 'PayerName', 'Amount'];
     for (const h of requiredHeaders) {
-      if (!headers.some(x => x.includes(h))) errors.push(`Missing required column: ${h}`);
+      if (!headers.some(x => x.trim() === h)) errors.push(`Missing required column: ${h}`);
     }
 
-    for (let i = 1; i < lines.length - 1; i++) {
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i] || lines[i].trim() === '') continue;
       const values = lines[i].split(',');
-      if (values.length < headers.length) continue;
+      if (values.length < 17) continue;
+      recordCount++;
 
       const facilityName = values[0];
-      const residentId   = values[1];
-      const amount       = parseFloat(values[8]);
-      const beginDate    = values[3];
-      const endDate      = values[4];
+      const beginDate    = values[1];
+      const amount       = parseFloat(values[6]);
 
       facilities.add(facilityName);
-      residents.add(residentId);
       if (!isNaN(amount)) { totalRate += amount; rateCount++; }
 
       if (!facilityName) errors.push(`Row ${i}: Missing facility name`);
-      if (!residentId)   errors.push(`Row ${i}: Missing resident ID`);
-      if (isNaN(amount) || amount <= 0) warnings.push(`Row ${i}: Invalid amount: ${values[8]}`);
-      if (amount > 20000) warnings.push(`Row ${i}: Unusually high special rate: $${amount}`);
       if (!beginDate || beginDate.trim() === '') errors.push(`Row ${i}: Missing BeginDate`);
-      if (!endDate   || endDate.trim()   === '') errors.push(`Row ${i}: Missing EndDate`);
+      if (isNaN(amount) || amount <= 0) warnings.push(`Row ${i}: Invalid special rate amount: ${values[6]}`);
     }
 
     return {
@@ -194,9 +226,9 @@ export async function validateSpecialRatesExport(filepath: string): Promise<{
       errors,
       warnings,
       summary: {
-        totalRecords:      lines.length - 2,
+        totalRecords:      recordCount,
         facilities:        facilities.size,
-        residentsAffected: residents.size,
+        residentsAffected: recordCount,
         avgSpecialRate:    rateCount > 0 ? totalRate / rateCount : 0,
       },
     };
