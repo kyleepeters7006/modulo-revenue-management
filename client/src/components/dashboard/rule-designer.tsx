@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { usePortalTooltip } from '@/hooks/usePortalTooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -313,7 +315,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(true);
   const [rulesExpanded, setRulesExpanded] = useState(false);
-  const [hoveredBubble, setHoveredBubble] = useState<string | null>(null);
+  // Bubble-map hover tooltip. It is portalled onto document.body and clamped to
+  // the viewport rather than placed inside the dialog — see usePortalTooltip for
+  // why in-dialog placement cannot keep this card fully visible.
+  const {
+    hoveredId: hoveredBubble,
+    pos: bubbleTipPos,
+    scrollRef: bubbleMapBoxRef,
+    tipRef: bubbleTipRef,
+    onAnchorEnter: onBubbleEnter,
+    onAnchorLeave: onBubbleLeave,
+  } = usePortalTooltip({ open: bubbleMapOpen });
   const [strategyAnalysis, setStrategyAnalysis] = useState<{
     portfolioNarrative: string;
     rules: Array<{
@@ -2313,12 +2325,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                     {activeCount > 1 && (
                       <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-gray-500">
                         <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 rounded border border-amber-200 bg-amber-500 shrink-0" />
-                          <span><strong className="text-gray-700 font-semibold">Exclusive</strong> — first in priority order claims overlapping units</span>
+                          {/* Matches the numbered priority badge shown next to each exclusive rule */}
+                          <span className="w-4 h-4 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center text-[9px] font-bold text-amber-700 shrink-0">1</span>
+                          <span><strong className="text-gray-700 font-semibold">Exclusive</strong> — ranked by priority; the highest-ranked rule claims overlapping units</span>
                         </span>
                         <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 rounded border border-teal-200 bg-teal-500 shrink-0" />
-                          <span><strong className="text-gray-700 font-semibold">Stacks</strong> — always applies on top of any other rule</span>
+                          {/* Matches the teal dot shown next to each additive rule */}
+                          <span className="w-4 h-4 rounded-full bg-teal-500 shrink-0" />
+                          <span><strong className="text-gray-700 font-semibold">Additive</strong> — stacks on top of any other rule</span>
                         </span>
                       </div>
                     )}
@@ -2477,7 +2491,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
 
             {/* ── Bubble Map Dialog ── */}
             <Dialog open={bubbleMapOpen} onOpenChange={setBubbleMapOpen}>
-              <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
+              <DialogContent ref={bubbleMapBoxRef} className="max-w-2xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
                 <DialogHeader>
                   <DialogTitle className="text-gray-900 text-base">Rule Coverage — Bubble Map</DialogTitle>
                   <p className="text-xs text-gray-500 mt-1">
@@ -2530,8 +2544,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                           <div
                             key={rule.id}
                             className="relative flex flex-col items-center gap-2"
-                            onMouseEnter={() => setHoveredBubble(rule.id)}
-                            onMouseLeave={() => setHoveredBubble(null)}
+                            onMouseEnter={onBubbleEnter(rule.id)}
+                            onMouseLeave={onBubbleLeave}
                             onClick={() => { setBubbleMapOpen(false); setTimeout(() => setInfoRule(rule), 80); }}
                             style={{ cursor: 'pointer' }}
                             title="Click for AI strategy analysis"
@@ -2608,8 +2622,19 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                             </div>
 
                             {/* Hover tooltip */}
-                            {isHovered && (
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 pointer-events-none" style={{ minWidth: 200 }}>
+                            {isHovered && createPortal(
+                              <div
+                                ref={bubbleTipRef}
+                                className="fixed z-[100] pointer-events-none"
+                                style={{
+                                  minWidth: 200,
+                                  maxWidth: 280,
+                                  top: bubbleTipPos?.top ?? 0,
+                                  left: bubbleTipPos?.left ?? 0,
+                                  // Hidden for the single frame before it is measured.
+                                  opacity: bubbleTipPos ? 1 : 0,
+                                }}
+                              >
                                 <div className="bg-white border border-gray-200 rounded-xl shadow-2xl p-4">
                                   <div className="flex items-start justify-between gap-2 mb-2">
                                     <p className="text-xs font-bold text-gray-900 leading-snug">{rule.name}</p>
@@ -2639,9 +2664,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                     </span>
                                   </div>
                                 </div>
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
-                                     style={{ borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: '7px solid #e5e7eb' }} />
-                              </div>
+                                {/* Arrow sits under the bubble's centre. Omitted when the card
+                                    had to be clamped across the anchor, where it would not
+                                    point at anything meaningful. */}
+                                {bubbleTipPos?.arrowSide && (
+                                  <div
+                                    className="absolute w-0 h-0"
+                                    style={{
+                                      left: bubbleTipPos.arrowLeft,
+                                      transform: 'translateX(-50%)',
+                                      ...(bubbleTipPos.arrowSide === 'bottom'
+                                        ? { top: '100%', borderTop: '7px solid #e5e7eb' }
+                                        : { bottom: '100%', borderBottom: '7px solid #e5e7eb' }),
+                                      borderLeft: '7px solid transparent',
+                                      borderRight: '7px solid transparent',
+                                    }}
+                                  />
+                                )}
+                              </div>,
+                              document.body
                             )}
                           </div>
                         );

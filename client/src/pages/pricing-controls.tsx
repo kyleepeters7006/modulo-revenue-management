@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
+import { usePortalTooltip } from "@/hooks/usePortalTooltip";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
@@ -620,7 +622,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
   const [, setLocation] = useLocation();
   const [selectedRule, setSelectedRule] = useState<any>(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
-  const [hoveredBubbleMap, setHoveredBubbleMap] = useState<string | null>(null);
+  // Coverage-map hover tooltip. It is portalled onto document.body and clamped
+  // to the viewport rather than placed inside the dialog — see usePortalTooltip
+  // for why in-dialog placement cannot keep this card fully visible.
+  const {
+    hoveredId: hoveredBubbleMap,
+    pos: bubbleTipPos,
+    scrollRef: bubbleMapScrollRef,
+    tipRef: bubbleTipRef,
+    onAnchorEnter: onBubbleEnter,
+    onAnchorLeave: onBubbleLeave,
+  } = usePortalTooltip({ open: fullMapOpen });
   const [impactDialogOpen, setImpactDialogOpen] = useState(false);
   const [expandedImpactRow, setExpandedImpactRow] = useState<string | null>(null);
   const ruleRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -2019,7 +2031,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ── Full bubble map dialog ── */}
       <Dialog open={fullMapOpen} onOpenChange={setFullMapOpen}>
-        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
+        <DialogContent ref={bubbleMapScrollRef} className="max-w-3xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
           <DialogHeader>
             <DialogTitle className="text-gray-900 text-base">Rule Coverage — Bubble Map</DialogTitle>
             <p className="text-xs text-gray-500 mt-1">Each circle represents one rule. Circle size is proportional to units affected. Hover for metrics — click any circle to view details.</p>
@@ -2051,8 +2063,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                   return (
                     <div key={rule.id}
                       className="relative flex flex-col items-center gap-2"
-                      onMouseEnter={() => setHoveredBubbleMap(rule.id)}
-                      onMouseLeave={() => setHoveredBubbleMap(null)}
+                      onMouseEnter={onBubbleEnter(rule.id)}
+                      onMouseLeave={onBubbleLeave}
                       onClick={() => { setFullMapOpen(false); setTimeout(() => setSelectedRule(rule), 80); }}
                       style={{ cursor: 'pointer' }}
                       title="Click to view rule details"
@@ -2098,8 +2110,19 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                         )}
                       </div>
 
-                      {isHov && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 pointer-events-none" style={{ minWidth: 200 }}>
+                      {isHov && createPortal(
+                        <div
+                          ref={bubbleTipRef}
+                          className="fixed z-[100] pointer-events-none"
+                          style={{
+                            minWidth: 200,
+                            maxWidth: 280,
+                            top: bubbleTipPos?.top ?? 0,
+                            left: bubbleTipPos?.left ?? 0,
+                            // Hidden for the single frame before it is measured.
+                            opacity: bubbleTipPos ? 1 : 0,
+                          }}
+                        >
                           <div className="bg-white border border-gray-200 rounded-xl shadow-2xl p-4">
                             <p className="text-xs font-bold text-gray-900 leading-snug mb-2">{rule.name}</p>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mb-2">
@@ -2119,9 +2142,25 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                               </span>
                             </div>
                           </div>
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0"
-                            style={{ borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: '7px solid #e5e7eb' }} />
-                        </div>
+                          {/* Arrow sits under the bubble's centre. Omitted when the card
+                              had to be clamped across the anchor, where it would not
+                              point at anything meaningful. */}
+                          {bubbleTipPos?.arrowSide && (
+                            <div
+                              className="absolute w-0 h-0"
+                              style={{
+                                left: bubbleTipPos.arrowLeft,
+                                transform: 'translateX(-50%)',
+                                ...(bubbleTipPos.arrowSide === 'bottom'
+                                  ? { top: '100%', borderTop: '7px solid #e5e7eb' }
+                                  : { bottom: '100%', borderBottom: '7px solid #e5e7eb' }),
+                                borderLeft: '7px solid transparent',
+                                borderRight: '7px solid transparent',
+                              }}
+                            />
+                          )}
+                        </div>,
+                        document.body
                       )}
                     </div>
                   );
