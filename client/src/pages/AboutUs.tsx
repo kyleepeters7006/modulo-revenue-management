@@ -245,13 +245,6 @@ export default function AboutUs() {
                 testid: "button-linkedin-kyle",
               },
               {
-                name: "Michael Kennedy",
-                title: "Director of Revenue Management",
-                bio: "Michael Kennedy is a revenue management professional with over 10 years of experience in pricing, financial analysis, and business optimization. He is Director of Revenue Management at Trilogy Health Services and previously led pricing strategy at Atria Senior Living after completing GE's Financial Management Program. Michael holds a B.S. in Finance from the University of Kentucky.",
-                linkedin: "https://www.linkedin.com/in/michael-kennedy-58a37156/",
-                testid: "button-linkedin-michael",
-              },
-              {
                 name: "Irisel Johnston",
                 title: "Chief Operating Officer",
                 bio: "Irisel Johnston is an operations finance analyst at Trilogy Health Services with experience in financial planning, benefits management, and operational analytics. A Beta Alpha Psi Lifetime Member, she holds a B.S. in Finance with a minor in Economics from the University of Louisville.",
