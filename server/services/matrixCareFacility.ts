@@ -109,9 +109,12 @@ export function resolveMatrixCareFacility(
   }
 
   const locCode = location.name.replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();
+  // Use lookupGroup (never 'VIL') so that unmapped VIL rows get the same fallback
+  // facility identity as AL rows — VIL always bills under the AL facility record,
+  // and using the raw group here would create a spurious "… VIL" facility entry.
   return {
-    name:       name       || `${location.name} ${group}`,
-    customerId: customerId || `14-${locCode}-${group}`,
+    name:       name       || `${location.name} ${lookupGroup}`,
+    customerId: customerId || `14-${locCode}-${lookupGroup}`,
     mapped:     false,
   };
 }
