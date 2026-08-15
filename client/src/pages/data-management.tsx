@@ -1456,6 +1456,8 @@ export default function DataManagement() {
                         
                         const validationStatus = response.headers.get('X-Validation-Status');
                         const validationSummary = response.headers.get('X-Validation-Summary');
+                        const unmappedCount = parseInt(response.headers.get('X-Unmapped-Facility-Count') || '0', 10);
+                        const unmappedFacilities = response.headers.get('X-Unmapped-Facilities') || '';
                         
                         const blob = await response.blob();
                         const url = window.URL.createObjectURL(blob);
@@ -1467,7 +1469,15 @@ export default function DataManagement() {
                         window.URL.revokeObjectURL(url);
                         document.body.removeChild(a);
                         
-                        if (validationStatus === 'valid') {
+                        if (unmappedCount > 0) {
+                          const names = unmappedFacilities.split(';').map((s: string) => s.trim()).filter(Boolean);
+                          toast({
+                            title: `⚠️ ${unmappedCount} Unmapped ${unmappedCount === 1 ? 'Facility' : 'Facilities'} — Street Rates`,
+                            description: `${names.join(', ')} — ${unmappedCount === 1 ? 'this location uses' : 'these locations use'} a derived MatrixCare name/ID that may be rejected on upload. Fix the facility mapping in Locations before uploading.`,
+                            variant: "destructive",
+                            duration: 10000,
+                          });
+                        } else if (validationStatus === 'valid') {
                           toast({
                             title: "Street Rates Export Successful",
                             description: "Corporate Room Charges exported for new admissions. Ready for MatrixCare upload.",
@@ -1506,6 +1516,8 @@ export default function DataManagement() {
                         
                         const validationStatus = response.headers.get('X-Validation-Status');
                         const validationSummary = response.headers.get('X-Validation-Summary');
+                        const unmappedCount = parseInt(response.headers.get('X-Unmapped-Facility-Count') || '0', 10);
+                        const unmappedFacilities = response.headers.get('X-Unmapped-Facilities') || '';
                         
                         const blob = await response.blob();
                         const url = window.URL.createObjectURL(blob);
@@ -1517,7 +1529,15 @@ export default function DataManagement() {
                         window.URL.revokeObjectURL(url);
                         document.body.removeChild(a);
                         
-                        if (validationStatus === 'valid') {
+                        if (unmappedCount > 0) {
+                          const names = unmappedFacilities.split(';').map((s: string) => s.trim()).filter(Boolean);
+                          toast({
+                            title: `⚠️ ${unmappedCount} Unmapped ${unmappedCount === 1 ? 'Facility' : 'Facilities'} — Special Rates`,
+                            description: `${names.join(', ')} — ${unmappedCount === 1 ? 'this location uses' : 'these locations use'} a derived MatrixCare name/ID that may be rejected on upload. Fix the facility mapping in Locations before uploading.`,
+                            variant: "destructive",
+                            duration: 10000,
+                          });
+                        } else if (validationStatus === 'valid') {
                           toast({
                             title: "Special Rates Export Successful",
                             description: "Special rates exported for current residents. Ready for MatrixCare upload.",
@@ -1558,6 +1578,8 @@ export default function DataManagement() {
                           // Check validation status from headers
                           const validationStatus = response.headers.get('X-Validation-Status');
                           const validationSuggestions = response.headers.get('X-Validation-Suggestions');
+                          const unmappedCount = parseInt(response.headers.get('X-Unmapped-Facility-Count') || '0', 10);
+                          const unmappedFacilities = response.headers.get('X-Unmapped-Facilities') || '';
                           
                           const blob = await response.blob();
                           const url = window.URL.createObjectURL(blob);
@@ -1569,8 +1591,16 @@ export default function DataManagement() {
                           window.URL.revokeObjectURL(url);
                           document.body.removeChild(a);
                           
-                          // Show appropriate message based on validation
-                          if (validationStatus === 'invalid') {
+                          // Warn about unmapped facilities first — this is the most actionable issue
+                          if (unmappedCount > 0) {
+                            const names = unmappedFacilities.split(';').map((s: string) => s.trim()).filter(Boolean);
+                            toast({
+                              title: `⚠️ ${unmappedCount} Unmapped ${unmappedCount === 1 ? 'Facility' : 'Facilities'} — MatrixCare Export`,
+                              description: `${names.join(', ')} — ${unmappedCount === 1 ? 'this location uses' : 'these locations use'} a derived MatrixCare name/ID that may be rejected on upload. Fix the facility mapping in Locations before uploading.`,
+                              variant: "destructive",
+                              duration: 10000,
+                            });
+                          } else if (validationStatus === 'invalid') {
                             toast({
                               title: "Export Completed with Issues",
                               description: "The export has validation issues. Please check the 'Validation Report' sheet in the Excel file before uploading to MatrixCare.",
@@ -1612,6 +1642,8 @@ export default function DataManagement() {
                           // Check validation status from headers
                           const validationStatus = response.headers.get('X-Validation-Status');
                           const validationSuggestions = response.headers.get('X-Validation-Suggestions');
+                          const unmappedCount = parseInt(response.headers.get('X-Unmapped-Facility-Count') || '0', 10);
+                          const unmappedFacilities = response.headers.get('X-Unmapped-Facilities') || '';
                           
                           const blob = await response.blob();
                           const url = window.URL.createObjectURL(blob);
@@ -1623,8 +1655,16 @@ export default function DataManagement() {
                           window.URL.revokeObjectURL(url);
                           document.body.removeChild(a);
                           
-                          // Show appropriate message based on validation
-                          if (validationStatus === 'invalid') {
+                          // Warn about unmapped facilities first — this is the most actionable issue
+                          if (unmappedCount > 0) {
+                            const names = unmappedFacilities.split(';').map((s: string) => s.trim()).filter(Boolean);
+                            toast({
+                              title: `⚠️ ${unmappedCount} Unmapped ${unmappedCount === 1 ? 'Facility' : 'Facilities'} — MatrixCare Export`,
+                              description: `${names.join(', ')} — ${unmappedCount === 1 ? 'this location uses' : 'these locations use'} a derived MatrixCare name/ID that may be rejected on upload. Fix the facility mapping in Locations before uploading.`,
+                              variant: "destructive",
+                              duration: 10000,
+                            });
+                          } else if (validationStatus === 'invalid') {
                             toast({
                               title: "Export Completed with Issues",
                               description: "The export has validation issues. Check the validation comments at the end of the CSV file before uploading to MatrixCare.",
