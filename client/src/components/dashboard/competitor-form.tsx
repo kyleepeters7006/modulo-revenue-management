@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Plus, Edit2, MapPin } from "lucide-react";
+import { Trash2, Plus, Edit2, MapPin, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { compareRoomTypes } from "@shared/roomTypes";
@@ -78,6 +78,7 @@ export default function CompetitorForm({
     const [editingId, setEditingId] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [autoEditTriggered, setAutoEditTriggered] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -528,16 +529,60 @@ export default function CompetitorForm({
             {/* Demoted to a section label so it sits under the card title in the hierarchy
                 rather than competing with it at the same size. */}
             <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Current Competitors</h3>
-            {(competitors as any)?.items?.length > 0 && (
-              <span className="whitespace-nowrap text-xs font-medium tabular-nums text-[var(--dashboard-muted)]">
-                {(competitors as any).items.length.toLocaleString()} shown
-              </span>
-            )}
+            {(competitors as any)?.items?.length > 0 && (() => {
+              const total = (competitors as any).items.length;
+              const filtered = searchQuery.trim()
+                ? (competitors as any).items.filter((c: any) => {
+                    const q = searchQuery.trim().toLowerCase();
+                    return (c.name || '').toLowerCase().includes(q) || (c.address || '').toLowerCase().includes(q);
+                  }).length
+                : total;
+              return (
+                <span className="whitespace-nowrap text-xs font-medium tabular-nums text-[var(--dashboard-muted)]">
+                  {searchQuery.trim() && filtered !== total
+                    ? `${filtered.toLocaleString()} of ${total.toLocaleString()} shown`
+                    : `${total.toLocaleString()} shown`}
+                </span>
+              );
+            })()}
           </div>
 
-          {(competitors as any)?.items?.length > 0 ? (
+          {/* Search box */}
+          {(competitors as any)?.items?.length > 0 && (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--dashboard-muted)] pointer-events-none" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name or address…"
+                className="pl-8 pr-8 h-8 text-sm"
+                data-testid="input-competitor-search"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] transition-colors"
+                  aria-label="Clear search"
+                  data-testid="button-competitor-search-clear"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {(competitors as any)?.items?.length > 0 ? (() => {
+            const allItems: any[] = (competitors as any).items;
+            const filteredItems = searchQuery.trim()
+              ? allItems.filter((c: any) => {
+                  const q = searchQuery.trim().toLowerCase();
+                  return (c.name || '').toLowerCase().includes(q) || (c.address || '').toLowerCase().includes(q);
+                })
+              : allItems;
+            return filteredItems.length > 0 ? (
             <div className="grid gap-4">
-              {(competitors as any).items.map((competitor: any) => (
+              {filteredItems.map((competitor: any) => (
                 <Card key={competitor.id} className="bg-[var(--dashboard-bg)] border-[var(--dashboard-border)]">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
@@ -692,7 +737,12 @@ export default function CompetitorForm({
                 </Card>
               ))}
             </div>
-          ) : (
+            ) : (
+              <p className="text-[var(--dashboard-muted)] text-center py-8">
+                No competitors match &ldquo;{searchQuery}&rdquo;.
+              </p>
+            );
+          })() : (
             <p className="text-[var(--dashboard-muted)] text-center py-8">
               No competitors found. Add your first competitor above.
             </p>
