@@ -31,7 +31,7 @@ export default function AboutUs() {
         <div className="text-center mb-14">
           <div className="flex justify-center mb-6">
             <img
-              src="/attached_assets/modulo_glass_v2_1784404625887.png"
+              src="/assets/modulo_glass_v2_1784404625887.png"
               alt="Modulo Revenue Management"
               className="h-44 object-contain"
             />
