@@ -10322,15 +10322,74 @@ ${campusOccLines.join('\n')}
       
       const isSameStoreOnly = sameStore === 'true';
       
-      // Get available months for this client
-      const availableMonths = await db
-        .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
-        .from(rentRollData)
-        .where(eq(rentRollData.clientId, clientId))
-        .orderBy(sql`${rentRollData.uploadMonth} DESC`)
-        .limit(13);
+      // The Total Units dialog this drill-down opens from reads capacity from
+      // room_type_occupancy_history.available_units (the authoritative source
+      // for HC beds and senior-housing units), not rent-roll row counts. Use
+      // the exact same source-selection probe as the dialog — availability at
+      // MAX(year) then MAX(month) — so clicking a growth cell lands on numbers
+      // that tie back to the dialog. Clients whose history has no availability
+      // (e.g. demo) keep the rent-roll fallback, same as the dialog.
+      let useHistoryUnits = false;
+      if (tileType === 'units') {
+        const latestYearRes = await db
+          .select({ year: sql<number>`MAX(${roomTypeOccupancyHistory.year})` })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId));
+        const latestRtoYear = latestYearRes[0]?.year ?? null;
+        if (latestRtoYear !== null) {
+          const latestMonthRes = await db
+            .select({ month: sql<number>`MAX(${roomTypeOccupancyHistory.month})` })
+            .from(roomTypeOccupancyHistory)
+            .where(and(
+              eq(roomTypeOccupancyHistory.clientId, clientId),
+              eq(roomTypeOccupancyHistory.year, latestRtoYear)
+            ));
+          const latestRtoMonth = latestMonthRes[0]?.month ?? null;
+          if (latestRtoMonth !== null) {
+            const rtoAvailRes = await db
+              .select({ total: sql<number>`COALESCE(SUM(${roomTypeOccupancyHistory.availableUnits}), 0)::int` })
+              .from(roomTypeOccupancyHistory)
+              .where(and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                eq(roomTypeOccupancyHistory.year, latestRtoYear),
+                eq(roomTypeOccupancyHistory.month, latestRtoMonth)
+              ));
+            useHistoryUnits = (rtoAvailRes[0]?.total ?? 0) > 0;
+          }
+        }
+      }
       
-      const months = availableMonths.map(m => m.month).sort();
+      // Get available months for this client — from the same source the
+      // values will come from, so period selection matches the dialog.
+      let months: string[] = [];
+      if (useHistoryUnits) {
+        const rtoMonthRows = await db
+          .select({
+            month: sql<string>`DISTINCT (${roomTypeOccupancyHistory.year}::text || '-' || LPAD(${roomTypeOccupancyHistory.month}::text, 2, '0'))`,
+          })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+          .orderBy(sql`1 DESC`)
+          // The dialog's growth stats are computed over a 12-month window
+          // (its month list is LIMIT 12, and t12 compares against index 0 of
+          // that list). Fetch the SAME 12 months here so every period's
+          // baseline month is identical to the dialog's — a 13th month would
+          // shift the t12 baseline one month earlier than the number the
+          // user clicked.
+          .limit(12);
+        months = rtoMonthRows.map(m => m.month).sort();
+        if (!months.length) useHistoryUnits = false;
+      }
+      if (!useHistoryUnits) {
+        const availableMonths = await db
+          .select({ month: sql<string>`DISTINCT ${rentRollData.uploadMonth}` })
+          .from(rentRollData)
+          .where(eq(rentRollData.clientId, clientId))
+          .orderBy(sql`${rentRollData.uploadMonth} DESC`)
+          // 12, not 13 — must match the dialog's window (see note above).
+          .limit(12);
+        months = availableMonths.map(m => m.month).sort();
+      }
       const mostRecentMonth = months[months.length - 1] || '';
       const currentYear = mostRecentMonth ? mostRecentMonth.substring(0, 4) : new Date().getFullYear().toString();
       const ytdStartMonth = `${currentYear}-01`;
@@ -10352,16 +10411,64 @@ ${campusOccLines.join('\n')}
       
       const comparisonMonth = months[comparisonMonthIndex] || months[0] || mostRecentMonth;
       
-      // Get location data with region/division; also build same-store set from locations table
+      // Get location data with region/division
       const locationsMap = new Map<string, { region: string; division: string }>();
-      const drillDownSameStoreNames = new Set<string>();
+      const flaggedSameStoreNames = new Set<string>();
       const locationsList = await db.select().from(locations).where(eq(locations.clientId, clientId));
       for (const loc of locationsList) {
         locationsMap.set(loc.name, { 
           region: loc.region || 'Unknown Region', 
           division: loc.division || 'Unknown Division' 
         });
-        if (loc.sameStore) drillDownSameStoreNames.add(loc.name);
+        if (loc.sameStore) flaggedSameStoreNames.add(loc.name);
+      }
+      
+      // Same-store basis: campuses reporting in BOTH the current period and the
+      // same month a year earlier, derived from the data itself — matching the
+      // dialog. The locations.same_store flag is true for every campus, which
+      // would make "same store" identical to the portfolio. Fall back to the
+      // flag only when there is genuinely no year-ago period to compare
+      // against (a client with under a year of history).
+      let drillDownSameStoreNames = new Set<string>();
+      const yearAgoMonth = /^\d{4}-\d{2}$/.test(mostRecentMonth)
+        ? `${Number(mostRecentMonth.substring(0, 4)) - 1}-${mostRecentMonth.substring(5, 7)}`
+        : '';
+      let hasYearAgoPeriod = false;
+      if (yearAgoMonth) {
+        const namesForMonth = async (month: string): Promise<string[]> => {
+          if (useHistoryUnits) {
+            const rows = await db
+              .select({ name: roomTypeOccupancyHistory.locationName })
+              .from(roomTypeOccupancyHistory)
+              .where(and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                eq(roomTypeOccupancyHistory.year, Number(month.substring(0, 4))),
+                eq(roomTypeOccupancyHistory.month, Number(month.substring(5, 7)))
+              ))
+              .groupBy(roomTypeOccupancyHistory.locationName);
+            return rows.map(r => r.name);
+          }
+          const rows = await db
+            .select({ name: rentRollData.location })
+            .from(rentRollData)
+            .where(and(
+              eq(rentRollData.clientId, clientId),
+              eq(rentRollData.uploadMonth, month)
+            ))
+            .groupBy(rentRollData.location);
+          return rows.map(r => r.name);
+        };
+        const [priorNames, currentNamesArr] = await Promise.all([
+          namesForMonth(yearAgoMonth),
+          namesForMonth(mostRecentMonth),
+        ]);
+        hasYearAgoPeriod = priorNames.length > 0;
+        // Open in both periods — a campus that has since closed is not same-store either.
+        const currentNames = new Set(currentNamesArr);
+        drillDownSameStoreNames = new Set(priorNames.filter(n => currentNames.has(n)));
+      }
+      if (!hasYearAgoPeriod) {
+        drillDownSameStoreNames = flaggedSameStoreNames;
       }
       
       // B-bed exclusion for non-revenue tile types
@@ -10380,8 +10487,12 @@ ${campusOccLines.join('\n')}
       if (serviceLine && serviceLine !== 'all') {
         conditions.push(eq(rentRollData.serviceLine, serviceLine as string));
       }
-      if (isSameStoreOnly && drillDownSameStoreNames.size > 0) {
-        conditions.push(inArray(rentRollData.location, [...drillDownSameStoreNames]));
+      if (isSameStoreOnly) {
+        // An empty comparable-store cohort must return nothing, not silently
+        // widen back to the whole portfolio.
+        conditions.push(drillDownSameStoreNames.size > 0
+          ? inArray(rentRollData.location, [...drillDownSameStoreNames])
+          : sql`FALSE`);
       }
       
       // Build the query based on tile type
@@ -10458,6 +10569,32 @@ ${campusOccLines.join('\n')}
           .from(rentRollData)
           .where(and(...conditions))
           .groupBy(rentRollData.uploadMonth, rentRollData.location);
+      } else if (useHistoryUnits) {
+        // units from occupancy history — capacity comes from available_units,
+        // matching the Total Units dialog. available_units is already a
+        // capacity figure per room type, so there are no B-bed rows to exclude.
+        const rtoMonthExpr = sql<string>`(${roomTypeOccupancyHistory.year}::text || '-' || LPAD(${roomTypeOccupancyHistory.month}::text, 2, '0'))`;
+        const rtoConditions: SQL[] = [
+          eq(roomTypeOccupancyHistory.clientId, clientId),
+          inArray(rtoMonthExpr, [mostRecentMonth, comparisonMonth]),
+        ];
+        if (serviceLine && serviceLine !== 'all') {
+          rtoConditions.push(eq(roomTypeOccupancyHistory.serviceLine, serviceLine as string));
+        }
+        if (isSameStoreOnly) {
+          rtoConditions.push(drillDownSameStoreNames.size > 0
+            ? inArray(roomTypeOccupancyHistory.locationName, [...drillDownSameStoreNames])
+            : sql`FALSE`);
+        }
+        query = db
+          .select({
+            month: rtoMonthExpr,
+            location: roomTypeOccupancyHistory.locationName,
+            value: sql<number>`COALESCE(SUM(${roomTypeOccupancyHistory.availableUnits}), 0)::int`,
+          })
+          .from(roomTypeOccupancyHistory)
+          .where(and(...rtoConditions))
+          .groupBy(rtoMonthExpr, roomTypeOccupancyHistory.locationName);
       } else {
         // units
         query = db
