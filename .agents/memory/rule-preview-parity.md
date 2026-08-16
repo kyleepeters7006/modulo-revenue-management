@@ -5,6 +5,19 @@ description: Any rule-impact preview or drill-down must match the surface that r
 A rule preview is only useful if it predicts what the user sees after saving. Five independent
 things have each broken that contract; check all of them when touching preview code.
 
+## Never hand-roll an impact estimate beside the shared engine
+
+A rule preview that filters units itself will drift from the engine. The Rule Designer preview
+once applied only `action.filters` and never looked at `trigger` at all — so editing a trigger
+threshold could not move "Units affected", and the preview disagreed with the saved rule.
+
+**Why:** two code paths computing "which units does this rule touch" always diverge; the
+trigger-free path silently reported the gross population as if it were the result.
+
+**How to apply:** route every preview through the shared qualified-impact service rather than
+re-deriving the unit set. Treat a preview number that cannot respond to a trigger edit as proof
+the trigger is not being evaluated.
+
 ## 1. Handle both trigger shapes
 Triggers are stored either as a `conditions` array with `conditionOperator` (AND/OR) or as a
 legacy single `condition` object. Preview code that re-implements evaluation must handle both.

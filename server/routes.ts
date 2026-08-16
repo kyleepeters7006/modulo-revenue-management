@@ -14360,15 +14360,32 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       const startDate = new Date();
       startDate.setMonth(startDate.getMonth() - months);
       
+      // Resolve the location identifier once.  The dropdown sends locations.id
+      // (a UUID), but rent_roll_data and targets_and_trends are keyed by the
+      // location *name*.  Look up the name here so every downstream query uses
+      // the same canonical form.
+      let selectedLocationName: string | null = null;
+      if (location !== "all") {
+        const locRow = await db
+          .select({ name: locations.name })
+          .from(locations)
+          .where(eq(locations.id, location as string))
+          .limit(1);
+        selectedLocationName = locRow[0]?.name ?? null;
+      }
+      // If the ID resolved to a name, use it; otherwise fall back to the raw
+      // value (handles the edge case where callers pass a name directly).
+      const locationKey = location === "all" ? "all" : (selectedLocationName ?? location as string);
+
       // Get rent roll data
-      const rentRollData = location === "all" 
+      const rentRollData = locationKey === "all"
         ? await storage.getRentRollData(clientId)
-        : await storage.getRentRollDataByLocation(location as string, clientId);
+        : await storage.getRentRollDataByLocation(locationKey, clientId);
       
       // Get targets and trends data
-      const targetsData = location === "all"
+      const targetsData = locationKey === "all"
         ? await storage.getTargetsAndTrends()
-        : await storage.getTargetsAndTrendsByCampus(location as string);
+        : await storage.getTargetsAndTrendsByCampus(locationKey);
       
       // Calculate RevPOR data
       const revporData = [];
@@ -14447,18 +14464,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       // occupancy collapse.
       let clientHasAnyRTO = false;
 
-      // The Analysis location filter submits locations.id, but a small share of RTO
-      // rows have a null location_id, so resolve the id to its canonical name and
-      // accept a match on either.
-      let selectedLocationName: string | null = null;
-      if (location !== "all") {
-        const locRow = await db
-          .select({ name: locations.name })
-          .from(locations)
-          .where(eq(locations.id, location as string))
-          .limit(1);
-        selectedLocationName = locRow[0]?.name ?? null;
-      }
+      // selectedLocationName was already resolved from the location ID above.
+      // Accept a match on either the stored ID or the canonical name.
       const matchesLocation = (row: { locationId: string | null; locationName: string | null }) =>
         location === "all" ||
         row.locationId === location ||
